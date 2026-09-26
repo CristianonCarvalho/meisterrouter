@@ -32,16 +32,26 @@ O Jev retornará em JSON:
 - `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
 
 ### Passo 2: Execução e Delegação Obrigatória
-- **SMALL / MEDIUM:** Implementar via subagente de baixo custo (**GPT-6 Luna**, **Gemini 3.8 Flash** ou **Haiku 4.5**).
-- **HIGH:** Implementar via **Gemini 3.8 Flash** ou **Sonnet 5**.
-- **Paralelização:** Subtarefas independentes devem ser despachadas em terminais paralelos.
+Como orquestrador, invoque o implementador recomendado via CLI do MeisterRouter:
+```bash
+# 1. Execução direta pelo worker recomendado:
+meister worker --model luna --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
 
-> ⚠️ **REGRA CRÍTICA: O ORQUESTRADOR NUNCA DEVE IMPLEMENTAR DIRETAMENTE!**
+# 2. SE o modelo recomendado falhar ou estiver inativo, ESCALE IMEDIATAMENTE para o próximo:
+meister worker --model gemini_flash --task "<tarefa>" [--files "<arquivos>"]
+# ou
+meister worker --model haiku --task "<tarefa>" [--files "<arquivos>"]
+
+# 3. Ou delegar o ciclo completo ao orquestrador autônomo:
+meister orchestrate --task "<tarefa>"
+```
+
+> ⚠️ **REGRA CRÍTICA: ZERO IMPLEMENTAÇÃO DIRETA PELO ORQUESTRADOR!**
 > Se o modelo recomendado (ex: **Luna**) não estiver ativo, acessível ou falhar:
-> 1. **NÃO assuma a implementação como orquestrador.**
+> 1. **NÃO assuma a implementação como orquestrador (Sonnet 5).**
 > 2. **Repasse IMEDIATAMENTE para o próximo da cadeia:** delegue para **Gemini 3.8 Flash** (`gemini_flash`) ou **Claude 4.5 Haiku** (`haiku`).
 > 3. Se o Gemini falhar, delegue para o Haiku; se o Haiku falhar, escale para Sonnet.
-> 4. O orquestrador só escreve código diretamente se TODOS os workers estiverem comprovadamente inacessíveis.
+> 4. O orquestrador só escreve código diretamente se TODOS os workers da cadeia estiverem comprovadamente inacessíveis.
 
 ### Passo 3: Verificação Determinística
 Rodar compilação, suíte de testes e linter:
