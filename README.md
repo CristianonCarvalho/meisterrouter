@@ -14,31 +14,26 @@ Ele combina o poder de decisão probabilística do **TypeSafe Jev Decisions API*
 
 ## 🚀 Instalação Rápida
 
-Escolha a forma que melhor se adapta ao seu fluxo de trabalho:
+> [!NOTE]
+> Como este repositório é **privado**, o comando `curl` público sem autenticação retorna `404 Not Found`. Utilize o comando oficial autenticado via **GitHub CLI (`gh`)** abaixo:
 
-### Opção 1: Script Automático (1 comando)
-
-**Para Repositório Privado (usando GitHub CLI `gh`):**
+### ⚡ 1. Instalação em 1 Comando (GitHub CLI — Recomendado)
+Se você possui a [GitHub CLI](https://cli.github.com/) instalada e logada (`gh auth status`):
 ```bash
 gh api -H "Accept: application/vnd.github.raw" repos/CristianonCarvalho/meisterrouter/contents/bin/install.sh | bash
 ```
 
-> *(Se o repositório for tornado público ou se tiver token de acesso no curl:)*
-```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
-```
-
-> *(Ou dentro de um clone local do repositório:)*
-```bash
-./bin/install.sh
-```
-*O script detecta automaticamente suas credenciais do GitHub (`gh` ou SSH), cria o ambiente virtual em `~/.local/share/meisterrouter`, configura o comando global `meister` em `~/.local/bin/meister` e vincula o plugin ao Herdr.*
+> **O que este script faz automaticamente:**
+> 1. Clona/atualiza o repositório em `~/.local/share/meisterrouter` usando suas credenciais do GitHub.
+> 2. Cria o ambiente virtual Python (`.venv`) e instala as dependências em modo editável.
+> 3. Cria o executável global `meister` em `~/.local/bin/meister`.
+> 4. Se o [Herdr](https://herdr.dev) estiver instalado, vincula o plugin nativamente (`prefix+m` e `prefix+M`).
 
 ---
 
-### Opção 2: Clone com GitHub CLI ou SSH
+### 📦 2. Instalação via Clone Manual (Git / SSH)
 ```bash
-# Via GitHub CLI (recomendado para repositórios privados):
+# Via GitHub CLI:
 gh repo clone CristianonCarvalho/meisterrouter
 cd meisterrouter
 ./bin/install.sh
@@ -51,10 +46,18 @@ cd meisterrouter
 
 ---
 
-### Opção 3: Ecossistema Node.js / NPM
-Se preferir utilizar através do Node.js:
+### 🌐 3. Caso o Repositório Seja Público (ou com curl)
+Se a visibilidade do repositório for pública (ou após `gh repo edit CristianonCarvalho/meisterrouter --visibility public`):
 ```bash
-# Instalação global a partir do repositório privado:
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
+```
+
+---
+
+### 🟢 4. Via Node.js / NPM
+Se preferir utilizar através do wrapper Node.js:
+```bash
+# Instalação global a partir do repositório privado via SSH:
 npm install -g git+ssh://git@github.com/CristianonCarvalho/meisterrouter.git
 
 # Ou diretamente no diretório clonado:
@@ -64,7 +67,7 @@ npm install -g .
 
 ---
 
-### Opção 4: Como Plugin Oficial do Herdr
+### 🔌 5. Como Plugin Oficial do Herdr
 O MeisterRouter possui integração nativa de primeira classe com o multiplexador de agentes **Herdr**:
 ```bash
 # Vincular repositório local ao Herdr:
@@ -79,9 +82,9 @@ herdr plugin link ~/.local/share/meisterrouter
 
 ---
 
-### Opção 5: Instalação Manual com Python (Pip / Venv)
+### 🐍 6. Instalação Manual com Python (Pip / Venv)
 ```bash
-git clone https://github.com/CristianonCarvalho/meisterrouter.git
+git clone git@github.com:CristianonCarvalho/meisterrouter.git
 cd meisterrouter
 python3 -m venv .venv
 source .venv/bin/activate
