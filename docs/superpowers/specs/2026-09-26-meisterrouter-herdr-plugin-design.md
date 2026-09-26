@@ -243,3 +243,89 @@ flowchart TD
 * O portão detecta automaticamente a suíte de testes do repositório (`pytest`, `npm test`, `cargo test`, `vitest`).
 * O resultado é submetido ao `meister control` (TypeSafe Jev Decisions).
 * Aprovado o commit, o MeisterRouter exibe um aviso nativo no Herdr usando a API `notification.show(message="Tarefa implementada e verificada com sucesso!")`.
+
+---
+
+## 6. Interface do Usuário no Herdr (Ações, Atalhos e TUI Dashboard)
+
+Nesta seção definimos a experiência direta do desenvolvedor dentro do Herdr.
+
+### 6.1 Ações do Menu e Atalhos de Teclado
+As ações declaradas no `herdr-plugin.toml` aparecem no menu de contexto do Herdr e possuem atalhos rápidos:
+
+1. **`prefix+m` → `auto-orchestrate`:**
+   * Inicia o fluxo autônomo: lê o pane atual, decide o worker no Jev, divide o terminal com `pane.split` e executa a tarefa até a verificação determinística.
+2. **`prefix+M` → `dashboard`:**
+   * Abre o pane overlay de telemetria e custos sobre a tela atual. Ao pressionar `q` ou `Esc`, fecha o overlay e restaura o foco anterior.
+3. **Ações no Menu de Contexto (Botão Direito no Herdr):**
+   * *MeisterRouter: Classificar Tarefa no Pane Ativo*
+   * *MeisterRouter: Executar Portão Determinístico*
+
+### 6.2 Dashboard TUI Nativo no Terminal (`meister/herdr/tui.py`)
+Quando o desenvolvedor abre o painel overlay (`placement = "overlay"`), ele vê uma interface rica no terminal:
+
+```
+┌──────────────────────── MeisterRouter Live Telemetry ────────────────────────┐
+│ Workspace: meisterrouter                      Status: ORCHESTRATING (Luna)   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ATIVIDADE ATUAL                                                              │
+│ • Arquiteto: Claude Code (Pane 1) -> Planejamento concluído                  │
+│ • Worker: GPT-6 Luna (Pane 2) -> Implementando teste unitário de auth        │
+│ • Decisão Jev: Nível MEDIUM ($0.077/M tokens)                                │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ MÉTRICAS ECONÔMICAS DA SESSÃO                                                │
+│ • Tokens Consumidos: 42,500 tokens                                           │
+│ • Custo Efetivo MeisterRouter: $0.0033                                       │
+│ • Custo Estimado Tradicional (Sonnet Puro): $0.1275                          │
+│ • Economia Gerada: 97.4% 🟢                                                  │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ ÚLTIMOS EVENTOS                                                              │
+│ [14:48:10] Task Classified: MEDIUM -> Selected: gpt-6-luna                   │
+│ [14:48:12] Herdr Split: Pane 2 criado com sucesso                            │
+│ [14:48:50] Worker completed task -> Running Deterministic Gate               │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [O] Abrir Dashboard Web completo (http://localhost:5050)   [Q] Fechar Overlay│
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.3 Integração com Notificações do Herdr
+Em vez de poluir o terminal ativo com logs secundários, o MeisterRouter emite avisos discretos através da API `notification.show`:
+* Notificação de sucesso: *"MeisterRouter: Portão determinístico passou 100%. Commit realizado."*
+* Notificação de contingência: *"MeisterRouter: Cota atingida no Luna. Escalonando para Gemini 3.8 Flash automaticamente."*
+
+---
+
+## 7. Estratégia de Testes e Validação
+
+Para assegurar confiabilidade estrita sem depender do servidor Herdr real durante a suíte de CI/CD:
+
+### 7.1 Mock do Servidor Herdr (`MockHerdrServer`)
+* Implementado em `tests/mocks/mock_herdr_server.py`.
+* Cria um servidor UNIX Domain Socket temporário em pytest fixtures.
+* Responde às chamadas JSON-RPC (`pane.split`, `pane.read`, `events.subscribe`, `agent.prompt`).
+* Simula emissão de eventos assíncronos (`pane.agent_status_changed`, `working` -> `done` e erro de quota).
+
+### 7.2 Casos de Testes Críticos
+1. **`test_herdr_client_connect_and_split`:** Testa conexão ao socket e criação de splits.
+2. **`test_event_bridge_orchestration_loop`:** Simula fluxo completo (Arquiteto planeja -> Jev classifica -> Worker executa -> Portão aprova).
+3. **`test_failover_on_quota_error`:** Injeta erro simulado de rate limit e valida se o supervisor mata o pane e escala para o Gemini 3.8 Flash.
+4. **`test_deterministic_gate_failure`:** Simula falha em teste unitário e verifica se o Jev aciona `RETRY` em vez de comitar.
+
+---
+
+## 8. Plano de Implementação e Fases
+
+### Fase 1: Fundação do Plugin e Cliente de Socket
+1. Criar `herdr-plugin.toml` na raiz do repositório.
+2. Implementar `meister/herdr/client.py` com suporte assíncrono a JSON-RPC sobre UNIX Domain Sockets.
+3. Testes unitários com mock de socket.
+
+### Fase 2: Event Bridge, Orquestração e Failover
+1. Implementar `meister/herdr/bridge.py` integrando os eventos do Herdr com `meister.jev`.
+2. Implementar `meister/herdr/workers.py` para despachar o worker nativo ou agentes CLI.
+3. Implementar a lógica de hot-swap e escalonamento de modelos por cota.
+
+### Fase 3: Dashboard TUI e Ações do Herdr
+1. Implementar `meister/herdr/tui.py` para renderização do painel no pane overlay do Herdr.
+2. Configurar os subcomandos na CLI do MeisterRouter (`meister daemon`, `meister herdr-action`, `meister dashboard --tui`).
+3. Validar a instalação e link no Herdr via `herdr plugin link .`.
