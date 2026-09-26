@@ -1,0 +1,27 @@
+{
+  "name": "meisterrouter",
+  "version": "1.0.0",
+  "description": "Multi-Model Autonomous Orchestration Framework and Herdr Plugin",
+  "main": "bin/cli.js",
+  "bin": {
+    "meisterrouter": "bin/cli.js",
+    "meister": "bin/cli.js"
+  },
+  "scripts": {
+    "start": "node bin/cli.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CristianonCarvalho/meisterrouter.git"
+  },
+  "keywords": [
+    "herdr",
+    "herdr-plugin",
+    "ai",
+    "orchestrator",
+    "claude-code",
+    "openrouter"
+  ],
+  "author": "Cristiano Carvalho",
+  "license": "MIT"
+}
