@@ -261,9 +261,29 @@ def test():
 
 @main.command("worker")
 @click.option("--model", "-m", default="luna", help="Nome do modelo ou tier do worker")
-def worker(model):
+@click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
+@click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
+@click.option("--cwd", default=None, help="Diretório de trabalho")
+def worker(model, task, files, cwd):
     """Inicia worker nativo do MeisterRouter."""
-    click.echo(f"MeisterRouter worker starting with tier/model: {model}")
+    from meister.worker import execute_worker_task, run_worker_interactive_loop
+
+    target_files = [f.strip() for f in files.split(",")] if files else None
+
+    if task:
+        click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+        try:
+            res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd)
+            status = res.get("status", "done")
+            click.echo(f"Worker task finished. Status: {status}")
+            if res.get("modified_files"):
+                click.echo(f"Modified files: {res['modified_files']}")
+        except Exception as e:
+            click.echo(f"Worker failed: {e}", err=True)
+            sys.exit(1)
+    else:
+        click.echo(f"MeisterRouter worker starting with tier/model: {model}")
+        run_worker_interactive_loop(model=model, cwd=cwd)
 
 
 @main.command("daemon")

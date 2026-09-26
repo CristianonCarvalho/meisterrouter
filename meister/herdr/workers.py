@@ -105,6 +105,11 @@ class WorkerSpawner:
         if harness == "native":
             model_arg = tier_obj.name or tier_obj.model
             cmd = ["meister", "worker", "--model", model_arg]
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.extend(["--task", str(task_context["description"])])
+                if "target_files" in task_context and task_context["target_files"]:
+                    files_str = ",".join(str(f) for f in task_context["target_files"])
+                    cmd.extend(["--files", files_str])
         elif harness in ("claude", "codex"):
             cmd = [harness]
             if tier_obj.model:
