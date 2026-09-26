@@ -391,30 +391,36 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
 @click.argument("action_id")
 @click.option("--workspace-id", default=None, help="ID do workspace no Herdr")
 @click.option("--pane-id", default=None, help="ID do pane ativo no Herdr")
+@click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
 @click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-def herdr_action(action_id, workspace_id, pane_id, socket_path, config_path):
+def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_path):
     """Executa ações registradas pelo plugin Herdr."""
     norm_id = action_id.lower().strip()
 
     if norm_id in ["classify", "classify-task"]:
         context = ""
-        if pane_id:
-            client = get_herdr_client(socket_path=socket_path)
-            if client is not None:
-                try:
-                    async def _read():
-                        await client.connect()
-                        try:
-                            return await client.read_pane(pane_id)
-                        finally:
-                            await client.close()
-                    context = asyncio.run(_read())
-                except Exception:
-                    pass
+        client = get_herdr_client(socket_path=socket_path)
+        if client is not None:
+            try:
+                async def _read():
+                    await client.connect()
+                    try:
+                        p_id = pane_id
+                        if not p_id:
+                            cur = await client.get_current_pane()
+                            p_id = cur.get("pane_id")
+                        if p_id:
+                            return await client.read_pane(p_id)
+                        return ""
+                    finally:
+                        await client.close()
+                context = asyncio.run(_read())
+            except (Exception, BaseException):
+                pass
 
         if not context:
-            context = f"Task in workspace {workspace_id or 'default'}"
+            context = task or f"Task in workspace {workspace_id or 'default'}"
 
         result = classify_task(context=context)
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
@@ -433,11 +439,13 @@ def herdr_action(action_id, workspace_id, pane_id, socket_path, config_path):
         cfg = load_config(config_path)
         client = get_herdr_client(socket_path=socket_path)
         bridge = HerdrEventBridge(config=cfg, client=client)
-        ws = workspace_id or "default"
-        pane = pane_id or "architect"
 
         async def _run():
-            return await bridge.run_orchestration_cycle(workspace_id=ws, architect_pane_id=pane)
+            return await bridge.run_orchestration_cycle(
+                workspace_id=workspace_id,
+                architect_pane_id=pane_id,
+                task=task,
+            )
 
         try:
             success = asyncio.run(_run())
@@ -461,11 +469,12 @@ def herdr_action(action_id, workspace_id, pane_id, socket_path, config_path):
 
 
 @main.command("orchestrate")
-@click.option("--workspace-id", default="default", help="ID do workspace no Herdr")
-@click.option("--architect-pane-id", default="architect", help="ID do pane do arquiteto")
+@click.option("--workspace-id", default=None, help="ID do workspace no Herdr (auto-detectado se omitido)")
+@click.option("--architect-pane-id", default=None, help="ID do pane do arquiteto (auto-detectado se omitido)")
+@click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
 @click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-def orchestrate(workspace_id, architect_pane_id, socket_path, config_path):
+def orchestrate(workspace_id, architect_pane_id, task, socket_path, config_path):
     """Inicia o ciclo de orquestração autônoma multi-agente."""
     cfg = load_config(config_path)
     client = get_herdr_client(socket_path=socket_path)
@@ -475,6 +484,7 @@ def orchestrate(workspace_id, architect_pane_id, socket_path, config_path):
         return await bridge.run_orchestration_cycle(
             workspace_id=workspace_id,
             architect_pane_id=architect_pane_id,
+            task=task,
         )
 
     try:

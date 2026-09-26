@@ -47,6 +47,8 @@ class MockHerdrServer:
                 elif method == "pane.split":
                     self.pane_counter += 1
                     result = f"w1:p{self.pane_counter}"
+                elif method == "pane.current":
+                    result = {"pane": {"pane_id": "w1:p1", "workspace_id": "w1"}}
                 elif method == "pane.read":
                     result = "mock terminal output\n[workspace active]"
                 elif method == "agent.prompt":

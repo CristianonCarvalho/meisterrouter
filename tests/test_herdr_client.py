@@ -118,6 +118,8 @@ async def test_client_connection_error(tmp_path):
 
 def test_client_missing_socket_path(monkeypatch):
     monkeypatch.delenv("HERDR_SOCKET_PATH", raising=False)
+    monkeypatch.delenv("HERDR_SOCKET", raising=False)
+    monkeypatch.setattr("os.path.exists", lambda p: False)
     with pytest.raises(ValueError, match="HERDR_SOCKET_PATH"):
         HerdrSocketClient()
 
@@ -167,4 +169,21 @@ async def test_client_sync_event_callback(tmp_path):
     finally:
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_get_current_pane(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            current = await client.get_current_pane()
+            assert isinstance(current, dict)
+            assert current.get("pane_id") == "w1:p1"
+            assert current.get("workspace_id") == "w1"
+    finally:
+        server.close()
+        await server.wait_closed()
+
 

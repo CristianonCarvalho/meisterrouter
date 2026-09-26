@@ -281,3 +281,54 @@ workers:
     # Did not escalate to second tier because it was not a quota error
     assert mock_client.split_pane.call_count == 1
 
+
+@pytest.mark.asyncio
+async def test_bridge_run_orchestration_cycle_with_direct_task():
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p2"
+    mock_client.prompt_agent.return_value = {"status": "done"}
+    mock_client.read_pane.return_value = "Success output"
+    mock_client.show_notification = AsyncMock()
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+    mock_gate.get_diff_summary.return_value = "1 file changed"
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+
+    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p1",
+        task="1. Implement login endpoint",
+    )
+    assert success is True
+    # Should not read architect pane when task is directly provided
+    assert not mock_client.read_pane.called or mock_client.read_pane.call_args[0][0] != "w1:p1"
+
+
+@pytest.mark.asyncio
+async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.get_current_pane.return_value = {"pane_id": "auto_pane", "workspace_id": "auto_ws"}
+    mock_client.read_pane.return_value = "1. Auto detected task"
+    mock_client.split_pane.return_value = "auto_ws:p3"
+    mock_client.prompt_agent.return_value = {"status": "done"}
+    mock_client.show_notification = AsyncMock()
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+    mock_gate.get_diff_summary.return_value = "1 file changed"
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+
+    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    success = await bridge.run_orchestration_cycle(
+        workspace_id=None,
+        architect_pane_id=None,
+    )
+    assert success is True
+    mock_client.get_current_pane.assert_called_once()
+    assert any(c[0][0] == "auto_pane" for c in mock_client.read_pane.call_args_list)
+
+

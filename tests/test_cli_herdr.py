@@ -100,7 +100,8 @@ def test_cli_herdr_action_classify():
         "recommended_model": "luna",
         "reasoning": "Simple task",
     }
-    with patch("meister.cli.classify_task", return_value=mock_classification) as mock_cls:
+    with patch("meister.cli.get_herdr_client", return_value=None), \
+         patch("meister.cli.classify_task", return_value=mock_classification) as mock_cls:
         result = runner.invoke(main, ["herdr-action", "classify", "--workspace-id", "ws-1"])
         assert result.exit_code == 0
         mock_cls.assert_called_once()
@@ -161,7 +162,8 @@ def test_cli_herdr_action_orchestrate_success():
         assert "Orchestration cycle completed successfully." in result.output
         mock_bridge.run_orchestration_cycle.assert_called_once_with(
             workspace_id="ws-1",
-            architect_pane_id="architect",
+            architect_pane_id=None,
+            task=None,
         )
 
 
@@ -202,6 +204,7 @@ def test_cli_orchestrate_command_success():
         mock_bridge.run_orchestration_cycle.assert_called_once_with(
             workspace_id="ws-main",
             architect_pane_id="pane-arch",
+            task=None,
         )
 
 

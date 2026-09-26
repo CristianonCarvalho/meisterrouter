@@ -27,7 +27,17 @@ class HerdrSocketClient:
     """Async JSON-RPC client communicating with Herdr UNIX domain socket."""
 
     def __init__(self, socket_path: Optional[str] = None):
-        self.socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH")
+        self.socket_path = socket_path or os.environ.get("HERDR_SOCKET_PATH") or os.environ.get("HERDR_SOCKET")
+        if not self.socket_path:
+            candidates = [
+                os.path.expanduser("~/.config/herdr/herdr.sock"),
+                os.path.expanduser("~/.herdr/herdr.sock"),
+                "/tmp/herdr.sock",
+            ]
+            for c in candidates:
+                if os.path.exists(c):
+                    self.socket_path = c
+                    break
         if not self.socket_path:
             raise ValueError(
                 "HERDR_SOCKET_PATH environment variable not set and socket_path not provided."
@@ -78,10 +88,10 @@ class HerdrSocketClient:
             self._writer = None
             self._reader = None
 
-        # Fail any remaining pending futures
+        # Cancel any remaining pending futures
         for req_id, fut in list(self._pending_requests.items()):
             if not fut.done():
-                fut.set_exception(HerdrConnectionError("Connection closed while request was pending"))
+                fut.cancel()
         self._pending_requests.clear()
         self._subscribed = False
 
@@ -115,6 +125,11 @@ class HerdrSocketClient:
                     fut = self._pending_requests.pop(req_id)
                     if not fut.done():
                         fut.set_result(payload)
+                elif payload.get("error") and self._pending_requests:
+                    # Servidor retornou erro sem ecoar o ID (ex: id="" ou null)
+                    _, fut = self._pending_requests.popitem()
+                    if not fut.done():
+                        fut.set_result(payload)
                 else:
                     # Notification or Event
                     event_data = payload.get("params", payload)
@@ -130,10 +145,10 @@ class HerdrSocketClient:
         except Exception as e:
             logger.debug("HerdrSocketClient listener loop error: %s", e)
         finally:
-            # Mark all pending requests as disconnected
-            for fut in self._pending_requests.values():
+            # Mark all pending requests as disconnected/cancelled
+            for fut in list(self._pending_requests.values()):
                 if not fut.done():
-                    fut.set_exception(HerdrConnectionError("Connection to Herdr socket terminated"))
+                    fut.cancel()
             self._pending_requests.clear()
 
     async def _call(
@@ -175,6 +190,8 @@ class HerdrSocketClient:
             response = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             raise TimeoutError(f"Timed out waiting for response to method '{method}' (id: {req_id})")
+        except asyncio.CancelledError as e:
+            raise HerdrConnectionError("Connection closed while waiting for response") from e
         finally:
             self._pending_requests.pop(req_id, None)
 
@@ -195,29 +212,69 @@ class HerdrSocketClient:
         direction: str = "right",
         command: Optional[list[str]] = None,
         split_ratio: float = 0.5,
+        cwd: Optional[str] = None,
     ) -> str:
         """Split a pane in Herdr. Returns the new pane_id."""
         params: dict[str, Any] = {
             "direction": direction,
+            "ratio": split_ratio,
             "split_ratio": split_ratio,
         }
+        if cwd:
+            params["cwd"] = cwd
         if command is not None:
             params["command"] = command
 
         result = await self._call("pane.split", params)
-        if isinstance(result, dict) and "pane_id" in result:
-            return str(result["pane_id"])
-        return str(result)
+        pane_id = ""
+        if isinstance(result, dict):
+            if "pane" in result and isinstance(result["pane"], dict):
+                pane_id = str(result["pane"].get("pane_id", ""))
+            elif "pane_id" in result:
+                pane_id = str(result["pane_id"])
+        else:
+            pane_id = str(result) if result else ""
 
-    async def read_pane(self, pane_id: str, lines: int = 100) -> str:
-        """Read recent terminal output lines from a pane."""
-        params = {
+        if command and pane_id:
+            cmd_str = " ".join(command) if isinstance(command, list) else str(command)
+            try:
+                await self.send_text(pane_id, f"{cmd_str}\n")
+            except Exception as e:
+                logger.debug("Could not send command to new pane %s: %s", pane_id, e)
+
+        return pane_id
+
+    async def get_current_pane(self) -> dict[str, Any]:
+        """Get information about the currently focused pane and workspace in Herdr.
+
+        Returns a dictionary containing 'pane_id', 'workspace_id', 'cwd', etc.
+        """
+        result = await self._call("pane.current", {})
+        if isinstance(result, dict):
+            if "pane" in result and isinstance(result["pane"], dict):
+                return result["pane"]
+            return result
+        return {}
+
+    async def read_pane(
+        self,
+        pane_id: str,
+        lines: int = 100,
+        source: str = "recent_unwrapped",
+    ) -> str:
+        """Read recent terminal output lines from a pane using recent_unwrapped source."""
+        params: dict[str, Any] = {
             "pane_id": pane_id,
+            "source": source,
             "lines": lines,
+            "format": "text",
+            "strip_ansi": True,
         }
         result = await self._call("pane.read", params)
-        if isinstance(result, dict) and "output" in result:
-            return str(result["output"])
+        if isinstance(result, dict):
+            if "read" in result and isinstance(result["read"], dict):
+                return str(result["read"].get("text", ""))
+            return str(result.get("text", result.get("output", "")))
         return str(result)
 
     async def prompt_agent(
@@ -228,17 +285,47 @@ class HerdrSocketClient:
         timeout_ms: int = 180000,
     ) -> dict:
         """Send prompt to agent in pane and await completion."""
-        params = {
+        params: dict[str, Any] = {
+            "target": pane_id,
+            "text": prompt,
             "pane_id": pane_id,
             "prompt": prompt,
-            "wait_until": wait_until,
-            "timeout_ms": timeout_ms,
         }
+        if wait_until:
+            params["wait"] = {
+                "timeout_ms": timeout_ms,
+                "until": [wait_until] if isinstance(wait_until, str) else list(wait_until),
+            }
         timeout_sec = (timeout_ms / 1000.0) + 10.0
         result = await self._call("agent.prompt", params, timeout=timeout_sec)
         if isinstance(result, dict):
+            if "status" not in result:
+                result["status"] = "done"
+            if "pane_id" not in result:
+                result["pane_id"] = pane_id
             return result
-        return {"result": result}
+        return {"status": "done", "pane_id": pane_id, "result": result}
+
+    async def send_text(self, pane_id: str, text: str) -> None:
+        """Send text directly to a pane."""
+        params = {
+            "pane_id": pane_id,
+            "text": text,
+        }
+        await self._call("pane.send_text", params)
+
+    async def send_keys(self, pane_id: str, keys: Union[str, list[str]]) -> None:
+        """Send keystrokes to a specific pane."""
+        key_list = [keys] if isinstance(keys, str) else list(keys)
+        params = {
+            "pane_id": pane_id,
+            "keys": key_list,
+        }
+        await self._call("pane.send_keys", params)
+
+    async def send_interrupt(self, pane_id: str) -> None:
+        """Send SIGINT / Ctrl+C to pane to halt execution or runaway retries."""
+        await self.send_keys(pane_id, "ctrl+c")
 
     async def subscribe_events(
         self, callback: Callable[[dict], Union[Awaitable[None], None]]
@@ -246,25 +333,30 @@ class HerdrSocketClient:
         """Subscribe to Herdr reactive events and invoke callback on each event."""
         self._event_callbacks.append(callback)
         if not self._subscribed:
-            await self._call("events.subscribe", {})
-            self._subscribed = True
+            subscriptions = [
+                {"type": "pane.created"},
+                {"type": "pane.closed"},
+                {"type": "pane.exited"},
+                {"type": "pane.agent_detected"},
+                {"type": "workspace.focused"},
+            ]
+            try:
+                await self._call("events.subscribe", {"subscriptions": subscriptions})
+                self._subscribed = True
+            except Exception as e:
+                logger.debug("events.subscribe failed: %s", e)
 
-    async def send_keys(self, pane_id: str, keys: str) -> None:
-        """Send keystrokes to a specific pane."""
-        params = {
-            "pane_id": pane_id,
-            "keys": keys,
-        }
-        await self._call("pane.send_keys", params)
-
-    async def send_interrupt(self, pane_id: str) -> None:
-        """Send SIGINT / Ctrl+C to pane to halt execution or runaway retries."""
-        await self.send_keys(pane_id, "\x03")
-
-    async def show_notification(self, message: str) -> None:
+    async def show_notification(self, message: str, title: str = "MeisterRouter") -> None:
         """Show native Herdr status notification."""
-        params = {"message": message}
-        await self._call("notification.show", params)
+        params = {
+            "title": title,
+            "body": message,
+            "message": message,
+        }
+        try:
+            await self._call("notification.show", params)
+        except Exception as e:
+            logger.debug("notification.show failed: %s", e)
 
     # Alias for close() to maintain backwards and cross-call compatibility
     disconnect = close

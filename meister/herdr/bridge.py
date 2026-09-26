@@ -357,8 +357,9 @@ class HerdrEventBridge:
 
     async def run_orchestration_cycle(
         self,
-        workspace_id: str,
-        architect_pane_id: str,
+        workspace_id: Optional[str] = None,
+        architect_pane_id: Optional[str] = None,
+        task: Optional[str] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
         if self.client is None:
@@ -367,11 +368,30 @@ class HerdrEventBridge:
         if not self.client.is_connected:
             await self.client.connect()
 
+        # Auto-detect workspace and architect pane if not provided or default
+        if not workspace_id or workspace_id == "default" or not architect_pane_id or architect_pane_id == "architect":
+            try:
+                current_info = await self.client.get_current_pane()
+                if current_info:
+                    if not workspace_id or workspace_id == "default":
+                        workspace_id = current_info.get("workspace_id") or workspace_id or "default"
+                    if not architect_pane_id or architect_pane_id == "architect":
+                        architect_pane_id = current_info.get("pane_id") or architect_pane_id or "architect"
+            except Exception as e:
+                logger.debug("Could not auto-detect current pane from Herdr: %s", e)
+
+        workspace_id = workspace_id or "default"
+        architect_pane_id = architect_pane_id or "architect"
+
         # Subscribe to reactive socket events
         await self.client.subscribe_events(self.handle_herdr_event)
 
-        # Read architect's plan from the architect pane
-        raw_plan = await self.client.read_pane(architect_pane_id)
+        # Obtain plan from direct task argument or read from architect pane
+        if task and task.strip():
+            raw_plan = task.strip()
+        else:
+            raw_plan = await self.client.read_pane(architect_pane_id)
+
         steps = parse_architect_plan(raw_plan)
 
         logger.info(
