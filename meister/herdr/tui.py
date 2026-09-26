@@ -9,6 +9,8 @@ import os
 import sys
 import time
 import select
+import shutil
+import signal
 import termios
 import tty
 import webbrowser
@@ -244,7 +246,7 @@ def run_tui_loop(poll_interval: float = 1.0,
                 key = check_key_press()
                 if key:
                     key_lower = key.lower()
-                    if key_lower == "q":
+                    if key_lower == "q" or key in ("\x1b", "\x03"):
                         sys.stdout.write("\nClosing TUI dashboard overlay...\n")
                         sys.stdout.flush()
                         return

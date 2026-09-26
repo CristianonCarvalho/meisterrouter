@@ -183,16 +183,20 @@ Plan:
 2. id: step2 | files: [b.py] | depends: [step1]
 """
     mock_client.split_pane.side_effect = ["w1:p1", "w1:p2"]
-    mock_client.prompt_agent.return_value = {"status": "done"}
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All 84 tests passed")
+    mock_gate.get_diff_summary.return_value = "Added features and tests"
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE", "confidence": 0.99}
 
-    bridge = HerdrEventBridge(config=config, client=mock_client)
-    
+    bridge = HerdrEventBridge(config=config, client=mock_client, gate=mock_gate)
+
     with patch.object(bridge, "execute_plan", new=AsyncMock(return_value=True)) as mock_exec:
         success = await bridge.run_orchestration_cycle(workspace_id="ws1", architect_pane_id="w1:p0")
         assert success is True
         mock_client.read_pane.assert_awaited_with("w1:p0")
         mock_client.show_notification.assert_awaited_once()
         mock_exec.assert_awaited_once()
+        mock_gate.run_verification.assert_called_once()
 
 
 def test_parse_architect_plan_formats():

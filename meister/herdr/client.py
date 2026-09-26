@@ -174,8 +174,9 @@ class HerdrSocketClient:
         try:
             response = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
-            self._pending_requests.pop(req_id, None)
             raise TimeoutError(f"Timed out waiting for response to method '{method}' (id: {req_id})")
+        finally:
+            self._pending_requests.pop(req_id, None)
 
         if "error" in response and response["error"] is not None:
             err = response["error"]
@@ -264,3 +265,7 @@ class HerdrSocketClient:
         """Show native Herdr status notification."""
         params = {"message": message}
         await self._call("notification.show", params)
+
+    # Alias for close() to maintain backwards and cross-call compatibility
+    disconnect = close
+

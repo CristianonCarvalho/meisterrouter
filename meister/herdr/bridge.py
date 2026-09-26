@@ -112,17 +112,22 @@ class HerdrEventBridge:
         config: Optional[MeisterConfig] = None,
         client: Optional[HerdrSocketClient] = None,
         spawner: Optional[WorkerSpawner] = None,
+        gate: Optional[Any] = None,
     ):
         self.config = config or load_config()
         self.client = client
         self.spawner = spawner or WorkerSpawner(self.config, herdr_client=self.client)
         if self.client is not None and self.spawner.herdr_client is None:
             self.spawner.herdr_client = self.client
+        self.gate = gate
 
         # Concurrency limit from config
         max_workers = 4
         if self.config and self.config.concurrency:
-            max_workers = max(1, int(self.config.concurrency.max_parallel_workers))
+            if not getattr(self.config.concurrency, "parallel_tasks", True):
+                max_workers = 1
+            else:
+                max_workers = max(1, int(self.config.concurrency.max_parallel_workers))
         self._concurrency_semaphore = asyncio.Semaphore(max_workers)
 
         # Active workers tracking: pane_id -> worker metadata dict
@@ -374,9 +379,23 @@ class HerdrEventBridge:
         plan_success = await self.execute_plan(steps)
 
         if plan_success:
-            msg = f"MeisterRouter: Plan executed successfully in workspace {workspace_id}!"
-            await self.client.show_notification(msg)
-            return True
+            gate = self.gate
+            if gate is None:
+                from meister.gate import DeterministicGate
+                gate = DeterministicGate()
+            test_passed, test_output = gate.run_verification()
+            diff_summary = gate.get_diff_summary()
+            eval_result = gate.evaluate_completion(diff_summary=diff_summary, test_passed=test_passed)
+
+            action = eval_result.get("action", "COMPLETE")
+            if action == "COMPLETE":
+                msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
+                await self.client.show_notification(msg)
+                return True
+            else:
+                msg = f"MeisterRouter: Plan executed but quality gate returned {action}."
+                await self.client.show_notification(msg)
+                return False
         else:
             msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
             await self.client.show_notification(msg)

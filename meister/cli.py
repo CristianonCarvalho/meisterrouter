@@ -367,7 +367,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
             finally:
                 if client is not None:
                     try:
-                        await client.disconnect()
+                        await client.close()
                     except Exception:
                         pass
                 click.echo("MeisterRouter daemon stopped.")
@@ -408,7 +408,7 @@ def herdr_action(action_id, workspace_id, pane_id, socket_path, config_path):
                         try:
                             return await client.read_pane(pane_id)
                         finally:
-                            await client.disconnect()
+                            await client.close()
                     context = asyncio.run(_read())
                 except Exception:
                     pass
@@ -423,8 +423,9 @@ def herdr_action(action_id, workspace_id, pane_id, socket_path, config_path):
     elif norm_id in ["verify", "verify-gate"]:
         from meister.gate import DeterministicGate
         gate = DeterministicGate(repo_path=os.getcwd())
-        test_passed, summary = gate.run_verification()
-        result = gate.evaluate_completion(summary, test_passed)
+        test_passed, test_output = gate.run_verification()
+        diff_summary = gate.get_diff_summary()
+        result = gate.evaluate_completion(diff_summary=diff_summary, test_passed=test_passed)
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
         return
 

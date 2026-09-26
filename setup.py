@@ -11,6 +11,8 @@ setup(
         "requests>=2.31.0",
         "flask>=3.0.0",
         "python-dotenv>=1.0.0",
+        "click>=8.0.0",
+        "PyYAML>=6.0",
     ],
     entry_points={
         "console_scripts": [
