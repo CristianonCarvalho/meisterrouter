@@ -14,24 +14,70 @@ Ele combina o poder de decisão probabilística do **TypeSafe Jev Decisions API*
 
 ## 🚀 Instalação Rápida
 
-### 1. Clonar ou Acessar o Repositório
+Escolha a forma que melhor se adapta ao seu fluxo de trabalho:
+
+### Opção 1: Script Automático (Recomendado — 1 comando)
+Instala automaticamente o ambiente, cria o symlink global `meister` e vincula o plugin ao Herdr se instalado:
 ```bash
-cd /Users/cristianocarvalho/Documents/meisterrouter
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
+```
+> *Ou dentro de um clone local do repositório:*
+```bash
+./bin/install.sh
 ```
 
-### 2. Configurar o Ambiente Virtual
+---
+
+### Opção 2: Via NPX ou NPM (Ecossistema Node.js)
+Você pode executar diretamente via **NPX** sem instalar nada previamente:
 ```bash
+npx CristianonCarvalho/meisterrouter init --target .
+```
+Ou instalar globalmente via **NPM**:
+```bash
+npm install -g CristianonCarvalho/meisterrouter
+meister --help
+```
+*(O runner Node.js gerencia o bootstrap do runtime Python de forma transparente)*.
+
+---
+
+### Opção 3: Como Plugin Oficial do Herdr
+O MeisterRouter possui integração nativa de primeira classe com o multiplexador de agentes **Herdr**:
+```bash
+# Vincular repositório local ao Herdr:
+herdr plugin link /caminho/para/meisterrouter
+
+# Ou se instalado via script:
+herdr plugin link ~/.local/share/meisterrouter
+```
+**Atalhos no Herdr:**
+- `prefix + m`: Ativa a orquestração autônoma de tarefas no workspace.
+- `prefix + M`: Abre o Dashboard de Telemetria e Custos em TUI (painel overlay).
+
+---
+
+### Opção 4: Instalação Manual com Python (Pip / Venv)
+```bash
+git clone https://github.com/CristianonCarvalho/meisterrouter.git
+cd meisterrouter
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
 ```
 
-### 3. Configurar a Chave da API
-Copie `.env.example` para `.env` e configure sua chave do OpenRouter:
+---
+
+### 🔑 Configurar a Chave da API
+Copie `.env.example` para `.env` ou configure sua chave do OpenRouter no shell:
 ```bash
 cp .env.example .env
 # Adicione sua OPENROUTER_API_KEY
+```
+Ou exporte diretamente nas suas variáveis de ambiente:
+```bash
+export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
 ---
@@ -71,16 +117,32 @@ Retorna a ação autorizada:
 
 ---
 
-### 3. Painel de Telemetria ao Vivo (Dashboard)
-Acompanhe os custos, economia gerada e distribuição de modelos em tempo real:
+### 3. Orquestração Autônoma Multi-Agente
+Execute um ciclo de orquestração autônoma com decomposição em DAG e verificação por portão determinístico:
 ```bash
-meister dashboard
+meister orchestrate --task "Refatorar camada de cache e cobrir com testes"
 ```
-Acesse no seu navegador: **`http://localhost:5050`**
 
 ---
 
-### 4. Consultar Catálogo de Modelos & Benchmarks
+### 4. Painel de Telemetria ao Vivo (Dashboard)
+
+#### Interface Web:
+Acompanhe os custos, economia gerada e distribuição de modelos no seu navegador:
+```bash
+meister dashboard
+```
+Acesse em: **`http://localhost:5050`**
+
+#### Interface Terminal (TUI Overlay):
+Ideal para uso dentro do terminal ou integrado ao Herdr:
+```bash
+meister dashboard --tui
+```
+
+---
+
+### 5. Consultar Catálogo de Modelos & Benchmarks
 ```bash
 meister models
 ```
@@ -93,18 +155,25 @@ Exibe na hora as métricas oficiais do Artificial Analysis e a precificação vi
 ```
 meisterrouter/
 ├── bin/
-│   └── meister                  # Executável CLI
+│   ├── meister                  # Executável CLI Python
+│   ├── install.sh               # Script de bootstrap e instalação rápida em 1 linha
+│   └── cli.js                   # Wrapper executável Node.js para NPM / NPX
 ├── meister/
 │   ├── cli.py                   # Interface de linha de comando
 │   ├── jev.py                   # Cliente TypeSafe Decisions API (OpenRouter)
+│   ├── orchestrator.py          # Motor de orquestração multi-agente
+│   ├── dag.py                   # Decomposição e resolução de DAG de tarefas
+│   ├── gate.py                  # Portão de verificação determinística
 │   ├── logger.py                # Gravação atômica de telemetria JSONL
 │   ├── models.py                # Matriz de modelos e cálculo de custos
 │   ├── hooks.py                 # Instalador de hooks Git e Claude
+│   ├── herdr_bridge.py          # Ponte de comunicação e eventos com Herdr IPC
+│   ├── tui.py                   # Dashboard em modo texto interativo para terminal
 │   ├── templates/               # Templates injetáveis (CLAUDE.md, CODEX.md, hooks)
 │   └── dashboard/               # Servidor Flask e interface Web
-│       ├── server.py
-│       └── templates/index.html
 ├── tests/                       # Suíte de testes unitários com pytest
+├── herdr-plugin.toml            # Manifesto do plugin para Herdr (atalhos prefix+m, prefix+M)
+├── package.json                 # Manifesto do pacote npm / npx
 ├── CLAUDE.md                    # Regras para Claude Code
 ├── CODEX.md                     # Regras para OpenAI Codex
 ├── AGENTS.md                    # Diretivas unificadas para agentes

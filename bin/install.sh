@@ -6,7 +6,21 @@
 
 set -e
 
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+# Detecta se está sendo executado a partir de um clone local ou via curl/pipe
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || echo "")"
+if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ]; then
+    REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+else
+    REPO_DIR="${HOME}/.local/share/meisterrouter"
+    echo "📥 Baixando repositório para ${REPO_DIR}..."
+    mkdir -p "${REPO_DIR}"
+    if [ -d "${REPO_DIR}/.git" ]; then
+        git -C "${REPO_DIR}" pull --quiet
+    else
+        git clone --depth=1 https://github.com/CristianonCarvalho/meisterrouter.git "${REPO_DIR}"
+    fi
+fi
+
 LOCAL_BIN="${HOME}/.local/bin"
 
 echo "🔮 Instalando MeisterRouter a partir de: ${REPO_DIR}"
@@ -37,6 +51,6 @@ fi
 # 4. Verificação final
 echo ""
 echo "🎉 Instalação concluída com sucesso!"
-echo "• Versão do MeisterRouter: $("${LOCAL_BIN}/meister" --help | head -n 2 | tail -n 1)"
+echo "• CLI: $("${LOCAL_BIN}/meister" --help | grep -m1 "MeisterRouter" | sed 's/^[ \t]*//')"
 echo "• Para usar no Herdr: basta abrir o Herdr no seu projeto rodando 'herdr'"
 echo "• Atalhos Herdr: 'prefix+m' (orquestração autônoma) e 'prefix+M' (dashboard TUI)"
