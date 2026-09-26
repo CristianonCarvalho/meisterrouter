@@ -124,10 +124,24 @@ def classify_task(context: str, model: Optional[str] = None) -> Dict[str, Any]:
     impl_val = impl_ans.get("choice", "luna").lower()
     impl_conf = impl_ans.get("confidence", 0.8)
 
-    # Se a complexidade for SMALL ou MEDIUM e o implementador sugerido for genérico,
-    # assegura direcionamento ao campeão de custo/inteligência GPT-6 Luna
-    if cls_val in ["SMALL", "MEDIUM"] and impl_val in ["haiku", "luna"]:
-        impl_val = "luna"
+    # Verifica se Luna está desativada ou se há preferência explícita de worker primário
+    disable_luna = os.environ.get("MEISTER_DISABLE_LUNA", "").lower() in ("true", "1", "yes")
+    primary_worker = os.environ.get("MEISTER_PRIMARY_WORKER", "").lower().strip()
+
+    if primary_worker:
+        impl_val = primary_worker
+    elif disable_luna and impl_val == "luna":
+        impl_val = "gemini_flash"
+    elif cls_val in ["SMALL", "MEDIUM"] and impl_val in ["haiku", "luna"]:
+        impl_val = "gemini_flash" if disable_luna else "luna"
+
+    # Define a cadeia determinística de fallback se o modelo recomendado não estiver ativo
+    if impl_val == "luna":
+        fallback_chain = ["gemini_flash", "haiku", "sonnet"]
+    elif impl_val in ["gemini_flash", "gemini_antigravity"]:
+        fallback_chain = ["haiku", "sonnet"]
+    else:
+        fallback_chain = ["gemini_flash", "sonnet"]
 
     # Registra no log de telemetria
     usage = raw.get("usage", {})
@@ -150,6 +164,7 @@ def classify_task(context: str, model: Optional[str] = None) -> Dict[str, Any]:
         "classification_confidence": round(cls_conf, 2),
         "classification_probabilities": cls_probs,
         "recommended_implementer": impl_val,
+        "fallback_chain": fallback_chain,
         "implementer_confidence": round(impl_conf, 2),
     }
 

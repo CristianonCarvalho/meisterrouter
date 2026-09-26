@@ -215,7 +215,11 @@ class HerdrEventBridge:
                     split_ratio=split_ratio,
                 )
             except Exception as e:
-                logger.error("Failed to spawn worker pane for tier %s: %s", current_tier, e)
+                logger.warning("Failed to spawn worker pane for tier %s: %s. Escalating to next tier...", current_tier, e)
+                next_tier = self.spawner.get_next_tier(current_tier)
+                if next_tier is not None:
+                    current_tier = next_tier.name
+                    continue
                 return False
 
             # Register active worker state
@@ -270,14 +274,15 @@ class HerdrEventBridge:
             try:
                 prompt_result = prompt_task.result()
             except Exception as e:
-                if detect_quota_or_rate_limit(str(e)):
+                logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, e)
+                try:
                     await self.client.send_interrupt(pane_id)
-                    next_tier = self.spawner.get_next_tier(current_tier)
-                    if next_tier is None:
-                        return False
+                except Exception:
+                    pass
+                next_tier = self.spawner.get_next_tier(current_tier)
+                if next_tier is not None:
                     current_tier = next_tier.name
                     continue
-                logger.error("Worker execution error in pane %s: %s", pane_id, e)
                 return False
 
             # Inspect terminal output and prompt response for quota errors

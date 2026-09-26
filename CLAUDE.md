@@ -31,10 +31,17 @@ O Jev retornará em JSON:
 - `classification`: `SMALL` | `MEDIUM` | `HIGH` | `ESCALATE`
 - `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
 
-### Passo 2: Execução
-- **SMALL / MEDIUM:** Implementar via subagente de baixo custo (**GPT-6 Luna** ou **Haiku 4.5**).
+### Passo 2: Execução e Delegação Obrigatória
+- **SMALL / MEDIUM:** Implementar via subagente de baixo custo (**GPT-6 Luna**, **Gemini 3.8 Flash** ou **Haiku 4.5**).
 - **HIGH:** Implementar via **Gemini 3.8 Flash** ou **Sonnet 5**.
 - **Paralelização:** Subtarefas independentes devem ser despachadas em terminais paralelos.
+
+> ⚠️ **REGRA CRÍTICA: O ORQUESTRADOR NUNCA DEVE IMPLEMENTAR DIRETAMENTE!**
+> Se o modelo recomendado (ex: **Luna**) não estiver ativo, acessível ou falhar:
+> 1. **NÃO assuma a implementação como orquestrador.**
+> 2. **Repasse IMEDIATAMENTE para o próximo da cadeia:** delegue para **Gemini 3.8 Flash** (`gemini_flash`) ou **Claude 4.5 Haiku** (`haiku`).
+> 3. Se o Gemini falhar, delegue para o Haiku; se o Haiku falhar, escale para Sonnet.
+> 4. O orquestrador só escreve código diretamente se TODOS os workers estiverem comprovadamente inacessíveis.
 
 ### Passo 3: Verificação Determinística
 Rodar compilação, suíte de testes e linter:

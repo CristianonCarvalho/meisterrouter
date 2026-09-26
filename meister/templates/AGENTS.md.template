@@ -4,10 +4,11 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
 
 ## Fundamental Principles
 1. **Decision Separation:** Coding models write code; **TypeSafe Jev** (`typesafe/jev-1.13`) makes routing, retry, and completion decisions.
-2. **Cost-Optimized Tiering:**
-   - Default Implementer: **GPT-6 Luna** ($0.077/M tokens) or **Claude 4.5 Haiku**.
-   - Deep Reasoning / Escalation: **Gemini 3.8 Flash** ($0.577/M tokens) or **Claude Sonnet 5**.
-   - Maximum Escalation: **Claude Opus 5.5**.
+2. **Cost-Optimized Tiering & Mandatory Fallback:**
+   - Default Implementer: **GPT-6 Luna** ($0.077/M tokens) or **Gemini 3.8 Flash** ($0.577/M tokens).
+   - Deep Reasoning / Escalation: **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
+   - Maximum Escalation: **Claude Sonnet 5** / **Claude Opus 5.5**.
+   - ⚠️ **Zero Direct Implementation by Orchestrator:** If the recommended implementer (e.g. Luna) is inactive or unavailable, the orchestrator MUST NOT write code. It must dispatch immediately to **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
 3. **Deterministic Evidence:** Evidence from tests, linters, and git diff always precedes completion declarations.
 
 ## Standard Execution Loop

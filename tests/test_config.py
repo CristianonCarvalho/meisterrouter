@@ -68,3 +68,19 @@ concurrency:
 def test_load_config_nonexistent_file():
     with pytest.raises(FileNotFoundError):
         load_config("nonexistent_path_meister.yaml")
+
+
+def test_default_worker_tiers_overrides(monkeypatch):
+    from meister.config import _default_worker_tiers
+
+    monkeypatch.setenv("MEISTER_DISABLE_LUNA", "true")
+    tiers = _default_worker_tiers()
+    tier_names = [t.name for t in tiers]
+    assert "luna" not in tier_names
+    assert tier_names[0] == "gemini_flash"
+
+    monkeypatch.delenv("MEISTER_DISABLE_LUNA", raising=False)
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "haiku")
+    tiers_primary = _default_worker_tiers()
+    assert tiers_primary[0].name == "haiku"
+

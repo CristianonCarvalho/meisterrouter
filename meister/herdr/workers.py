@@ -31,6 +31,11 @@ QUOTA_RATE_LIMIT_PATTERNS = [
     re.compile(r"exceeded\s+(?:your\s+)?(?:current\s+)?quota", re.IGNORECASE),
     re.compile(r"resource_exhausted", re.IGNORECASE),
     re.compile(r"payment\s+required", re.IGNORECASE),
+    re.compile(r"model\s+(?:not\s+found|not\s+active|is\s+inactive|does\s+not\s+exist|unavailable)", re.IGNORECASE),
+    re.compile(r"unsupported\s+model", re.IGNORECASE),
+    re.compile(r"invalid\s+model", re.IGNORECASE),
+    re.compile(r"model_not_found", re.IGNORECASE),
+    re.compile(r"(?:error|http|status|code)[\s:]*404\b", re.IGNORECASE),
     re.compile(r"overloaded(?:error|_error)?\b", re.IGNORECASE),
     re.compile(r"model\s+is\s+overloaded", re.IGNORECASE),
 ]

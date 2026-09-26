@@ -40,7 +40,10 @@ class WorkerTier:
 
 
 def _default_worker_tiers() -> List[WorkerTier]:
-    return [
+    disable_luna = os.environ.get("MEISTER_DISABLE_LUNA", "").lower() in ("true", "1", "yes")
+    primary = os.environ.get("MEISTER_PRIMARY_WORKER", "").lower().strip()
+
+    tiers = [
         WorkerTier(
             name="luna",
             harness="native",
@@ -48,14 +51,6 @@ def _default_worker_tiers() -> List[WorkerTier]:
             cost_per_m_tokens=0.077,
             max_retries=2,
             best_for=["small_edits", "single_file", "css_fixes", "unit_test_additions"],
-        ),
-        WorkerTier(
-            name="haiku",
-            harness="claude",
-            model="anthropic/claude-3-5-haiku-20241022",
-            cost_per_m_tokens=0.77,
-            max_retries=2,
-            best_for=["medium_features", "refactoring"],
         ),
         WorkerTier(
             name="gemini_flash",
@@ -66,6 +61,14 @@ def _default_worker_tiers() -> List[WorkerTier]:
             best_for=["deep_reasoning", "complex_algorithms", "hard_bugs"],
         ),
         WorkerTier(
+            name="haiku",
+            harness="claude",
+            model="anthropic/claude-3-5-haiku-20241022",
+            cost_per_m_tokens=0.77,
+            max_retries=2,
+            best_for=["medium_features", "refactoring"],
+        ),
+        WorkerTier(
             name="sonnet",
             harness="claude",
             model="anthropic/claude-3-7-sonnet",
@@ -74,6 +77,14 @@ def _default_worker_tiers() -> List[WorkerTier]:
             best_for=["architectural_recovery", "systemic_regressions"],
         ),
     ]
+
+    if disable_luna:
+        tiers = [t for t in tiers if t.name != "luna"]
+    elif primary and any(t.name == primary for t in tiers):
+        primary_tier = next(t for t in tiers if t.name == primary)
+        tiers = [primary_tier] + [t for t in tiers if t.name != primary]
+
+    return tiers
 
 
 @dataclass

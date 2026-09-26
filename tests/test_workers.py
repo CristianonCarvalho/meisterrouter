@@ -44,6 +44,9 @@ def test_detect_quota_various_error_formats():
     assert detect_quota_or_rate_limit("Error: RESOURCE_EXHAUSTED quota exceeded") is True
     assert detect_quota_or_rate_limit("anthropic.OverloadedError: Provider is overloaded") is True
     assert detect_quota_or_rate_limit("You exceeded your current quota, please check your plan") is True
+    assert detect_quota_or_rate_limit("Error: model not active on your plan") is True
+    assert detect_quota_or_rate_limit("openai.NotFoundError: model_not_found openai/gpt-6-luna") is True
+    assert detect_quota_or_rate_limit("HTTP 404: unsupported model") is True
 
     # Non-quota outputs
     assert detect_quota_or_rate_limit("All 42 tests passed") is False
