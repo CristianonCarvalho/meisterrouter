@@ -42,58 +42,49 @@ class HerdrSocketClient:
             raise ValueError(
                 "HERDR_SOCKET_PATH environment variable not set and socket_path not provided."
             )
-        self._reader: Optional[asyncio.StreamReader] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
-        self._listen_task: Optional[asyncio.Task] = None
         self._id_counter = itertools.count(1)
-        self._pending_requests: dict[str, asyncio.Future] = {}
         self._event_callbacks: list[Callable[[dict], Union[Awaitable[None], None]]] = []
         self._subscribed = False
-        self._lock = asyncio.Lock()
+        self._event_stream_task: Optional[asyncio.Task] = None
+        self._event_stream_writer: Optional[asyncio.StreamWriter] = None
+        self._is_connected = False
 
     @property
     def is_connected(self) -> bool:
-        return self._writer is not None and not self._writer.is_closing()
+        return self._is_connected
 
     async def connect(self) -> None:
-        """Establish UNIX domain socket connection and spawn background message listener."""
-        if self.is_connected:
-            return
-
+        """Establish connection check with UNIX domain socket."""
         try:
-            self._reader, self._writer = await asyncio.open_unix_connection(self.socket_path)
+            r, w = await asyncio.open_unix_connection(self.socket_path)
+            w.close()
+            await w.wait_closed()
+            self._is_connected = True
         except OSError as e:
+            self._is_connected = False
             raise HerdrConnectionError(
                 f"Failed to connect to Herdr UNIX socket at '{self.socket_path}': {e}"
             ) from e
 
-        self._listen_task = asyncio.create_task(self._listen_loop())
-
     async def close(self) -> None:
-        """Close connection and clean up background tasks and pending requests."""
-        if self._listen_task and not self._listen_task.done():
-            self._listen_task.cancel()
+        """Close client and clean up any active background event stream tasks."""
+        self._is_connected = False
+        self._subscribed = False
+        if self._event_stream_task and not self._event_stream_task.done():
+            self._event_stream_task.cancel()
             try:
-                await self._listen_task
+                await self._event_stream_task
             except asyncio.CancelledError:
                 pass
-            self._listen_task = None
+            self._event_stream_task = None
 
-        if self._writer is not None:
+        if self._event_stream_writer is not None:
             try:
-                self._writer.close()
-                await self._writer.wait_closed()
+                self._event_stream_writer.close()
+                await self._event_stream_writer.wait_closed()
             except Exception:
                 pass
-            self._writer = None
-            self._reader = None
-
-        # Cancel any remaining pending futures
-        for req_id, fut in list(self._pending_requests.items()):
-            if not fut.done():
-                fut.cancel()
-        self._pending_requests.clear()
-        self._subscribed = False
+            self._event_stream_writer = None
 
     async def __aenter__(self) -> "HerdrSocketClient":
         await self.connect()
@@ -102,55 +93,6 @@ class HerdrSocketClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
-    async def _listen_loop(self) -> None:
-        """Background loop reading JSON-RPC responses and incoming notifications."""
-        assert self._reader is not None
-        try:
-            while not self._reader.at_eof():
-                line = await self._reader.readline()
-                if not line:
-                    break
-                line_str = line.decode("utf-8").strip()
-                if not line_str:
-                    continue
-
-                try:
-                    payload = json.loads(line_str)
-                except json.JSONDecodeError as e:
-                    logger.warning("Failed to decode JSON-RPC message: %s", e)
-                    continue
-
-                req_id = payload.get("id")
-                if req_id is not None and req_id in self._pending_requests:
-                    fut = self._pending_requests.pop(req_id)
-                    if not fut.done():
-                        fut.set_result(payload)
-                elif payload.get("error") and self._pending_requests:
-                    # Servidor retornou erro sem ecoar o ID (ex: id="" ou null)
-                    _, fut = self._pending_requests.popitem()
-                    if not fut.done():
-                        fut.set_result(payload)
-                else:
-                    # Notification or Event
-                    event_data = payload.get("params", payload)
-                    for cb in self._event_callbacks:
-                        try:
-                            res = cb(event_data)
-                            if asyncio.iscoroutine(res):
-                                asyncio.create_task(res)
-                        except Exception as e:
-                            logger.error("Error executing Herdr event callback: %s", e)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.debug("HerdrSocketClient listener loop error: %s", e)
-        finally:
-            # Mark all pending requests as disconnected/cancelled
-            for fut in list(self._pending_requests.values()):
-                if not fut.done():
-                    fut.cancel()
-            self._pending_requests.clear()
-
     async def _call(
         self,
         method: str,
@@ -158,14 +100,7 @@ class HerdrSocketClient:
         timeout: Optional[float] = 30.0,
     ) -> Any:
         """Send a JSON-RPC request and wait for the response."""
-        if not self.is_connected:
-            await self.connect()
-
         req_id = f"req_{next(self._id_counter)}"
-        loop = asyncio.get_running_loop()
-        future: asyncio.Future = loop.create_future()
-        self._pending_requests[req_id] = future
-
         message = {
             "jsonrpc": "2.0",
             "id": req_id,
@@ -174,26 +109,34 @@ class HerdrSocketClient:
         }
         encoded = (json.dumps(message) + "\n").encode("utf-8")
 
-        async with self._lock:
-            if not self.is_connected or self._writer is None:
-                self._pending_requests.pop(req_id, None)
-                raise HerdrConnectionError("Cannot send request; client is not connected")
-            try:
-                self._writer.write(encoded)
-                await self._writer.drain()
-            except (OSError, BrokenPipeError) as e:
-                self._pending_requests.pop(req_id, None)
-                await self.close()
-                raise HerdrConnectionError(f"Failed to send request: {e}") from e
+        try:
+            reader, writer = await asyncio.open_unix_connection(self.socket_path)
+        except OSError as e:
+            raise HerdrConnectionError(
+                f"Failed to connect to Herdr UNIX socket at '{self.socket_path}': {e}"
+            ) from e
 
         try:
-            response = await asyncio.wait_for(future, timeout=timeout)
+            writer.write(encoded)
+            await writer.drain()
+
+            line = await asyncio.wait_for(reader.readline(), timeout=timeout)
+            if not line:
+                raise HerdrConnectionError(
+                    f"Connection closed by Herdr server before response for method '{method}'"
+                )
+            line_str = line.decode("utf-8").strip()
+            response = json.loads(line_str)
         except asyncio.TimeoutError:
             raise TimeoutError(f"Timed out waiting for response to method '{method}' (id: {req_id})")
-        except asyncio.CancelledError as e:
-            raise HerdrConnectionError("Connection closed while waiting for response") from e
+        except json.JSONDecodeError as e:
+            raise HerdrRPCError(code=-32700, message=f"Failed to parse JSON response: {e}")
         finally:
-            self._pending_requests.pop(req_id, None)
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
 
         if "error" in response and response["error"] is not None:
             err = response["error"]
@@ -297,14 +240,20 @@ class HerdrSocketClient:
                 "until": [wait_until] if isinstance(wait_until, str) else list(wait_until),
             }
         timeout_sec = (timeout_ms / 1000.0) + 10.0
-        result = await self._call("agent.prompt", params, timeout=timeout_sec)
-        if isinstance(result, dict):
-            if "status" not in result:
-                result["status"] = "done"
-            if "pane_id" not in result:
-                result["pane_id"] = pane_id
-            return result
-        return {"status": "done", "pane_id": pane_id, "result": result}
+        try:
+            result = await self._call("agent.prompt", params, timeout=timeout_sec)
+            if isinstance(result, dict):
+                if "status" not in result:
+                    result["status"] = "done"
+                if "pane_id" not in result:
+                    result["pane_id"] = pane_id
+                return result
+            return {"status": "done", "pane_id": pane_id, "result": result}
+        except HerdrRPCError as e:
+            if "agent_not_found" in str(e).lower() or "not found" in str(e).lower():
+                await self.send_text(pane_id, f"{prompt}\n")
+                return {"status": "done", "pane_id": pane_id, "fallback": "send_text"}
+            raise
 
     async def send_text(self, pane_id: str, text: str) -> None:
         """Send text directly to a pane."""
@@ -333,18 +282,78 @@ class HerdrSocketClient:
         """Subscribe to Herdr reactive events and invoke callback on each event."""
         self._event_callbacks.append(callback)
         if not self._subscribed:
-            subscriptions = [
-                {"type": "pane.created"},
-                {"type": "pane.closed"},
-                {"type": "pane.exited"},
-                {"type": "pane.agent_detected"},
-                {"type": "workspace.focused"},
-            ]
+            self._subscribed = True
+            started_event = asyncio.Event()
+            self._event_stream_task = asyncio.create_task(self._event_stream_loop(started_event))
             try:
-                await self._call("events.subscribe", {"subscriptions": subscriptions})
-                self._subscribed = True
+                await asyncio.wait_for(started_event.wait(), timeout=5.0)
             except Exception as e:
-                logger.debug("events.subscribe failed: %s", e)
+                logger.debug("Subscription handshake wait error: %s", e)
+
+    async def _event_stream_loop(self, started_event: Optional[asyncio.Event] = None) -> None:
+        """Background loop reading streaming events from a dedicated subscription connection."""
+        subscriptions = [
+            {"type": "pane.created"},
+            {"type": "pane.closed"},
+            {"type": "pane.exited"},
+            {"type": "pane.agent_detected"},
+            {"type": "workspace.focused"},
+        ]
+        sub_msg = {
+            "jsonrpc": "2.0",
+            "id": "sub_stream",
+            "method": "events.subscribe",
+            "params": {"subscriptions": subscriptions},
+        }
+        encoded = (json.dumps(sub_msg) + "\n").encode("utf-8")
+
+        while self._subscribed:
+            try:
+                reader, writer = await asyncio.open_unix_connection(self.socket_path)
+                self._event_stream_writer = writer
+                writer.write(encoded)
+                await writer.drain()
+
+                # Read handshake response
+                line = await reader.readline()
+                if not line:
+                    break
+
+                if started_event and not started_event.is_set():
+                    started_event.set()
+
+                while self._subscribed and not reader.at_eof():
+                    line = await reader.readline()
+                    if not line:
+                        break
+                    line_str = line.decode("utf-8").strip()
+                    if not line_str:
+                        continue
+                    try:
+                        payload = json.loads(line_str)
+                    except json.JSONDecodeError:
+                        continue
+                    event_data = payload.get("params", payload)
+                    for cb in self._event_callbacks:
+                        try:
+                            res = cb(event_data)
+                            if asyncio.iscoroutine(res):
+                                asyncio.create_task(res)
+                        except Exception as e:
+                            logger.error("Error executing Herdr event callback: %s", e)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.debug("Event stream encountered error: %s", e)
+                await asyncio.sleep(0.5)
+            finally:
+                if self._event_stream_writer:
+                    try:
+                        self._event_stream_writer.close()
+                        await self._event_stream_writer.wait_closed()
+                    except Exception:
+                        pass
+                    self._event_stream_writer = None
 
     async def show_notification(self, message: str, title: str = "MeisterRouter") -> None:
         """Show native Herdr status notification."""
