@@ -386,6 +386,12 @@ class HerdrEventBridge:
         # Subscribe to reactive socket events
         await self.client.subscribe_events(self.handle_herdr_event)
 
+        # Notify user in Herdr UI that orchestration has started
+        await self.client.show_notification(
+            f"Iniciando ciclo de orquestração no workspace {workspace_id}...",
+            title="MeisterRouter",
+        )
+
         # Obtain plan from direct task argument or read from architect pane
         if task and task.strip():
             raw_plan = task.strip()

@@ -194,7 +194,7 @@ Plan:
         success = await bridge.run_orchestration_cycle(workspace_id="ws1", architect_pane_id="w1:p0")
         assert success is True
         mock_client.read_pane.assert_awaited_with("w1:p0")
-        mock_client.show_notification.assert_awaited_once()
+        assert mock_client.show_notification.await_count >= 1
         mock_exec.assert_awaited_once()
         mock_gate.run_verification.assert_called_once()
 
