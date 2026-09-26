@@ -18,6 +18,10 @@ from meister.herdr.bridge import (
     HerdrEventBridge,
     parse_architect_plan,
 )
+from meister.herdr.tui import (
+    render_tui_dashboard,
+    run_tui_loop,
+)
 
 __all__ = [
     "HerdrSocketClient",
@@ -34,5 +38,7 @@ __all__ = [
     "CycleDetectedError",
     "HerdrEventBridge",
     "parse_architect_plan",
+    "render_tui_dashboard",
+    "run_tui_loop",
 ]
 

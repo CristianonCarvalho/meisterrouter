@@ -192,11 +192,8 @@ def control(diff_summary, test_result, attempts, security_sensitive, model):
 def dashboard(port, host, tui):
     """Inicia o servidor de telemetria local ou TUI overlay."""
     if tui:
-        try:
-            from meister.herdr.tui import run_tui_loop
-            run_tui_loop()
-        except ImportError:
-            click.echo("TUI dashboard module not found or not yet implemented.")
+        from meister.herdr.tui import run_tui_loop
+        run_tui_loop()
     else:
         from meister.dashboard.server import start_server
         start_server(host=host, port=port)
