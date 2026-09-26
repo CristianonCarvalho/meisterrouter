@@ -1,0 +1,55 @@
+# OpenAI Codex → MeisterRouter — Autonomous Multi-Model Orchestration
+
+This codebase is governed by the **MeisterRouter** framework. You are operating as the **Primary Architect and Orchestrator**.
+
+## 01. Core Rule of Operation
+Never blindly implement code or make unverified assumptions without passing through the deterministic control loop.
+All task sizing, subagent routing, and exit evaluations are governed by **TypeSafe Jev Decisions API** (`typesafe/jev-1.13`).
+
+## 02. Multi-Model Matrix
+
+| Model | Assigned Role | Capabilities | Cost / 1M tokens |
+|---|---|---|---|
+| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Intelligence: 29 \| Automation: 40% | **$0.077** (90% savings) |
+| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Intelligence: 40 \| Terminal-Bench: 20% | $0.5775 (Heavy Lift) |
+| **OpenAI Codex / GPT-4o** | **Architect & Plan Supervisor** | Intelligence: 30 \| SciCode: 50% | $2.50 / $10.00 |
+| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | Typed Probabilistic Decisions | $0.50 |
+
+## 03. Agent Execution Lifecycle
+
+### Phase 1: Classification Gate
+Run before beginning implementation:
+```bash
+meister classify --context "<detailed task description>"
+```
+Read the JSON output:
+- `classification`: `SMALL` | `MEDIUM` | `HIGH` | `ESCALATE`
+- `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
+
+### Phase 2: Implementation Delegation
+- For `SMALL` or `MEDIUM` tasks: Use low-cost execution (**GPT-6 Luna**).
+- For `HIGH` tasks or complex system debugging: Use **Gemini 3.8 Flash**.
+- Independent files/subtasks must be processed in parallel across worker sessions.
+
+### Phase 3: Deterministic Evidence Collection
+Before claiming success, run the repository test, compile, and lint commands:
+```bash
+# Execute local test commands
+pytest / npm test / cargo test
+git diff
+```
+
+### Phase 4: Control & Exit Gate
+Run with collected evidence:
+```bash
+meister control --diff-summary "<diff summary>" --test-result pass|fail
+```
+- Proceed only when `action == "COMPLETE"`.
+- If `action == "RETRY"` and `switch_implementer == true`: Escalate to **Gemini 3.8 Flash**.
+- If `action == "ESCALATE"`: Increase reasoning effort.
+
+## 04. Observability & Dashboard
+```bash
+meister dashboard --port 5050
+```
+Telemetry events are logged to `.meister/logs/orchestration_log.jsonl` or `~/.meister/logs/`.
