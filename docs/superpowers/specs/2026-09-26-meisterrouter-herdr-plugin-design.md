@@ -208,37 +208,117 @@ class UnifiedContextEnvelope:
     retry_count: int = 0
 ```
 
-### 5.2 Spawner de Workers Híbrido (`meister/herdr/workers.py`)
-Conforme definido anteriormente, suportamos tanto o worker nativo do MeisterRouter quanto CLIs de terceiros:
+### 5.2 Configuração Declarativa de Modelos e Ordem de Workers (`meister.config.yaml`)
+Todos os modelos (orquestrador, arquiteto e a escada sequencial de workers) são 100% configuráveis via arquivo declarativo `meister.config.yaml` na raiz do projeto (com fallback para variáveis de ambiente):
+
+```yaml
+version: "1.0"
+
+# 1. Configuração do Orquestrador / Modelo Mestre de Decisões
+master:
+  provider: "openrouter"
+  model: "typesafe/jev-1.13" # Decisor determinístico tipado
+  temperature: 0.0
+  api_key_env: "OPENROUTER_API_KEY"
+
+# 2. Configuração do Modelo Arquiteto (Decomposição e Planejamento)
+architect:
+  harness: "claude" # "claude", "codex", "mcp" ou "native"
+  model: "anthropic/claude-3-7-sonnet"
+  prompt_template: "templates/architect_prompt.md"
+
+# 3. Ordem Sequencial de Workers e Fallback (do mais econômico ao mais potente)
+workers:
+  # Ordem prioritária de alocação de tarefas e escalonamento
+  tier_order:
+    - name: "luna"
+      harness: "native"
+      model: "openai/gpt-6-luna"
+      cost_per_m_tokens: 0.077
+      max_retries: 2
+      best_for: ["small_edits", "single_file", "css_fixes", "unit_test_additions"]
+
+    - name: "haiku"
+      harness: "claude"
+      model: "anthropic/claude-3-5-haiku-20241022"
+      cost_per_m_tokens: 0.77
+      max_retries: 2
+      best_for: ["medium_features", "refactoring"]
+
+    - name: "gemini_flash"
+      harness: "native"
+      model: "google/gemini-2.5-flash"
+      cost_per_m_tokens: 0.577
+      max_retries: 2
+      best_for: ["deep_reasoning", "complex_algorithms", "hard_bugs"]
+
+    - name: "sonnet"
+      harness: "claude"
+      model: "anthropic/claude-3-7-sonnet"
+      cost_per_m_tokens: 3.00
+      max_retries: 1
+      best_for: ["architectural_recovery", "systemic_regressions"]
+
+# 4. Políticas de Concorrência e Paralelismo de Tarefas
+concurrency:
+  parallel_tasks: true             # Ativa execução paralela sempre que o plano permitir
+  max_parallel_workers: 4          # Limite de panes simultâneos abertos no Herdr
+  layout_strategy: "tiled"         # "tiled" (grade equilibrada) ou "columns" (colunas verticais)
+  isolation_mode: "git_worktree"   # Garante isolamento de workspace quando tarefas tocarem arquivos distintos
+```
+
+### 5.3 Execução Paralela de Subtarefas Concorrentes no Herdr
+
+Quando o Arquiteto analisa o objetivo do usuário e gera o plano de execução, o MeisterRouter analisa a matriz de dependências entre as subtarefas gerando um **Grafo Acíclico Dirigido (DAG)**:
+
+```mermaid
+flowchart TD
+    ArchitectPlan["Plano do Arquiteto<br/>(Decomposição de Tarefas)"] --> DAGBuilder["Análise de Dependências & DAG<br/>(meister.herdr.dag)"]
+    
+    DAGBuilder -->|Tarefas Independentes| ParallelSpawn["Parallel Spawner (Herdr pane.split)"]
+    
+    subgraph ConcurrentPanes["Execução Paralela no Herdr"]
+        PaneW1["Pane Worker 1 (GPT-6 Luna)<br/>Tarefa: Backend Auth Service"]
+        PaneW2["Pane Worker 2 (GPT-6 Luna)<br/>Tarefa: Frontend Login Form"]
+        PaneW3["Pane Worker 3 (Claude Haiku)<br/>Tarefa: Mock Database Fixtures"]
+    end
+
+    ParallelSpawn --> PaneW1
+    ParallelSpawn --> PaneW2
+    ParallelSpawn --> PaneW3
+
+    PaneW1 --> Collector["Collector & Barrier Sync<br/>(asyncio.gather / wait)"]
+    PaneW2 --> Collector
+    PaneW3 --> Collector
+
+    Collector --> MergeValidation["Reconciliação de Diffs (Git Worktrees / Merge)"]
+    MergeValidation --> DeterministicGate["Portão Determinístico (Tests + Linters)"]
+```
+
+#### Regras de Paralelismo:
+1. **Detecção de Concorrência:** Se duas ou mais subtarefas operam em diretórios/arquivos não sobrepostos (ex: `backend/` vs `frontend/` ou `src/` vs `tests/`), o MeisterRouter marca-as como `PARALLEL_CAPABLE`.
+2. **Multi-Pane Split Dinâmico no Herdr:**
+   * O cliente dispara `pane.split` sucessivos no Herdr até o limite de `max_parallel_workers` (ex: dividindo a tela em quadrantes 2x2 ou colunas verticais).
+   * Cada pane executa seu respectivo worker de forma assíncrona com `agent.prompt(wait="done")`.
+3. **Barreira de Sincronização (*Barrier Sync*):** O orquestrador aguarda todos os workers paralelos terminarem. Se um worker falhar, apenas aquele sub-pane sofre retry ou escalonamento, mantendo o progresso dos demais.
+4. **Merge & Validação:** Após a conclusão paralela, as alterações são mescladas e o portão determinístico valida o conjunto completo com a suíte de testes.
+
+### 5.4 Spawner de Workers Híbrido (`meister/herdr/workers.py`)
+Suporta despachar tanto o worker nativo do MeisterRouter quanto CLIs de terceiros:
 1. **Worker Nativo MeisterRouter (`meister worker --model <luna|gemini_flash>`):**
    * Rápido, headless, consome diretamente a API do OpenRouter.
    * Aplica edições via diffs unificados e executa os testes locais.
 2. **Harness de Terceiros Parametrizado:**
-   * Se o desenvolvedor preferir o Claude Code em modo Haiku ou Codex, o comando despachado no `pane.split` é:
-     `claude --model claude-3-5-haiku-20241022` ou `aider --model openrouter/meta-llama/...`.
+   * Se o modelo configurado exigir uma CLI instalada (ex: Claude Code ou Codex), o comando despachado no `pane.split` respeita o campo `harness` e `model` declarados no `meister.config.yaml`.
 
-### 5.3 Mecanismo de Failover Imediato (Sem Travar o Desenvolvedor)
-Se o modelo primário atingir limites de cota ou falhar:
+### 5.5 Mecanismo de Failover Imediato com Escalonamento Declarativo
+Se qualquer worker falhar por exaustão de cota (HTTP 429/402) ou limite de retries:
+1. O supervisor consulta a lista declarativa `workers.tier_order`.
+2. Identifica o próximo modelo da hierarquia configurada (ex: `luna` -> `gemini_flash` -> `sonnet`).
+3. Interrompe o pane atual com `pane.send_keys("ctrl+c")` e `pane.close`.
+4. Abre o novo pane com o modelo superior e reinjeta o UCE atualizado com o diff pendente.
 
-```mermaid
-flowchart TD
-    WorkerRun["Worker em Execução (Pane 2)"] --> OutputMonitor{"Monitor de Stream & Status Herdr"}
-    
-    OutputMonitor -->|Status 'done'| DeterministicGate["Portão Determinístico (Tests + Gate)"]
-    OutputMonitor -->|Detecta 429 / 402 / Quota| TriggerFailover["Trigger de Failover Imediato"]
-    
-    TriggerFailover --> CaptureStash["Captura git diff & status do Pane 2"]
-    CaptureStash --> KillFailingPane["Envia ctrl+c e fecha Pane 2 (pane.close)"]
-    KillFailingPane --> EscalateTier["Escala Tier no Catálogo (ex: Luna -> Gemini 3.8 Flash)"]
-    EscalateTier --> SpawnNewPane["pane.split com Modelo de Escalação"]
-    SpawnNewPane --> InjectUCE["Reinjeta UCE + Diff Parcial + Alerta de Quota"]
-    InjectUCE --> WorkerRun
-
-    DeterministicGate -->|Pass + Jev COMPLETE| GitCommit["Git Commit + Notificação Herdr"]
-    DeterministicGate -->|Fail + Jev RETRY| InjectTestError["Reinjeta Erro do Teste no Worker"]
-```
-
-### 5.4 Portão Determinístico e Feedback no Herdr (`meister/gate.py`)
+### 5.6 Portão Determinístico e Feedback no Herdr (`meister/gate.py`)
 * Nenhuma tarefa é declarada concluída sem evidência determinística.
 * O portão detecta automaticamente a suíte de testes do repositório (`pytest`, `npm test`, `cargo test`, `vitest`).
 * O resultado é submetido ao `meister control` (TypeSafe Jev Decisions).
