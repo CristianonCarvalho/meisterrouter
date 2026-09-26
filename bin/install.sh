@@ -6,22 +6,40 @@
 
 set -e
 
-# Detecta se está sendo executado a partir de um clone local ou via curl/pipe
+# Detecta se está sendo executado a partir de um clone local, de dentro do npx/node_modules ou via curl/pipe
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || echo "")"
-if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ]; then
+LOCAL_SHARE="${HOME}/.local/share/meisterrouter"
+LOCAL_BIN="${HOME}/.local/bin"
+
+if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ] && [[ "${SCRIPT_DIR}" != *"node_modules"* ]] && [[ "${SCRIPT_DIR}" != *"_npx"* ]]; then
     REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
 else
-    REPO_DIR="${HOME}/.local/share/meisterrouter"
-    echo "📥 Baixando repositório para ${REPO_DIR}..."
+    REPO_DIR="${LOCAL_SHARE}"
+    echo "📥 Instalando MeisterRouter em ${REPO_DIR}..."
     mkdir -p "${REPO_DIR}"
-    if [ -d "${REPO_DIR}/.git" ]; then
-        git -C "${REPO_DIR}" pull --quiet
+
+    if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ]; then
+        # Chamado a partir de pacote npx / npm: copia os arquivos para local permanente
+        SRC_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
+        echo "📋 Copiando arquivos do pacote para armazenamento permanente..."
+        cp -R "${SRC_DIR}/"* "${REPO_DIR}/" 2>/dev/null || true
+    elif [ -d "${REPO_DIR}/.git" ]; then
+        git -C "${REPO_DIR}" pull --quiet 2>/dev/null || true
     else
-        git clone --depth=1 https://github.com/CristianonCarvalho/meisterrouter.git "${REPO_DIR}"
+        # Se gh estiver instalado e logado, usa para clonar repositório privado
+        if command -v gh &> /dev/null && gh auth status &> /dev/null; then
+            echo "🔑 Usando GitHub CLI para acessar repositório..."
+            gh repo clone CristianonCarvalho/meisterrouter "${REPO_DIR}" -- --depth=1
+        elif ! git clone --depth=1 https://github.com/CristianonCarvalho/meisterrouter.git "${REPO_DIR}" 2>/dev/null; then
+            echo "⚠️  Não foi possível clonar via HTTPS público. Tentando via SSH..."
+            git clone --depth=1 git@github.com:CristianonCarvalho/meisterrouter.git "${REPO_DIR}" || {
+                echo "❌ Erro ao baixar o repositório. O repositório é privado."
+                echo "💡 Solução: instale e autentique a GitHub CLI ('gh auth login') ou adicione sua chave SSH ao GitHub."
+                exit 1
+            }
+        fi
     fi
 fi
-
-LOCAL_BIN="${HOME}/.local/bin"
 
 echo "🔮 Instalando MeisterRouter a partir de: ${REPO_DIR}"
 

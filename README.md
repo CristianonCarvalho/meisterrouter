@@ -16,33 +16,55 @@ Ele combina o poder de decisão probabilística do **TypeSafe Jev Decisions API*
 
 Escolha a forma que melhor se adapta ao seu fluxo de trabalho:
 
-### Opção 1: Script Automático (Recomendado — 1 comando)
-Instala automaticamente o ambiente, cria o symlink global `meister` e vincula o plugin ao Herdr se instalado:
+### Opção 1: Script Automático (1 comando)
+
+**Para Repositório Privado (usando GitHub CLI `gh`):**
+```bash
+gh api -H "Accept: application/vnd.github.raw" repos/CristianonCarvalho/meisterrouter/contents/bin/install.sh | bash
+```
+
+> *(Se o repositório for tornado público ou se tiver token de acesso no curl:)*
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-> *Ou dentro de um clone local do repositório:*
+
+> *(Ou dentro de um clone local do repositório:)*
 ```bash
+./bin/install.sh
+```
+*O script detecta automaticamente suas credenciais do GitHub (`gh` ou SSH), cria o ambiente virtual em `~/.local/share/meisterrouter`, configura o comando global `meister` em `~/.local/bin/meister` e vincula o plugin ao Herdr.*
+
+---
+
+### Opção 2: Clone com GitHub CLI ou SSH
+```bash
+# Via GitHub CLI (recomendado para repositórios privados):
+gh repo clone CristianonCarvalho/meisterrouter
+cd meisterrouter
+./bin/install.sh
+
+# Ou via Git SSH:
+git clone git@github.com:CristianonCarvalho/meisterrouter.git
+cd meisterrouter
 ./bin/install.sh
 ```
 
 ---
 
-### Opção 2: Via NPX ou NPM (Ecossistema Node.js)
-Você pode executar diretamente via **NPX** sem instalar nada previamente:
+### Opção 3: Ecossistema Node.js / NPM
+Se preferir utilizar através do Node.js:
 ```bash
-npx CristianonCarvalho/meisterrouter init --target .
+# Instalação global a partir do repositório privado:
+npm install -g git+ssh://git@github.com/CristianonCarvalho/meisterrouter.git
+
+# Ou diretamente no diretório clonado:
+npm install -g .
 ```
-Ou instalar globalmente via **NPM**:
-```bash
-npm install -g CristianonCarvalho/meisterrouter
-meister --help
-```
-*(O runner Node.js gerencia o bootstrap do runtime Python de forma transparente)*.
+*(O runner Node.js em `bin/cli.js` gerencia o runtime e bootstrap do Python automaticamente)*.
 
 ---
 
-### Opção 3: Como Plugin Oficial do Herdr
+### Opção 4: Como Plugin Oficial do Herdr
 O MeisterRouter possui integração nativa de primeira classe com o multiplexador de agentes **Herdr**:
 ```bash
 # Vincular repositório local ao Herdr:
@@ -57,7 +79,7 @@ herdr plugin link ~/.local/share/meisterrouter
 
 ---
 
-### Opção 4: Instalação Manual com Python (Pip / Venv)
+### Opção 5: Instalação Manual com Python (Pip / Venv)
 ```bash
 git clone https://github.com/CristianonCarvalho/meisterrouter.git
 cd meisterrouter

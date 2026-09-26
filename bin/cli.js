@@ -11,12 +11,15 @@ const fs = require('fs');
 const os = require('os');
 
 const rootDir = path.resolve(__dirname, '..');
+const isNodeModules = rootDir.includes('node_modules') || rootDir.includes('_npx');
 const localVenvBin = path.join(rootDir, '.venv', 'bin', 'meister');
+const shareVenvBin = path.join(os.homedir(), '.local', 'share', 'meisterrouter', '.venv', 'bin', 'meister');
 const userLocalBin = path.join(os.homedir(), '.local', 'bin', 'meister');
 
 function findMeister() {
-  if (fs.existsSync(localVenvBin)) return localVenvBin;
+  if (!isNodeModules && fs.existsSync(localVenvBin)) return localVenvBin;
   if (fs.existsSync(userLocalBin)) return userLocalBin;
+  if (fs.existsSync(shareVenvBin)) return shareVenvBin;
 
   const whichCmd = os.platform() === 'win32' ? 'where' : 'which';
   const res = spawnSync(whichCmd, ['meister'], { encoding: 'utf8' });
