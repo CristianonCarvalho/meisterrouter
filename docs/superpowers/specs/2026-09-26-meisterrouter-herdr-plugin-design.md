@@ -184,3 +184,62 @@ stateDiagram-v2
 ### 4.3 Tolerância a Falhas e Recuperação de Queda de Conexão
 * Se o daemon do MeisterRouter cair, o Herdr mantém todos os terminais e agentes intactos.
 * Ao reiniciar (`meister daemon --start`), o cliente reconecta ao `HERDR_SOCKET_PATH`, chama `agent.list` e `pane.list`, reidratando a topologia ativa sem interromper os processos em andamento.
+
+---
+
+## 5. Ciclo de Orquestração, Handoff e Failover Automático
+
+Nesta seção definimos o fluxo de dados, a troca de contexto entre modelos e o mecanismo de contingência.
+
+### 5.1 O Envelope de Contexto Unificado (*Unified Context Envelope - UCE*)
+Para que um modelo econômico (ex: GPT-6 Luna) possa implementar o que um modelo arquiteto (ex: Claude Sonnet) planejou sem alucinar, o MeisterRouter compila o **UCE**:
+
+```python
+@dataclass
+class UnifiedContextEnvelope:
+    task_id: str
+    architect_model: str
+    objective: str
+    actionable_steps: list[str]
+    target_files: list[str]
+    verification_commands: list[str]
+    git_base_sha: str
+    accumulated_diff: str = ""
+    retry_count: int = 0
+```
+
+### 5.2 Spawner de Workers Híbrido (`meister/herdr/workers.py`)
+Conforme definido anteriormente, suportamos tanto o worker nativo do MeisterRouter quanto CLIs de terceiros:
+1. **Worker Nativo MeisterRouter (`meister worker --model <luna|gemini_flash>`):**
+   * Rápido, headless, consome diretamente a API do OpenRouter.
+   * Aplica edições via diffs unificados e executa os testes locais.
+2. **Harness de Terceiros Parametrizado:**
+   * Se o desenvolvedor preferir o Claude Code em modo Haiku ou Codex, o comando despachado no `pane.split` é:
+     `claude --model claude-3-5-haiku-20241022` ou `aider --model openrouter/meta-llama/...`.
+
+### 5.3 Mecanismo de Failover Imediato (Sem Travar o Desenvolvedor)
+Se o modelo primário atingir limites de cota ou falhar:
+
+```mermaid
+flowchart TD
+    WorkerRun["Worker em Execução (Pane 2)"] --> OutputMonitor{"Monitor de Stream & Status Herdr"}
+    
+    OutputMonitor -->|Status 'done'| DeterministicGate["Portão Determinístico (Tests + Gate)"]
+    OutputMonitor -->|Detecta 429 / 402 / Quota| TriggerFailover["Trigger de Failover Imediato"]
+    
+    TriggerFailover --> CaptureStash["Captura git diff & status do Pane 2"]
+    CaptureStash --> KillFailingPane["Envia ctrl+c e fecha Pane 2 (pane.close)"]
+    KillFailingPane --> EscalateTier["Escala Tier no Catálogo (ex: Luna -> Gemini 3.8 Flash)"]
+    EscalateTier --> SpawnNewPane["pane.split com Modelo de Escalação"]
+    SpawnNewPane --> InjectUCE["Reinjeta UCE + Diff Parcial + Alerta de Quota"]
+    InjectUCE --> WorkerRun
+
+    DeterministicGate -->|Pass + Jev COMPLETE| GitCommit["Git Commit + Notificação Herdr"]
+    DeterministicGate -->|Fail + Jev RETRY| InjectTestError["Reinjeta Erro do Teste no Worker"]
+```
+
+### 5.4 Portão Determinístico e Feedback no Herdr (`meister/gate.py`)
+* Nenhuma tarefa é declarada concluída sem evidência determinística.
+* O portão detecta automaticamente a suíte de testes do repositório (`pytest`, `npm test`, `cargo test`, `vitest`).
+* O resultado é submetido ao `meister control` (TypeSafe Jev Decisions).
+* Aprovado o commit, o MeisterRouter exibe um aviso nativo no Herdr usando a API `notification.show(message="Tarefa implementada e verificada com sucesso!")`.
