@@ -41,6 +41,7 @@ env/
 logs/
 *.jsonl
 !tests/fixtures/*.jsonl
+.meister/
 
 # IDE / Editor files
 .DS_Store

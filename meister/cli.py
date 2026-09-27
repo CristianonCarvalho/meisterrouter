@@ -264,13 +264,39 @@ def test():
 @click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
 @click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
 @click.option("--cwd", default=None, help="Diretório de trabalho")
-def worker(model, task, files, cwd):
+@click.option("--pane/--no-pane", default=True, help="Abrir terminal lateral visível no Herdr se disponível")
+@click.option("--run-id", default=None, hidden=True, help="ID interno de execução do worker em pane")
+def worker(model, task, files, cwd, pane, run_id):
     """Inicia worker nativo do MeisterRouter."""
-    from meister.worker import execute_worker_task, run_worker_interactive_loop
+    from meister.worker import (
+        execute_worker_task,
+        run_worker_interactive_loop,
+        is_herdr_available,
+        run_worker_in_herdr_pane,
+    )
+    import json
+    import time
 
     target_files = [f.strip() for f in files.split(",")] if files else None
 
     if task:
+        # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre um terminal visível
+        in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
+        should_split = pane and not in_pane and is_herdr_available()
+
+        if should_split:
+            click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+            try:
+                res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=cwd)
+                status = res.get("status", "done")
+                click.echo(f"Worker task finished in Herdr pane. Status: {status}")
+                if res.get("modified_files"):
+                    click.echo(f"Modified files: {res['modified_files']}")
+                return
+            except Exception as e:
+                click.echo(f"Aviso: Não foi possível abrir pane no Herdr ({e}). Executando diretamente...", err=True)
+
+        # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
         click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
         try:
             res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd)
@@ -278,8 +304,28 @@ def worker(model, task, files, cwd):
             click.echo(f"Worker task finished. Status: {status}")
             if res.get("modified_files"):
                 click.echo(f"Modified files: {res['modified_files']}")
+
+            # Se estiver rodando dentro de um pane criado pelo Herdr, grava o arquivo de resultado para o pai
+            if run_id:
+                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+                runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
+                os.makedirs(runs_dir, exist_ok=True)
+                result_file = os.path.join(runs_dir, f"{run_id}.json")
+                with open(result_file, "w", encoding="utf-8") as f:
+                    json.dump(res, f, ensure_ascii=False, indent=2)
+                click.echo("\n🏁 Execução do worker finalizada. O pane será fechado em 3 segundos...")
+                time.sleep(3.0)
+
         except Exception as e:
             click.echo(f"Worker failed: {e}", err=True)
+            if run_id:
+                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+                runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
+                os.makedirs(runs_dir, exist_ok=True)
+                result_file = os.path.join(runs_dir, f"{run_id}.json")
+                with open(result_file, "w", encoding="utf-8") as f:
+                    json.dump({"status": "error", "error": str(e)}, f, ensure_ascii=False, indent=2)
+                time.sleep(3.0)
             sys.exit(1)
     else:
         click.echo(f"MeisterRouter worker starting with tier/model: {model}")

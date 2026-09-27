@@ -118,8 +118,25 @@ def test_cli_worker_with_task_flag(tmp_path):
     with patch("meister.worker.execute_worker_task", return_value=mock_result) as mock_exec:
         result = runner.invoke(
             main,
-            ["worker", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--no-pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Status: done" in result.output
         mock_exec.assert_called_once()
+
+
+def test_cli_worker_with_pane_dispatch(tmp_path):
+    runner = CliRunner()
+    mock_result = {
+        "status": "done",
+        "modified_files": ["app.py"],
+    }
+    with patch("meister.worker.is_herdr_available", return_value=True), \
+         patch("meister.worker.run_worker_in_herdr_pane", return_value=mock_result) as mock_pane:
+        result = runner.invoke(
+            main,
+            ["worker", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+        )
+        assert result.exit_code == 0
+        assert "Worker task finished in Herdr pane" in result.output
+        mock_pane.assert_called_once()
