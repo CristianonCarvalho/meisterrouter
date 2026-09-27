@@ -11,14 +11,16 @@ Para toda tarefa de engenharia:
 
 ## 02. Catálogo e Papéis dos Modelos
 
-| Modelo | Papel Principal | Benchmark Artificial Analysis | Custo / 1M tokens |
+| Modelo | Papel Principal | Harness / Executável | Custo / 1M tokens |
 |---|---|---|---|
-| **GPT-6 Luna (medium)** | **Implementador Primário (Worker)** | Intelligence: 29 \| Automation: 40% | **$0.077** (Líder Absoluto de Custo) |
-| **Claude 4.5 Haiku** | **Implementador Secundário** | Intelligence: 17 \| Automation: 3% | $0.77 |
-| **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Intelligence: 40 \| Terminal-Bench: 20% | $0.5775 (Líder em Código Difícil) |
-| **Claude Sonnet 5** | **Arquiteto / Orquestrador Geral** | Intelligence: 28 \| SciCode: 52% | $1.54 |
-| **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Intelligence: 35 | $15.00 |
-| **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | Modelo Tipado de Decisão | $0.50 |
+| **GPT-6 Luna (medium)** | **Implementador Primário (Worker)** | Codex CLI (`codex`) | **$0.077** (Líder Absoluto de Custo) |
+| **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $0.5775 (Líder em Código Difícil) |
+| **Claude 4.5 Haiku** | **Implementador Secundário** | Claude CLI (`claude`) | $0.77 |
+| **Claude Sonnet 5** | **Arquiteto / Orquestrador Geral** | Claude CLI (`claude`) | $1.54 |
+| **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $15.00 |
+| **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.50 |
+
+> 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`).
 
 ## 03. Fluxo de Trabalho Obrigatório do Agente
 

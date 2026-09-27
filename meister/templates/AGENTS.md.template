@@ -3,10 +3,15 @@
 This project uses **MeisterRouter** for deterministic, cost-optimized multi-model software engineering.
 
 ## Fundamental Principles
-1. **Decision Separation:** Coding models write code; **TypeSafe Jev** (`typesafe/jev-1.13`) makes routing, retry, and completion decisions.
+1. **Decision Separation & OpenRouter Boundary:**
+   - **TypeSafe Jev** (`typesafe/jev-1.13` via OpenRouter) is EXCLUSIVELY used for deterministic state machine decisions (`meister classify`, `meister control`). OpenRouter is NEVER used for worker code generation.
+   - All coding workers execute through their dedicated local agent harnesses:
+     - **Codex Harness** (`codex` CLI): runs GPT-6 Luna or OpenAI models locally.
+     - **Antigravity Harness** (`agy` CLI): runs Gemini 3.8 Flash models locally.
+     - **Claude Harness** (`claude` CLI): runs Claude Haiku / Sonnet models locally.
 2. **Cost-Optimized Tiering & Mandatory Fallback:**
-   - Default Implementer: **GPT-6 Luna** ($0.077/M tokens) or **Gemini 3.8 Flash** ($0.577/M tokens).
-   - Deep Reasoning / Escalation: **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
+   - Default Implementer: **Codex / Luna** (`codex` CLI, $0.077/M tokens) or **Antigravity / Gemini 3.8 Flash** (`agy` CLI, $0.577/M tokens).
+   - Deep Reasoning / Escalation: **Antigravity / Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
    - Maximum Escalation: **Claude Sonnet 5** / **Claude Opus 5.5**.
    - ⚠️ **Zero Direct Implementation by Orchestrator:** If the recommended implementer (e.g. Luna) is inactive or unavailable, the orchestrator MUST NOT write code. It must dispatch immediately to **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
 3. **Deterministic Evidence:** Evidence from tests, linters, and git diff always precedes completion declarations.
@@ -19,7 +24,7 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
 1. meister classify --context "<task>"  ──► [Returns: classification + recommended implementer]
        │
        ▼
-2. Dispatch code implementation to worker (ZERO direct implementation by orchestrator):
+2. Dispatch code implementation to worker harness (ZERO direct implementation by orchestrator):
    • Primary: meister worker --model luna --task "<task>" [--files "<files>"]
    • If Luna fails/inactive, escalate immediately:
      meister worker --model gemini_flash --task "<task>" [--files "<files>"]
@@ -33,7 +38,7 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
        ▼
 4. meister control --diff-summary "<diff>" --test-result pass|fail
        │
-       ├─► COMPLETE  ──► Git Commit & Done
+       ├─► COMPLETE  ──► Git Commit & Done (Worker pane auto-closes)
        ├─► RETRY     ──► Switch implementer or retry code
        └─► ESCALATE  ──► Elevate reasoning level
 ```

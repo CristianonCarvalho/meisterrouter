@@ -6,17 +6,72 @@ from click.testing import CliRunner
 from meister.cli import main
 from meister.worker import (
     resolve_worker_model,
+    resolve_worker_harness_and_model,
+    find_cli_binary,
+    build_harness_command,
     parse_and_apply_file_edits,
     execute_worker_task,
     NativeWorker,
+    HarnessWorker,
+    HARNESS_CODEX,
+    HARNESS_ANTIGRAVITY,
+    HARNESS_CLAUDE,
 )
 
 
 def test_resolve_worker_model():
-    assert resolve_worker_model("luna") == "openai/gpt-6-luna"
-    assert resolve_worker_model("gemini_flash") == "google/gemini-2.5-flash"
-    assert resolve_worker_model("haiku") == "anthropic/claude-3-5-haiku-20241022"
+    assert resolve_worker_model("luna") == "gpt-6-luna"
+    assert resolve_worker_model("gemini_flash") == "gemini-3.8-flash-high"
+    assert resolve_worker_model("haiku") == "claude-3-5-haiku-20241022"
     assert resolve_worker_model("custom/model:free") == "custom/model:free"
+
+
+def test_resolve_worker_harness_and_model():
+    # Codex mappings
+    h, m = resolve_worker_harness_and_model("luna")
+    assert h == HARNESS_CODEX
+    assert m == "gpt-6-luna"
+
+    h, m = resolve_worker_harness_and_model("codex")
+    assert h == HARNESS_CODEX
+
+    # Antigravity mappings
+    h, m = resolve_worker_harness_and_model("gemini_flash")
+    assert h == HARNESS_ANTIGRAVITY
+    assert m == "gemini-3.8-flash-high"
+
+    h, m = resolve_worker_harness_and_model("antigravity")
+    assert h == HARNESS_ANTIGRAVITY
+    assert m == "gemini-3.8-flash-high"
+
+    # Claude mappings
+    h, m = resolve_worker_harness_and_model("haiku")
+    assert h == HARNESS_CLAUDE
+    assert m == "claude-3-5-haiku-20241022"
+
+    h, m = resolve_worker_harness_and_model("sonnet")
+    assert h == HARNESS_CLAUDE
+    assert m == "claude-3-7-sonnet"
+
+
+def test_build_harness_command():
+    cmd_codex = build_harness_command(HARNESS_CODEX, "/bin/codex", "gpt-6-luna", "fix code", "/tmp")
+    assert cmd_codex[0] == "/bin/codex"
+    assert cmd_codex[1] == "exec"
+    assert "--dangerously-bypass-approvals-and-sandbox" in cmd_codex
+    assert "-C" in cmd_codex
+
+    cmd_agy = build_harness_command(HARNESS_ANTIGRAVITY, "/bin/agy", "gemini-3.8-flash-high", "fix code", "/tmp")
+    assert cmd_agy[0] == "/bin/agy"
+    assert "--dangerously-skip-permissions" in cmd_agy
+    assert "--model" in cmd_agy
+    assert "gemini-3.8-flash-high" in cmd_agy
+    assert "-p" in cmd_agy
+
+    cmd_claude = build_harness_command(HARNESS_CLAUDE, "/bin/claude", "claude-3-5-haiku-20241022", "fix code", "/tmp")
+    assert cmd_claude[0] == "/bin/claude"
+    assert "--dangerously-skip-permissions" in cmd_claude
+    assert "-p" in cmd_claude
 
 
 def test_parse_and_apply_file_edits(tmp_path):
@@ -55,56 +110,38 @@ def test_native_worker_execute_task_success(tmp_path):
     target_file = tmp_path / "test.txt"
     target_file.write_text("old content")
 
-    mock_llm_response = {
-        "choices": [
-            {
-                "message": {
-                    "content": "```file:test.txt\nnew content\n```\nDone."
-                }
-            }
-        ],
-        "usage": {
-            "total_tokens": 42
-        }
-    }
+    mock_process = MagicMock()
+    mock_process.stdout = ["Applying updates via codex\n", "Done\n"]
+    mock_process.wait.return_value = 0
 
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = mock_llm_response
-    mock_resp.raise_for_status = MagicMock()
-
-    with patch("requests.post", return_value=mock_resp) as mock_post, \
-         patch("meister.worker.get_api_key", return_value="sk-or-test-key"):
+    with patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
+         patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"), \
+         patch("meister.worker.get_git_status_files", side_effect=[set(), {"test.txt"}]):
         worker = NativeWorker(model="luna", cwd=str(tmp_path))
         result = worker.run_task("Update test.txt to say new content", target_files=["test.txt"])
 
         assert result["status"] == "done"
+        assert result["harness"] == HARNESS_CODEX
         assert "test.txt" in result["modified_files"]
-        assert target_file.read_text() == "new content\n"
 
-        # Check call arguments
-        mock_post.assert_called_once()
-        args, kwargs = mock_post.call_args
-        assert kwargs["json"]["model"] == "openai/gpt-6-luna"
-        assert "Authorization" in kwargs["headers"]
-        assert kwargs["headers"]["Authorization"] == "Bearer sk-or-test-key"
+        # Ensure subprocess was called with codex exec and NO openrouter calls
+        mock_popen.assert_called_once()
+        cmd_called = mock_popen.call_args[0][0]
+        assert cmd_called[0] == "/mock/bin/codex"
+        assert "exec" in cmd_called
 
 
-def test_native_worker_handles_quota_429(tmp_path):
-    mock_resp = MagicMock()
-    mock_resp.status_code = 429
-    mock_resp.text = '{"error": {"code": 429, "message": "Rate limit / quota exceeded"}}'
+def test_native_worker_handles_failure(tmp_path):
+    mock_process = MagicMock()
+    mock_process.stdout = ["Error: rate limit / quota exceeded\n"]
+    mock_process.wait.return_value = 1
 
-    import requests
-    http_error = requests.exceptions.HTTPError(response=mock_resp)
-    mock_resp.raise_for_status.side_effect = http_error
-
-    with patch("requests.post", return_value=mock_resp), \
-         patch("meister.worker.get_api_key", return_value="sk-or-test-key"):
+    with patch("subprocess.Popen", return_value=mock_process), \
+         patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"):
         worker = NativeWorker(model="luna", cwd=str(tmp_path))
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(RuntimeError) as exc_info:
             worker.run_task("Do something")
-        assert "429" in str(exc_info.value) or "Rate limit" in str(exc_info.value)
+        assert "failed with exit code 1" in str(exc_info.value)
 
 
 def test_cli_worker_with_task_flag(tmp_path):

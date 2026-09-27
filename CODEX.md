@@ -6,14 +6,15 @@ This codebase is governed by the **MeisterRouter** framework. You are operating 
 Never blindly implement code or make unverified assumptions without passing through the deterministic control loop.
 All task sizing, subagent routing, and exit evaluations are governed by **TypeSafe Jev Decisions API** (`typesafe/jev-1.13`).
 
-## 02. Multi-Model Matrix
-
-| Model | Assigned Role | Capabilities | Cost / 1M tokens |
+| Model | Assigned Role | Local Harness / Executable | Cost / 1M tokens |
 |---|---|---|---|
-| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Intelligence: 29 \| Automation: 40% | **$0.077** (90% savings) |
-| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Intelligence: 40 \| Terminal-Bench: 20% | $0.5775 (Heavy Lift) |
-| **OpenAI Codex / GPT-4o** | **Architect & Plan Supervisor** | Intelligence: 30 \| SciCode: 50% | $2.50 / $10.00 |
-| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | Typed Probabilistic Decisions | $0.50 |
+| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Codex CLI (`codex`) | **$0.077** (90% savings) |
+| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Antigravity CLI (`agy`) | $0.5775 (Heavy Lift) |
+| **Claude 4.5 Haiku** | **Secondary Implementer** | Claude CLI (`claude`) | $0.77 |
+| **OpenAI Codex / GPT-4o** | **Architect & Plan Supervisor** | Codex CLI (`codex`) | $2.50 / $10.00 |
+| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | OpenRouter (Decisions Only) | $0.50 |
+
+> 🔒 **OPENROUTER ISOLATION:** OpenRouter is strictly and exclusively used by TypeSafe Jev for deterministic state machine decisions (`classify` and `control`). Workers NEVER call OpenRouter; they run via local harnesses (`codex`, `agy`, `claude`).
 
 ## 03. Agent Execution Lifecycle
 

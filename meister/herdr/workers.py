@@ -114,6 +114,12 @@ class WorkerSpawner:
             cmd = [harness]
             if tier_obj.model:
                 cmd.extend(["--model", tier_obj.model])
+        elif harness in ("antigravity", "agy"):
+            import shutil
+            bin_name = "agy" if shutil.which("agy") else "antigravity"
+            cmd = [bin_name]
+            if tier_obj.model:
+                cmd.extend(["--model", tier_obj.model])
         else:
             cmd = [harness]
             if tier_obj.model:
