@@ -140,9 +140,29 @@ Retorna a ação autorizada:
 - `RETRY`: Tentar novamente.
 - `switch_implementer`: Trocar para o próximo modelo da hierarquia.
 
+### 3. Execução e Delegação de Workers (`worker`)
+
+O MeisterRouter inclui um runner nativo de execução que despacha tarefas diretamente para os modelos via OpenRouter, injeta o contexto dos arquivos do repositório e aplica edições atômicas no disco de forma determinística:
+
+```bash
+# Execução direta com modelo primário de baixo custo (GPT-6 Luna):
+meister worker --model luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+
+# Se o modelo falhar ou estiver inativo, escale imediatamente:
+meister worker --model gemini_flash --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+# ou
+meister worker --model haiku --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+```
+
+> ⚠️ **DIRETIVA CRÍTICA: ZERO IMPLEMENTAÇÃO DIRETA PELO ORQUESTRADOR**
+> Modelos arquitetos (Claude Sonnet 5, OpenAI Codex, GPT-4o) **NUNCA** devem escrever código de implementação diretamente quando um worker estiver configurado.
+> Se o modelo primário recomendado falhar ou estiver inacessível, a regra estrita é a **decaída/escalonamento em cascata**:
+> $$\text{Luna (\$0.077/M)} \longrightarrow \text{Gemini 3.8 Flash (\$0.577/M)} \longrightarrow \text{Claude 4.5 Haiku (\$0.77/M)} \longrightarrow \text{Sonnet/Opus}$$
+> O arquiteto só pode implementar diretamente se **todos** os modelos da cadeia estiverem comprovadamente inacessíveis.
+
 ---
 
-### 3. Orquestração Autônoma Multi-Agente
+### 4. Orquestração Autônoma Multi-Agente (`orchestrate`)
 Execute um ciclo de orquestração autônoma com decomposição em DAG e verificação por portão determinístico:
 ```bash
 meister orchestrate --task "Refatorar camada de cache e cobrir com testes"
@@ -150,7 +170,7 @@ meister orchestrate --task "Refatorar camada de cache e cobrir com testes"
 
 ---
 
-### 4. Painel de Telemetria ao Vivo (Dashboard)
+### 5. Painel de Telemetria ao Vivo (Dashboard)
 
 #### Interface Web:
 Acompanhe os custos, economia gerada e distribuição de modelos no seu navegador:
@@ -167,7 +187,7 @@ meister dashboard --tui
 
 ---
 
-### 5. Consultar Catálogo de Modelos & Benchmarks
+### 6. Consultar Catálogo de Modelos & Benchmarks
 ```bash
 meister models
 ```
@@ -185,6 +205,7 @@ meisterrouter/
 │   └── cli.js                   # Wrapper executável Node.js para NPM / NPX
 ├── meister/
 │   ├── cli.py                   # Interface de linha de comando
+│   ├── worker.py                # Execução nativa de workers com OpenRouter
 │   ├── jev.py                   # Cliente TypeSafe Decisions API (OpenRouter)
 │   ├── orchestrator.py          # Motor de orquestração multi-agente
 │   ├── dag.py                   # Decomposição e resolução de DAG de tarefas

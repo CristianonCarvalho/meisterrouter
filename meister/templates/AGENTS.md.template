@@ -19,7 +19,13 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
 1. meister classify --context "<task>"  ──► [Returns: classification + recommended implementer]
        │
        ▼
-2. Implement code using the recommended implementer tier
+2. Dispatch code implementation to worker (ZERO direct implementation by orchestrator):
+   • Primary: meister worker --model luna --task "<task>" [--files "<files>"]
+   • If Luna fails/inactive, escalate immediately:
+     meister worker --model gemini_flash --task "<task>" [--files "<files>"]
+     or
+     meister worker --model haiku --task "<task>" [--files "<files>"]
+   • Or autonomous orchestration: meister orchestrate --task "<task>"
        │
        ▼
 3. Run test runner, typechecker, and linter

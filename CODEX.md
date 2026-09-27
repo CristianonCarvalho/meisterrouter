@@ -24,15 +24,26 @@ Run before beginning implementation:
 ```
 
 ### Phase 2: Implementation Delegation
-- For `SMALL` or `MEDIUM` tasks: Use low-cost execution (**GPT-6 Luna**, **Gemini 3.8 Flash**, or **Claude 4.5 Haiku**).
-- For `HIGH` tasks or complex system debugging: Use **Gemini 3.8 Flash**.
-- Independent files/subtasks must be processed in parallel across worker sessions.
+Invoke the recommended worker using the MeisterRouter CLI:
+```bash
+# 1. Primary execution via recommended worker:
+meister worker --model luna --task "<task description>" [--files "<comma_separated_files>"]
 
-> ⚠️ **CRITICAL DIRECTIVE: ORCHESTRATOR MUST NEVER IMPLEMENT DIRECTLY**
+# 2. IF the recommended model fails or is inactive, ESCALATE IMMEDIATELY:
+meister worker --model gemini_flash --task "<task description>" [--files "<files>"]
+# or
+meister worker --model haiku --task "<task description>" [--files "<files>"]
+
+# 3. Or delegate full cycle to autonomous orchestrator:
+meister orchestrate --task "<task description>"
+```
+
+> ⚠️ **CRITICAL DIRECTIVE: ZERO DIRECT IMPLEMENTATION BY ORCHESTRATOR**
 > If the recommended implementer (e.g. **Luna**) is inactive, unavailable, or errors:
 > 1. **DO NOT write the implementation code yourself as the architect.**
 > 2. **Immediately fallback to the next tier:** delegate to **Gemini 3.8 Flash** (`gemini_flash`) or **Claude 4.5 Haiku** (`haiku`).
-> 3. Only if all workers are provably unavailable may the orchestrator implement directly, explicitly stating why.
+> 3. If Gemini fails, delegate to Haiku; if Haiku fails, escalate to Sonnet/Opus.
+> 4. Only if all workers in the fallback chain are provably unavailable may the orchestrator implement directly, explicitly stating why.
 
 ### Phase 3: Deterministic Evidence Collection
 ```bash

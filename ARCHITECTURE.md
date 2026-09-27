@@ -62,7 +62,31 @@ O Jev opera sem texto livre (sem geração conversacional), aceitando apenas esq
 - **`switch_implementer: true`**: Quando o implementador de menor custo (ex: Luna/Haiku) falha e deve ser substituído pelo modelo de raciocínio profundo (**Gemini 3.8 Flash**).
 - **`should_escalate: true`**: Quando a complexidade da tarefa foi subestimada e exige raciocínio de nível superior (Sonnet Alto ou Opus).
 
-## 3. Matriz Econômica e Eficiência
+## 3. Worker Execution Engine & Hierarquia de Fallback
+
+O MeisterRouter implementa o módulo `meister.worker` (`NativeWorker`), eliminando a necessidade de implementações manuais pelo modelo arquiteto:
+
+```
+[Invocação Worker]
+       │
+       ▼
+1. Worker Primário: GPT-6 Luna ($0.077/M tokens)
+       │  (se indisponível, timeout ou erro 400/404/rate-limit)
+       ▼
+2. Escalonamento Imediato: Gemini 3.8 Flash ($0.577/M tokens)
+       │  (se indisponível ou falha)
+       ▼
+3. Worker Secundário: Claude 4.5 Haiku ($0.77/M tokens)
+       │  (se indisponível)
+       ▼
+4. Escalonamento Máximo: Claude Sonnet 5 / Claude Opus 5.5
+```
+
+### Regra Estrita: Zero Implementação Direta pelo Orquestrador
+- **Anti-pattern:** O modelo arquiteto (ex.: Sonnet 5 no Claude Code ou Codex no terminal) propor: *"Como Luna falhou, eu mesmo implemento o código agora"*. Isso destrói o ganho de custo-eficiência de 93%.
+- **Pattern Correto:** O arquiteto delega imediatamente ao próximo modelo da cadeia via `meister worker --model gemini_flash` ou `meister worker --model haiku`. A implementação direta pelo arquiteto só é permitida se **todos** os tiers de workers estiverem comprovadamente inacessíveis.
+
+## 4. Matriz Econômica e Eficiência
 
 Comparativo de execução para 500 tarefas mensais:
 
