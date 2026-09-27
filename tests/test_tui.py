@@ -95,6 +95,14 @@ def test_run_tui_loop_interactive_keys():
         open_mock.assert_called_once()
 
 
+@pytest.mark.parametrize("exit_key", ["q", "Q", "x", "X", "\x1b", "\x03", "\x04"])
+def test_run_tui_loop_exit_keys(exit_key):
+    with patch("meister.herdr.tui.check_key_press", side_effect=[exit_key]), \
+         patch("meister.herdr.tui.render_tui_dashboard", return_value="OUTPUT"), \
+         patch("meister.herdr.tui.get_live_metrics_and_state", return_value=({}, {})):
+        run_tui_loop(poll_interval=0.5, max_iterations=10)
+
+
 def test_cli_dashboard_tui_invocation():
     runner = CliRunner()
     with patch("meister.herdr.tui.run_tui_loop") as mock_tui_loop:

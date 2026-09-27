@@ -114,7 +114,7 @@ def render_tui_dashboard(session_state: Optional[Dict[str, Any]] = None,
     lines.append(f"{CYAN}╠{'═' * (width - 2)}╣{RESET}")
 
     # Section 4: Key Shortcuts & Controls
-    shortcuts = "[Q] to close overlay | [O] to open web browser dashboard"
+    shortcuts = "[Q] to close overlay (or Esc) | [O] to open web browser dashboard"
     lines.append(f"{CYAN}║{RESET} {DIM}{shortcuts:^{inner_width}}{RESET} {CYAN}║{RESET}")
     lines.append(f"{CYAN}╚{'═' * (width - 2)}╝{RESET}")
 
@@ -192,7 +192,7 @@ def open_browser(url: str = "http://127.0.0.1:5050") -> None:
         pass
 
 
-def check_key_press() -> Optional[str]:
+def check_key_press(timeout: float = 0.0) -> Optional[str]:
     """
     Non-blocking check for a single key press from stdin.
     Returns character if pressed, or None.
@@ -202,16 +202,26 @@ def check_key_press() -> Optional[str]:
 
     try:
         fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
+        orig = termios.tcgetattr(fd)
+        is_canonical = bool(orig[3] & termios.ICANON)
+        if is_canonical:
+            tty.setcbreak(fd)
+
         try:
-            tty.setraw(fd)
-            rlist, _, _ = select.select([sys.stdin], [], [], 0)
+            rlist, _, _ = select.select([sys.stdin], [], [], timeout)
             if rlist:
                 ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    r2, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if r2:
+                        sys.stdin.read(2)
+                        return None
+                    return "\x1b"
                 return ch
             return None
         finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            if is_canonical:
+                termios.tcsetattr(fd, termios.TCSADRAIN, orig)
     except Exception:
         return None
 
@@ -225,6 +235,17 @@ def run_tui_loop(poll_interval: float = 1.0,
         poll_interval: Seconds between screen refreshes.
         max_iterations: Optional loop limit (useful for testing).
     """
+    old_settings = None
+    fd = None
+    if sys.stdin.isatty():
+        try:
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        except Exception:
+            old_settings = None
+            fd = None
+
     iterations = 0
     try:
         while True:
@@ -242,18 +263,26 @@ def run_tui_loop(poll_interval: float = 1.0,
 
             # Poll for key press during interval
             start_time = time.monotonic()
-            while time.monotonic() - start_time < poll_interval:
-                key = check_key_press()
+            while True:
+                remaining = poll_interval - (time.monotonic() - start_time)
+                if remaining <= 0:
+                    break
+                key = check_key_press(timeout=min(0.2, remaining))
                 if key:
                     key_lower = key.lower()
-                    if key_lower == "q" or key in ("\x1b", "\x03"):
+                    if key_lower in ("q", "x") or key in ("\x1b", "\x03", "\x04"):
                         sys.stdout.write("\nClosing TUI dashboard overlay...\n")
                         sys.stdout.flush()
                         return
                     elif key_lower == "o":
                         open_browser("http://127.0.0.1:5050")
-                time.sleep(0.05)
 
     except (KeyboardInterrupt, SystemExit):
         sys.stdout.write("\nClosing TUI dashboard overlay...\n")
         sys.stdout.flush()
+    finally:
+        if fd is not None and old_settings is not None:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
