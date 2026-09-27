@@ -273,6 +273,14 @@ async def run_worker_in_herdr_pane_async(
     if not pane_id:
         raise RuntimeError("Herdr did not return a valid pane_id on split_pane")
 
+    # Registra o pane ativo para permitir fechamento automático após aprovação no control
+    active_pane_file = os.path.join(resolved_cwd, ".meister", "active_worker_pane.txt")
+    try:
+        with open(active_pane_file, "w", encoding="utf-8") as f:
+            f.write(pane_id)
+    except Exception:
+        pass
+
     # Aguarda o worker terminar no pane lendo o arquivo de resultado
     start = time.monotonic()
     while time.monotonic() - start < timeout:

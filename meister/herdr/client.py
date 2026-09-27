@@ -276,6 +276,11 @@ class HerdrSocketClient:
         """Send SIGINT / Ctrl+C to pane to halt execution or runaway retries."""
         await self.send_keys(pane_id, "ctrl+c")
 
+    async def close_pane(self, pane_id: str) -> Any:
+        """Close a specific terminal pane in Herdr."""
+        params = {"pane_id": pane_id}
+        return await self._call("pane.close", params)
+
     async def subscribe_events(
         self, callback: Callable[[dict], Union[Awaitable[None], None]]
     ) -> None:

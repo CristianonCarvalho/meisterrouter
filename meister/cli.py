@@ -169,7 +169,12 @@ def classify(context, model):
     help="Se altera código sensível à segurança",
 )
 @click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
-def control(diff_summary, test_result, attempts, security_sensitive, model):
+@click.option(
+    "--close-worker/--no-close-worker",
+    default=True,
+    help="Fechar automaticamente o terminal do worker no Herdr se aprovado (COMPLETE)",
+)
+def control(diff_summary, test_result, attempts, security_sensitive, model, close_worker):
     """Executa a decisão de controle do loop do agente."""
     try:
         result = control_cycle(
@@ -180,6 +185,25 @@ def control(diff_summary, test_result, attempts, security_sensitive, model):
             model=model,
         )
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
+
+        # Se a ação for COMPLETE e close_worker for True, fecha o terminal do worker automaticamente
+        if result.get("action") == "COMPLETE" and close_worker:
+            active_pane_file = os.path.join(os.getcwd(), ".meister", "active_worker_pane.txt")
+            if os.path.exists(active_pane_file):
+                try:
+                    with open(active_pane_file, "r", encoding="utf-8") as f:
+                        pane_id = f.read().strip()
+                    if pane_id:
+                        client = get_herdr_client()
+                        if client is not None:
+                            async def _close():
+                                await client.close_pane(pane_id)
+                            asyncio.run(_close())
+                            click.echo(f"🧹 [MeisterRouter] Terminal do worker ({pane_id}) fechado automaticamente após aprovação.")
+                    os.remove(active_pane_file)
+                except Exception as e:
+                    logger.debug("Could not auto-close worker pane: %s", e)
+
     except Exception as e:
         sys.stderr.write(f"Erro no control: {e}\n")
         sys.exit(1)
@@ -313,8 +337,8 @@ def worker(model, task, files, cwd, pane, run_id):
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 with open(result_file, "w", encoding="utf-8") as f:
                     json.dump(res, f, ensure_ascii=False, indent=2)
-                click.echo("\n🏁 Execução do worker finalizada. O pane será fechado em 3 segundos...")
-                time.sleep(3.0)
+                click.echo("\n🏁 [Worker] Código gerado com sucesso.")
+                click.echo("ℹ️ Aguardando verificação determinística e aprovação do orquestrador (meister control)...")
 
         except Exception as e:
             click.echo(f"Worker failed: {e}", err=True)
@@ -325,7 +349,7 @@ def worker(model, task, files, cwd, pane, run_id):
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 with open(result_file, "w", encoding="utf-8") as f:
                     json.dump({"status": "error", "error": str(e)}, f, ensure_ascii=False, indent=2)
-                time.sleep(3.0)
+                click.echo("\n❌ [Worker] Falha na execução da tarefa. Terminal mantido para inspeção de erro.")
             sys.exit(1)
     else:
         click.echo(f"MeisterRouter worker starting with tier/model: {model}")

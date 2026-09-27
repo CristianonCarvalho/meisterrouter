@@ -420,6 +420,11 @@ class HerdrEventBridge:
 
             action = eval_result.get("action", "COMPLETE")
             if action == "COMPLETE":
+                for p_id in list(self.active_workers.keys()):
+                    try:
+                        await self.client.close_pane(p_id)
+                    except Exception as e:
+                        logger.debug("Failed closing worker pane %s: %s", p_id, e)
                 msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
                 await self.client.show_notification(msg)
                 return True
