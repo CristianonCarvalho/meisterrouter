@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# MeisterRouter — Claude Code PreToolUse Guard Hook
+# Bloqueia tentativas do Arquiteto (Sonnet) de editar código diretamente via Edit/Write
+# Exit Code 2 bloqueia a execução da ferramenta no Claude Code.
+# ==============================================================================
+
+# Se a variável de ambiente permitir ou arquivo de override existir, autoriza
+if [ "${MEISTER_ALLOW_ORCHESTRATOR_EDIT}" = "1" ] || [ -f ".meister/allow_orchestrator" ]; then
+    exit 0
+fi
+
+# Bloqueia a execução da ferramenta com Exit Code 2 e mensagem explicativa para o Claude
+cat << 'EOF' >&2
+❌ [MeisterRouter Guard] Edição direta de código bloqueada!
+
+Você está atuando como Orquestrador / Arquiteto (Sonnet 5).
+A diretiva de engenharia de custo mínimo proíbe que você implemente código diretamente.
+
+👉 DESPACHE A TAREFA PARA O WORKER:
+   meister worker --model luna --task "<tarefa>" [--files "<arquivos>"]
+
+👉 SE O LUNA FALHAR OU ESTIVER INATIVO, ESCALE IMEDIATAMENTE:
+   meister worker --model gemini_flash --task "<tarefa>" [--files "<arquivos>"]
+   ou
+   meister worker --model haiku --task "<tarefa>" [--files "<arquivos>"]
+
+(Para permitir excepcionalmente caso todos os workers estejam inacessíveis: touch .meister/allow_orchestrator)
+EOF
+
+exit 2
