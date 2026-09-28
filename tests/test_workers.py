@@ -98,6 +98,11 @@ def test_resolve_command():
     assert "--dangerously-bypass-approvals-and-sandbox" in cmd_codex_task
     assert "write tests" in cmd_codex_task
 
+    # When task_file is provided, native harness resolves to sys.executable run-task
+    import sys
+    cmd_task_file = spawner.resolve_command("luna", task_context={"task_file": "/tmp/test_task.json"})
+    assert cmd_task_file == [sys.executable, "-m", "meister.cli", "run-task", "/tmp/test_task.json"]
+
 
 
 @pytest.mark.asyncio

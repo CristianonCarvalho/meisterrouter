@@ -7,6 +7,7 @@ quota / rate limit detection for rapid failover.
 
 from __future__ import annotations
 
+import sys
 import logging
 import re
 import json
@@ -180,13 +181,17 @@ class WorkerSpawner:
         harness = (tier_obj.harness or "native").strip().lower()
 
         if harness == "native":
-            model_arg = tier_obj.name or tier_obj.model
-            cmd = ["meister", "worker", "--model", model_arg]
-            if task_context and "description" in task_context and task_context["description"]:
-                cmd.extend(["--task", str(task_context["description"])])
-                if "target_files" in task_context and task_context["target_files"]:
-                    files_str = ",".join(str(f) for f in task_context["target_files"])
-                    cmd.extend(["--files", files_str])
+            task_file = task_context.get("task_file") or task_context.get("task_json") if task_context else None
+            if task_file:
+                cmd = [sys.executable, "-m", "meister.cli", "run-task", str(task_file)]
+            else:
+                model_arg = tier_obj.name or tier_obj.model
+                cmd = ["meister", "worker", "--model", model_arg]
+                if task_context and "description" in task_context and task_context["description"]:
+                    cmd.extend(["--task", str(task_context["description"])])
+                    if "target_files" in task_context and task_context["target_files"]:
+                        files_str = ",".join(str(f) for f in task_context["target_files"])
+                        cmd.extend(["--files", files_str])
         elif harness == "claude":
             cmd = ["claude"]
             if task_context and "description" in task_context and task_context["description"]:
