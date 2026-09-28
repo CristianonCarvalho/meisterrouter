@@ -696,21 +696,22 @@ class HerdrEventBridge:
 
         sm = self.get_state_manager()
         run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=os.getcwd())
-        self.current_run_id = run_record["run_id"]
-        sm.transition_run(self.current_run_id, to_state=RunState.RUNNING)
+        run_id: str = str(run_record["run_id"])
+        self.current_run_id = run_id
+        sm.transition_run(run_id, to_state=RunState.RUNNING)
         log_event(
             event_type="orchestration_start",
-            run_id=self.current_run_id,
+            run_id=run_id,
             task_id="orchestrator",
             task=task or raw_plan[:200],
         )
-        sm.add_subtasks(self.current_run_id, steps)
-        sm.recover_stranded_tasks(self.current_run_id)
+        sm.add_subtasks(run_id, steps)
+        sm.recover_stranded_tasks(run_id)
 
         logger.info(
             "Parsed %d actionable steps for run %s from architect pane %s in workspace %s",
             len(steps),
-            self.current_run_id,
+            run_id,
             architect_pane_id,
             workspace_id,
         )
@@ -726,7 +727,7 @@ class HerdrEventBridge:
                 wt_mgr = WorktreeManager(repo_root=os.getcwd())
                 wt_mgr.cleanup_orphans()
                 pipeline = IntegrationPipeline(wt_mgr, gate=self.gate)
-                pipeline.start_integration(self.current_run_id)
+                pipeline.start_integration(run_id)
                 self._integration_pipeline = pipeline
             except Exception as e:
                 logger.warning("Não foi possível inicializar pipeline de integração: %s", e)
@@ -743,7 +744,7 @@ class HerdrEventBridge:
                     logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
                     msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
                     await self.client.show_notification(msg)
-                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    sm.transition_run(run_id, to_state=RunState.FAILED)
                     return False
                 diff_summary = self._integration_pipeline.get_integration_diff_summary()
             else:
@@ -756,7 +757,7 @@ class HerdrEventBridge:
                     logger.warning("Deterministic quality gate failed: test verification did not pass.")
                     msg = "MeisterRouter: Plan executed but quality gate test verification failed."
                     await self.client.show_notification(msg)
-                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    sm.transition_run(run_id, to_state=RunState.FAILED)
                     return False
                 diff_summary = gate.get_diff_summary()
 
@@ -772,7 +773,7 @@ class HerdrEventBridge:
                 logger.warning("Deterministic completion rejected with action %s: %s", action, eval_result.get("reason"))
                 msg = f"MeisterRouter: Tasks executed but completion evaluation returned {action}."
                 await self.client.show_notification(msg)
-                sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                sm.transition_run(run_id, to_state=RunState.FAILED)
                 return False
 
             # 3. Fast-forward no repositório principal acontece APENAS após aprovação total
@@ -782,13 +783,13 @@ class HerdrEventBridge:
                     logger.error("Fast-forward na main falhou: %s", ff_msg)
                     msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
                     await self.client.show_notification(msg)
-                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    sm.transition_run(run_id, to_state=RunState.FAILED)
                     return False
 
             # 4. Sucesso confirmado: marca COMPLETED e encerra panes
-            sm.transition_run(self.current_run_id, to_state=RunState.COMPLETED)
+            sm.transition_run(run_id, to_state=RunState.COMPLETED)
             # Fecha todos os active panes registrados em SQLite para esta execução
-            for p_id in sm.get_active_panes(self.current_run_id):
+            for p_id in sm.get_active_panes(run_id):
                 try:
                     await self.client.close_pane(p_id)
                 except Exception as e:
@@ -805,7 +806,7 @@ class HerdrEventBridge:
             await self.client.show_notification(msg)
             log_event(
                 event_type="orchestration_end",
-                run_id=self.current_run_id,
+                run_id=run_id,
                 task_id="orchestrator",
                 exit_code=0,
                 status="completed",
@@ -814,12 +815,12 @@ class HerdrEventBridge:
         else:
             if self._integration_pipeline is not None:
                 self._integration_pipeline.abort_integration()
-            sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+            sm.transition_run(run_id, to_state=RunState.FAILED)
             msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
             await self.client.show_notification(msg)
             log_event(
                 event_type="orchestration_end",
-                run_id=self.current_run_id,
+                run_id=run_id,
                 task_id="orchestrator",
                 exit_code=1,
                 status="failed",

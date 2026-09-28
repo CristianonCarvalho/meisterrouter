@@ -93,3 +93,24 @@ def test_daemon_pid_locking_race_prevention(tmp_path):
     res = runner.invoke(main, ["daemon", "--start", "--pid-file", str(pid_file)])
     assert res.exit_code == 0
     assert "already running" in res.output
+
+
+def test_mypy_floor_and_optional_narrowing():
+    repo_root = Path(__file__).resolve().parent.parent
+    pyproject = (repo_root / "pyproject.toml").read_text(encoding="utf-8")
+    reqs = (repo_root / "requirements.txt").read_text(encoding="utf-8")
+    setup = (repo_root / "setup.py").read_text(encoding="utf-8")
+
+    # Mypy floor must be at least 1.10.0 to prevent Optional narrowing incompatibilities across versions
+    assert "mypy>=1.10.0" in pyproject
+    assert "mypy>=1.10.0" in reqs
+    assert "mypy>=1.10.0" in setup
+    assert "mypy>=1.8.0" not in pyproject
+
+    # Verify logger and bridge narrow Optional variables to avoid mypy 1.10 errors
+    logger_src = (repo_root / "meister" / "logger.py").read_text(encoding="utf-8")
+    bridge_src = (repo_root / "meister" / "herdr" / "bridge.py").read_text(encoding="utf-8")
+
+    assert 'resolved_model: str = str(model or os.environ.get("MEISTER_JEV_MODEL") or "typesafe/jev-1.13")' in logger_src
+    assert 'run_id: str = str(run_record["run_id"])' in bridge_src
+    assert "sm.transition_run(run_id, to_state=RunState.RUNNING)" in bridge_src
