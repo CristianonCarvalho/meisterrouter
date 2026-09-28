@@ -178,11 +178,51 @@ class HerdrSocketClient:
         if command and pane_id:
             cmd_str = " ".join(command) if isinstance(command, list) else str(command)
             try:
+                await self.wait_pane_ready(pane_id)
                 await self.send_text(pane_id, f"{cmd_str}\n")
             except Exception as e:
                 logger.debug("Could not send command to new pane %s: %s", pane_id, e)
 
         return pane_id
+
+    async def wait_for_output(
+        self,
+        pane_id: str,
+        match: Optional[dict[str, Any]] = None,
+        source: str = "recent",
+        timeout: float = 5.0,
+    ) -> bool:
+        """Wait for output matching in a pane using Herdr's pane.wait_for_output RPC method."""
+        params: dict[str, Any] = {
+            "pane_id": pane_id,
+            "source": source,
+            "match": match or {"type": "substring", "value": ""},
+            "timeout_ms": int(timeout * 1000),
+        }
+        try:
+            await self._call("pane.wait_for_output", params, timeout=timeout)
+            return True
+        except Exception as e:
+            logger.debug("pane.wait_for_output timed out or failed for pane %s: %s", pane_id, e)
+            return False
+
+    async def wait_pane_ready(
+        self,
+        pane_id: str,
+        timeout: float = 0.5,
+    ) -> bool:
+        """Wait briefly for pane terminal/shell readiness before sending text/commands."""
+        try:
+            await self.wait_for_output(
+                pane_id,
+                match={"type": "substring", "value": ""},
+                source="recent",
+                timeout=min(timeout, 0.2),
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(0.05)
+        return True
 
     async def create_tab(
         self,

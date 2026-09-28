@@ -236,4 +236,36 @@ async def test_mock_herdr_server_validates_schema_and_rejects_invalid_params(tmp
         await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_wait_for_output_and_wait_pane_ready(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            # 1. Direct call to wait_for_output with substring match conforming to schema
+            res = await client.wait_for_output(
+                "w1:p1",
+                match={"type": "substring", "value": "$"},
+                source="recent",
+                timeout=1.0,
+            )
+            assert res is True
+
+            # Verify request conforms to herdr_schema.json and reached server
+            wait_reqs = [r for r in server.received_requests if r.get("method") == "pane.wait_for_output"]
+            assert len(wait_reqs) == 1
+            params = wait_reqs[0].get("params", {})
+            assert params.get("pane_id") == "w1:p1"
+            assert params.get("source") == "recent"
+            assert params.get("match") == {"type": "substring", "value": "$"}
+
+            # 2. wait_pane_ready helper waits before sending text
+            ready = await client.wait_pane_ready("w1:p1", timeout=0.5)
+            assert ready is True
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
 

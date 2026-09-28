@@ -294,6 +294,8 @@ class WorkerSpawner:
         if cmd and pane_id:
             cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
             try:
+                if hasattr(self.herdr_client, "wait_pane_ready"):
+                    await self.herdr_client.wait_pane_ready(pane_id)
                 await self.herdr_client.send_text(pane_id, f"{cmd_str}\n")
             except Exception as e:
                 logger.debug("Could not send command to new tab pane %s: %s", pane_id, e)

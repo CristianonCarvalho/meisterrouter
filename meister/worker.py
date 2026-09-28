@@ -725,8 +725,9 @@ async def run_worker_in_herdr_tab_async(
     if not pane_id:
         raise RuntimeError("Herdr did not return a valid pane_id on tab.create")
 
-    # Inicia o comando no terminal da tab recém-criada
+    # Inicia o comando no terminal da tab recém-criada após aguardar prontidão do shell
     try:
+        await client.wait_pane_ready(pane_id)
         await client.send_text(pane_id, command_str + "\n")
     except Exception as e:
         logger.debug("Failed sending command to tab pane %s: %s", pane_id, e)
