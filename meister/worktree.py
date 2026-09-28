@@ -349,6 +349,7 @@ class WorktreeManager:
         branch: str,
         task_id: str,
         base_ref: Optional[str] = None,
+        base_commit: Optional[str] = None,
     ) -> Tuple[bool, Optional[str]]:
         """Cria ref de arquivo refs/meister/archive/<task_id>-<timestamp> se houver commits não integrados.
 
@@ -362,7 +363,66 @@ class WorktreeManager:
         except Exception:
             return (True, None)
 
-        base = base_ref or "HEAD"
+        # Se temos o base_commit exato do qual a branch nasceu e o SHA coincide,
+        # a branch não possui nenhum commit próprio.
+        if base_commit and branch_sha == base_commit.strip():
+            logger.debug(
+                "Branch %s não possui commits próprios (SHA coincide com base_commit %s). Arquivamento ignorado.",
+                branch, base_commit[:8],
+            )
+            return (True, None)
+
+        # Se base_ref foi fornecido, verifica se o SHA coincide diretamente com base_ref
+        base_sha = None
+        if base_ref:
+            try:
+                base_sha = self._run_git(["rev-parse", base_ref]).strip()
+            except Exception:
+                base_sha = None
+
+        if base_sha and branch_sha == base_sha:
+            logger.debug(
+                "Branch %s não possui commits próprios (SHA %s coincide com base_ref %s). Arquivamento ignorado.",
+                branch, branch_sha[:8], base_ref,
+            )
+            return (True, None)
+
+        # Se a branch já é ancestral de base_ref, todas as alterações já foram integradas
+        if base_ref:
+            try:
+                res = subprocess.run(
+                    ["git", "merge-base", "--is-ancestor", branch, base_ref],
+                    cwd=self.repo_root,
+                    capture_output=True,
+                )
+                if res.returncode == 0:
+                    logger.debug("Branch %s já está completamente integrada em %s. Arquivamento ignorado.", branch, base_ref)
+                    return (True, None)
+            except Exception:
+                pass
+
+        # Se a branch já é ancestral de HEAD (main), já está integrada no repositório principal
+        try:
+            res = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", branch, "HEAD"],
+                cwd=self.repo_root,
+                capture_output=True,
+            )
+            if res.returncode == 0:
+                logger.debug("Branch %s já está completamente integrada em HEAD. Arquivamento ignorado.", branch)
+                return (True, None)
+        except Exception:
+            pass
+
+        # Determina a referência base correta para contagem de commits não integrados
+        base = None
+        if base_ref and base_sha:
+            base = base_ref
+        elif base_commit:
+            base = base_commit
+        else:
+            base = "HEAD"
+
         try:
             count_str = self._run_git(["rev-list", "--count", f"{base}..{branch}"]).strip()
             count = int(count_str)
@@ -456,8 +516,11 @@ class WorktreeManager:
         if delete_branch:
             can_delete = True
             if archive_unmerged:
-                base_ref = meta_data.get("base_ref") or meta_data.get("base_commit")
-                archive_ok, _ = self._archive_branch_if_unmerged(branch_name, task_id, base_ref=base_ref)
+                base_ref = meta_data.get("base_ref")
+                base_commit = meta_data.get("base_commit")
+                archive_ok, _ = self._archive_branch_if_unmerged(
+                    branch_name, task_id, base_ref=base_ref, base_commit=base_commit
+                )
                 if not archive_ok:
                     can_delete = False
                     success = False
@@ -526,7 +589,7 @@ class WorktreeManager:
             for entry in os.listdir(self.worktrees_dir):
                 if entry.startswith("."):
                     continue
-                if safe_exclude and (entry == f"int_{safe_exclude}" or entry.startswith(f"{safe_exclude}_")):
+                if safe_exclude and entry == f"int_{safe_exclude}":
                     continue
                 wt_path = os.path.abspath(os.path.join(self.worktrees_dir, entry))
                 meta_file = os.path.join(self.metadata_dir, f"{entry}.json")
@@ -566,7 +629,20 @@ class WorktreeManager:
                     task_id = branch.replace("meister/worktree/", "")
                     wt_path = os.path.abspath(os.path.join(self.worktrees_dir, task_id))
                     if wt_path not in git_worktree_paths:
-                        archive_ok, _ = self._archive_branch_if_unmerged(branch, task_id)
+                        meta_file = os.path.join(self.metadata_dir, f"{task_id}.json")
+                        base_ref = None
+                        base_commit = None
+                        if os.path.exists(meta_file):
+                            try:
+                                with open(meta_file, "r", encoding="utf-8") as f:
+                                    m_data = json.load(f)
+                                base_ref = m_data.get("base_ref")
+                                base_commit = m_data.get("base_commit")
+                            except Exception:
+                                pass
+                        archive_ok, _ = self._archive_branch_if_unmerged(
+                            branch, task_id, base_ref=base_ref, base_commit=base_commit
+                        )
                         if archive_ok:
                             try:
                                 self._run_git(["branch", "-D", branch])
@@ -587,7 +663,63 @@ class WorktreeManager:
         except Exception:
             pass
 
+        # Política de retenção simples: limpa refs de arquivo expiradas
+        try:
+            self.prune_archive_refs()
+        except Exception as e:
+            logger.debug("Aviso ao executar prune de refs de arquivo em cleanup_orphans: %s", e)
+
         return cleaned_ids
+
+    def prune_archive_refs(self, max_age_days: int = 7) -> List[str]:
+        """Remove refs de arquivo em refs/meister/archive/* mais antigas que max_age_days.
+
+        Retorna a lista de referências removidas.
+        """
+        pruned: List[str] = []
+        if max_age_days < 0:
+            return pruned
+
+        now = time.time()
+        max_age_seconds = max_age_days * 86400
+
+        try:
+            refs_out = self._run_git(["for-each-ref", "--format=%(refname)", "refs/meister/archive"]).strip()
+            if not refs_out:
+                return pruned
+
+            for ref in refs_out.splitlines():
+                ref = ref.strip()
+                if not ref:
+                    continue
+
+                ref_ts: Optional[float] = None
+                suffix = ref.rsplit("-", 1)[-1]
+                if suffix.isdigit():
+                    try:
+                        ref_ts = float(suffix)
+                    except ValueError:
+                        ref_ts = None
+
+                if ref_ts is None:
+                    try:
+                        date_str = self._run_git(["log", "-1", "--format=%ct", ref]).strip()
+                        if date_str.isdigit():
+                            ref_ts = float(date_str)
+                    except Exception:
+                        ref_ts = None
+
+                if ref_ts is not None and (now - ref_ts) > max_age_seconds:
+                    try:
+                        self._run_git(["update-ref", "-d", ref])
+                        pruned.append(ref)
+                        logger.info("Ref de arquivo expirada removida: %s", ref)
+                    except Exception as e:
+                        logger.warning("Falha ao remover ref de arquivo %s: %s", ref, e)
+        except Exception as e:
+            logger.debug("Aviso durante prune_archive_refs: %s", e)
+
+        return pruned
 
     @staticmethod
     def _is_pid_alive(pid: int) -> bool:

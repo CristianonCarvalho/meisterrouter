@@ -253,3 +253,86 @@ def test_orphan_cleanup_failsafe_when_archive_fails(git_repo, monkeypatch):
     assert "meister/worktree/orphan-fail-archive" in branches
 
 
+def test_cleanup_does_not_archive_branch_without_own_commits_from_non_head_base(git_repo):
+    import json
+    repo_path = str(git_repo)
+    manager = WorktreeManager(repo_root=repo_path)
+
+    # 1. Create an integration branch with a commit ahead of HEAD
+    subprocess.run(["git", "branch", "meister/integration/run1", "HEAD"], cwd=repo_path, check=True)
+    subprocess.run(["git", "checkout", "meister/integration/run1"], cwd=repo_path, check=True)
+    extra_file = os.path.join(repo_path, "calc.py")
+    with open(extra_file, "w") as f:
+        f.write("def mul(a, b): return a * b\n")
+    subprocess.run(["git", "add", "."], cwd=repo_path, check=True)
+    subprocess.run(["git", "commit", "-m", "subtask t1 integrated"], cwd=repo_path, check=True)
+    int_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+    subprocess.run(["git", "checkout", "main"], cwd=repo_path, check=True)
+
+    # 2. Worker t2 is created from meister/integration/run1 (points to int_sha, ahead of HEAD)
+    info_t2 = manager.create_worktree("run1_t2", base_ref="meister/integration/run1")
+    assert info_t2.base_commit == int_sha
+
+    # Simulate dead PID for orphan cleanup
+    meta_file = os.path.join(manager.metadata_dir, "run1_t2.json")
+    with open(meta_file, "r") as f:
+        meta_data = json.load(f)
+    meta_data["pid"] = 99999999
+    with open(meta_file, "w") as f:
+        json.dump(meta_data, f)
+
+    # Delete integration branch to simulate integration branch cleanup before worker cleanup
+    subprocess.run(["git", "branch", "-D", "meister/integration/run1"], cwd=repo_path, check=True)
+
+    # 3. Run orphan cleanup
+    cleaned = manager.cleanup_orphans()
+    assert "run1_t2" in cleaned
+
+    # 4. Check git refs in refs/meister/archive
+    refs_out = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname) %(objectname)", "refs/meister/archive"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    # run1_t2 MUST NOT be archived because it had 0 commits of its own!
+    assert "run1_t2" not in refs_out
+
+
+def test_prune_archive_refs_removes_old_refs(git_repo):
+    import time
+    repo_path = str(git_repo)
+    manager = WorktreeManager(repo_root=repo_path)
+
+    head_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+
+    # Create an old ref (10 days old) and a recent ref (now)
+    old_ts = int(time.time()) - (10 * 86400)
+    recent_ts = int(time.time())
+
+    old_ref = f"refs/meister/archive/old_task-{old_ts}"
+    recent_ref = f"refs/meister/archive/recent_task-{recent_ts}"
+
+    subprocess.run(["git", "update-ref", old_ref, head_sha], cwd=repo_path, check=True)
+    subprocess.run(["git", "update-ref", recent_ref, head_sha], cwd=repo_path, check=True)
+
+    # Prune refs older than 7 days
+    pruned = manager.prune_archive_refs(max_age_days=7)
+    assert old_ref in pruned
+    assert recent_ref not in pruned
+
+    # Verify old_ref was deleted from git and recent_ref remains
+    refs_out = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname)", "refs/meister/archive"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert old_ref not in refs_out
+    assert recent_ref in refs_out
+
+
+
