@@ -35,7 +35,7 @@ HARNESS_ANTIGRAVITY = "antigravity"
 HARNESS_CLAUDE = "claude"
 HARNESS_COPILOT = "copilot"
 
-# Variáveis seguras permitidas para workers locais (Achado #29)
+# Variáveis seguras permitidas para workers locais (Achados #29, E2E-7)
 DEFAULT_SAFE_ENV_VARS = {
     "PATH",
     "HOME",
@@ -55,6 +55,15 @@ DEFAULT_SAFE_ENV_VARS = {
     "CI",
     "VIRTUAL_ENV",
     "PYTHONPATH",
+    "PYTHONHOME",
+    "PYENV_ROOT",
+    "PYENV_VERSION",
+    # Conda environment
+    "CONDA_PREFIX",
+    "CONDA_DEFAULT_ENV",
+    "CONDA_PROMPT_MODIFIER",
+    "CONDA_SHLVL",
+    "CONDA_PYTHON_EXE",
     # Chaves de API autorizadas para harnesses de execução de código
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
@@ -70,6 +79,9 @@ DEFAULT_SAFE_ENV_VARS = {
     "MEISTER_SONNET_MODEL",
     "MEISTER_COPILOT_MODEL",
     "MEISTER_IN_PANE",
+    "MEISTER_CONFIG_PATH",
+    "MEISTER_LOG_DIR",
+    "MEISTER_WORKTREES_DIR",
 }
 
 # Variáveis estritamente proibidas para workers de código (Achado #29: OpenRouter Boundary)
@@ -79,11 +91,31 @@ FORBIDDEN_WORKER_ENV_VARS = {
 
 
 def build_safe_worker_env(extra_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
-    """Constrói um ambiente seguro para workers isolados, filtrando estritamente OPENROUTER_API_KEY (Achado #29)."""
+    """Constrói um ambiente seguro para workers isolados, preservando VIRTUAL_ENV, CONDA_* e filtrando OPENROUTER (Achado #29, E2E-7)."""
     safe_env: Dict[str, str] = {}
     for key, value in os.environ.items():
-        if key in DEFAULT_SAFE_ENV_VARS and "OPENROUTER" not in key:
+        if "OPENROUTER" in key:
+            continue
+        if key in DEFAULT_SAFE_ENV_VARS or key.startswith("CONDA_"):
             safe_env[key] = value
+
+    # Preserva ou infere VIRTUAL_ENV e garante venv/bin ou conda/bin na frente do PATH (E2E-7)
+    venv = safe_env.get("VIRTUAL_ENV") or os.environ.get("VIRTUAL_ENV")
+    active_bin = None
+    if venv:
+        safe_env["VIRTUAL_ENV"] = venv
+        active_bin = os.path.join(venv, "bin")
+    elif safe_env.get("CONDA_PREFIX"):
+        active_bin = os.path.join(safe_env["CONDA_PREFIX"], "bin")
+    elif sys.prefix != getattr(sys, "base_prefix", sys.prefix):
+        venv = sys.prefix
+        safe_env["VIRTUAL_ENV"] = venv
+        active_bin = os.path.join(venv, "bin")
+
+    if active_bin and os.path.isdir(active_bin):
+        cur_path = safe_env.get("PATH", os.environ.get("PATH", ""))
+        parts = [p for p in cur_path.split(os.pathsep) if p and p != active_bin]
+        safe_env["PATH"] = f"{active_bin}{os.pathsep}{os.pathsep.join(parts)}" if parts else active_bin
 
     if extra_env:
         for k, v in extra_env.items():

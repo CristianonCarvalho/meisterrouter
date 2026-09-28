@@ -54,13 +54,61 @@ def test_build_safe_worker_env_strips_openrouter(monkeypatch):
     assert "OPENROUTER_API_KEY" not in safe_env
     assert "OPENROUTER_BASE_URL" not in safe_env
     assert safe_env.get("ANTHROPIC_API_KEY") == "sk-ant-test"
-    assert safe_env.get("PATH") == "/usr/bin:/bin"
+    assert "/usr/bin" in safe_env.get("PATH", "")
 
     # Even if explicitly passed via extra_env, forbidden keys are eliminated
     leak_attempt = {"OPENROUTER_API_KEY": "leaked", "CUSTOM_VAR": "ok"}
     safe_with_leak = build_safe_worker_env(extra_env=leak_attempt)
     assert "OPENROUTER_API_KEY" not in safe_with_leak
     assert safe_with_leak.get("CUSTOM_VAR") == "ok"
+
+
+def test_build_safe_worker_env_preserves_virtual_env_and_conda_and_pytest(monkeypatch):
+    """E2E-7: build_safe_worker_env preserva VIRTUAL_ENV, CONDA_* e ordem do PATH, garantindo que o worker enxerga o mesmo python -m pytest do pai."""
+    import shutil
+    import subprocess
+
+    monkeypatch.setenv("CONDA_PREFIX", "/opt/conda/envs/myenv")
+    monkeypatch.setenv("CONDA_DEFAULT_ENV", "myenv")
+    monkeypatch.setenv("CONDA_PYTHON_EXE", "/opt/conda/bin/python")
+
+    # Garante que VIRTUAL_ENV aponta para a virtualenv do projeto atual
+    expected_venv = os.path.dirname(os.path.dirname(os.path.abspath(sys.executable)))
+    monkeypatch.setenv("VIRTUAL_ENV", expected_venv)
+
+    safe_env = build_safe_worker_env()
+
+    # Variáveis Conda preservadas
+    assert safe_env.get("CONDA_PREFIX") == "/opt/conda/envs/myenv"
+    assert safe_env.get("CONDA_DEFAULT_ENV") == "myenv"
+    assert safe_env.get("CONDA_PYTHON_EXE") == "/opt/conda/bin/python"
+
+    # VIRTUAL_ENV preservado e venv/bin na frente do PATH
+    assert safe_env.get("VIRTUAL_ENV") == expected_venv
+    venv_bin = os.path.join(expected_venv, "bin")
+    assert safe_env.get("PATH", "").startswith(venv_bin)
+
+    # Worker enxerga o mesmo python -m pytest do pai
+    parent_version = subprocess.run(
+        [sys.executable, "-m", "pytest", "--version"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    which_python = shutil.which("python", path=safe_env["PATH"])
+    assert which_python is not None
+    assert os.path.realpath(which_python) == os.path.realpath(sys.executable)
+
+    worker_version = subprocess.run(
+        [which_python, "-m", "pytest", "--version"],
+        env=safe_env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    assert worker_version == parent_version
 
 
 def test_kill_process_tree():
