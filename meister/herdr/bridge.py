@@ -254,19 +254,20 @@ class HerdrEventBridge:
                 use_tabs = False
 
         subtask_wt = None
-        if self._integration_pipeline is not None and self._integration_pipeline.integration_info is not None:
-            try:
-                base_branch = self._integration_pipeline.integration_info.branch_name
-                subtask_wt = self._integration_pipeline.wt_mgr.create_worktree(
-                    task_id=f"{active_run_id}_{task_id}",
-                    base_ref=base_branch,
-                )
-                task_dict["cwd"] = subtask_wt.worktree_path
-                task_dict["worktree"] = subtask_wt.worktree_path
-            except Exception as e:
-                logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
-
         try:
+            if self._integration_pipeline is not None and self._integration_pipeline.integration_info is not None:
+                try:
+                    base_branch = self._integration_pipeline.integration_info.branch_name
+                    subtask_wt = await asyncio.to_thread(
+                        self._integration_pipeline.wt_mgr.create_worktree,
+                        task_id=f"{active_run_id}_{task_id}",
+                        base_ref=base_branch,
+                    )
+                    task_dict["cwd"] = subtask_wt.worktree_path
+                    task_dict["worktree"] = subtask_wt.worktree_path
+                except Exception as e:
+                    logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
+
             attempt_count = 0
 
             while current_tier:
@@ -627,7 +628,13 @@ class HerdrEventBridge:
                 if prompt_result.get("status") == "error":
                     logger.warning("Subtask %s returned error status", task_id)
                     if subtask_wt is not None and self._integration_pipeline is not None:
-                        self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, delete_branch=True, force=True, archive_unmerged=True)
+                        await asyncio.to_thread(
+                            self._integration_pipeline.wt_mgr.cleanup_worktree,
+                            subtask_wt.task_id,
+                            delete_branch=True,
+                            force=True,
+                            archive_unmerged=True,
+                        )
                         subtask_wt = None
                     if active_run_id:
                         sm.unregister_pane(pane_id)
@@ -639,12 +646,19 @@ class HerdrEventBridge:
 
                 if subtask_wt is not None and self._integration_pipeline is not None:
                     async with self._merge_lock:
-                        ok_int, int_err = self._integration_pipeline.integrate_subtask(
+                        ok_int, int_err = await asyncio.to_thread(
+                            self._integration_pipeline.integrate_subtask,
                             subtask_wt=subtask_wt,
                             target_files=target_files,
                             commit_message=f"subtask({task_id}): {description}",
                         )
-                        self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, delete_branch=True, force=True, archive_unmerged=True)
+                        await asyncio.to_thread(
+                            self._integration_pipeline.wt_mgr.cleanup_worktree,
+                            subtask_wt.task_id,
+                            delete_branch=True,
+                            force=True,
+                            archive_unmerged=True,
+                        )
                         subtask_wt = None
                         if not ok_int:
                             logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
@@ -698,7 +712,13 @@ class HerdrEventBridge:
                 return True
 
             if subtask_wt is not None and self._integration_pipeline is not None:
-                self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, delete_branch=True, force=True, archive_unmerged=True)
+                await asyncio.to_thread(
+                    self._integration_pipeline.wt_mgr.cleanup_worktree,
+                    subtask_wt.task_id,
+                    delete_branch=True,
+                    force=True,
+                    archive_unmerged=True,
+                )
                 subtask_wt = None
 
             log_event(
@@ -720,7 +740,8 @@ class HerdrEventBridge:
         finally:
             if subtask_wt is not None and self._integration_pipeline is not None:
                 try:
-                    self._integration_pipeline.wt_mgr.cleanup_worktree(
+                    await asyncio.to_thread(
+                        self._integration_pipeline.wt_mgr.cleanup_worktree,
                         subtask_wt.task_id,
                         delete_branch=True,
                         force=True,
@@ -864,7 +885,7 @@ class HerdrEventBridge:
             test_passed = False
             if self._integration_pipeline is not None:
                 # 1. Validação final determinística na branch de integração ANTES de tocar na main
-                test_passed, test_output = self._integration_pipeline.validate_final_integration()
+                test_passed, test_output = await asyncio.to_thread(self._integration_pipeline.validate_final_integration)
                 if not test_passed:
                     logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
                     msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
@@ -903,7 +924,7 @@ class HerdrEventBridge:
 
             # 3. Fast-forward no repositório principal acontece APENAS após aprovação total
             if self._integration_pipeline is not None:
-                ok_ff, ff_msg = self._integration_pipeline.apply_fast_forward()
+                ok_ff, ff_msg = await asyncio.to_thread(self._integration_pipeline.apply_fast_forward)
                 if not ok_ff:
                     logger.error("Fast-forward na main falhou: %s", ff_msg)
                     msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"

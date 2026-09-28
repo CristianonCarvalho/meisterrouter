@@ -868,5 +868,68 @@ async def test_bridge_cleans_up_subtask_worktree_and_branch_on_failure(tmp_path,
     assert "refs/meister/archive/run_fail_test_t1" in refs_proc.stdout
 
 
+@pytest.mark.asyncio
+async def test_bridge_subtask_and_integration_run_in_threads_without_blocking_event_loop(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    from meister.worktree import WorktreeManager, IntegrationPipeline
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+
+    wt_mgr = WorktreeManager(repo_root=str(repo_dir))
+    pipeline = IntegrationPipeline(wt_mgr, gate=mock_gate)
+    pipeline.start_integration(run_id="run_thread_test")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.create_tab = AsyncMock(return_value=("w1:t2", "w1:p2"))
+    mock_client.wait_pane_ready = AsyncMock(return_value=True)
+    mock_client.send_text = AsyncMock()
+    mock_client.close_tab = AsyncMock()
+
+    async def fake_worker(*args, **kwargs):
+        auto_write_result(tmp_path)
+        return ("w1:t2", "w1:p2")
+
+    mock_client.create_tab.side_effect = fake_worker
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tabs"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+    bridge._integration_pipeline = pipeline
+
+    real_to_thread = asyncio.to_thread
+    dispatched_targets = []
+
+    async def tracking_to_thread(func, *args, **kwargs):
+        dispatched_targets.append(getattr(func, "__name__", str(func)))
+        return await real_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", tracking_to_thread)
+
+    subtask = {
+        "id": "t1",
+        "description": "Thread subtask",
+        "target_files": ["app.py"],
+    }
+
+    success = await bridge.execute_subtask(subtask, run_id="run_thread_test")
+    assert success is True
+
+    # create_worktree, integrate_subtask, and cleanup_worktree must all have run through asyncio.to_thread!
+    assert "create_worktree" in dispatched_targets
+    assert "integrate_subtask" in dispatched_targets
+    assert "cleanup_worktree" in dispatched_targets
+
+
 
 
