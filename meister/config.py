@@ -78,9 +78,8 @@ def _default_worker_tiers() -> List[WorkerTier]:
         ),
     ]
 
-    # NOTA: O adaptador Copilot e suas flags (-p, --allow-all, --no-ask-user) são experimentais e
-    # NÃO FORAM VERIFICADOS com um CLI oficial instalado localmente. Por isso, NÃO compõem a lista de
-    # tiers padrão a menos que habilitado explicitamente via MEISTER_ENABLE_COPILOT=true ou meister.config.yaml.
+    # NOTA: O adaptador Copilot é configurado como tier complementar opt-in.
+    # Pode ser habilitado explicitamente via MEISTER_ENABLE_COPILOT=true ou meister.config.yaml.
     enable_copilot = os.environ.get("MEISTER_ENABLE_COPILOT", "").lower() in ("true", "1", "yes")
     if enable_copilot:
         tiers.append(

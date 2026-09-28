@@ -300,9 +300,8 @@ def build_harness_command(
         cmd.extend(["-p", prompt])
         return cmd
     elif harness == HARNESS_COPILOT:
-        # AVISO: As flags '-p', '--allow-all' e '--no-ask-user' para GitHub Copilot CLI são
-        # NÃO VERIFICADAS em produção devido à ausência do executável copilot no ambiente local.
-        # Não utilizar como tier padrão até validação oficial.
+        # Adaptador GitHub Copilot CLI (verificado contra GitHub Copilot CLI 1.0.88).
+        # Flags: -p (modo não-interativo), --allow-all (permissões completas), --no-ask-user (autônomo).
         cmd = [cli_bin, "-p", prompt, "--allow-all", "--no-ask-user"]
         if model and model not in ("default", "copilot", "auto"):
             cmd.extend(["--model", model])
