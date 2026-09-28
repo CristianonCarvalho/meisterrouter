@@ -1,5 +1,4 @@
-import pytest
-from meister.models import get_model_info, estimate_cost, MODEL_PRICING
+from meister.models import get_model_info, estimate_cost
 
 def test_get_model_info():
     luna = get_model_info("openai/gpt-6-luna")

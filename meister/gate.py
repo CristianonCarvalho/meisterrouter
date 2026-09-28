@@ -7,12 +7,15 @@ a conclusão com o TypeSafe Jev Decisions API (control_cycle).
 """
 
 import json
+import logging
 import os
 import subprocess
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 from meister.jev import control_cycle
+
+logger = logging.getLogger(__name__)
 
 
 class DeterministicGate:
@@ -185,6 +188,9 @@ class DeterministicGate:
             return False, "No test runner detected"
 
         outputs: List[str] = []
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
 
         # 1. Executa linters se presentes
         for linter in linters:
@@ -202,6 +208,7 @@ class DeterministicGate:
                     capture_output=True,
                     text=True,
                     timeout=60,
+                    env=env,
                 )
                 combined = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
                 outputs.append(f"[{linter.upper()}]\n{combined}")
@@ -230,6 +237,7 @@ class DeterministicGate:
                     capture_output=True,
                     text=True,
                     timeout=300,
+                    env=env,
                 )
                 combined = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
                 outputs.append(f"[{runner}]\n{combined}")
@@ -259,13 +267,18 @@ class DeterministicGate:
 
         test_result = "pass" if test_passed else "fail"
 
-        return control_cycle(
+        res = control_cycle(
             diff_summary=diff_summary,
             test_result=test_result,
             attempts=attempts,
             security_sensitive=security_sensitive,
             model=model,
         )
+        if not test_passed and res.get("action") == "COMPLETE":
+            logger.warning("Jev returned COMPLETE with failing tests. Overriding to RETRY via deterministic gate.")
+            res["action"] = "RETRY"
+            res["override_reason"] = "Hard deterministic gate: test_passed is False"
+        return res
 
 
 def detect_test_runner(repo_path: str = ".") -> Optional[str]:

@@ -1,7 +1,6 @@
 import os
 import tempfile
 import subprocess
-import pytest
 
 BIN_MEISTER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "bin", "meister"))
 

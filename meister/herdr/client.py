@@ -153,7 +153,7 @@ class HerdrSocketClient:
     async def split_pane(
         self,
         direction: str = "right",
-        command: Optional[list[str]] = None,
+        command: Optional[Union[list[str], str]] = None,
         split_ratio: float = 0.5,
         cwd: Optional[str] = None,
     ) -> str:
@@ -161,12 +161,9 @@ class HerdrSocketClient:
         params: dict[str, Any] = {
             "direction": direction,
             "ratio": split_ratio,
-            "split_ratio": split_ratio,
         }
         if cwd:
             params["cwd"] = cwd
-        if command is not None:
-            params["command"] = command
 
         result = await self._call("pane.split", params)
         pane_id = ""
@@ -186,6 +183,85 @@ class HerdrSocketClient:
                 logger.debug("Could not send command to new pane %s: %s", pane_id, e)
 
         return pane_id
+
+    async def create_tab(
+        self,
+        cwd: Optional[str] = None,
+        label: Optional[str] = None,
+        focus: bool = False,
+        env: Optional[dict[str, str]] = None,
+        workspace_id: Optional[str] = None,
+    ) -> tuple[str, str]:
+        """Create a new tab in Herdr without stealing user focus (Achado #13).
+
+        Returns:
+            tuple of (tab_id, root_pane_id)
+        """
+        params: dict[str, Any] = {
+            "focus": focus,
+        }
+        if cwd:
+            params["cwd"] = cwd
+        if label:
+            params["label"] = label
+        if env:
+            params["env"] = env
+        if workspace_id:
+            params["workspace_id"] = workspace_id
+
+        result = await self._call("tab.create", params)
+        tab_id = ""
+        pane_id = ""
+
+        if isinstance(result, dict):
+            if "tab" in result and isinstance(result["tab"], dict):
+                tab_id = str(result["tab"].get("tab_id", ""))
+            elif "tab_id" in result:
+                tab_id = str(result["tab_id"])
+
+            if "root_pane" in result and isinstance(result["root_pane"], dict):
+                pane_id = str(result["root_pane"].get("pane_id", ""))
+            elif "pane_id" in result:
+                pane_id = str(result["pane_id"])
+
+        return tab_id, pane_id
+
+    async def close_tab(self, tab_id: str) -> bool:
+        """Close a tab in Herdr by tab_id."""
+        params: dict[str, Any] = {
+            "tab_id": tab_id,
+        }
+        try:
+            await self._call("tab.close", params)
+            return True
+        except Exception as e:
+            logger.debug("Failed closing tab %s: %s", tab_id, e)
+            return False
+
+    async def wait_for_pane_exit(
+        self,
+        pane_id: str,
+        timeout: float = 180.0,
+    ) -> bool:
+        """Wait until pane.exited event is received for the given pane_id (Achado #10)."""
+        exit_event = asyncio.Event()
+
+        async def _check_event(event: dict):
+            params = event.get("params", event)
+            ev_type = params.get("type") or event.get("type")
+            target_pane = params.get("pane_id") or event.get("pane_id")
+            if ev_type == "pane_exited" and target_pane == pane_id:
+                exit_event.set()
+
+        await self.subscribe_events(_check_event)
+        try:
+            await asyncio.wait_for(exit_event.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            if _check_event in self._event_callbacks:
+                self._event_callbacks.remove(_check_event)
 
     async def get_current_pane(self) -> dict[str, Any]:
         """Get information about the currently focused pane and workspace in Herdr.
@@ -231,8 +307,6 @@ class HerdrSocketClient:
         params: dict[str, Any] = {
             "target": pane_id,
             "text": prompt,
-            "pane_id": pane_id,
-            "prompt": prompt,
         }
         if wait_until:
             params["wait"] = {
@@ -240,20 +314,14 @@ class HerdrSocketClient:
                 "until": [wait_until] if isinstance(wait_until, str) else list(wait_until),
             }
         timeout_sec = (timeout_ms / 1000.0) + 10.0
-        try:
-            result = await self._call("agent.prompt", params, timeout=timeout_sec)
-            if isinstance(result, dict):
-                if "status" not in result:
-                    result["status"] = "done"
-                if "pane_id" not in result:
-                    result["pane_id"] = pane_id
-                return result
-            return {"status": "done", "pane_id": pane_id, "result": result}
-        except HerdrRPCError as e:
-            if "agent_not_found" in str(e).lower() or "not found" in str(e).lower():
-                await self.send_text(pane_id, f"{prompt}\n")
-                return {"status": "done", "pane_id": pane_id, "fallback": "send_text"}
-            raise
+        result = await self._call("agent.prompt", params, timeout=timeout_sec)
+        if isinstance(result, dict):
+            if "status" not in result:
+                result["status"] = "done"
+            if "pane_id" not in result:
+                result["pane_id"] = pane_id
+            return result
+        return {"status": "done", "pane_id": pane_id, "result": result}
 
     async def send_text(self, pane_id: str, text: str) -> None:
         """Send text directly to a pane."""

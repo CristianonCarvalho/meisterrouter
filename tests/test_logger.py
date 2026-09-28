@@ -1,6 +1,4 @@
-import os
 import tempfile
-import pytest
 from meister.logger import log_event, read_events, track_task
 
 def test_log_event_and_read(monkeypatch):
@@ -11,7 +9,7 @@ def test_log_event_and_read(monkeypatch):
         assert ev1["event_type"] == "test_event_1"
         assert ev1["foo"] == "bar"
 
-        ev2 = log_event("test_event_2", value=42)
+        log_event("test_event_2", value=42)
 
         events = read_events()
         assert len(events) == 2

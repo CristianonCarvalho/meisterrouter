@@ -3,7 +3,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from meister.herdr.bridge import HerdrEventBridge
 from meister.config import load_config
-from meister.herdr.dag import SubtaskNode
 
 
 @pytest.mark.asyncio
@@ -197,6 +196,36 @@ Plan:
         assert mock_client.show_notification.await_count >= 1
         mock_exec.assert_awaited_once()
         mock_gate.run_verification.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_bridge_run_orchestration_cycle_gate_failure(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("""
+version: "1.0"
+concurrency:
+  max_parallel_workers: 2
+""")
+    config = load_config(str(cfg_file))
+    mock_client = AsyncMock()
+    mock_client.read_pane.return_value = """
+Plan:
+1. id: step1 | files: [a.py] | depends: []
+"""
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (False, "1 failed")
+    mock_gate.get_diff_summary.return_value = "Modified a.py"
+    # Even if evaluate_completion were to return COMPLETE, gate failure must block completion
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+
+    bridge = HerdrEventBridge(config=config, client=mock_client, gate=mock_gate)
+
+    with patch.object(bridge, "execute_plan", new=AsyncMock(return_value=True)):
+        success = await bridge.run_orchestration_cycle(workspace_id="ws1", architect_pane_id="w1:p0")
+        assert success is False
+        mock_gate.run_verification.assert_called_once()
+        mock_gate.evaluate_completion.assert_not_called()
+
 
 
 def test_parse_architect_plan_formats():

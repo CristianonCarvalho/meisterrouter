@@ -7,19 +7,22 @@ concurrency configuration, and reactive zero-latency quota failover.
 
 from __future__ import annotations
 
+import os
 import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, load_config
 from meister.herdr.client import HerdrSocketClient
-from meister.herdr.dag import SubtaskNode, TaskDAG, build_subtask_dag
+from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
     detect_quota_or_rate_limit,
 )
+from meister.state import StateManager, RunState, SubtaskState, compute_subtask_id
+from meister.logger import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +84,7 @@ def parse_architect_plan(output: str) -> List[Dict[str, Any]]:
 
     # 3. Line-based list fallback
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
-    task_lines = [l for l in lines if re.match(r"^(?:\d+[\.\)]|[-*])\s+", l)]
+    task_lines = [item for item in lines if re.match(r"^(?:\d+[\.\)]|[-*])\s+", item)]
     if task_lines:
         steps = []
         for idx, line in enumerate(task_lines):
@@ -113,6 +116,7 @@ class HerdrEventBridge:
         client: Optional[HerdrSocketClient] = None,
         spawner: Optional[WorkerSpawner] = None,
         gate: Optional[Any] = None,
+        state_manager: Optional[StateManager] = None,
     ):
         self.config = config or load_config()
         self.client = client
@@ -120,6 +124,10 @@ class HerdrEventBridge:
         if self.client is not None and self.spawner.herdr_client is None:
             self.spawner.herdr_client = self.client
         self.gate = gate
+        self.state_manager = state_manager
+        self.current_run_id: Optional[str] = None
+        self._integration_pipeline: Optional[Any] = None
+        self._merge_lock = asyncio.Lock()
 
         # Concurrency limit from config
         max_workers = 4
@@ -136,6 +144,15 @@ class HerdrEventBridge:
         # Reactive quota notification events: pane_id -> asyncio.Event
         self._quota_events: Dict[str, asyncio.Event] = {}
 
+        # Reactive pane exit notification events: pane_id -> asyncio.Event (Achado #10)
+        self._exit_events: Dict[str, asyncio.Event] = {}
+
+    def get_state_manager(self) -> StateManager:
+        """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
+        if self.state_manager is None:
+            self.state_manager = StateManager()
+        return self.state_manager
+
     async def handle_herdr_event(self, event: Dict[str, Any]) -> None:
         """Process incoming Herdr socket notifications (e.g. quota errors, outputs)."""
         if not isinstance(event, dict):
@@ -143,6 +160,13 @@ class HerdrEventBridge:
 
         params = event.get("params", event)
         pane_id = params.get("pane_id") or params.get("pane")
+        ev_type = params.get("type") or event.get("type")
+
+        # Tratamento reativo de evento pane.exited (Achado #10)
+        if ev_type == "pane_exited" and pane_id:
+            if pane_id in self._exit_events:
+                self._exit_events[pane_id].set()
+
         output = params.get("output") or params.get("text") or params.get("data") or ""
 
         if not pane_id or pane_id not in self.active_workers:
@@ -157,6 +181,11 @@ class HerdrEventBridge:
                 output,
             )
             worker_info["status"] = "quota_error"
+
+            current_tier = worker_info.get("current_tier")
+            if current_tier:
+                sm = self.get_state_manager()
+                sm.record_harness_failure(current_tier, is_quota=True)
 
             # Interrupt runaway worker pane immediately to preserve tokens
             if self.client is not None:
@@ -173,6 +202,7 @@ class HerdrEventBridge:
         self,
         subtask: Union[Dict[str, Any], SubtaskNode],
         initial_tier: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> bool:
         """Execute a single subtask with automated quota failover and tier escalation.
 
@@ -187,6 +217,17 @@ class HerdrEventBridge:
         description = str(task_dict.get("description", task_id))
         target_files = task_dict.get("target_files", [])
 
+        active_run_id = run_id or self.current_run_id
+        sm = self.get_state_manager()
+        subtask_id = compute_subtask_id(active_run_id or "default", task_id, description)
+
+        # Retomada idempotente: se a subtask já estiver COMPLETED no SQLite, pula reexecução (Achados #7, #28)
+        if active_run_id:
+            existing = sm.get_subtask(subtask_id)
+            if existing and existing.get("status") == SubtaskState.COMPLETED.value:
+                logger.info("Subtask %s (%s) já concluída na execução %s. Pulando.", task_id, subtask_id, active_run_id)
+                return True
+
         # Determine starting tier
         current_tier = initial_tier
         if not current_tier:
@@ -198,33 +239,100 @@ class HerdrEventBridge:
         direction = "right"
         split_ratio = 0.5
 
+        use_tabs = False
+        if self.config and self.config.concurrency:
+            if getattr(self.config.concurrency, "layout_strategy", "tiled") in ("tabs", "tab"):
+                use_tabs = True
+
+        subtask_wt = None
+        if self._integration_pipeline is not None and self._integration_pipeline.integration_info is not None:
+            try:
+                base_branch = self._integration_pipeline.integration_info.branch_name
+                subtask_wt = self._integration_pipeline.wt_mgr.create_worktree(
+                    task_id=f"{active_run_id}_{task_id}",
+                    base_ref=base_branch,
+                )
+                task_dict["cwd"] = subtask_wt.worktree_path
+                task_dict["worktree"] = subtask_wt.worktree_path
+            except Exception as e:
+                logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
+
+        attempt_count = 0
+        tier_failures: Dict[str, int] = {}
+
         while current_tier:
+            attempt_count += 1
             tier_obj = self.spawner.get_tier(current_tier)
             if not tier_obj:
                 logger.error("Tier '%s' not found in configuration", current_tier)
+                if active_run_id:
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=f"Tier {current_tier} not found")
+                    except Exception:
+                        pass
                 return False
 
             if self.client is None:
                 raise RuntimeError("Herdr client is required to execute subtask")
 
+            if active_run_id:
+                try:
+                    sm.transition_subtask(
+                        subtask_id,
+                        to_state=SubtaskState.RUNNING,
+                        assigned_tier=current_tier,
+                    )
+                except Exception as e:
+                    logger.debug("State transition error: %s", e)
+
+            tab_id = None
             try:
-                pane_id, _ = await self.spawner.spawn_worker_pane(
-                    tier_name=current_tier,
-                    task_context=task_dict,
-                    direction=direction,
-                    split_ratio=split_ratio,
-                )
+                if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
+                    tab_id, pane_id, _ = await self.spawner.spawn_worker_tab(
+                        tier_name=current_tier,
+                        task_context=task_dict,
+                        cwd=task_dict.get("cwd") or task_dict.get("worktree"),
+                        label=f"worker:{task_id}",
+                        focus=False,
+                    )
+                else:
+                    pane_id, _ = await self.spawner.spawn_worker_pane(
+                        tier_name=current_tier,
+                        task_context=task_dict,
+                        direction=direction,
+                        split_ratio=split_ratio,
+                    )
             except Exception as e:
-                logger.warning("Failed to spawn worker pane for tier %s: %s. Escalating to next tier...", current_tier, e)
-                next_tier = self.spawner.get_next_tier(current_tier)
+                logger.warning("Failed to spawn worker pane/tab for tier %s: %s. Escalating to next tier...", current_tier, e)
+                sm.record_harness_failure(current_tier, is_quota=False)
+                next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
                 if next_tier is not None:
                     current_tier = next_tier.name
                     continue
+                if active_run_id:
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=str(e))
+                    except Exception:
+                        pass
                 return False
 
-            # Register active worker state
+            # Register active worker state and active pane
+            if active_run_id:
+                sm.register_pane(pane_id, run_id=active_run_id, subtask_id=subtask_id)
+
+            log_event(
+                event_type="worker_spawn",
+                run_id=active_run_id,
+                task_id=task_id,
+                attempt=attempt_count,
+                tier=current_tier,
+                pane_id=pane_id,
+            )
+
             quota_event = asyncio.Event()
             self._quota_events[pane_id] = quota_event
+            exit_event = asyncio.Event()
+            self._exit_events[pane_id] = exit_event
             self.active_workers[pane_id] = {
                 "task_id": task_id,
                 "current_tier": current_tier,
@@ -245,9 +353,10 @@ class HerdrEventBridge:
                 )
             )
             quota_waiter = asyncio.create_task(quota_event.wait())
+            exit_waiter = asyncio.create_task(exit_event.wait())
 
             done, pending = await asyncio.wait(
-                [prompt_task, quota_waiter],
+                [prompt_task, quota_waiter, exit_waiter],
                 return_when=asyncio.FIRST_COMPLETED,
             )
 
@@ -259,31 +368,101 @@ class HerdrEventBridge:
                     pass
 
             self._quota_events.pop(pane_id, None)
+            self._exit_events.pop(pane_id, None)
 
             # Check if reactive quota event triggered
             if quota_event.is_set() or self.active_workers.get(pane_id, {}).get("status") == "quota_error":
                 logger.info("Reactive failover triggered for subtask %s in pane %s", task_id, pane_id)
-                next_tier = self.spawner.get_next_tier(current_tier)
+                sm.record_harness_failure(current_tier, is_quota=True)
+                log_event(
+                    event_type="quota_error",
+                    run_id=active_run_id,
+                    task_id=task_id,
+                    attempt=attempt_count,
+                    tier=current_tier,
+                    exit_code=429,
+                    error="Reactive quota detected in pane",
+                )
+                if active_run_id:
+                    sm.unregister_pane(pane_id)
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota/Rate-limit error in pane")
+                    except Exception:
+                        pass
+                if tab_id and hasattr(self.client, "close_tab"):
+                    try:
+                        await self.client.close_tab(tab_id)
+                    except Exception:
+                        pass
+
+                # Backoff requeue before jumping directly to expensive tiers (Achado #23)
+                base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                await asyncio.sleep(base_backoff * (2 ** min(4, attempt_count - 1)))
+
+                next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
                 if next_tier is None:
                     logger.error("Maximum tier reached, cannot escalate further for task %s", task_id)
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Maximum tier reached")
+                        except Exception:
+                            pass
                     return False
                 current_tier = next_tier.name
                 continue
 
-            # Process prompt completion
-            try:
-                prompt_result = prompt_task.result()
-            except Exception as e:
-                logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, e)
+            # Process prompt or exit completion
+            if exit_event.is_set() and not prompt_task.done():
+                prompt_result = {"status": "done", "pane_id": pane_id}
+            else:
                 try:
-                    await self.client.send_interrupt(pane_id)
-                except Exception:
-                    pass
-                next_tier = self.spawner.get_next_tier(current_tier)
-                if next_tier is not None:
-                    current_tier = next_tier.name
-                    continue
-                return False
+                    prompt_result = prompt_task.result()
+                except Exception as e:
+                    logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, e)
+                    max_retries = getattr(tier_obj, "max_retries", 2) if tier_obj else 2
+                    tier_failures[current_tier] = tier_failures.get(current_tier, 0) + 1
+                    sm.record_harness_failure(current_tier, is_quota=False, failure_threshold=max_retries)
+                    log_event(
+                        event_type="worker_error",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        attempt=attempt_count,
+                        tier=current_tier,
+                        exit_code=1,
+                        error=str(e),
+                    )
+                    try:
+                        await self.client.send_interrupt(pane_id)
+                    except Exception:
+                        pass
+                    if active_run_id:
+                        sm.unregister_pane(pane_id)
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error=str(e))
+                        except Exception:
+                            pass
+                    if tab_id and hasattr(self.client, "close_tab"):
+                        try:
+                            await self.client.close_tab(tab_id)
+                        except Exception:
+                            pass
+
+                    # Requeue with backoff if attempts remain on current tier and breaker is available
+                    if tier_failures[current_tier] < max_retries and sm.is_harness_available(current_tier):
+                        base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                        await asyncio.sleep(base_backoff * (2 ** min(4, tier_failures[current_tier] - 1)))
+                        continue
+
+                    next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
+                    if next_tier is not None:
+                        current_tier = next_tier.name
+                        continue
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=str(e))
+                        except Exception:
+                            pass
+                    return False
 
             # Inspect terminal output and prompt response for quota errors
             terminal_output = ""
@@ -295,25 +474,140 @@ class HerdrEventBridge:
             combined_output = f"{prompt_result.get('output', '')} {terminal_output}"
             if detect_quota_or_rate_limit(combined_output):
                 logger.info("Quota detected in terminal output for pane %s, escalating tier", pane_id)
+                sm.record_harness_failure(current_tier, is_quota=True)
+                log_event(
+                    event_type="quota_error",
+                    run_id=active_run_id,
+                    task_id=task_id,
+                    attempt=attempt_count,
+                    tier=current_tier,
+                    exit_code=429,
+                    error="Terminal quota detected",
+                )
                 await self.client.send_interrupt(pane_id)
-                next_tier = self.spawner.get_next_tier(current_tier)
+                if active_run_id:
+                    sm.unregister_pane(pane_id)
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota detected in terminal output")
+                    except Exception:
+                        pass
+                if tab_id and hasattr(self.client, "close_tab"):
+                    try:
+                        await self.client.close_tab(tab_id)
+                    except Exception:
+                        pass
+
+                # Backoff requeue before jumping directly to expensive tiers (Achado #23)
+                base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                await asyncio.sleep(base_backoff * (2 ** min(4, attempt_count - 1)))
+
+                next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
                 if next_tier is None:
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Quota error at maximum tier")
+                        except Exception:
+                            pass
                     return False
                 current_tier = next_tier.name
                 continue
 
             if prompt_result.get("status") == "error":
                 logger.warning("Subtask %s returned error status", task_id)
+                if subtask_wt is not None and self._integration_pipeline is not None:
+                    self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                    subtask_wt = None
+                if active_run_id:
+                    sm.unregister_pane(pane_id)
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Worker returned error status")
+                    except Exception:
+                        pass
                 return False
 
+            if subtask_wt is not None and self._integration_pipeline is not None:
+                async with self._merge_lock:
+                    ok_int, int_err = self._integration_pipeline.integrate_subtask(
+                        subtask_wt=subtask_wt,
+                        target_files=target_files,
+                        commit_message=f"subtask({task_id}): {description}",
+                    )
+                    self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                    subtask_wt = None
+                    if not ok_int:
+                        logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
+                        if active_run_id:
+                            sm.unregister_pane(pane_id)
+                            try:
+                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
+                            except Exception:
+                                pass
+                        return False
+
             self.active_workers[pane_id]["status"] = "done"
+            sm.record_harness_success(current_tier)
+            cost_val = 0.0
+            if hasattr(sm, "record_quota_usage") and isinstance(prompt_result, dict):
+                usage: Any = prompt_result.get("usage", {})
+                if isinstance(usage, dict):
+                    tokens_in = usage.get("prompt_tokens") or usage.get("tokens_in", 0)
+                    tokens_out = usage.get("completion_tokens") or usage.get("tokens_out", 0)
+                    cost_val = float(usage.get("cost") or prompt_result.get("cost", 0.0) or 0.0)
+                else:
+                    tokens_in = 0
+                    tokens_out = 0
+                    cost_val = float(prompt_result.get("cost", 0.0) or 0.0)
+                sm.record_quota_usage(
+                    harness=current_tier,
+                    model=tier_obj.model if tier_obj else "",
+                    tokens_in=int(tokens_in or 0),
+                    tokens_out=int(tokens_out or 0),
+                    cost=cost_val,
+                )
+            log_event(
+                event_type="subtask_completed",
+                run_id=active_run_id,
+                task_id=task_id,
+                attempt=attempt_count,
+                tier=current_tier,
+                cost=cost_val,
+                exit_code=0,
+            )
+            if active_run_id:
+                try:
+                    sm.transition_subtask(
+                        subtask_id,
+                        to_state=SubtaskState.COMPLETED,
+                        result=prompt_result,
+                        pane_id=pane_id,
+                    )
+                except Exception as e:
+                    logger.debug("State transition to COMPLETED error: %s", e)
             return True
 
+        if subtask_wt is not None and self._integration_pipeline is not None:
+            self._integration_pipeline.wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            subtask_wt = None
+
+        log_event(
+            event_type="subtask_failed",
+            run_id=active_run_id,
+            task_id=task_id,
+            attempt=attempt_count,
+            tier=current_tier,
+            exit_code=1,
+            error="Execution loop ended without success",
+        )
+        if active_run_id:
+            try:
+                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Execution loop ended without success")
+            except Exception:
+                pass
         return False
 
     async def execute_parallel_batch(
         self,
-        subtasks: List[Union[Dict[str, Any], SubtaskNode]],
+        subtasks: Sequence[Union[Dict[str, Any], SubtaskNode]],
     ) -> bool:
         """Dispatch a batch of independent subtasks concurrently bounded by max_parallel_workers."""
         if not subtasks:
@@ -337,7 +631,7 @@ class HerdrEventBridge:
 
     async def execute_plan(
         self,
-        steps: List[Union[Dict[str, Any], SubtaskNode]],
+        steps: Sequence[Union[Dict[str, Any], SubtaskNode]],
     ) -> bool:
         """Decompose steps into a TaskDAG and execute batches in topological dependency order."""
         if not steps:
@@ -400,39 +694,127 @@ class HerdrEventBridge:
 
         steps = parse_architect_plan(raw_plan)
 
+        sm = self.get_state_manager()
+        run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=os.getcwd())
+        self.current_run_id = run_record["run_id"]
+        sm.transition_run(self.current_run_id, to_state=RunState.RUNNING)
+        log_event(
+            event_type="orchestration_start",
+            run_id=self.current_run_id,
+            task_id="orchestrator",
+            task=task or raw_plan[:200],
+        )
+        sm.add_subtasks(self.current_run_id, steps)
+        sm.recover_stranded_tasks(self.current_run_id)
+
         logger.info(
-            "Parsed %d actionable steps from architect pane %s in workspace %s",
+            "Parsed %d actionable steps for run %s from architect pane %s in workspace %s",
             len(steps),
+            self.current_run_id,
             architect_pane_id,
             workspace_id,
         )
 
+        # Inicializa pipeline de integração se isolation_mode for git_worktree (Achado #1, #3)
+        isolation_mode = "git_worktree"
+        if self.config and self.config.concurrency:
+            isolation_mode = getattr(self.config.concurrency, "isolation_mode", "git_worktree")
+
+        if isolation_mode == "git_worktree":
+            try:
+                from meister.worktree import WorktreeManager, IntegrationPipeline
+                wt_mgr = WorktreeManager(repo_root=os.getcwd())
+                wt_mgr.cleanup_orphans()
+                pipeline = IntegrationPipeline(wt_mgr, gate=self.gate)
+                pipeline.start_integration(self.current_run_id)
+                self._integration_pipeline = pipeline
+            except Exception as e:
+                logger.warning("Não foi possível inicializar pipeline de integração: %s", e)
+
         plan_success = await self.execute_plan(steps)
 
         if plan_success:
+            if self._integration_pipeline is not None:
+                ok_int_final, int_err = self._integration_pipeline.finish_integration(fast_forward=True)
+                if not ok_int_final:
+                    logger.warning("Falha na validação/merge final da integração: %s", int_err)
+                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    return False
+                test_passed = True
+                test_output = int_err
+            else:
+                gate = self.gate
+                if gate is None:
+                    from meister.gate import DeterministicGate
+                    gate = DeterministicGate()
+                test_passed, test_output = gate.run_verification()
+
             gate = self.gate
             if gate is None:
                 from meister.gate import DeterministicGate
                 gate = DeterministicGate()
-            test_passed, test_output = gate.run_verification()
             diff_summary = gate.get_diff_summary()
+
+            if not test_passed:
+                logger.warning("Deterministic quality gate failed: test verification did not pass.")
+                msg = "MeisterRouter: Plan executed but quality gate test verification failed."
+                await self.client.show_notification(msg)
+                sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                return False
+
             eval_result = gate.evaluate_completion(diff_summary=diff_summary, test_passed=test_passed)
 
             action = eval_result.get("action", "COMPLETE")
             if action == "COMPLETE":
+                sm.transition_run(self.current_run_id, to_state=RunState.COMPLETED)
+                # Fecha todos os active panes registrados em SQLite para esta execução
+                for p_id in sm.get_active_panes(self.current_run_id):
+                    try:
+                        await self.client.close_pane(p_id)
+                    except Exception as e:
+                        logger.debug("Failed closing worker pane %s: %s", p_id, e)
+                    sm.unregister_pane(p_id)
+
                 for p_id in list(self.active_workers.keys()):
                     try:
                         await self.client.close_pane(p_id)
                     except Exception as e:
                         logger.debug("Failed closing worker pane %s: %s", p_id, e)
+                    sm.unregister_pane(p_id)
                 msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
                 await self.client.show_notification(msg)
+                log_event(
+                    event_type="orchestration_end",
+                    run_id=self.current_run_id,
+                    task_id="orchestrator",
+                    exit_code=0,
+                    status="completed",
+                )
                 return True
             else:
+                sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
                 msg = f"MeisterRouter: Plan executed but quality gate returned {action}."
                 await self.client.show_notification(msg)
+                log_event(
+                    event_type="orchestration_end",
+                    run_id=self.current_run_id,
+                    task_id="orchestrator",
+                    exit_code=1,
+                    status="failed",
+                    action=action,
+                )
                 return False
         else:
+            if self._integration_pipeline is not None:
+                self._integration_pipeline.abort_integration()
+            sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
             msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
             await self.client.show_notification(msg)
+            log_event(
+                event_type="orchestration_end",
+                run_id=self.current_run_id,
+                task_id="orchestrator",
+                exit_code=1,
+                status="failed",
+            )
             return False

@@ -1,16 +1,13 @@
-import os
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from click.testing import CliRunner
 
 from meister.cli import main
 from meister.worker import (
     resolve_worker_model,
     resolve_worker_harness_and_model,
-    find_cli_binary,
     build_harness_command,
-    parse_and_apply_file_edits,
-    execute_worker_task,
+    smoke_test_tier,
     NativeWorker,
     HarnessWorker,
     HARNESS_CODEX,
@@ -22,7 +19,8 @@ from meister.worker import (
 def test_resolve_worker_model():
     assert resolve_worker_model("luna") == "gpt-6-luna"
     assert resolve_worker_model("gemini_flash") == "gemini-3.8-flash-high"
-    assert resolve_worker_model("haiku") == "claude-3-5-haiku-20241022"
+    assert resolve_worker_model("haiku") == "haiku"
+    assert resolve_worker_model("sonnet") == "sonnet"
     assert resolve_worker_model("custom/model:free") == "custom/model:free"
 
 
@@ -47,11 +45,32 @@ def test_resolve_worker_harness_and_model():
     # Claude mappings
     h, m = resolve_worker_harness_and_model("haiku")
     assert h == HARNESS_CLAUDE
-    assert m == "claude-3-5-haiku-20241022"
+    assert m == "haiku"
 
     h, m = resolve_worker_harness_and_model("sonnet")
     assert h == HARNESS_CLAUDE
-    assert m == "claude-3-7-sonnet"
+    assert m == "sonnet"
+
+
+def test_worker_external_model_override(monkeypatch):
+    monkeypatch.setenv("MEISTER_HAIKU_MODEL", "claude-haiku-v4")
+    monkeypatch.setenv("MEISTER_SONNET_MODEL", "claude-sonnet-v5")
+    assert resolve_worker_model("haiku") == "claude-haiku-v4"
+    h, m = resolve_worker_harness_and_model("haiku")
+    assert m == "claude-haiku-v4"
+
+    assert resolve_worker_model("sonnet") == "claude-sonnet-v5"
+    h, m = resolve_worker_harness_and_model("sonnet")
+    assert m == "claude-sonnet-v5"
+
+
+def test_smoke_test_tier():
+    for tier in ["luna", "gemini_flash", "haiku", "sonnet"]:
+        res = smoke_test_tier(tier)
+        assert res["tier"] == tier
+        assert res["harness"] in (HARNESS_CODEX, HARNESS_ANTIGRAVITY, HARNESS_CLAUDE)
+        assert res["resolved_model"] is not None
+        assert isinstance(res["available"], bool)
 
 
 def test_build_harness_command():
@@ -74,36 +93,28 @@ def test_build_harness_command():
     assert "-p" in cmd_claude
 
 
-def test_parse_and_apply_file_edits(tmp_path):
-    response_text = """
-I have analyzed the code and applied the required fixes.
+def test_parse_and_apply_file_edits_removed_and_output_not_written(tmp_path):
+    import meister.worker as worker_mod
+    assert not hasattr(worker_mod, "parse_and_apply_file_edits")
 
+    # Verify HarnessWorker does not extract codeblocks to disk
+    response_text = """
 ```file:src/app.py
 def hello():
-    return "Hello MeisterRouter"
+    return "Malicious or unvetted write"
 ```
-
-Also updated the styles:
-```file:styles/tooltip.css
-.tooltip {
-    overflow: visible;
-}
-```
-
-Task completed.
 """
-    modified = parse_and_apply_file_edits(response_text, base_dir=str(tmp_path))
-    assert len(modified) == 2
-    assert "src/app.py" in modified
-    assert "styles/tooltip.css" in modified
+    mock_process = MagicMock()
+    mock_process.stdout = [response_text]
+    mock_process.wait.return_value = 0
 
-    app_py = tmp_path / "src" / "app.py"
-    assert app_py.exists()
-    assert "Hello MeisterRouter" in app_py.read_text()
-
-    css_file = tmp_path / "styles" / "tooltip.css"
-    assert css_file.exists()
-    assert "overflow: visible;" in css_file.read_text()
+    with patch("subprocess.Popen", return_value=mock_process), \
+         patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"), \
+         patch("meister.worker.get_git_status_files", return_value=set()):
+        worker = HarnessWorker(model="luna", cwd=str(tmp_path))
+        res = worker.run_task("do not write")
+        assert res["modified_files"] == []
+        assert not (tmp_path / "src" / "app.py").exists()
 
 
 def test_native_worker_execute_task_success(tmp_path):
@@ -177,3 +188,40 @@ def test_cli_worker_with_pane_dispatch(tmp_path):
         assert result.exit_code == 0
         assert "Worker task finished in Herdr pane" in result.output
         mock_pane.assert_called_once()
+
+
+def test_cli_worker_pane_timeout_blocks_direct_reexecution(tmp_path):
+    runner = CliRunner()
+    with patch("meister.worker.is_herdr_available", return_value=True), \
+         patch("meister.worker.run_worker_in_herdr_pane", side_effect=TimeoutError("timed out")), \
+         patch("meister.worker.execute_worker_task") as mock_direct_exec:
+        result = runner.invoke(
+            main,
+            ["worker", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+        )
+        assert result.exit_code != 0
+        assert "Timeout no worker do Herdr" in result.output
+        assert "Reexecução direta bloqueada" in result.output
+        mock_direct_exec.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_run_worker_in_herdr_pane_async_timeout_cleans_up_pane(tmp_path):
+    from meister.worker import run_worker_in_herdr_pane_async
+    mock_client = MagicMock()
+    mock_client.split_pane = AsyncMock(return_value="w1:p2")
+    mock_client.send_interrupt = AsyncMock()
+    mock_client.close_pane = AsyncMock()
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client), \
+         pytest.raises(TimeoutError):
+        await run_worker_in_herdr_pane_async(
+            model="luna",
+            task="long task",
+            cwd=str(tmp_path),
+            timeout=0.01,
+        )
+
+    mock_client.send_interrupt.assert_called_once_with("w1:p2")
+    mock_client.close_pane.assert_called_once_with("w1:p2")
+

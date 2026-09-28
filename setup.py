@@ -13,7 +13,18 @@ setup(
         "python-dotenv>=1.0.0",
         "click>=8.0.0",
         "PyYAML>=6.0",
+        "pydantic>=2.0.0",
     ],
+    extras_require={
+        "dev": [
+            "pytest>=8.0.0",
+            "pytest-asyncio>=0.23.0",
+            "ruff>=0.1.0",
+            "mypy>=1.8.0",
+            "types-PyYAML>=6.0.0",
+            "types-requests>=2.31.0",
+        ]
+    },
     entry_points={
         "console_scripts": [
             "meister=meister.cli:main",

@@ -9,7 +9,6 @@ Exibe em tempo real:
 """
 
 import os
-import json
 from collections import defaultdict
 from flask import Flask, jsonify, render_template, request
 from meister.logger import read_events, get_log_file
@@ -24,10 +23,10 @@ def compute_metrics(events: list) -> dict:
     """Calcula agregados de telemetria para o dashboard."""
     total_cost = 0.0
     tasks_count = 0
-    by_model_cost = defaultdict(float)
-    by_model_count = defaultdict(int)
-    by_classification = defaultdict(int)
-    by_action = defaultdict(int)
+    by_model_cost: defaultdict[str, float] = defaultdict(float)
+    by_model_count: defaultdict[str, int] = defaultdict(int)
+    by_classification: defaultdict[str, int] = defaultdict(int)
+    by_action: defaultdict[str, int] = defaultdict(int)
     total_duration = 0.0
     completed_tasks = 0
 

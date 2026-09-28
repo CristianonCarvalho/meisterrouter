@@ -3,7 +3,6 @@ import os
 import stat
 import subprocess
 import tempfile
-import pytest
 
 from meister.hooks import install_git_hook, install_claude_hook
 
@@ -55,3 +54,25 @@ def test_guard_hook_allow_orchestrator_override():
         env = dict(os.environ, MEISTER_ALLOW_ORCHESTRATOR_EDIT="1")
         res = subprocess.run(["bash", guard_hook], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         assert res.returncode == 0
+
+
+def test_install_git_hook_fail_closed_without_llm():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        git_dir = os.path.join(tmpdir, ".git")
+        os.makedirs(git_dir)
+
+        ok, msg = install_git_hook(tmpdir)
+        assert ok is True
+
+        hook_file = os.path.join(git_dir, "hooks", "pre-commit")
+        assert os.path.exists(hook_file)
+        assert os.stat(hook_file).st_mode & stat.S_IEXEC
+
+        with open(hook_file, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Must NOT delegate to Jev or have fail-open bypass
+        assert '{"action": "COMPLETE"}' not in content
+        assert "meister control" not in content
+        assert "fail-closed" in content
+

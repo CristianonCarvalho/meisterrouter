@@ -47,7 +47,7 @@ def _default_worker_tiers() -> List[WorkerTier]:
         WorkerTier(
             name="luna",
             harness="native",
-            model="openai/gpt-6-luna",
+            model=os.environ.get("MEISTER_LUNA_MODEL", "gpt-6-luna"),
             cost_per_m_tokens=0.077,
             max_retries=2,
             best_for=["small_edits", "single_file", "css_fixes", "unit_test_additions"],
@@ -55,7 +55,7 @@ def _default_worker_tiers() -> List[WorkerTier]:
         WorkerTier(
             name="gemini_flash",
             harness="native",
-            model="google/gemini-2.5-flash",
+            model=os.environ.get("MEISTER_GEMINI_MODEL", "gemini-3.8-flash-high"),
             cost_per_m_tokens=0.577,
             max_retries=2,
             best_for=["deep_reasoning", "complex_algorithms", "hard_bugs"],
@@ -63,7 +63,7 @@ def _default_worker_tiers() -> List[WorkerTier]:
         WorkerTier(
             name="haiku",
             harness="claude",
-            model="anthropic/claude-3-5-haiku-20241022",
+            model=os.environ.get("MEISTER_HAIKU_MODEL", "haiku"),
             cost_per_m_tokens=0.77,
             max_retries=2,
             best_for=["medium_features", "refactoring"],
@@ -71,10 +71,18 @@ def _default_worker_tiers() -> List[WorkerTier]:
         WorkerTier(
             name="sonnet",
             harness="claude",
-            model="anthropic/claude-3-7-sonnet",
+            model=os.environ.get("MEISTER_SONNET_MODEL", "sonnet"),
             cost_per_m_tokens=3.00,
             max_retries=1,
             best_for=["architectural_recovery", "systemic_regressions"],
+        ),
+        WorkerTier(
+            name="copilot",
+            harness="copilot",
+            model=os.environ.get("MEISTER_COPILOT_MODEL", "auto"),
+            cost_per_m_tokens=0.20,
+            max_retries=2,
+            best_for=["github_integration", "code_completion"],
         ),
     ]
 

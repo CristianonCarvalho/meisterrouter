@@ -1,12 +1,8 @@
-import os
-import subprocess
 from unittest.mock import MagicMock, patch
-import pytest
 
 from meister.gate import (
     DeterministicGate,
     detect_test_runner,
-    run_verification,
     evaluate_completion,
 )
 
@@ -148,8 +144,8 @@ def test_evaluate_completion():
             model=None,
         )
 
-        # Test failure case
-        evaluate_completion("diff summary here", test_passed=False)
+        # Test failure case overrides COMPLETE to RETRY
+        res_fail = evaluate_completion("diff summary here", test_passed=False)
         mock_control.assert_called_with(
             diff_summary="diff summary here",
             test_result="fail",
@@ -157,6 +153,8 @@ def test_evaluate_completion():
             security_sensitive=False,
             model=None,
         )
+        assert res_fail["action"] == "RETRY"
+        assert "Hard deterministic gate" in res_fail.get("override_reason", "")
 
 
 def test_gate_evaluate_completion_defaults(tmp_path):

@@ -9,8 +9,6 @@ import os
 import sys
 import time
 import select
-import shutil
-import signal
 import termios
 import tty
 import webbrowser

@@ -9,47 +9,96 @@ from __future__ import annotations
 
 import logging
 import re
+import json
 from typing import Optional, Tuple, Union, Any, List
 from meister.config import MeisterConfig, WorkerTier, load_config
 from meister.herdr.client import HerdrSocketClient
 
 logger = logging.getLogger(__name__)
 
-# Patterns indicating quota exhaustion, rate limit, or model overload
-QUOTA_RATE_LIMIT_PATTERNS = [
-    re.compile(r"(?:error|http|status|code)[\s:]*429\b", re.IGNORECASE),
-    re.compile(r"[\(\[]429[\)\]]"),
-    re.compile(r"\b429\s*[:\-\s]*(?:too many requests|rate limit|quota|error)", re.IGNORECASE),
-    re.compile(r"(?:error|http|status|code)[\s:]*402\b", re.IGNORECASE),
-    re.compile(r"[\(\[]402[\)\]]"),
-    re.compile(r"\b402\s*[:\-\s]*(?:payment|credit|balance|quota|error)", re.IGNORECASE),
-    re.compile(r"rate\s*limit", re.IGNORECASE),
-    re.compile(r"too\s+many\s+requests", re.IGNORECASE),
-    re.compile(r"credit\s+balance\s+too\s+low", re.IGNORECASE),
-    re.compile(r"insufficient\s+(?:quota|credits?|funds|balance)", re.IGNORECASE),
-    re.compile(r"quota\s+exceeded", re.IGNORECASE),
-    re.compile(r"exceeded\s+(?:your\s+)?(?:current\s+)?quota", re.IGNORECASE),
-    re.compile(r"resource_exhausted", re.IGNORECASE),
-    re.compile(r"payment\s+required", re.IGNORECASE),
-    re.compile(r"model\s+(?:not\s+found|not\s+active|is\s+inactive|does\s+not\s+exist|unavailable)", re.IGNORECASE),
-    re.compile(r"unsupported\s+model", re.IGNORECASE),
-    re.compile(r"invalid\s+model", re.IGNORECASE),
-    re.compile(r"model_not_found", re.IGNORECASE),
-    re.compile(r"(?:error|http|status|code)[\s:]*404\b", re.IGNORECASE),
-    re.compile(r"overloaded(?:error|_error)?\b", re.IGNORECASE),
-    re.compile(r"model\s+is\s+overloaded", re.IGNORECASE),
+# Structured error codes and types for CLI / JSON signals (Achado #22)
+STRUCTURED_ERROR_CODES = {429, 402, "429", "402", "rate_limit_exceeded", "insufficient_quota", "resource_exhausted"}
+STRUCTURED_ERROR_TYPES = {"rate_limit_error", "insufficient_quota", "overloaded_error", "resource_exhausted"}
+
+ANCHORED_QUOTA_PATTERNS = [
+    # HTTP error codes with explicit provider message
+    re.compile(r"(?:^|[\s\[\(])(?:error|http|status|code)[\s:]*429\b[^\n]*?(?:too many requests|rate limit|quota|exceeded|error)", re.IGNORECASE),
+    re.compile(r"(?:^|[\s\[\(])(?:error|http|status|code)[\s:]*402\b[^\n]*?(?:payment|credit|balance|quota|insufficient|error)", re.IGNORECASE),
+    re.compile(r"(?:^|[\s\[\(])(?:429|402)\s+(?:Too Many Requests|Payment Required)", re.IGNORECASE),
+    re.compile(r"Credit balance too low\s*\(\d+\)", re.IGNORECASE),
+
+    # Provider-specific exception classes
+    re.compile(r"\b(?:openai|anthropic|google|openrouter)\.(?:RateLimitError|OverloadedError|NotFoundError|APIStatusError|ResourceExhausted)\b", re.IGNORECASE),
+
+    # Explicit quota/credit exhaustion phrases from provider API error responses
+    re.compile(r"(?:^|[^\w])(?:insufficient_quota|quota\s+exceeded|exceeded\s+(?:your\s+)?(?:current\s+)?quota|resource_exhausted)\b", re.IGNORECASE),
+    re.compile(r"\bYou exceeded your current quota\b", re.IGNORECASE),
+    re.compile(r"\b(?:credit\s+balance(?:\s+is)?\s+too\s+low|out\s+of\s+credits?|insufficient\s+credits?)\b", re.IGNORECASE),
+    re.compile(r"\b(?:error|fatal|exception)[\s:]+.*?(?:model\s+(?:['\"\w\.\-]+\s+)?(?:not\s+found|not\s+active|is\s+inactive|does\s+not\s+exist|unavailable)|unsupported\s+model|invalid\s+model|model_not_found)\b", re.IGNORECASE),
+    re.compile(r"\bHTTP\s+404\s*:\s*(?:unsupported\s+model|model_not_found)", re.IGNORECASE),
 ]
 
+FALSE_POSITIVE_INDICATORS = (
+    "middleware",
+    "handler for",
+    "in test",
+    "test_",
+    "mock_",
+    "def ",
+    "class ",
+    "assert ",
+    "//",
+    "/*",
+)
 
-def detect_quota_or_rate_limit(output: Optional[str]) -> bool:
-    """Detect if terminal or API output contains quota exhaustion or rate limits.
 
-    Matches HTTP 429, 402, credit balance warnings, RESOURCE_EXHAUSTED,
-    and provider overload signals.
+def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -> bool:
+    """Detecta deterministicamente se a saída de terminal ou API contém exaustão de cota ou rate limit.
+
+    Elimina falsos positivos em código/testes (Achado #22) através de:
+    1. Detecção de sinais estruturados JSON (ex: codex exec --json, respostas OpenAI/Anthropic/Google).
+    2. Ancoragem estrita de regex com descarte de linhas de código, middleware e fixtures de teste.
     """
     if not output:
         return False
-    return any(pattern.search(output) for pattern in QUOTA_RATE_LIMIT_PATTERNS)
+
+    raw_text = str(output).strip()
+    if not raw_text:
+        return False
+
+    # 1. Sinal estruturado por CLI / JSON (Achado #22)
+    try:
+        if (raw_text.startswith("{") and raw_text.endswith("}")) or (raw_text.startswith("[") and raw_text.endswith("]")):
+            parsed = json.loads(raw_text)
+            if isinstance(parsed, dict):
+                ev_type = parsed.get("type")
+                if ev_type in ("rate_limits", "rate_limit_error"):
+                    return True
+                err = parsed.get("error")
+                if isinstance(err, dict):
+                    if err.get("code") in STRUCTURED_ERROR_CODES or err.get("type") in STRUCTURED_ERROR_TYPES:
+                        return True
+                    if any(pattern.search(str(err.get("message", ""))) for pattern in ANCHORED_QUOTA_PATTERNS):
+                        return True
+    except Exception:
+        pass
+
+    # 2. Varredura linha a linha com eliminação de falsos positivos
+    for line in raw_text.splitlines():
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+
+        line_lower = line_clean.lower()
+
+        # Descarta linhas que são declarações de código ou testes (evita falso positivo 4/4)
+        if any(ind in line_lower for ind in FALSE_POSITIVE_INDICATORS):
+            continue
+
+        if any(pattern.search(line_clean) for pattern in ANCHORED_QUOTA_PATTERNS):
+            return True
+
+    return False
 
 
 class WorkerSpawner:
@@ -78,6 +127,34 @@ class WorkerSpawner:
                 if i + 1 < len(tiers):
                     return tiers[i + 1]
                 return None
+        return None
+
+    def get_next_available_tier(
+        self,
+        current_tier_name: str,
+        state_manager: Optional[Any] = None,
+    ) -> Optional[WorkerTier]:
+        """Retorna o próximo tier disponível na sequência que não esteja com circuit breaker aberto (Achado #23)."""
+        tiers = self.config.workers.tier_order
+        curr_idx = -1
+        for i, tier in enumerate(tiers):
+            if tier.name == current_tier_name:
+                curr_idx = i
+                break
+
+        if curr_idx == -1:
+            return None
+
+        for next_tier in tiers[curr_idx + 1:]:
+            if state_manager is not None:
+                # Verifica circuit breaker para o tier e harness
+                harness_ok = state_manager.is_harness_available(next_tier.harness)
+                tier_ok = state_manager.is_harness_available(next_tier.name)
+                if not harness_ok or not tier_ok:
+                    logger.info("Tier %s (%s) está em cooldown no circuit breaker. Pulando...", next_tier.name, next_tier.harness)
+                    continue
+            return next_tier
+
         return None
 
     def resolve_command(
@@ -110,15 +187,42 @@ class WorkerSpawner:
                 if "target_files" in task_context and task_context["target_files"]:
                     files_str = ",".join(str(f) for f in task_context["target_files"])
                     cmd.extend(["--files", files_str])
-        elif harness in ("claude", "codex"):
-            cmd = [harness]
-            if tier_obj.model:
+        elif harness == "claude":
+            cmd = ["claude"]
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.append("--dangerously-skip-permissions")
+                if tier_obj.model:
+                    cmd.extend(["--model", tier_obj.model])
+                cmd.extend(["-p", str(task_context["description"])])
+            elif tier_obj.model:
+                cmd.extend(["--model", tier_obj.model])
+        elif harness == "codex":
+            cmd = ["codex"]
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.extend(["exec", "--dangerously-bypass-approvals-and-sandbox"])
+                if tier_obj.model:
+                    cmd.extend(["-m", tier_obj.model])
+                cmd.append(str(task_context["description"]))
+            elif tier_obj.model:
                 cmd.extend(["--model", tier_obj.model])
         elif harness in ("antigravity", "agy"):
             import shutil
             bin_name = "agy" if shutil.which("agy") else "antigravity"
             cmd = [bin_name]
-            if tier_obj.model:
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.append("--dangerously-skip-permissions")
+                if tier_obj.model:
+                    cmd.extend(["--model", tier_obj.model])
+                cmd.extend(["-p", str(task_context["description"])])
+            elif tier_obj.model:
+                cmd.extend(["--model", tier_obj.model])
+        elif harness in ("copilot", "github-copilot"):
+            cmd = ["copilot"]
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.extend(["-p", str(task_context["description"]), "--allow-all", "--no-ask-user"])
+                if tier_obj.model and tier_obj.model not in ("default", "copilot", "auto"):
+                    cmd.extend(["--model", tier_obj.model])
+            elif tier_obj.model and tier_obj.model not in ("default", "copilot", "auto"):
                 cmd.extend(["--model", tier_obj.model])
         else:
             cmd = [harness]
@@ -156,6 +260,43 @@ class WorkerSpawner:
             split_ratio=split_ratio,
         )
         return pane_id, tier
+
+    async def spawn_worker_tab(
+        self,
+        tier_name: str,
+        task_context: Optional[dict] = None,
+        cwd: Optional[str] = None,
+        label: Optional[str] = None,
+        focus: bool = False,
+    ) -> Tuple[str, str, WorkerTier]:
+        """Create a dedicated background tab in Herdr for the worker (Achado #13).
+
+        Returns:
+            Tuple of (tab_id, pane_id, WorkerTier)
+        """
+        tier = self.get_tier(tier_name)
+        if tier is None:
+            raise ValueError(f"Worker tier '{tier_name}' not found in configuration")
+
+        if self.herdr_client is None:
+            raise RuntimeError("Herdr client is required to spawn worker tabs")
+
+        cmd = self.resolve_command(tier, task_context)
+        tab_label = label or (f"worker:{task_context.get('id')}" if task_context else f"worker:{tier_name}")
+        tab_id, pane_id = await self.herdr_client.create_tab(
+            cwd=cwd,
+            label=tab_label,
+            focus=focus,
+        )
+
+        if cmd and pane_id:
+            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            try:
+                await self.herdr_client.send_text(pane_id, f"{cmd_str}\n")
+            except Exception as e:
+                logger.debug("Could not send command to new tab pane %s: %s", pane_id, e)
+
+        return tab_id, pane_id, tier
 
     async def escalate_worker(
         self,
