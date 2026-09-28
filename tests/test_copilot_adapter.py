@@ -1,4 +1,5 @@
 import os
+import pytest
 from unittest.mock import patch, MagicMock
 
 from meister.worker import (
@@ -35,21 +36,66 @@ def test_copilot_configured_model(monkeypatch):
     assert model == "gpt-5.4"
 
 
-def test_copilot_find_cli_binary():
+@pytest.fixture
+def fake_copilot_cli(tmp_path, monkeypatch):
+    """Cria executável falso que imita contrato mínimo de copilot (-p, --allow-all, --no-ask-user, exit 0)."""
+    fake_bin_dir = tmp_path / "fake_bin"
+    fake_bin_dir.mkdir(parents=True, exist_ok=True)
+    fake_copilot = fake_bin_dir / "copilot"
+    fake_copilot.write_text(
+        "#!/bin/sh\n"
+        "# Fake GitHub Copilot CLI\n"
+        "exit 0\n"
+    )
+    fake_copilot.chmod(0o755)
+
+    orig_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", f"{fake_bin_dir}:{orig_path}")
+    return str(fake_copilot)
+
+
+def test_copilot_find_cli_binary(fake_copilot_cli):
     """Verifica localização do executável copilot no PATH do sistema."""
     bin_path = find_cli_binary(HARNESS_COPILOT)
     assert bin_path is not None
     assert "copilot" in bin_path
     assert os.path.exists(bin_path)
+    assert bin_path == fake_copilot_cli
 
 
-def test_copilot_smoke_test():
-    """Verifica o smoke test do tier copilot."""
+def test_copilot_find_cli_binary_not_found(monkeypatch):
+    """Verifica comportamento determinístico quando copilot não está no sistema."""
+    monkeypatch.setattr("shutil.which", lambda *args, **kwargs: None)
+    orig_exists = os.path.exists
+    monkeypatch.setattr(
+        "os.path.exists",
+        lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
+    )
+    assert find_cli_binary(HARNESS_COPILOT) is None
+
+
+def test_copilot_smoke_test(fake_copilot_cli):
+    """Verifica o smoke test do tier copilot quando o binário está disponível."""
     smoke = smoke_test_tier("copilot")
     assert smoke["tier"] == "copilot"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is True
-    assert smoke["cli_binary"] is not None
+    assert smoke["cli_binary"] == fake_copilot_cli
+
+
+def test_copilot_smoke_test_when_not_available(monkeypatch):
+    """Verifica o smoke test do tier copilot quando o binário não está disponível."""
+    monkeypatch.setattr("shutil.which", lambda *args, **kwargs: None)
+    orig_exists = os.path.exists
+    monkeypatch.setattr(
+        "os.path.exists",
+        lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
+    )
+    smoke = smoke_test_tier("copilot")
+    assert smoke["tier"] == "copilot"
+    assert smoke["harness"] == HARNESS_COPILOT
+    assert smoke["available"] is False
+    assert smoke["cli_binary"] is None
 
 
 def test_copilot_build_harness_command_default():
@@ -124,10 +170,11 @@ def test_copilot_safe_env_vars(monkeypatch):
     assert "OPENROUTER_API_KEY" not in safe_env
 
 
-def test_copilot_harness_worker_run_task(tmp_path):
+def test_copilot_harness_worker_run_task(tmp_path, fake_copilot_cli):
     """Verifica execução de tarefa no HarnessWorker com o harness copilot mockado."""
     worker = HarnessWorker(model="copilot", cwd=str(tmp_path))
     assert worker.harness == HARNESS_COPILOT
+    assert worker.cli_binary == fake_copilot_cli
 
     with patch("subprocess.Popen") as mock_popen, patch(
         "meister.worker.get_git_status_files", side_effect=[set(), {"auth.py"}]
@@ -148,6 +195,20 @@ def test_copilot_harness_worker_run_task(tmp_path):
         assert "-p" in call_args
         assert "--allow-all" in call_args
         assert "--no-ask-user" in call_args
+
+
+def test_copilot_harness_worker_fails_when_cli_not_found(tmp_path, monkeypatch):
+    """Verifica que o HarnessWorker levanta RuntimeError quando a CLI não é encontrada."""
+    monkeypatch.setattr("shutil.which", lambda *args, **kwargs: None)
+    orig_exists = os.path.exists
+    monkeypatch.setattr(
+        "os.path.exists",
+        lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
+    )
+    worker = HarnessWorker(model="copilot", cwd=str(tmp_path))
+    with pytest.raises(RuntimeError, match="não encontrado"):
+        worker.run_task(task="Fix auth bug", target_files=["auth.py"])
+
 
 
 def test_copilot_excluded_from_default_tiers_and_opt_in(monkeypatch):
