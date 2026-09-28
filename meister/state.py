@@ -172,11 +172,18 @@ class StateManager:
                 worktree_path TEXT,
                 result_json TEXT DEFAULT '{}',
                 error_message TEXT,
+                integrated_sha TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY(run_id) REFERENCES runs(run_id) ON DELETE CASCADE
             );
             """)
+
+            cursor.execute("PRAGMA table_info(subtasks);")
+            sub_cols = [row["name"] for row in cursor.fetchall()]
+            if "integrated_sha" not in sub_cols:
+                cursor.execute("ALTER TABLE subtasks ADD COLUMN integrated_sha TEXT;")
+
 
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS active_panes (
@@ -393,6 +400,7 @@ class StateManager:
         pane_id: Optional[str] = None,
         worktree_path: Optional[str] = None,
         assigned_tier: Optional[str] = None,
+        integrated_sha: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Aplica transição validada por FSM a uma subtask com registro de resultado e erros."""
         to_state_enum = SubtaskState(to_state) if isinstance(to_state, str) else to_state
@@ -421,12 +429,13 @@ class StateManager:
             final_pane_id = pane_id if pane_id is not None else row["pane_id"]
             final_worktree = worktree_path if worktree_path is not None else row["worktree_path"]
             final_tier = assigned_tier if assigned_tier is not None else row["assigned_tier"]
+            final_sha = integrated_sha if integrated_sha is not None else row["integrated_sha"]
 
             cursor.execute(
                 """
                 UPDATE subtasks
                 SET status = ?, attempts = ?, result_json = ?, error_message = ?,
-                    pane_id = ?, worktree_path = ?, assigned_tier = ?, updated_at = ?
+                    pane_id = ?, worktree_path = ?, assigned_tier = ?, integrated_sha = ?, updated_at = ?
                 WHERE subtask_id = ?
                 """,
                 (
@@ -437,6 +446,7 @@ class StateManager:
                     final_pane_id,
                     final_worktree,
                     final_tier,
+                    final_sha,
                     now,
                     subtask_id,
                 ),

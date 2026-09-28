@@ -702,12 +702,14 @@ class HerdrEventBridge:
                         exit_code=0,
                     )
                     if active_run_id:
+                        integrated_sha = getattr(self._integration_pipeline, "last_integrated_sha", None)
                         try:
                             sm.transition_subtask(
                                 subtask_id,
                                 to_state=SubtaskState.COMPLETED,
                                 result=prompt_result,
                                 pane_id=pane_id,
+                                integrated_sha=integrated_sha,
                             )
                         except Exception as e:
                             logger.debug("State transition to COMPLETED error: %s", e)
@@ -894,9 +896,9 @@ class HerdrEventBridge:
             try:
                 from meister.worktree import WorktreeManager, IntegrationPipeline
                 wt_mgr = WorktreeManager(repo_root=os.getcwd())
-                wt_mgr.cleanup_orphans()
-                pipeline = IntegrationPipeline(wt_mgr, gate=self.gate)
-                pipeline.start_integration(run_id)
+                wt_mgr.cleanup_orphans(exclude_run_id=run_id)
+                pipeline = IntegrationPipeline(wt_mgr, gate=self.gate, state_manager=sm)
+                pipeline.start_integration(run_id, state_manager=sm)
                 self._integration_pipeline = pipeline
             except Exception as e:
                 logger.warning("Não foi possível inicializar pipeline de integração: %s", e)

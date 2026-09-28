@@ -505,7 +505,7 @@ class WorktreeManager:
                 continue
         return result
 
-    def cleanup_orphans(self) -> List[str]:
+    def cleanup_orphans(self, exclude_run_id: Optional[str] = None) -> List[str]:
         """Varredura na inicialização: detecta e limpa worktrees e branches órfãos."""
         cleaned_ids: List[str] = []
 
@@ -518,20 +518,28 @@ class WorktreeManager:
         except Exception as e:
             logger.warning("Falha ao listar worktrees pelo git: %s", e)
 
+        safe_exclude = None
+        if exclude_run_id:
+            safe_exclude = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in exclude_run_id)
+
         if os.path.exists(self.worktrees_dir):
             for entry in os.listdir(self.worktrees_dir):
                 if entry.startswith("."):
+                    continue
+                if safe_exclude and (entry == f"int_{safe_exclude}" or entry.startswith(f"{safe_exclude}_")):
                     continue
                 wt_path = os.path.abspath(os.path.join(self.worktrees_dir, entry))
                 meta_file = os.path.join(self.metadata_dir, f"{entry}.json")
 
                 is_orphan = False
+                branch_name = ""
                 if not os.path.exists(meta_file):
                     is_orphan = True
                 else:
                     try:
                         with open(meta_file, "r", encoding="utf-8") as f:
                             data = json.load(f)
+                        branch_name = data.get("branch_name", "")
                         pid = data.get("pid")
                         if pid and not self._is_pid_alive(pid):
                             is_orphan = True
@@ -540,7 +548,13 @@ class WorktreeManager:
 
                 if is_orphan:
                     logger.warning("Worktree órfão detectado: %s. Limpando...", wt_path)
-                    wt_cleaned = self.cleanup_worktree(entry, force=True, archive_unmerged=True)
+                    is_int_branch = branch_name.startswith("meister/integration/") or entry.startswith("int_")
+                    wt_cleaned = self.cleanup_worktree(
+                        entry,
+                        delete_branch=not is_int_branch,
+                        force=True,
+                        archive_unmerged=True,
+                    )
                     if wt_cleaned:
                         cleaned_ids.append(entry)
 
@@ -600,28 +614,137 @@ class IntegrationPipeline:
         self,
         worktree_manager: WorktreeManager,
         gate: Optional[Any] = None,
+        state_manager: Optional[Any] = None,
     ):
         self.wt_mgr = worktree_manager
         if gate is None:
             from meister.gate import DeterministicGate
             gate = DeterministicGate(self.wt_mgr.repo_root)
         self.gate = gate
+        self.state_manager = state_manager
         self.integration_info: Optional[WorktreeInfo] = None
         self.base_ref: str = "HEAD"
         self.run_id: Optional[str] = None
+        self.last_integrated_sha: Optional[str] = None
 
-    def start_integration(self, run_id: str, base_ref: str = "HEAD") -> WorktreeInfo:
-        """Inicializa o worktree e branch de integração para o run."""
+    def start_integration(
+        self,
+        run_id: str,
+        base_ref: str = "HEAD",
+        state_manager: Optional[Any] = None,
+    ) -> WorktreeInfo:
+        """Inicializa ou recupera de forma idempotente o worktree e branch de integração para o run."""
         self.run_id = run_id
         self.base_ref = base_ref
+        if state_manager is not None:
+            self.state_manager = state_manager
+
         safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in run_id)
         branch_name = f"meister/integration/{safe_id}"
+        wt_task_id = f"int_{safe_id}"
+        worktree_path = os.path.join(self.wt_mgr.worktrees_dir, wt_task_id)
+
+        # 1. Verifica se a branch de integração já existe
+        branch_exists = False
+        try:
+            self.wt_mgr._run_git(["rev-parse", "--verify", f"refs/heads/{branch_name}"])
+            branch_exists = True
+        except Exception:
+            branch_exists = False
+
+        has_history = False
+        if branch_exists:
+            try:
+                count_str = self.wt_mgr._run_git(["rev-list", "--count", f"{base_ref}..{branch_name}"]).strip()
+                has_history = int(count_str) > 0
+            except Exception:
+                has_history = False
+
+        # Se já existe e tem histórico do run: REUSAR
+        if branch_exists and has_history:
+            logger.info("Reutilizando branch de integração existente %s para o run %s", branch_name, run_id)
+            is_valid_worktree = False
+            if os.path.exists(worktree_path):
+                try:
+                    wt_list = self.wt_mgr._run_git(["worktree", "list", "--porcelain"])
+                    existing_paths = [
+                        os.path.abspath(line.split(" ", 1)[1].strip())
+                        for line in wt_list.splitlines()
+                        if line.startswith("worktree ")
+                    ]
+                    if os.path.abspath(worktree_path) in existing_paths:
+                        is_valid_worktree = True
+                except Exception:
+                    is_valid_worktree = False
+
+            if is_valid_worktree:
+                try:
+                    self.wt_mgr._run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
+                    self.wt_mgr._run_git(["clean", "-fd"], cwd=worktree_path)
+                except Exception as e:
+                    logger.debug("Aviso ao limpar worktree existente: %s", e)
+            else:
+                if os.path.exists(worktree_path):
+                    shutil.rmtree(worktree_path, ignore_errors=True)
+                try:
+                    self.wt_mgr._run_git(["worktree", "prune"])
+                except Exception:
+                    pass
+                self.wt_mgr._run_git(["worktree", "add", worktree_path, branch_name])
+
+            base_commit = self.wt_mgr._run_git(["rev-parse", base_ref])
+            info = WorktreeInfo(
+                task_id=wt_task_id,
+                worktree_path=worktree_path,
+                branch_name=branch_name,
+                base_ref=base_ref,
+                base_commit=base_commit,
+                created_at=time.time(),
+                pid=os.getpid(),
+                status="active",
+            )
+            meta_file = os.path.join(self.wt_mgr.metadata_dir, f"{wt_task_id}.json")
+            with open(meta_file, "w", encoding="utf-8") as f:
+                json.dump(asdict(info), f, indent=2)
+
+            self.integration_info = info
+            logger.info("Pipeline de integração reutilizou branch %s (worktree: %s)", branch_name, info.worktree_path)
+            return info
+
+        # Se a branch não existe ou não tem histórico, mas o SQLite possui subtarefas COMPLETED com SHAs:
+        # Reconstruir reaplicando os commits/SHAs
+        completed_shas: List[str] = []
+        if self.state_manager is not None:
+            try:
+                subtasks = self.state_manager.get_subtasks(run_id)
+                for st in subtasks:
+                    if st.get("status") == "COMPLETED" and st.get("integrated_sha"):
+                        completed_shas.append(st["integrated_sha"])
+            except Exception as e:
+                logger.debug("Não foi possível obter subtarefas do SQLite: %s", e)
+
         info = self.wt_mgr.create_worktree(
-            task_id=f"int_{safe_id}",
+            task_id=wt_task_id,
             base_ref=base_ref,
             branch_name=branch_name,
         )
         self.integration_info = info
+
+        if completed_shas:
+            logger.info("Reconstruindo branch de integração %s reaplicando %d commits do SQLite...", branch_name, len(completed_shas))
+            for sha in completed_shas:
+                is_anc = False
+                try:
+                    self.wt_mgr._run_git(["merge-base", "--is-ancestor", sha, "HEAD"], cwd=info.worktree_path)
+                    is_anc = True
+                except Exception:
+                    is_anc = False
+                if not is_anc:
+                    try:
+                        self.wt_mgr._run_git(["cherry-pick", sha], cwd=info.worktree_path)
+                    except Exception as e:
+                        logger.warning("Falha ao reaplicar commit %s na reconstrução: %s", sha, e)
+
         logger.info("Pipeline de integração iniciado no branch %s (worktree: %s)", branch_name, info.worktree_path)
         return info
 
@@ -662,6 +785,8 @@ class IntegrationPipeline:
         commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
         if not commit_sha:
             return True, "Nenhuma alteração para integrar."
+
+        self.last_integrated_sha = commit_sha
 
         # 4. Merge sequencial na branch de integração
         merged, rollback_sha_or_err = self.wt_mgr.merge_branch_into(
@@ -707,14 +832,67 @@ class IntegrationPipeline:
         except Exception:
             return ""
 
+    def verify_completed_subtasks_ancestry(
+        self,
+        completed_shas: Optional[List[str]] = None,
+        state_manager: Optional[Any] = None,
+        run_id: Optional[str] = None,
+    ) -> Tuple[bool, str]:
+        """Invariante final determinística: verifica se o commit integrado de CADA subtarefa
+
+        COMPLETED é ancestral da branch de integração antes de permitir fast-forward.
+        """
+        if self.integration_info is None:
+            return False, "Nenhuma integração ativa para validar ancestrais."
+
+        shas_to_check: List[Tuple[str, str]] = []
+
+        sm = state_manager or self.state_manager
+        rid = run_id or self.run_id
+        if sm is not None and rid is not None:
+            try:
+                subtasks = sm.get_subtasks(rid)
+                for sub in subtasks:
+                    if sub.get("status") == "COMPLETED" and sub.get("integrated_sha"):
+                        label = sub.get("step_id") or sub.get("subtask_id", "")
+                        shas_to_check.append((label, sub["integrated_sha"]))
+            except Exception as e:
+                logger.warning("Erro ao consultar subtarefas para invariante: %s", e)
+
+        if completed_shas:
+            for idx, sha in enumerate(completed_shas):
+                shas_to_check.append((f"sha_{idx}", sha))
+
+        for label, sha in shas_to_check:
+            try:
+                self.wt_mgr._run_git(
+                    ["merge-base", "--is-ancestor", sha, "HEAD"],
+                    cwd=self.integration_info.worktree_path,
+                )
+            except Exception:
+                err = (
+                    f"Invariante de integridade violada: commit integrado {sha[:8]} "
+                    f"da subtarefa '{label}' NÃO é ancestral da branch de integração."
+                )
+                logger.error(err)
+                return False, err
+
+        return True, "Ancestralidade de subtarefas concluídas validada com sucesso."
+
     def apply_fast_forward(self) -> Tuple[bool, str]:
         """Aplica fast-forward no repositório principal somente após aprovação de todos os gates.
 
-        Se o fast-forward falhar (ex.: repo dirty), retorna False e mantém a branch de integração
+        Se o fast-forward falhar (ex.: repo dirty ou invariante violada), retorna False e mantém a branch de integração
         intacta para inspeção manual.
         """
         if self.integration_info is None:
             return False, "Nenhuma integração ativa."
+
+        # Invariante final, sempre: verificar ancestralidade de subtasks COMPLETED
+        ok_anc, msg_anc = self.verify_completed_subtasks_ancestry()
+        if not ok_anc:
+            logger.critical("Bloqueando fast-forward: %s", msg_anc)
+            return False, msg_anc
 
         ok, ff_msg = self.wt_mgr.fast_forward_repo(self.integration_info.branch_name)
         if not ok:

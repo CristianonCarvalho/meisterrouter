@@ -267,3 +267,109 @@ def test_finish_integration_fails_closed_when_repo_is_dirty(git_test_repo):
 
     # Cleanup test resources
     pipeline.abort_integration()
+
+
+def test_resumed_integration_preserves_completed_subtasks(git_test_repo):
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+    sm1 = StateManager(db_path=db_path)
+    run_id = "test-resume-run"
+    sm1.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm1.add_subtasks(run_id, [
+        {"id": "t1", "description": "task 1", "target_files": ["calc.py", "tests/test_calc.py"]},
+        {"id": "t2", "description": "task 2", "target_files": ["text.py", "tests/test_text.py"]},
+    ])
+    sub1_id = subs[0]["subtask_id"]
+    sub2_id = subs[1]["subtask_id"]
+
+    wt_mgr1 = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+    pipeline1 = IntegrationPipeline(wt_mgr1, gate=gate)
+    int_info1 = pipeline1.start_integration(run_id, state_manager=sm1)
+
+    # Subtask 1: adds calc.py and tests/test_calc.py
+    wt1 = wt_mgr1.create_worktree("t1", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt1.worktree_path, "calc.py"), "w", encoding="utf-8") as f:
+        f.write("def mul(a, b):\n    return a * b\n")
+    with open(os.path.join(wt1.worktree_path, "tests", "test_calc.py"), "w", encoding="utf-8") as f:
+        f.write("from calc import mul\ndef test_mul():\n    assert mul(2, 3) == 6\n")
+
+    ok1, msg1 = pipeline1.integrate_subtask(wt1, target_files=["calc.py", "tests/test_calc.py"])
+    assert ok1 is True
+    # Record integrated SHA in SQLite
+    t1_sha = getattr(pipeline1, "last_integrated_sha", None)
+    sm1.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm1.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=t1_sha)
+    wt_mgr1.cleanup_worktree(wt1.task_id, force=True)
+
+    # Simulate crash / new process restart:
+    # A new StateManager, new WorktreeManager, and new IntegrationPipeline
+    sm2 = StateManager(db_path=db_path)
+    wt_mgr2 = WorktreeManager(repo_root=repo_path)
+    wt_mgr2.cleanup_orphans(exclude_run_id=run_id)
+
+    pipeline2 = IntegrationPipeline(wt_mgr2, gate=gate)
+    int_info2 = pipeline2.start_integration(run_id, state_manager=sm2)
+
+    # Subtask 2: adds text.py and tests/test_text.py
+    wt2 = wt_mgr2.create_worktree("t2", base_ref=int_info2.branch_name)
+    with open(os.path.join(wt2.worktree_path, "text.py"), "w", encoding="utf-8") as f:
+        f.write("def shout(name):\n    return name.upper()\n")
+    with open(os.path.join(wt2.worktree_path, "tests", "test_text.py"), "w", encoding="utf-8") as f:
+        f.write("from text import shout\ndef test_shout():\n    assert shout('hi') == 'HI'\n")
+
+    ok2, msg2 = pipeline2.integrate_subtask(wt2, target_files=["text.py", "tests/test_text.py"])
+    assert ok2 is True, f"Subtask 2 integration failed: {msg2}"
+    t2_sha = getattr(pipeline2, "last_integrated_sha", None)
+    sm2.transition_subtask(sub2_id, to_state=SubtaskState.RUNNING)
+    sm2.transition_subtask(sub2_id, to_state=SubtaskState.COMPLETED, integrated_sha=t2_sha)
+    wt_mgr2.cleanup_worktree(wt2.task_id, force=True)
+
+    # Finish integration with fast_forward=True
+    ok_ff, ff_msg = pipeline2.finish_integration(fast_forward=True)
+    assert ok_ff is True, f"Finish integration failed: {ff_msg}"
+
+    # Main repository must contain BOTH t1 (calc.py) and t2 (text.py)
+    assert os.path.exists(os.path.join(repo_path, "calc.py")), "calc.py from t1 missing on main!"
+    assert os.path.exists(os.path.join(repo_path, "text.py")), "text.py from t2 missing on main!"
+    with open(os.path.join(repo_path, "calc.py"), "r", encoding="utf-8") as f:
+        assert "def mul" in f.read()
+    with open(os.path.join(repo_path, "text.py"), "r", encoding="utf-8") as f:
+        assert "def shout" in f.read()
+
+
+def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo):
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+    sm = StateManager(db_path=db_path)
+    run_id = "test-ancestry-run"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(run_id, [
+        {"id": "t1", "description": "task 1", "target_files": ["calc.py"]},
+    ])
+    sub1_id = subs[0]["subtask_id"]
+
+    # Mark t1 as COMPLETED with a commit SHA that is NOT in integration branch
+    # Create an orphan commit in a separate branch
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    fake_wt = wt_mgr.create_worktree("fake_orphan")
+    with open(os.path.join(fake_wt.worktree_path, "orphan.py"), "w", encoding="utf-8") as f:
+        f.write("# orphan commit\n")
+    orphan_sha = wt_mgr.commit_worktree(fake_wt.worktree_path, "orphan commit")
+    wt_mgr.cleanup_worktree("fake_orphan", delete_branch=True, force=True)
+
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=orphan_sha)
+
+    # Start a fresh integration pipeline from HEAD without orphan_sha
+    gate = DeterministicGate(repo_path)
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    pipeline.start_integration(run_id, state_manager=sm)
+
+    # Invariant must block fast_forward because orphan_sha is not in integration branch
+    ok_ff, ff_err = pipeline.finish_integration(fast_forward=True)
+    assert ok_ff is False
+    assert "invariante" in ff_err.lower() or "ancestral" in ff_err.lower()
+
