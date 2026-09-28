@@ -804,5 +804,69 @@ async def test_bridge_passes_cwd_to_split_pane_in_tiled_mode(tmp_path, monkeypat
     assert mock_client.split_pane.call_args.kwargs.get("cwd") == str(repo_dir)
 
 
+@pytest.mark.asyncio
+async def test_bridge_cleans_up_subtask_worktree_and_branch_on_failure(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    from meister.worktree import WorktreeManager, IntegrationPipeline
+
+    wt_mgr = WorktreeManager(repo_root=str(repo_dir))
+    pipeline = IntegrationPipeline(wt_mgr)
+    pipeline.start_integration(run_id="run_fail_test")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.create_tab = AsyncMock()
+    mock_client.wait_pane_ready = AsyncMock(return_value=True)
+    mock_client.send_text = AsyncMock()
+    mock_client.close_tab = AsyncMock()
+
+    async def fake_worker_fail(*args, **kwargs):
+        wts = [wt for wt in wt_mgr.list_active_worktrees() if not wt.task_id.startswith("int_")]
+        assert len(wts) == 1
+        wt_path = Path(wts[0].worktree_path)
+        (wt_path / "temp.txt").write_text("unmerged work")
+        subprocess.run(["git", "add", "temp.txt"], cwd=wt_path, check=True)
+        subprocess.run(["git", "commit", "-m", "work in progress"], cwd=wt_path, check=True)
+        auto_write_result(tmp_path, {"status": "error", "output": "Subtask failed"})
+        return ("w1:t2", "w1:p2")
+
+    mock_client.create_tab.side_effect = fake_worker_fail
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tabs"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+    bridge._integration_pipeline = pipeline
+
+    subtask = {
+        "id": "t1",
+        "description": "Failing subtask",
+        "target_files": ["app.py"],
+    }
+
+    success = await bridge.execute_subtask(subtask, run_id="run_fail_test")
+    assert success is False
+
+    # The subtask worktree MUST be cleaned up
+    remaining_wts = [wt for wt in wt_mgr.list_active_worktrees() if not wt.task_id.startswith("int_")]
+    assert len(remaining_wts) == 0
+
+    # The subtask branch MUST be deleted
+    branches_proc = subprocess.run(["git", "branch"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    assert "meister/worktree/run_fail_test_t1" not in branches_proc.stdout
+
+    # The unmerged commit MUST be archived under refs/meister/archive
+    refs_proc = subprocess.run(["git", "for-each-ref", "refs/meister/archive/"], cwd=repo_dir, capture_output=True, text=True, check=True)
+    assert "refs/meister/archive/run_fail_test_t1" in refs_proc.stdout
+
+
 
 
