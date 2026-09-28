@@ -212,3 +212,44 @@ def test_orphan_cleanup_archives_unmerged_commits(git_repo):
     assert "orphan-without-commits" not in refs_out
 
 
+def test_orphan_cleanup_failsafe_when_archive_fails(git_repo, monkeypatch):
+    repo_path = str(git_repo)
+    manager = WorktreeManager(repo_root=repo_path)
+
+    # 1. Create worktree with unmerged commit
+    info = manager.create_worktree("orphan-fail-archive")
+    work_file = os.path.join(info.worktree_path, "important_code.py")
+    with open(work_file, "w", encoding="utf-8") as f:
+        f.write("# critical unmerged changes\n")
+    sha = manager.commit_worktree(info.worktree_path, "feat: critical work")
+    assert sha is not None
+
+    # Simulate dead process / orphan metadata
+    meta_file = os.path.join(manager.metadata_dir, "orphan-fail-archive.json")
+    with open(meta_file, "w", encoding="utf-8") as f:
+        f.write('{"task_id": "orphan-fail-archive", "worktree_path": "' + info.worktree_path + '", "branch_name": "' + info.branch_name + '", "base_ref": "HEAD", "base_commit": "' + info.base_commit + '", "created_at": 0.0, "pid": 99999999, "status": "active"}')
+
+    # Force failure on update-ref via monkeypatch on _run_git
+    orig_run_git = manager._run_git
+    def mock_run_git(cmd, **kwargs):
+        if len(cmd) > 0 and cmd[0] == "update-ref":
+            raise RuntimeError("Simulated failure creating archive ref")
+        return orig_run_git(cmd, **kwargs)
+
+    monkeypatch.setattr(manager, "_run_git", mock_run_git)
+
+    # 2. Run cleanup_orphans: archive fails, so branch deletion MUST be blocked
+    cleaned = manager.cleanup_orphans()
+    assert "orphan-fail-archive" not in cleaned
+
+    # 3. Branch MUST still exist in git to prevent data loss
+    branches = subprocess.run(
+        ["git", "branch", "--list", "meister/worktree/orphan-fail-archive"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "meister/worktree/orphan-fail-archive" in branches
+
+

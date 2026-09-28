@@ -345,12 +345,18 @@ class WorktreeManager:
         branch: str,
         task_id: str,
         base_ref: Optional[str] = None,
-    ) -> Optional[str]:
-        """Cria ref de arquivo refs/meister/archive/<task_id>-<timestamp> se houver commits não integrados."""
+    ) -> Tuple[bool, Optional[str]]:
+        """Cria ref de arquivo refs/meister/archive/<task_id>-<timestamp> se houver commits não integrados.
+
+        Retorna:
+            (True, ref_name) se arquivado com sucesso.
+            (True, None) se não havia commits não integrados para arquivar.
+            (False, None) se havia commits não integrados mas a criação do ref falhou.
+        """
         try:
             branch_sha = self._run_git(["rev-parse", branch]).strip()
         except Exception:
-            return None
+            return (True, None)
 
         base = base_ref or "HEAD"
         try:
@@ -385,10 +391,23 @@ class WorktreeManager:
                     )
                 except Exception:
                     pass
-                return ref_name
+                return (True, ref_name)
             except Exception as e:
                 logger.error("Falha ao criar ref de arquivo para branch %s: %s", branch, e)
-        return None
+                try:
+                    from meister.logger import log_event
+                    log_event(
+                        event_type="worktree_archive_failed",
+                        task_id=task_id,
+                        branch=branch,
+                        sha=branch_sha,
+                        unmerged_commits=count,
+                        error=str(e),
+                    )
+                except Exception:
+                    pass
+                return (False, None)
+        return (True, None)
 
     def cleanup_worktree(
         self,
@@ -431,13 +450,22 @@ class WorktreeManager:
 
         # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
         if delete_branch:
+            can_delete = True
             if archive_unmerged:
                 base_ref = meta_data.get("base_ref") or meta_data.get("base_commit")
-                self._archive_branch_if_unmerged(branch_name, task_id, base_ref=base_ref)
-            try:
-                self._run_git(["branch", "-D", branch_name])
-            except Exception as e:
-                logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
+                archive_ok, _ = self._archive_branch_if_unmerged(branch_name, task_id, base_ref=base_ref)
+                if not archive_ok:
+                    can_delete = False
+                    success = False
+                    logger.error(
+                        "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
+                        branch_name,
+                    )
+            if can_delete:
+                try:
+                    self._run_git(["branch", "-D", branch_name])
+                except Exception as e:
+                    logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
 
         # 3. Executa git worktree prune
         try:
@@ -508,8 +536,9 @@ class WorktreeManager:
 
                 if is_orphan:
                     logger.warning("Worktree órfão detectado: %s. Limpando...", wt_path)
-                    self.cleanup_worktree(entry, force=True, archive_unmerged=True)
-                    cleaned_ids.append(entry)
+                    wt_cleaned = self.cleanup_worktree(entry, force=True, archive_unmerged=True)
+                    if wt_cleaned:
+                        cleaned_ids.append(entry)
 
         try:
             branches_out = self._run_git(["branch", "--list", "meister/worktree/*"])
@@ -519,13 +548,19 @@ class WorktreeManager:
                     task_id = branch.replace("meister/worktree/", "")
                     wt_path = os.path.abspath(os.path.join(self.worktrees_dir, task_id))
                     if wt_path not in git_worktree_paths:
-                        self._archive_branch_if_unmerged(branch, task_id)
-                        try:
-                            self._run_git(["branch", "-D", branch])
-                            if task_id not in cleaned_ids:
-                                cleaned_ids.append(task_id)
-                        except Exception:
-                            pass
+                        archive_ok, _ = self._archive_branch_if_unmerged(branch, task_id)
+                        if archive_ok:
+                            try:
+                                self._run_git(["branch", "-D", branch])
+                                if task_id not in cleaned_ids:
+                                    cleaned_ids.append(task_id)
+                            except Exception:
+                                pass
+                        else:
+                            logger.error(
+                                "Bloqueando deleção da branch órfã %s: falha ao arquivar commits não integrados.",
+                                branch,
+                            )
         except Exception:
             pass
 
