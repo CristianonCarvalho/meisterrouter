@@ -25,7 +25,7 @@ class MasterConfig:
 @dataclass
 class ArchitectConfig:
     harness: str = "claude"
-    model: str = "anthropic/claude-3-7-sonnet"
+    model: str = "anthropic/claude-sonnet-5"
     prompt_template: str = "templates/architect_prompt.md"
 
 
@@ -136,7 +136,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     architect_data = data.get("architect") or {}
     architect = ArchitectConfig(
         harness=architect_data.get("harness", "claude"),
-        model=architect_data.get("model", "anthropic/claude-3-7-sonnet"),
+        model=architect_data.get("model", "anthropic/claude-sonnet-5"),
         prompt_template=architect_data.get("prompt_template", "templates/architect_prompt.md"),
     )
 

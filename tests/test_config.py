@@ -40,7 +40,7 @@ def test_load_config_defaults_when_no_file(tmp_path, monkeypatch):
     assert isinstance(config, MeisterConfig)
     assert config.version == "1.0"
     assert config.master.model == "typesafe/jev-1.13"
-    assert config.architect.model == "anthropic/claude-3-7-sonnet"
+    assert config.architect.model == "anthropic/claude-sonnet-5"
     assert len(config.workers.tier_order) >= 1
     assert config.concurrency.max_parallel_workers == 4
 
@@ -55,7 +55,7 @@ concurrency:
     assert config.concurrency.max_parallel_workers == 8
     assert config.concurrency.parallel_tasks is True
     assert config.master.model == "typesafe/jev-1.13"
-    assert config.architect.model == "anthropic/claude-3-7-sonnet"
+    assert config.architect.model == "anthropic/claude-sonnet-5"
     assert len(config.workers.tier_order) >= 1
 
 

@@ -207,7 +207,7 @@ def resolve_worker_harness_and_model(model_name: str) -> Tuple[str, Optional[str
     ):
         return (HARNESS_CLAUDE, get_configured_model("haiku", "haiku"))
     if cleaned in (
-        "sonnet", "sonnet-5", "claude-3-7-sonnet", "anthropic/claude-3-7-sonnet"
+        "sonnet", "sonnet-5", "claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-3-7-sonnet", "anthropic/claude-3-7-sonnet"
     ):
         return (HARNESS_CLAUDE, get_configured_model("sonnet", "sonnet"))
     if cleaned == "claude":
