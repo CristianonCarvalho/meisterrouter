@@ -232,3 +232,44 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
     assert end_ev["duration_ms"] >= 0.0
 
 
+def test_e2e_meister_gitignore_clean_git_status(tmp_path):
+    """E2E-4: Diretório .meister possui .gitignore com '*' e não polui o git status."""
+    from meister.config import ensure_meister_dir
+    from meister.state import StateManager
+
+    repo_dir = tmp_path / "repo_gi"
+    repo_dir.mkdir()
+    cwd = str(repo_dir)
+
+    subprocess.run(["git", "init", "-b", "main"], cwd=cwd, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ci@meisterrouter.local"], cwd=cwd, check=True)
+    subprocess.run(["git", "config", "user.name", "Meister CI"], cwd=cwd, check=True)
+
+    dummy_file = repo_dir / "app.py"
+    dummy_file.write_text("print('hello')\n")
+    subprocess.run(["git", "add", "."], cwd=cwd, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=cwd, check=True)
+
+    # Cria .meister e arquivos internos (db, runs, logs)
+    m_dir = ensure_meister_dir(cwd)
+    gi_path = os.path.join(m_dir, ".gitignore")
+    assert os.path.exists(gi_path)
+    with open(gi_path, "r", encoding="utf-8") as f:
+        assert "*" in f.read()
+
+    # Cria arquivos internos típicos
+    (repo_dir / ".meister" / "runs").mkdir(exist_ok=True)
+    (repo_dir / ".meister" / "runs" / "task1.json").write_text("{}")
+    (repo_dir / ".meister" / "active_worker_pane.txt").write_text("w1:p1")
+
+    # StateManager padrão no repo
+    sm = StateManager(os.path.join(cwd, ".meister", "meister.db"))
+    sm.close()
+
+    # git status não deve apontar '?? .meister/'
+    st = subprocess.run(["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True)
+    assert ".meister" not in st.stdout
+    assert st.stdout.strip() == ""
+
+
+

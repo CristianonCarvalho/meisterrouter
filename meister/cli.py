@@ -33,7 +33,7 @@ from meister.jev import classify_task, control_cycle, call_decisions
 from meister.models import MODEL_PRICING, estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import get_events_by_run_id, log_event, get_current_run
-from meister.config import load_config
+from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge
 
@@ -122,7 +122,8 @@ def init(target, type_, no_hooks):
         f.write(content)
     click.echo("  ✅ Criado AGENTS.md (Diretivas universais para agentes)")
 
-    # 4. Cria diretório local .meister para logs se desejado
+    # 4. Cria diretório local .meister com .gitignore para logs
+    ensure_meister_dir(target_dir)
     local_meister = os.path.join(target_dir, ".meister", "logs")
     os.makedirs(local_meister, exist_ok=True)
     click.echo("  ✅ Criado diretório de telemetria local (.meister/logs/)")
@@ -333,6 +334,7 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
 
     target_files = [f.strip() for f in files.split(",")] if files else None
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    ensure_meister_dir(resolved_cwd)
 
     if task:
         # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível

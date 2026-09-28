@@ -37,7 +37,16 @@ def get_log_dir() -> str:
     if not log_dir:
         root = find_project_root()
         if root:
-            log_dir = os.path.join(root, ".meister", "logs")
+            meister_dir = os.path.join(root, ".meister")
+            os.makedirs(meister_dir, exist_ok=True)
+            gi = os.path.join(meister_dir, ".gitignore")
+            if not os.path.exists(gi):
+                try:
+                    with open(gi, "w", encoding="utf-8") as f:
+                        f.write("*\n")
+                except Exception:
+                    pass
+            log_dir = os.path.join(meister_dir, "logs")
         else:
             log_dir = DEFAULT_LOG_DIR
     os.makedirs(log_dir, exist_ok=True)
@@ -67,6 +76,13 @@ def save_current_run(run_id: str, task_id: Optional[str] = None) -> None:
     if root and os.path.abspath(root) != os.path.abspath(log_dir):
         meister_dir = os.path.join(root, ".meister")
         if os.path.exists(meister_dir):
+            gi = os.path.join(meister_dir, ".gitignore")
+            if not os.path.exists(gi):
+                try:
+                    with open(gi, "w", encoding="utf-8") as f:
+                        f.write("*\n")
+                except Exception:
+                    pass
             try:
                 with open(os.path.join(meister_dir, "current_run.json"), "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False)

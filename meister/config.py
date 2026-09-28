@@ -14,6 +14,20 @@ from typing import Optional, List
 import yaml
 
 
+def ensure_meister_dir(root_or_cwd: str) -> str:
+    """Garante que o diretório .meister existe com .gitignore contendo '*' para nunca poluir o git (Achado #4, E2E-4)."""
+    m_dir = os.path.join(root_or_cwd, ".meister")
+    os.makedirs(m_dir, exist_ok=True)
+    gi = os.path.join(m_dir, ".gitignore")
+    if not os.path.exists(gi):
+        try:
+            with open(gi, "w", encoding="utf-8") as f:
+                f.write("*\n")
+        except Exception:
+            pass
+    return m_dir
+
+
 @dataclass
 class MasterConfig:
     provider: str = "openrouter"

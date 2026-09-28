@@ -95,9 +95,9 @@ class StateManager:
                 self.db_path = env_db
             else:
                 from meister.logger import find_project_root
+                from meister.config import ensure_meister_dir
                 root = find_project_root() or os.getcwd()
-                meister_dir = os.path.join(root, ".meister")
-                os.makedirs(meister_dir, exist_ok=True)
+                meister_dir = ensure_meister_dir(root)
                 self.db_path = os.path.join(meister_dir, "meister.db")
         else:
             self.db_path = db_path
