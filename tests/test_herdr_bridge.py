@@ -436,7 +436,7 @@ async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
 
 
 def _init_git_repo(path):
-    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=path, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "ci@meister.local"], cwd=path, check=True)
     subprocess.run(["git", "config", "user.name", "Meister CI"], cwd=path, check=True)
     app = path / "app.py"
@@ -642,7 +642,7 @@ async def test_bridge_infrastructure_error_fast_fails_without_escalation(tmp_pat
     monkeypatch.chdir(tmp_path)
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
     (repo_dir / "app.py").write_text("print('hello')\n")
@@ -679,7 +679,7 @@ async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, mon
     monkeypatch.chdir(tmp_path)
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
     (repo_dir / "app.py").write_text("print('hello')\n")
@@ -724,7 +724,7 @@ async def test_bridge_defaults_to_tabs_and_passes_worktree_cwd(tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
     (repo_dir / "app.py").write_text("print('hello')\n")
@@ -772,7 +772,7 @@ async def test_bridge_passes_cwd_to_split_pane_in_tiled_mode(tmp_path, monkeypat
     monkeypatch.chdir(tmp_path)
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
-    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
     subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
     (repo_dir / "app.py").write_text("print('hello')\n")

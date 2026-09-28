@@ -12,7 +12,7 @@ def git_repo(tmp_path):
     repo_dir.mkdir()
     cwd = str(repo_dir)
 
-    subprocess.run(["git", "init"], cwd=cwd, check=True, capture_output=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=cwd, check=True, capture_output=True)
     subprocess.run(["git", "config", "user.email", "ci@meisterrouter.local"], cwd=cwd, check=True)
     subprocess.run(["git", "config", "user.name", "Meister CI"], cwd=cwd, check=True)
 

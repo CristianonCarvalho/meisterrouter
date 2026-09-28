@@ -24,4 +24,8 @@ def isolate_test_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("MEISTER_DB_PATH", test_db)
     monkeypatch.setenv("MEISTER_LOG_DIR", test_logs)
     monkeypatch.setenv("MEISTER_WORKTREES_DIR", test_wt)
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Meister CI")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "ci@meisterrouter.local")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Meister CI")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "ci@meisterrouter.local")
     yield
