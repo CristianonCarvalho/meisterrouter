@@ -241,6 +241,7 @@ class WorkerSpawner:
         task_context: Optional[dict] = None,
         direction: str = "right",
         split_ratio: float = 0.5,
+        cwd: Optional[str] = None,
     ) -> Tuple[str, WorkerTier]:
         """Split a new Herdr pane and launch the appropriate worker command.
 
@@ -255,11 +256,14 @@ class WorkerSpawner:
             raise RuntimeError("Herdr client is required to spawn worker panes")
 
         cmd = self.resolve_command(tier, task_context)
-        pane_id = await self.herdr_client.split_pane(
-            direction=direction,
-            command=cmd,
-            split_ratio=split_ratio,
-        )
+        split_kwargs: dict[str, Any] = {
+            "direction": direction,
+            "command": cmd,
+            "split_ratio": split_ratio,
+        }
+        if cwd is not None:
+            split_kwargs["cwd"] = cwd
+        pane_id = await self.herdr_client.split_pane(**split_kwargs)
         return pane_id, tier
 
     async def spawn_worker_tab(
@@ -357,6 +361,7 @@ async def spawn_worker_pane(
     config: Optional[MeisterConfig] = None,
     direction: str = "right",
     split_ratio: float = 0.5,
+    cwd: Optional[str] = None,
 ) -> Tuple[str, WorkerTier]:
     """Module-level helper to spawn a worker pane."""
     if spawner is not None:
@@ -365,6 +370,7 @@ async def spawn_worker_pane(
             task_context=task_context,
             direction=direction,
             split_ratio=split_ratio,
+            cwd=cwd,
         )
     cfg = config or load_config()
     s = WorkerSpawner(cfg, herdr_client=herdr_client)
@@ -373,4 +379,5 @@ async def spawn_worker_pane(
         task_context=task_context,
         direction=direction,
         split_ratio=split_ratio,
+        cwd=cwd,
     )

@@ -41,6 +41,7 @@ version: "1.0"
 concurrency:
   parallel_tasks: true
   max_parallel_workers: 2
+  layout_strategy: tiled
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -70,6 +71,7 @@ version: "1.0"
 concurrency:
   parallel_tasks: true
   max_parallel_workers: 2
+  layout_strategy: tiled
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -114,6 +116,8 @@ workers:
     - name: "gemini_flash"
       harness: "native"
       model: "google/gemini-2.5-flash"
+concurrency:
+  layout_strategy: tiled
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -185,6 +189,7 @@ version: "1.0"
 concurrency:
   parallel_tasks: true
   max_parallel_workers: 2
+  layout_strategy: tiled
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -345,6 +350,8 @@ workers:
     - name: "gemini_flash"
       harness: "native"
       model: "google/gemini-2.5-flash"
+concurrency:
+  layout_strategy: tiled
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -549,6 +556,13 @@ async def test_bridge_orchestration_happy_path_fast_forwards_main(tmp_path, monk
         return "w1:p1"
 
     mock_client.split_pane.side_effect = mock_split
+
+    async def mock_tab(*args, **kwargs):
+        pane_id = await mock_split(*args, **kwargs)
+        return ("w1:t1", pane_id)
+
+    mock_client.create_tab.side_effect = mock_tab
+    mock_client.close_tab = AsyncMock()
     mock_client.read_pane.return_value = "Task completed"
 
     mock_gate = MagicMock()
@@ -701,6 +715,93 @@ async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, mon
     assert success is False
     # Must have failed fast without escalating
     assert mock_client.split_pane.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_defaults_to_tabs_and_passes_worktree_cwd(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.create_tab = AsyncMock(return_value=("w1:t2", "w1:p2"))
+    mock_client.wait_pane_ready = AsyncMock(return_value=True)
+    mock_client.send_text = AsyncMock()
+    mock_client.close_tab = AsyncMock()
+
+    async def fake_create_tab(*args, **kwargs):
+        auto_write_result(repo_dir)
+        return ("w1:t2", "w1:p2")
+
+    mock_client.create_tab.side_effect = fake_create_tab
+
+    cfg = MeisterConfig()
+    # Default layout_strategy is tabs
+    assert cfg.concurrency.layout_strategy == "tabs"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+    # Dedicated tab was created by default
+    assert mock_client.create_tab.call_count == 1
+    call_kwargs = mock_client.create_tab.call_args.kwargs
+    assert call_kwargs.get("cwd") == str(repo_dir)
+    assert call_kwargs.get("label") == "worker:t1"
+    assert mock_client.split_pane.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_bridge_passes_cwd_to_split_pane_in_tiled_mode(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+
+    async def fake_split(*args, **kwargs):
+        auto_write_result(repo_dir)
+        return "w1:p1"
+
+    mock_client.split_pane.side_effect = fake_split
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+    assert mock_client.split_pane.call_count == 1
+    assert mock_client.split_pane.call_args.kwargs.get("cwd") == str(repo_dir)
 
 
 

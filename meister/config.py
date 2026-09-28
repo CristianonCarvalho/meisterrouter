@@ -125,7 +125,7 @@ class WorkersConfig:
 class ConcurrencyConfig:
     parallel_tasks: bool = True
     max_parallel_workers: int = 4
-    layout_strategy: str = "tiled"
+    layout_strategy: str = "tabs"
     isolation_mode: str = "git_worktree"
 
 
@@ -189,7 +189,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     concurrency = ConcurrencyConfig(
         parallel_tasks=concurrency_data.get("parallel_tasks", True),
         max_parallel_workers=int(concurrency_data.get("max_parallel_workers", 4)),
-        layout_strategy=concurrency_data.get("layout_strategy", "tiled"),
+        layout_strategy=concurrency_data.get("layout_strategy", "tabs"),
         isolation_mode=concurrency_data.get("isolation_mode", "git_worktree"),
     )
 

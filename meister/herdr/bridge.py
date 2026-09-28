@@ -248,10 +248,10 @@ class HerdrEventBridge:
         direction = "right"
         split_ratio = 0.5
 
-        use_tabs = False
+        use_tabs = True
         if self.config and self.config.concurrency:
-            if getattr(self.config.concurrency, "layout_strategy", "tiled") in ("tabs", "tab"):
-                use_tabs = True
+            if getattr(self.config.concurrency, "layout_strategy", "tabs") in ("tiled", "split"):
+                use_tabs = False
 
         subtask_wt = None
         if self._integration_pipeline is not None and self._integration_pipeline.integration_info is not None:
@@ -336,12 +336,13 @@ class HerdrEventBridge:
             task_dict["command_str"] = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
             tab_id = None
+            spawn_cwd = subtask_wt.worktree_path if subtask_wt else (task_dict.get("cwd") or task_dict.get("worktree"))
             try:
                 if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
                     tab_id, pane_id, _ = await self.spawner.spawn_worker_tab(
                         tier_name=current_tier,
                         task_context=task_dict,
-                        cwd=task_dict.get("cwd") or task_dict.get("worktree"),
+                        cwd=spawn_cwd,
                         label=f"worker:{task_id}",
                         focus=False,
                     )
@@ -351,6 +352,7 @@ class HerdrEventBridge:
                         task_context=task_dict,
                         direction=direction,
                         split_ratio=split_ratio,
+                        cwd=spawn_cwd,
                     )
             except Exception as e:
                 is_infra = isinstance(e, (WorkerInfrastructureError, HerdrRPCError, HerdrConnectionError, RuntimeError, OSError)) or "agent" in str(e).lower()

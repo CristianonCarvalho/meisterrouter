@@ -3,7 +3,7 @@ import time
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from meister.config import MeisterConfig, WorkersConfig, WorkerTier
+from meister.config import MeisterConfig, WorkersConfig, WorkerTier, ConcurrencyConfig
 from meister.herdr.bridge import HerdrEventBridge
 from meister.herdr.workers import WorkerSpawner, detect_quota_or_rate_limit
 from meister.state import StateManager
@@ -270,7 +270,8 @@ async def test_bridge_circuit_breaker_trips_and_records_usage(tmp_path):
                 WorkerTier(name="luna", harness="native"),
                 WorkerTier(name="gemini_flash", harness="native"),
             ]
-        )
+        ),
+        concurrency=ConcurrencyConfig(layout_strategy="tiled"),
     )
 
     mock_client = AsyncMock()
