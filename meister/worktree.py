@@ -71,7 +71,9 @@ class WorktreeManager:
         self.metadata_dir = os.path.join(self.worktrees_dir, ".metadata")
         os.makedirs(self.worktrees_dir, exist_ok=True)
         os.makedirs(self.metadata_dir, exist_ok=True)
-        meister_gitignore = os.path.join(self.repo_root, ".meister", ".gitignore")
+        meister_dir = os.path.join(self.repo_root, ".meister")
+        os.makedirs(meister_dir, exist_ok=True)
+        meister_gitignore = os.path.join(meister_dir, ".gitignore")
         if not os.path.exists(meister_gitignore):
             try:
                 with open(meister_gitignore, "w", encoding="utf-8") as f:
@@ -316,7 +318,9 @@ class WorktreeManager:
         except Exception as e:
             logger.debug("Falha ao rodar git ls-files em %s: %s", worktree_path, e)
 
-        return sorted(list(modified))
+        # Ignora arquivos internos do Meister (.meister)
+        clean_modified = {f for f in modified if not f.startswith(".meister/") and f != ".meister"}
+        return sorted(list(clean_modified))
 
     def verify_scope(
         self,

@@ -600,6 +600,20 @@ def is_herdr_available(socket_path: Optional[str] = None) -> bool:
     return os.path.exists(resolved)
 
 
+def ensure_meister_dir(cwd: str) -> str:
+    """Garante que .meister existe com .gitignore contendo * para nunca poluir o git (Achado #4)."""
+    m_dir = os.path.join(cwd, ".meister")
+    os.makedirs(m_dir, exist_ok=True)
+    gi = os.path.join(m_dir, ".gitignore")
+    if not os.path.exists(gi):
+        try:
+            with open(gi, "w", encoding="utf-8") as f:
+                f.write("*\n")
+        except Exception:
+            pass
+    return m_dir
+
+
 async def run_worker_in_herdr_pane_async(
     model: str,
     task: str,
@@ -621,6 +635,7 @@ async def run_worker_in_herdr_pane_async(
                 resolved_config_path = os.path.abspath(cand)
                 break
 
+    ensure_meister_dir(resolved_cwd)
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 
@@ -771,6 +786,7 @@ async def run_worker_in_herdr_tab_async(
                 resolved_config_path = os.path.abspath(cand)
                 break
 
+    ensure_meister_dir(resolved_cwd)
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 

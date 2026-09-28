@@ -21,6 +21,8 @@ import json
 import signal
 import asyncio
 import logging
+import subprocess
+import uuid
 from typing import Optional
 
 import click
@@ -323,66 +325,129 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
     )
 
     target_files = [f.strip() for f in files.split(",")] if files else None
+    resolved_cwd = os.path.abspath(cwd or os.getcwd())
 
     if task:
         # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível
         in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
         should_split = (tab or pane) and not in_pane and is_herdr_available()
 
-        if should_split:
-            if tab:
-                click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
-                try:
-                    res = run_worker_in_herdr_tab(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
-                    status = res.get("status", "done")
-                    click.echo(f"Worker task finished in Herdr tab. Status: {status}")
-                    if res.get("modified_files"):
-                        click.echo(f"Modified files: {res['modified_files']}")
-                    return
-                except TimeoutError as e:
-                    click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
-                    sys.exit(1)
-                except Exception as e:
-                    click.echo(f"❌ [MeisterRouter] Falha ao despachar worker no Herdr ({e}). Reexecução direta bloqueada.", err=True)
-                    sys.exit(1)
-
-            click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+        # Isolamento com WorktreeManager + IntegrationPipeline (E2E-3)
+        is_git = False
+        if not in_pane:
             try:
-                res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
-                status = res.get("status", "done")
-                click.echo(f"Worker task finished in Herdr pane. Status: {status}")
-                if res.get("modified_files"):
-                    click.echo(f"Modified files: {res['modified_files']}")
-                return
-            except TimeoutError as e:
-                click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
-                sys.exit(1)
-            except Exception as e:
-                click.echo(f"❌ [MeisterRouter] Falha ao despachar worker no Herdr ({e}). Reexecução direta bloqueada.", err=True)
+                chk = subprocess.run(
+                    ["git", "rev-parse", "--is-inside-work-tree"],
+                    cwd=resolved_cwd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                is_git = chk.returncode == 0 and chk.stdout.strip() == "true"
+            except Exception:
+                is_git = False
+
+        wt_mgr = None
+        pipeline = None
+        subtask_wt = None
+        worker_cwd = resolved_cwd
+
+        if is_git and not in_pane:
+            from meister.worktree import WorktreeManager, IntegrationPipeline
+            from meister.gate import DeterministicGate
+
+            wt_mgr = WorktreeManager(repo_root=resolved_cwd)
+            wt_mgr.cleanup_orphans()
+            gate = DeterministicGate(repo_path=resolved_cwd)
+            pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+
+            worker_run_id = run_id or uuid.uuid4().hex[:8]
+            pipeline.start_integration(worker_run_id)
+
+            subtask_wt = wt_mgr.create_worktree(
+                task_id=f"worker_{worker_run_id}",
+                base_ref=pipeline.integration_info.branch_name,
+            )
+            worker_cwd = subtask_wt.worktree_path
+
+        try:
+            if should_split:
+                if tab:
+                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
+                    res = run_worker_in_herdr_tab(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+                else:
+                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+                    res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+            else:
+                # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
+                click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+                res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+
+            status = res.get("status", "done")
+            if status != "done":
+                if subtask_wt is not None and wt_mgr is not None:
+                    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                if pipeline is not None:
+                    pipeline.abort_integration()
+                click.echo(f"❌ [MeisterRouter] Worker terminou com status: {status}", err=True)
                 sys.exit(1)
 
-        # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
-        click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
-        try:
-            res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
-            status = res.get("status", "done")
-            click.echo(f"Worker task finished. Status: {status}")
+            # Se worktree/pipeline estavam ativos, integra determinísticamente (gate -> commit -> merge -> gate -> ff) (E2E-3)
+            if pipeline is not None and subtask_wt is not None and wt_mgr is not None:
+                ok_int, int_err = pipeline.integrate_subtask(
+                    subtask_wt=subtask_wt,
+                    target_files=target_files,
+                    commit_message=f"worker({model}): {task}",
+                )
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                subtask_wt = None
+
+                if not ok_int:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Falha no portão/merge de integração: {int_err}", err=True)
+                    sys.exit(1)
+
+                passed, out = pipeline.validate_final_integration()
+                if not passed:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Portão de qualidade falhou antes do fast-forward:\n{out}", err=True)
+                    sys.exit(1)
+
+                ok_ff, ff_msg = pipeline.apply_fast_forward()
+                if not ok_ff:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Falha no fast-forward da main: {ff_msg}", err=True)
+                    sys.exit(1)
+
+            where = "Herdr tab" if tab else "Herdr pane" if should_split else "worker"
+            click.echo(f"Worker task finished in {where}. Status: {status}")
             if res.get("modified_files"):
                 click.echo(f"Modified files: {res['modified_files']}")
 
             # Se estiver rodando dentro de um pane criado pelo Herdr, grava o arquivo de resultado para o pai
-            if run_id:
-                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+            if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 write_atomic_json(result_file, res)
                 click.echo("\n🏁 [Worker] Código gerado com sucesso.")
                 click.echo("ℹ️ Aguardando verificação determinística e aprovação do orquestrador (meister control)...")
 
+            return
+
+        except TimeoutError as e:
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
+            sys.exit(1)
         except Exception as e:
-            click.echo(f"Worker failed: {e}", err=True)
-            if run_id:
-                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            click.echo(f"❌ [MeisterRouter] Falha ao despachar worker ({e}).", err=True)
+            if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 write_atomic_json(result_file, {"status": "error", "error": str(e)})
