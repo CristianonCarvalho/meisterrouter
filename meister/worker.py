@@ -23,6 +23,12 @@ from meister.logger import log_event
 
 logger = logging.getLogger(__name__)
 
+
+class WorkerInfrastructureError(RuntimeError):
+    """Erro de infraestrutura do worker (saída prematura do processo no pane/tab sem resultado) (E2E-2)."""
+    pass
+
+
 # Harness identifiers
 HARNESS_CODEX = "codex"
 HARNESS_ANTIGRAVITY = "antigravity"
@@ -726,6 +732,7 @@ async def run_worker_in_herdr_pane_async(
                 return result
 
         if pane_exited_event.is_set():
+            await asyncio.sleep(0.5)
             if os.path.exists(result_file):
                 result = read_atomic_json(result_file)
                 if result is not None:
@@ -736,6 +743,16 @@ async def run_worker_in_herdr_pane_async(
                     except Exception:
                         pass
                     return result
+            # Se o pane encerrou prematuramente e result_file não existe, falha rápido como erro de infra (E2E-2)
+            try:
+                if os.path.exists(task_file):
+                    os.remove(task_file)
+                await client.close_pane(pane_id)
+            except Exception:
+                pass
+            raise WorkerInfrastructureError(
+                f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+            )
 
         await asyncio.sleep(0.3)
 
@@ -895,6 +912,7 @@ async def run_worker_in_herdr_tab_async(
                 return result
 
         if pane_exited_event.is_set():
+            await asyncio.sleep(0.5)
             if os.path.exists(result_file):
                 result = read_atomic_json(result_file)
                 if result is not None:
@@ -906,6 +924,16 @@ async def run_worker_in_herdr_tab_async(
                     except Exception:
                         pass
                     return result
+            # Se a tab encerrou prematuramente e result_file não existe, falha rápido como erro de infra (E2E-2)
+            try:
+                if os.path.exists(task_file):
+                    os.remove(task_file)
+                await client.close_tab(tab_id)
+            except Exception:
+                pass
+            raise WorkerInfrastructureError(
+                f"Worker na tab {tab_id} (pane {pane_id}) encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+            )
 
         await asyncio.sleep(0.3)
 

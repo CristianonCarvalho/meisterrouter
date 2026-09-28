@@ -276,3 +276,57 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
         mock_run.assert_called_once()
 
 
+@pytest.mark.asyncio
+async def test_run_worker_in_herdr_pane_fast_fail_on_pane_exited(tmp_path):
+    """E2E-2: Detectar saída precoce do processo do pane (pane.exited) e falhar rápido com WorkerInfrastructureError."""
+    import time
+    from meister.worker import run_worker_in_herdr_pane_async, WorkerInfrastructureError
+
+    mock_client = MagicMock()
+    mock_client.split_pane = AsyncMock(return_value="p_test_dead")
+    mock_client.close_pane = AsyncMock()
+
+    async def fake_subscribe(callback):
+        # Dispara evento pane.exited logo após inscrição
+        await callback({"type": "pane_exited", "pane_id": "p_test_dead"})
+
+    mock_client.subscribe_events = AsyncMock(side_effect=fake_subscribe)
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
+        t0 = time.monotonic()
+        with pytest.raises(WorkerInfrastructureError) as exc_info:
+            await run_worker_in_herdr_pane_async(
+                model="luna",
+                task="any task",
+                cwd=str(tmp_path),
+                timeout=180.0,
+            )
+        duration = time.monotonic() - t0
+        # Deve falhar rapidamente (< 5s), sem esperar os 180s do timeout
+        assert duration < 5.0
+        assert "pane.exited" in str(exc_info.value)
+        assert "erro de infraestrutura" in str(exc_info.value)
+        mock_client.close_pane.assert_called_with("p_test_dead")
+
+
+def test_cli_worker_infrastructure_error_fast_exit(tmp_path):
+    """E2E-2: CLI meister worker captura WorkerInfrastructureError e aborta com rc=2 sem escalar tier."""
+    from meister.worker import WorkerInfrastructureError
+
+    runner = CliRunner()
+    with patch("meister.worker.is_herdr_available", return_value=True), \
+         patch("meister.worker.run_worker_in_herdr_pane", side_effect=WorkerInfrastructureError("process exited")):
+        res = runner.invoke(
+            main,
+            [
+                "worker",
+                "--model", "luna",
+                "--task", "some task",
+                "--cwd", str(tmp_path),
+            ],
+        )
+        assert res.exit_code == 2
+        assert "Erro de infraestrutura no worker" in res.output
+
+
+

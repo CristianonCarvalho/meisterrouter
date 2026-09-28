@@ -328,6 +328,7 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
         run_worker_in_herdr_pane,
         run_worker_in_herdr_tab,
         write_atomic_json,
+        WorkerInfrastructureError,
     )
 
     target_files = [f.strip() for f in files.split(",")] if files else None
@@ -506,6 +507,27 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
                 click.echo("ℹ️ Aguardando verificação determinística e aprovação do orquestrador (meister control)...")
 
             return
+
+        except WorkerInfrastructureError as e:
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=2,
+                    cost=0.0,
+                    status="infrastructure_error",
+                    error=str(e),
+                )
+            click.echo(f"❌ [MeisterRouter] Erro de infraestrutura no worker ({e}). Abortando sem escalar tier.", err=True)
+            sys.exit(2)
 
         except TimeoutError as e:
             if subtask_wt is not None and wt_mgr is not None:
