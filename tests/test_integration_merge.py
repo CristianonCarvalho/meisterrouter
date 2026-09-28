@@ -366,7 +366,8 @@ def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo):
     # Start a fresh integration pipeline from HEAD without orphan_sha
     gate = DeterministicGate(repo_path)
     pipeline = IntegrationPipeline(wt_mgr, gate=gate)
-    pipeline.start_integration(run_id, state_manager=sm)
+    pipeline.start_integration(run_id)
+    pipeline.state_manager = sm
 
     # Invariant must block fast_forward because orphan_sha is not in integration branch
     ok_ff, ff_err = pipeline.finish_integration(fast_forward=True)

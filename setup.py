@@ -23,6 +23,7 @@ setup(
             "mypy>=1.10.0",
             "types-PyYAML>=6.0.0",
             "types-requests>=2.31.0",
+            'tomli>=2.0; python_version < "3.11"',
         ]
     },
     entry_points={
