@@ -166,3 +166,49 @@ def test_worktree_isolated_outside_repo_root(git_repo, tmp_path, monkeypatch):
     assert "orphan-outside" in cleaned
     assert not os.path.exists(info_orphan.worktree_path)
 
+
+def test_orphan_cleanup_archives_unmerged_commits(git_repo):
+    repo_path = str(git_repo)
+    manager = WorktreeManager(repo_root=repo_path)
+
+    # 1. Orphan branch WITH unmerged commit
+    info_work = manager.create_worktree("orphan-with-commits")
+    work_file = os.path.join(info_work.worktree_path, "important.py")
+    with open(work_file, "w", encoding="utf-8") as f:
+        f.write("# valuable unmerged work\n")
+    sha_work = manager.commit_worktree(info_work.worktree_path, "feat: important orphan work")
+    assert sha_work is not None
+
+    # Simulate crash: set dead PID
+    meta_file = os.path.join(manager.metadata_dir, "orphan-with-commits.json")
+    with open(meta_file, "w", encoding="utf-8") as f:
+        f.write('{"task_id": "orphan-with-commits", "worktree_path": "' + info_work.worktree_path + '", "branch_name": "' + info_work.branch_name + '", "base_ref": "HEAD", "base_commit": "' + info_work.base_commit + '", "created_at": 0.0, "pid": 99999999, "status": "active"}')
+
+    # 2. Orphan branch WITHOUT unmerged commit (clean branch pointing to HEAD)
+    subprocess.run(["git", "branch", "meister/worktree/orphan-without-commits", "HEAD"], cwd=repo_path, check=True)
+
+    # 3. Run orphan cleanup
+    cleaned = manager.cleanup_orphans()
+    assert "orphan-with-commits" in cleaned
+    assert "orphan-without-commits" in cleaned
+
+    # 4. Check git refs in refs/meister/archive/*
+    refs_out = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname) %(objectname)", "refs/meister/archive"],
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    # The orphan branch with commits must have an archive ref pointing to sha_work
+    assert "refs/meister/archive/orphan-with-commits-" in refs_out
+    matching_lines = [line for line in refs_out.splitlines() if "orphan-with-commits" in line]
+    assert len(matching_lines) == 1
+    archived_ref, archived_sha = matching_lines[0].split()
+    assert archived_sha == sha_work
+
+    # The orphan branch without commits must NOT produce an archive ref
+    assert "orphan-without-commits" not in refs_out
+
+

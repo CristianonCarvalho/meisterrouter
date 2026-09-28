@@ -340,17 +340,69 @@ class WorktreeManager:
         ]
         return len(out_of_scope) == 0, out_of_scope
 
+    def _archive_branch_if_unmerged(
+        self,
+        branch: str,
+        task_id: str,
+        base_ref: Optional[str] = None,
+    ) -> Optional[str]:
+        """Cria ref de arquivo refs/meister/archive/<task_id>-<timestamp> se houver commits não integrados."""
+        try:
+            branch_sha = self._run_git(["rev-parse", branch]).strip()
+        except Exception:
+            return None
+
+        base = base_ref or "HEAD"
+        try:
+            count_str = self._run_git(["rev-list", "--count", f"{base}..{branch}"]).strip()
+            count = int(count_str)
+        except Exception:
+            try:
+                count_str = self._run_git(["rev-list", "--count", f"HEAD..{branch}"]).strip()
+                count = int(count_str)
+            except Exception:
+                count = 0
+
+        if count > 0:
+            ts = int(time.time())
+            safe_task = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in task_id)
+            ref_name = f"refs/meister/archive/{safe_task}-{ts}"
+            try:
+                self._run_git(["update-ref", ref_name, branch_sha])
+                logger.warning(
+                    "Branch %s possui %d commits não integrados. Arquivado em %s (%s).",
+                    branch, count, ref_name, branch_sha[:8],
+                )
+                try:
+                    from meister.logger import log_event
+                    log_event(
+                        event_type="worktree_archived",
+                        task_id=task_id,
+                        branch=branch,
+                        archive_ref=ref_name,
+                        sha=branch_sha,
+                        unmerged_commits=count,
+                    )
+                except Exception:
+                    pass
+                return ref_name
+            except Exception as e:
+                logger.error("Falha ao criar ref de arquivo para branch %s: %s", branch, e)
+        return None
+
     def cleanup_worktree(
         self,
         task_id: str,
         delete_branch: bool = True,
         force: bool = False,
+        archive_unmerged: bool = True,
     ) -> bool:
         """Remove o worktree, deleta o branch e executa git worktree prune."""
         safe_id = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in task_id)
         worktree_path = os.path.join(self.worktrees_dir, safe_id)
         meta_file = os.path.join(self.metadata_dir, f"{safe_id}.json")
         branch_name = f"meister/worktree/{safe_id}"
+        meta_data: dict[str, Any] = {}
         if os.path.exists(meta_file):
             try:
                 with open(meta_file, "r", encoding="utf-8") as f:
@@ -377,8 +429,11 @@ class WorktreeManager:
                 except Exception:
                     success = False
 
-        # 2. Deleta o branch do worktree se solicitado
+        # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
         if delete_branch:
+            if archive_unmerged:
+                base_ref = meta_data.get("base_ref") or meta_data.get("base_commit")
+                self._archive_branch_if_unmerged(branch_name, task_id, base_ref=base_ref)
             try:
                 self._run_git(["branch", "-D", branch_name])
             except Exception as e:
@@ -453,7 +508,7 @@ class WorktreeManager:
 
                 if is_orphan:
                     logger.warning("Worktree órfão detectado: %s. Limpando...", wt_path)
-                    self.cleanup_worktree(entry, force=True)
+                    self.cleanup_worktree(entry, force=True, archive_unmerged=True)
                     cleaned_ids.append(entry)
 
         try:
@@ -464,6 +519,7 @@ class WorktreeManager:
                     task_id = branch.replace("meister/worktree/", "")
                     wt_path = os.path.abspath(os.path.join(self.worktrees_dir, task_id))
                     if wt_path not in git_worktree_paths:
+                        self._archive_branch_if_unmerged(branch, task_id)
                         try:
                             self._run_git(["branch", "-D", branch])
                             if task_id not in cleaned_ids:
