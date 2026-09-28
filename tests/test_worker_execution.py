@@ -225,3 +225,54 @@ async def test_run_worker_in_herdr_pane_async_timeout_cleans_up_pane(tmp_path):
     mock_client.send_interrupt.assert_called_once_with("w1:p2")
     mock_client.close_pane.assert_called_once_with("w1:p2")
 
+
+def test_worker_resolves_model_from_config_yaml_in_cwd(tmp_path):
+    """E2E-8: Worker resolve modelo a partir do meister.config.yaml presente no cwd."""
+    cfg_file = tmp_path / "meister.config.yaml"
+    cfg_file.write_text(
+        "workers:\n"
+        "  tier_order:\n"
+        "    - {name: luna, harness: native, model: gpt-modelo-inexistente}\n"
+        "    - {name: gemini_flash, harness: native, model: gemini-3.8-flash-medium}\n"
+    )
+
+    worker = HarnessWorker(model="luna", cwd=str(tmp_path))
+    assert worker.resolved_model == "gpt-modelo-inexistente"
+    cmd = build_harness_command(worker.harness, "/usr/bin/codex", worker.resolved_model, "test task", str(tmp_path))
+    assert "-m" in cmd
+    assert "gpt-modelo-inexistente" in cmd
+
+
+def test_execute_task_file_with_explicit_config_path(tmp_path):
+    """E2E-8: Worker no pane recebe config_path explicito no task.json e resolve modelo customizado."""
+    cfg_dir = tmp_path / "cfg"
+    cfg_dir.mkdir()
+    cfg_file = cfg_dir / "meister.config.yaml"
+    cfg_file.write_text(
+        "workers:\n"
+        "  tier_order:\n"
+        "    - {name: luna, harness: native, model: gpt-override-model}\n"
+    )
+
+    worktree_dir = tmp_path / "wt"
+    worktree_dir.mkdir()
+
+    task_file = tmp_path / "task.json"
+    result_file = tmp_path / "result.json"
+    import json
+    task_file.write_text(json.dumps({
+        "task_id": "t-e2e8",
+        "model": "luna",
+        "task": "Do something",
+        "cwd": str(worktree_dir),
+        "config_path": str(cfg_file),
+        "result_file": str(result_file),
+    }))
+
+    from meister.worker import execute_task_file
+    with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
+        res = execute_task_file(str(task_file))
+        assert res["status"] == "done"
+        mock_run.assert_called_once()
+
+

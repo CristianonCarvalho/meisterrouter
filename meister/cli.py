@@ -309,8 +309,9 @@ def test():
 @click.option("--cwd", default=None, help="Diretório de trabalho")
 @click.option("--pane/--no-pane", default=True, help="Abrir terminal lateral visível no Herdr se disponível")
 @click.option("--tab", is_flag=True, default=False, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13)")
+@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
 @click.option("--run-id", default=None, hidden=True, help="ID interno de execução do worker em pane")
-def worker(model, task, files, cwd, pane, tab, run_id):
+def worker(model, task, files, cwd, pane, tab, config_path, run_id):
     """Inicia worker nativo do MeisterRouter."""
     from meister.worker import (
         execute_worker_task,
@@ -332,7 +333,7 @@ def worker(model, task, files, cwd, pane, tab, run_id):
             if tab:
                 click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
                 try:
-                    res = run_worker_in_herdr_tab(model=model, task=task, target_files=target_files, cwd=cwd)
+                    res = run_worker_in_herdr_tab(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
                     status = res.get("status", "done")
                     click.echo(f"Worker task finished in Herdr tab. Status: {status}")
                     if res.get("modified_files"):
@@ -347,7 +348,7 @@ def worker(model, task, files, cwd, pane, tab, run_id):
 
             click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
             try:
-                res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=cwd)
+                res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
                 status = res.get("status", "done")
                 click.echo(f"Worker task finished in Herdr pane. Status: {status}")
                 if res.get("modified_files"):
@@ -363,7 +364,7 @@ def worker(model, task, files, cwd, pane, tab, run_id):
         # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
         click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
         try:
-            res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd)
+            res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd, config_path=config_path)
             status = res.get("status", "done")
             click.echo(f"Worker task finished. Status: {status}")
             if res.get("modified_files"):

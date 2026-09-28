@@ -181,7 +181,12 @@ def resolve_worker_model(model_name: str) -> str:
     return get_model_aliases().get(cleaned, model_name)
 
 
-def resolve_worker_harness_and_model(model_name: str) -> Tuple[str, Optional[str]]:
+def resolve_worker_harness_and_model(
+    model_name: str,
+    config: Optional[Any] = None,
+    cwd: Optional[str] = None,
+    config_path: Optional[str] = None,
+) -> Tuple[str, Optional[str]]:
     """Resolve a model name or alias to (harness_name, resolved_model).
 
     Harnesses:
@@ -191,6 +196,43 @@ def resolve_worker_harness_and_model(model_name: str) -> Tuple[str, Optional[str
       - 'copilot': runs GitHub Copilot CLI ('copilot')
     """
     cleaned = (model_name or "luna").strip().lower()
+
+    if config is None and (config_path or cwd or os.environ.get("MEISTER_CONFIG_PATH")):
+        try:
+            from meister.config import load_config
+            config = load_config(config_path=config_path, cwd=cwd)
+        except Exception:
+            config = None
+
+    if config and getattr(config, "workers", None) and getattr(config.workers, "tier_order", None):
+        for tier in config.workers.tier_order:
+            if getattr(tier, "name", "").lower() == cleaned:
+                h = (getattr(tier, "harness", "native") or "native").lower().strip()
+                t_model = getattr(tier, "model", "") or ""
+                if h == "native":
+                    if cleaned in ("luna", "gpt-6-luna") or "gpt" in t_model.lower() or "luna" in t_model.lower():
+                        harness = HARNESS_CODEX
+                    elif "gemini" in cleaned or "gemini" in t_model.lower() or "antigravity" in cleaned or "agy" in cleaned:
+                        harness = HARNESS_ANTIGRAVITY
+                    elif "claude" in cleaned or "haiku" in cleaned or "sonnet" in cleaned or "opus" in cleaned:
+                        harness = HARNESS_CLAUDE
+                    elif "copilot" in cleaned:
+                        harness = HARNESS_COPILOT
+                    else:
+                        harness = HARNESS_CODEX
+                elif h in ("agy", "antigravity"):
+                    harness = HARNESS_ANTIGRAVITY
+                elif h == "claude":
+                    harness = HARNESS_CLAUDE
+                elif h == "codex":
+                    harness = HARNESS_CODEX
+                elif h in ("copilot", "github-copilot"):
+                    harness = HARNESS_COPILOT
+                else:
+                    harness = h
+
+                tier_model = t_model if t_model else None
+                return (harness, tier_model)
 
     if cleaned in ("luna", "gpt-6-luna"):
         return (HARNESS_CODEX, get_configured_model("luna", "gpt-6-luna"))
@@ -345,10 +387,26 @@ class HarnessWorker:
     sem consumir tokens da API de decisões do OpenRouter (exclusiva do JEV).
     """
 
-    def __init__(self, model: str = "luna", cwd: Optional[str] = None):
+    def __init__(
+        self,
+        model: str = "luna",
+        cwd: Optional[str] = None,
+        config_path: Optional[str] = None,
+        config: Optional[Any] = None,
+    ):
         self.model_tier = model
-        self.harness, self.resolved_model = resolve_worker_harness_and_model(model)
         self.cwd = os.path.abspath(cwd or os.getcwd())
+        self.config_path = config_path or os.environ.get("MEISTER_CONFIG_PATH")
+        self.config = config
+        if self.config is None:
+            try:
+                from meister.config import load_config
+                self.config = load_config(config_path=self.config_path, cwd=self.cwd)
+            except Exception:
+                self.config = None
+        self.harness, self.resolved_model = resolve_worker_harness_and_model(
+            model, config=self.config, cwd=self.cwd, config_path=self.config_path
+        )
         self.cli_binary = find_cli_binary(self.harness)
 
     def _build_context(self, target_files: Optional[List[str]] = None) -> str:
@@ -549,11 +607,20 @@ async def run_worker_in_herdr_pane_async(
     cwd: Optional[str] = None,
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Abre um terminal lateral visível no Herdr (split pane) e aguarda conclusão."""
     from meister.herdr.client import HerdrSocketClient
 
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    resolved_config_path = config_path or os.environ.get("MEISTER_CONFIG_PATH")
+    if not resolved_config_path:
+        for fname in ("meister.config.yaml", "meister.config.yml"):
+            cand = os.path.join(resolved_cwd, fname)
+            if os.path.exists(cand):
+                resolved_config_path = os.path.abspath(cand)
+                break
+
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 
@@ -568,6 +635,7 @@ async def run_worker_in_herdr_pane_async(
         "task": task,
         "target_files": target_files or [],
         "cwd": resolved_cwd,
+        "config_path": resolved_config_path,
         "timeout": timeout,
         "result_file": result_file,
     }
@@ -665,6 +733,7 @@ def run_worker_in_herdr_pane(
     cwd: Optional[str] = None,
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Wrapper síncrono para execução do worker em pane lateral do Herdr."""
     return asyncio.run(
@@ -675,6 +744,7 @@ def run_worker_in_herdr_pane(
             cwd=cwd,
             socket_path=socket_path,
             timeout=timeout,
+            config_path=config_path,
         )
     )
 
@@ -687,11 +757,20 @@ async def run_worker_in_herdr_tab_async(
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
     label: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Abre uma tab dedicada no Herdr (focus=False) e aguarda conclusão via result.json ou pane.exited (Achados #10, #13)."""
     from meister.herdr.client import HerdrSocketClient
 
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    resolved_config_path = config_path or os.environ.get("MEISTER_CONFIG_PATH")
+    if not resolved_config_path:
+        for fname in ("meister.config.yaml", "meister.config.yml"):
+            cand = os.path.join(resolved_cwd, fname)
+            if os.path.exists(cand):
+                resolved_config_path = os.path.abspath(cand)
+                break
+
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 
@@ -705,6 +784,7 @@ async def run_worker_in_herdr_tab_async(
         "task": task,
         "target_files": target_files or [],
         "cwd": resolved_cwd,
+        "config_path": resolved_config_path,
         "timeout": timeout,
         "result_file": result_file,
     }
@@ -810,6 +890,7 @@ def run_worker_in_herdr_tab(
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
     label: Optional[str] = None,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Wrapper síncrono para execução do worker em tab dedicada do Herdr."""
     return asyncio.run(
@@ -821,6 +902,7 @@ def run_worker_in_herdr_tab(
             socket_path=socket_path,
             timeout=timeout,
             label=label,
+            config_path=config_path,
         )
     )
 
@@ -831,9 +913,10 @@ def execute_worker_task(
     target_files: Optional[List[str]] = None,
     cwd: Optional[str] = None,
     timeout: float = 300.0,
+    config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Helper function to run a single task via HarnessWorker."""
-    worker = HarnessWorker(model=model, cwd=cwd)
+    worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
     return worker.run_task(task=task, target_files=target_files, timeout=timeout)
 
 
@@ -852,6 +935,13 @@ def execute_task_file(
     task = task_data.get("task", "")
     target_files = task_data.get("target_files")
     cwd = task_data.get("cwd")
+    config_path = task_data.get("config_path") or os.environ.get("MEISTER_CONFIG_PATH")
+    if not config_path and cwd:
+        for fname in ("meister.config.yaml", "meister.config.yml"):
+            cand = os.path.join(cwd, fname)
+            if os.path.exists(cand):
+                config_path = os.path.abspath(cand)
+                break
     timeout = float(task_data.get("timeout", 300.0))
     resolved_res_file = result_file or task_data.get("result_file")
 
@@ -863,7 +953,7 @@ def execute_task_file(
         cwd=cwd,
     )
 
-    worker = HarnessWorker(model=model, cwd=cwd)
+    worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
 
     try:
         res = worker.run_task(task=task, target_files=target_files, timeout=timeout)

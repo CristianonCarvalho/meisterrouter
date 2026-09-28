@@ -188,12 +188,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     )
 
 
-def load_config(config_path: Optional[str] = None) -> MeisterConfig:
+def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) -> MeisterConfig:
     """Load configuration from a YAML file or defaults.
 
     Args:
         config_path: Optional explicit path to meister.config.yaml.
                      If None, checks MEISTER_CONFIG_PATH env var,
+                     then cwd/meister.config.yaml, cwd/meister.config.yml,
                      then ./meister.config.yaml, ./meister.config.yml.
                      If no file exists, returns default MeisterConfig.
 
@@ -213,6 +214,10 @@ def load_config(config_path: Optional[str] = None) -> MeisterConfig:
         env_path = os.environ.get("MEISTER_CONFIG_PATH")
         if env_path and Path(env_path).exists():
             target_path = Path(env_path)
+        elif cwd and (Path(cwd) / "meister.config.yaml").exists():
+            target_path = Path(cwd) / "meister.config.yaml"
+        elif cwd and (Path(cwd) / "meister.config.yml").exists():
+            target_path = Path(cwd) / "meister.config.yml"
         elif Path("meister.config.yaml").exists():
             target_path = Path("meister.config.yaml")
         elif Path("meister.config.yml").exists():
