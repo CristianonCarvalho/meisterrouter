@@ -243,26 +243,36 @@ async def test_wait_for_output_and_wait_pane_ready(tmp_path):
 
     try:
         async with HerdrSocketClient(sock_path) as client:
-            # 1. Direct call to wait_for_output with substring match conforming to schema
-            res = await client.wait_for_output(
-                "w1:p1",
-                match={"type": "substring", "value": "$"},
-                source="recent",
-                timeout=1.0,
-            )
-            assert res is True
+            # 1. wait_pane_ready helper waits for shell prompt readiness before sending text
+            ready = await client.wait_pane_ready("w1:p1", timeout=0.5)
+            assert ready is True
 
-            # Verify request conforms to herdr_schema.json and reached server
+            # Verify request conforms to herdr_schema.json, reached server, and used regex prompt pattern
             wait_reqs = [r for r in server.received_requests if r.get("method") == "pane.wait_for_output"]
             assert len(wait_reqs) == 1
             params = wait_reqs[0].get("params", {})
             assert params.get("pane_id") == "w1:p1"
             assert params.get("source") == "recent"
-            assert params.get("match") == {"type": "substring", "value": "$"}
+            match = params.get("match", {})
+            assert match.get("type") == "regex", "match.type must be regex, not substring"
+            assert match.get("value") != "", "match.value cannot be empty string"
+            assert any(sym in match.get("value", "") for sym in ("$", "%", "#", ">", "❯"))
 
-            # 2. wait_pane_ready helper waits before sending text
-            ready = await client.wait_pane_ready("w1:p1", timeout=0.5)
-            assert ready is True
+            # 2. Direct call to wait_for_output with custom regex or substring match
+            res = await client.wait_for_output(
+                "w1:p1",
+                match={"type": "regex", "value": r"ready>"},
+                source="recent",
+                timeout=1.0,
+            )
+            assert res is True
+            assert len([r for r in server.received_requests if r.get("method") == "pane.wait_for_output"]) == 2
+
+            # 3. Ensure NO call ever sent empty substring
+            for req in server.received_requests:
+                if req.get("method") == "pane.wait_for_output":
+                    m = req.get("params", {}).get("match", {})
+                    assert not (m.get("type") == "substring" and m.get("value") == "")
     finally:
         server.close()
         await server.wait_closed()

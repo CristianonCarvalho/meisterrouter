@@ -196,7 +196,7 @@ class HerdrSocketClient:
         params: dict[str, Any] = {
             "pane_id": pane_id,
             "source": source,
-            "match": match or {"type": "substring", "value": ""},
+            "match": match or {"type": "regex", "value": r"([$%#>❯›]\s*$)"},
             "timeout_ms": int(timeout * 1000),
         }
         try:
@@ -211,16 +211,24 @@ class HerdrSocketClient:
         pane_id: str,
         timeout: float = 0.5,
     ) -> bool:
-        """Wait briefly for pane terminal/shell readiness before sending text/commands."""
+        """Wait briefly for pane terminal/shell readiness (e.g. prompt display) before sending text/commands."""
+        prompt_regex = r"([$%#>❯›]\s*$)"
         try:
-            await self.wait_for_output(
+            matched = await self.wait_for_output(
                 pane_id,
-                match={"type": "substring", "value": ""},
+                match={"type": "regex", "value": prompt_regex},
                 source="recent",
-                timeout=min(timeout, 0.2),
+                timeout=min(timeout, 0.3),
             )
-        except Exception:
-            pass
+            if not matched:
+                logger.debug(
+                    "Shell prompt match timed out after %.2fs for pane %s; proceeding with fallback yield.",
+                    min(timeout, 0.3),
+                    pane_id,
+                )
+        except Exception as e:
+            logger.debug("wait_pane_ready encountered error for pane %s: %s; proceeding.", pane_id, e)
+
         await asyncio.sleep(0.05)
         return True
 
