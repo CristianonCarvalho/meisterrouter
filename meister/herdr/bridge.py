@@ -18,7 +18,7 @@ import re
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, load_config
-from meister.herdr.client import HerdrSocketClient
+from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -29,6 +29,7 @@ from meister.logger import log_event
 from meister.worker import (
     write_atomic_json,
     read_atomic_json,
+    WorkerInfrastructureError,
     ensure_meister_dir,
 )
 
@@ -168,10 +169,10 @@ class HerdrEventBridge:
 
         params = event.get("params", event)
         pane_id = params.get("pane_id") or params.get("pane")
-        ev_type = params.get("type") or event.get("type")
+        ev_type = params.get("type") or event.get("type") or event.get("method") or event.get("event")
 
         # Tratamento reativo de evento pane.exited (Achado #10)
-        if ev_type == "pane_exited" and pane_id:
+        if ev_type in ("pane_exited", "pane.exited") and pane_id:
             if pane_id in self._exit_events:
                 self._exit_events[pane_id].set()
 
@@ -266,7 +267,6 @@ class HerdrEventBridge:
                 logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
 
         attempt_count = 0
-        tier_failures: Dict[str, int] = {}
 
         while current_tier:
             attempt_count += 1
@@ -353,6 +353,26 @@ class HerdrEventBridge:
                         split_ratio=split_ratio,
                     )
             except Exception as e:
+                is_infra = isinstance(e, (WorkerInfrastructureError, HerdrRPCError, HerdrConnectionError, RuntimeError, OSError)) or "agent" in str(e).lower()
+                if is_infra:
+                    logger.error("Infrastructure error spawning worker pane/tab for tier %s: %s. Aborting without tier escalation.", current_tier, e)
+                    log_event(
+                        event_type="worker_error",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        attempt=attempt_count,
+                        tier=current_tier,
+                        exit_code=2,
+                        status="infrastructure_error",
+                        error=str(e),
+                    )
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=f"Infrastructure error: {e}")
+                        except Exception:
+                            pass
+                    return False
+
                 logger.warning("Failed to spawn worker pane/tab for tier %s: %s. Escalating to next tier...", current_tier, e)
                 sm.record_harness_failure(current_tier, is_quota=False)
                 next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
@@ -391,6 +411,7 @@ class HerdrEventBridge:
             }
 
             prompt_result: Optional[Dict[str, Any]] = None
+            infra_error: Optional[str] = None
             start_wait = time.monotonic()
             poll_interval = 0.2
 
@@ -426,6 +447,7 @@ class HerdrEventBridge:
                             except Exception:
                                 pass
                             break
+                    infra_error = f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
                     break
 
                 await asyncio.sleep(poll_interval)
@@ -475,18 +497,63 @@ class HerdrEventBridge:
                 continue
 
             if prompt_result is None:
-                err_msg = f"Worker pane {pane_id} exited prematurely or timed out without result"
-                logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, err_msg)
-                max_retries = getattr(tier_obj, "max_retries", 2) if tier_obj else 2
-                tier_failures[current_tier] = tier_failures.get(current_tier, 0) + 1
-                sm.record_harness_failure(current_tier, is_quota=False, failure_threshold=max_retries)
+                terminal_output = ""
+                try:
+                    terminal_output = await self.client.read_pane(pane_id)
+                except Exception:
+                    pass
+
+                if detect_quota_or_rate_limit(terminal_output):
+                    logger.info("Quota detected in terminal output for pane %s, escalating tier", pane_id)
+                    sm.record_harness_failure(current_tier, is_quota=True)
+                    log_event(
+                        event_type="quota_error",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        attempt=attempt_count,
+                        tier=current_tier,
+                        exit_code=429,
+                        error="Terminal quota detected",
+                    )
+                    try:
+                        await self.client.send_interrupt(pane_id)
+                    except Exception:
+                        pass
+                    if active_run_id:
+                        sm.unregister_pane(pane_id)
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota detected in terminal output")
+                        except Exception:
+                            pass
+                    if tab_id and hasattr(self.client, "close_tab"):
+                        try:
+                            await self.client.close_tab(tab_id)
+                        except Exception:
+                            pass
+                    base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                    await asyncio.sleep(base_backoff * (2 ** min(4, attempt_count - 1)))
+                    next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
+                    if next_tier is None:
+                        if active_run_id:
+                            try:
+                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Quota error at maximum tier")
+                            except Exception:
+                                pass
+                        return False
+                    current_tier = next_tier.name
+                    continue
+
+                # Falha rápida sem escalar tier em caso de erro de infraestrutura (Achados E2E-2 / P-2)
+                err_msg = infra_error or f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                logger.error("Infrastructure error in worker pane %s (%s): %s. Aborting without tier escalation.", pane_id, current_tier, err_msg)
                 log_event(
                     event_type="worker_error",
                     run_id=active_run_id,
                     task_id=task_id,
                     attempt=attempt_count,
                     tier=current_tier,
-                    exit_code=1,
+                    exit_code=2,
+                    status="infrastructure_error",
                     error=err_msg,
                 )
                 try:
@@ -496,27 +563,12 @@ class HerdrEventBridge:
                 if active_run_id:
                     sm.unregister_pane(pane_id)
                     try:
-                        sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error=err_msg)
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
                     except Exception:
                         pass
                 if tab_id and hasattr(self.client, "close_tab"):
                     try:
                         await self.client.close_tab(tab_id)
-                    except Exception:
-                        pass
-
-                if tier_failures[current_tier] < max_retries and sm.is_harness_available(current_tier):
-                    base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
-                    await asyncio.sleep(base_backoff * (2 ** min(4, tier_failures[current_tier] - 1)))
-                    continue
-
-                next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
-                if next_tier is not None:
-                    current_tier = next_tier.name
-                    continue
-                if active_run_id:
-                    try:
-                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
                     except Exception:
                         pass
                 return False

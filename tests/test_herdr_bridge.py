@@ -621,5 +621,87 @@ async def test_bridge_subtask_uses_task_contract_without_prompt_agent(tmp_path, 
     assert task_file_seen is not None
 
 
+@pytest.mark.asyncio
+async def test_bridge_infrastructure_error_fast_fails_without_escalation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    from meister.herdr.client import HerdrRPCError
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    # Simulate Herdr RPC error on split_pane (e.g. agent_not_found or spawn failure)
+    mock_client.split_pane.side_effect = HerdrRPCError(-32000, "agent target w9:pS not found")
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is False
+    # Must have failed fast on the very first attempt without cascading through luna->gemini->haiku->sonnet
+    assert mock_client.split_pane.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.read_pane.return_value = "Some crash error"
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    async def simulate_exit_event():
+        await asyncio.sleep(0.05)
+        # Push pane.exited event
+        await bridge.handle_herdr_event({
+            "method": "pane.exited",
+            "params": {"pane_id": "w1:p1", "exit_code": 1}
+        })
+
+    asyncio.create_task(simulate_exit_event())
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is False
+    # Must have failed fast without escalating
+    assert mock_client.split_pane.call_count == 1
+
+
 
 
