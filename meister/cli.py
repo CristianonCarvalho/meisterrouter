@@ -23,14 +23,16 @@ import asyncio
 import logging
 import subprocess
 import uuid
+import time
+import hashlib
 from typing import Optional
 
 import click
 
 from meister.jev import classify_task, control_cycle, call_decisions
-from meister.models import MODEL_PRICING
+from meister.models import MODEL_PRICING, estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
-from meister.logger import get_events_by_run_id
+from meister.logger import get_events_by_run_id, log_event, get_current_run
 from meister.config import load_config
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge
@@ -144,10 +146,11 @@ def init(target, type_, no_hooks):
 @click.option("--context", "-c", required=True, help="Descrição da tarefa para o Jev")
 @click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
 @click.option("--run-id", default=None, help="Correlation ID da execução")
-def classify(context, model, run_id):
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+def classify(context, model, run_id, task_id):
     """Executa a classificação de complexidade da tarefa."""
     try:
-        result = classify_task(context=context, model=model, run_id=run_id)
+        result = classify_task(context=context, model=model, run_id=run_id, task_id=task_id)
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as e:
         sys.stderr.write(f"Erro no classify: {e}\n")
@@ -173,12 +176,13 @@ def classify(context, model, run_id):
 )
 @click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
 @click.option("--run-id", default=None, help="Correlation ID da execução")
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
 @click.option(
     "--close-worker/--no-close-worker",
     default=True,
     help="Fechar automaticamente o terminal do worker no Herdr se aprovado (COMPLETE)",
 )
-def control(diff_summary, test_result, attempts, security_sensitive, model, run_id, close_worker):
+def control(diff_summary, test_result, attempts, security_sensitive, model, run_id, task_id, close_worker):
     """Executa a decisão de controle do loop do agente."""
     try:
         result = control_cycle(
@@ -188,6 +192,7 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
             security_sensitive=security_sensitive,
             model=model,
             run_id=run_id,
+            task_id=task_id,
         )
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
@@ -312,8 +317,9 @@ def test():
 @click.option("--pane/--no-pane", default=True, help="Abrir terminal lateral visível no Herdr se disponível")
 @click.option("--tab", is_flag=True, default=False, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13)")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-@click.option("--run-id", default=None, hidden=True, help="ID interno de execução do worker em pane")
-def worker(model, task, files, cwd, pane, tab, config_path, run_id):
+@click.option("--run-id", default=None, help="Correlation ID da execução")
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
     """Inicia worker nativo do MeisterRouter."""
     from meister.worker import (
         execute_worker_task,
@@ -331,6 +337,29 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
         # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível
         in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
         should_split = (tab or pane) and not in_pane and is_herdr_available()
+
+        current = get_current_run()
+        resolved_run_id = (
+            run_id
+            or os.environ.get("MEISTER_RUN_ID")
+            or current.get("run_id")
+            or f"run_{uuid.uuid4().hex[:8]}"
+        )
+        resolved_task_id = (
+            task_id
+            or current.get("task_id")
+            or hashlib.sha256(task.encode("utf-8")).hexdigest()[:16]
+        )
+
+        worker_start_time = time.monotonic()
+        if not in_pane:
+            log_event(
+                event_type="worker_start",
+                run_id=resolved_run_id,
+                task_id=resolved_task_id,
+                tier=model,
+                model=model,
+            )
 
         # Isolamento com WorktreeManager + IntegrationPipeline (E2E-3)
         is_git = False
@@ -361,11 +390,10 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
             gate = DeterministicGate(repo_path=resolved_cwd)
             pipeline = IntegrationPipeline(wt_mgr, gate=gate)
 
-            worker_run_id = run_id or uuid.uuid4().hex[:8]
-            pipeline.start_integration(worker_run_id)
+            pipeline.start_integration(resolved_run_id)
 
             subtask_wt = wt_mgr.create_worktree(
-                task_id=f"worker_{worker_run_id}",
+                task_id=f"worker_{resolved_run_id}",
                 base_ref=pipeline.integration_info.branch_name,
             )
             worker_cwd = subtask_wt.worktree_path
@@ -374,23 +402,68 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
             if should_split:
                 if tab:
                     click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
-                    res = run_worker_in_herdr_tab(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+                    res = run_worker_in_herdr_tab(
+                        model=model,
+                        task=task,
+                        target_files=target_files,
+                        cwd=worker_cwd,
+                        config_path=config_path,
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                    )
                 else:
                     click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
-                    res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+                    res = run_worker_in_herdr_pane(
+                        model=model,
+                        task=task,
+                        target_files=target_files,
+                        cwd=worker_cwd,
+                        config_path=config_path,
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                    )
             else:
                 # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
                 click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
                 res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
 
             status = res.get("status", "done")
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            cost_val = res.get("cost")
+            if cost_val is None:
+                cost_val = estimate_cost(model)
+
             if status != "done":
                 if subtask_wt is not None and wt_mgr is not None:
                     wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
                 if pipeline is not None:
                     pipeline.abort_integration()
+                if not in_pane:
+                    log_event(
+                        event_type="worker_end",
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                        tier=model,
+                        duration_ms=worker_duration_ms,
+                        exit_code=res.get("exit_code", 1),
+                        cost=cost_val,
+                        status=status,
+                    )
                 click.echo(f"❌ [MeisterRouter] Worker terminou com status: {status}", err=True)
                 sys.exit(1)
+
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=res.get("exit_code", 0),
+                    cost=cost_val,
+                    status=status,
+                    modified_files=res.get("modified_files", []),
+                )
 
             # Se worktree/pipeline estavam ativos, integra determinísticamente (gate -> commit -> merge -> gate -> ff) (E2E-3)
             if pipeline is not None and subtask_wt is not None and wt_mgr is not None:
@@ -439,6 +512,19 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
                 wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
             if pipeline is not None:
                 pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=1,
+                    cost=estimate_cost(model),
+                    status="timeout",
+                    error=str(e),
+                )
             click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
             sys.exit(1)
         except Exception as e:
@@ -446,6 +532,19 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id):
                 wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
             if pipeline is not None:
                 pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=1,
+                    cost=estimate_cost(model),
+                    status="error",
+                    error=str(e),
+                )
             click.echo(f"❌ [MeisterRouter] Falha ao despachar worker ({e}).", err=True)
             if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")

@@ -49,6 +49,66 @@ def get_log_file() -> str:
     return os.path.join(get_log_dir(), "orchestration_log.jsonl")
 
 
+def save_current_run(run_id: str, task_id: Optional[str] = None) -> None:
+    """Salva o contexto da execução atual para correlação determinística entre classify, worker e control (E2E-6)."""
+    data = {
+        "run_id": run_id,
+        "task_id": task_id or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    log_dir = get_log_dir()
+    path = os.path.join(log_dir, "current_run.json")
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+    except Exception:
+        pass
+    root = find_project_root()
+    if root and os.path.abspath(root) != os.path.abspath(log_dir):
+        meister_dir = os.path.join(root, ".meister")
+        if os.path.exists(meister_dir):
+            try:
+                with open(os.path.join(meister_dir, "current_run.json"), "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False)
+            except Exception:
+                pass
+
+
+def get_current_run() -> Dict[str, Any]:
+    """Recupera o contexto da execução atual para correlação de eventos (E2E-6)."""
+    log_dir = get_log_dir()
+    path = os.path.join(log_dir, "current_run.json")
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    root = find_project_root()
+    if root:
+        alt_path = os.path.join(root, ".meister", "current_run.json")
+        if os.path.exists(alt_path):
+            try:
+                with open(alt_path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+    return {}
+
+
+def clear_current_run() -> None:
+    """Limpa o contexto da execução atual."""
+    for d in [get_log_dir(), find_project_root()]:
+        if not d:
+            continue
+        for p in [os.path.join(d, "current_run.json"), os.path.join(d, ".meister", "current_run.json")]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+
+
 def log_event(
     event_type: str,
     run_id: Optional[str] = None,
@@ -62,8 +122,20 @@ def log_event(
 ) -> Dict[str, Any]:
     """Grava um evento correlacionado com envelope unificado no JSONL de telemetria (Achado #32)."""
     now_ts = datetime.now(timezone.utc).isoformat()
-    resolved_run_id = run_id or fields.pop("run", None) or os.environ.get("MEISTER_RUN_ID") or "global"
-    resolved_task_id = task_id or fields.pop("subtask_id", None) or ""
+    current = get_current_run()
+    resolved_run_id = (
+        run_id
+        or fields.pop("run", None)
+        or os.environ.get("MEISTER_RUN_ID")
+        or current.get("run_id")
+        or "global"
+    )
+    resolved_task_id = (
+        task_id
+        or fields.pop("subtask_id", None)
+        or current.get("task_id")
+        or ""
+    )
     resolved_tier = tier or fields.pop("model", None) or "unknown"
     resolved_cost = cost if cost is not None else float(fields.pop("cost_usd", 0.0))
     resolved_duration = duration_ms if duration_ms is not None else float(fields.pop("duration_seconds", 0.0) * 1000.0 if "duration_seconds" in fields else 0.0)

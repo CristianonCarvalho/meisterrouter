@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -33,7 +34,7 @@ try:
 except ImportError:
     pass
 
-from meister.logger import log_classify, log_control
+from meister.logger import log_classify, log_control, get_current_run, save_current_run
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,7 @@ class DecisionsResponse(BaseModel):
 
 class ClassifyResponse(BaseModel):
     task_id: str
+    run_id: Optional[str] = None
     classification: str
     classification_confidence: float
     classification_probabilities: Dict[str, float]
@@ -116,6 +118,7 @@ class ClassifyResponse(BaseModel):
 
 class ControlResponse(BaseModel):
     task_id: str
+    run_id: Optional[str] = None
     action: str
     action_confidence: float
     should_escalate: bool
@@ -251,7 +254,16 @@ def classify_task(
     - Fallback determinístico por regras se a API falhar (Achado #24).
     - Validação de saída com Pydantic ClassifyResponse (Achado #24).
     """
+    start_time = time.monotonic()
+    current = get_current_run()
+    resolved_run_id = (
+        run_id
+        or os.environ.get("MEISTER_RUN_ID")
+        or current.get("run_id")
+        or f"run_{uuid.uuid4().hex[:8]}"
+    )
     safe_task_id = task_id or hashlib.sha256(f"classify:{context}".encode("utf-8")).hexdigest()[:16]
+    save_current_run(run_id=resolved_run_id, task_id=safe_task_id)
     state = {"task_description": context}
     questions = {
         "complexity": {
@@ -350,7 +362,8 @@ def classify_task(
     else:
         fallback_chain = ["gemini_flash", "haiku"]
 
-    # Registra no log de telemetria com custo real (Achado #26)
+    duration_ms = round((time.monotonic() - start_time) * 1000.0, 2)
+    # Registra no log de telemetria com custo real e duração (Achado #26, E2E-6)
     log_classify(
         task_id=safe_task_id,
         context=context,
@@ -360,12 +373,14 @@ def classify_task(
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost=cost,
-        run_id=run_id,
+        run_id=resolved_run_id,
         attempt=attempt,
+        duration_ms=duration_ms,
         model=model,
     )
 
     result_dict = {
+        "run_id": resolved_run_id,
         "task_id": safe_task_id,
         "classification": cls_val,
         "classification_confidence": round(cls_conf, 2),
@@ -401,9 +416,21 @@ def control_cycle(
     - Fallback determinístico por regras se a API falhar (Achado #24).
     - Validação de saída com Pydantic ControlResponse (Achado #24).
     """
-    safe_task_id = task_id or hashlib.sha256(
-        f"control:{diff_summary}:{test_result}:{attempts}:{security_sensitive}".encode("utf-8")
-    ).hexdigest()[:16]
+    start_time = time.monotonic()
+    current = get_current_run()
+    resolved_run_id = (
+        run_id
+        or os.environ.get("MEISTER_RUN_ID")
+        or current.get("run_id")
+        or f"run_{uuid.uuid4().hex[:8]}"
+    )
+    safe_task_id = (
+        task_id
+        or current.get("task_id")
+        or hashlib.sha256(
+            f"control:{diff_summary}:{test_result}:{attempts}:{security_sensitive}".encode("utf-8")
+        ).hexdigest()[:16]
+    )
 
     state = {
         "diff_summary": diff_summary,
@@ -503,7 +530,8 @@ def control_cycle(
         logger.warning("Jev retornou COMPLETE com testes falhando. Sobrescrevendo para RETRY via portão determinístico.")
         act_val = "RETRY"
 
-    # Registra no log de telemetria com custo real (Achado #26)
+    duration_ms = round((time.monotonic() - start_time) * 1000.0, 2)
+    # Registra no log de telemetria com custo real e duração (Achado #26, E2E-6)
     log_control(
         task_id=safe_task_id,
         action=act_val,
@@ -513,12 +541,14 @@ def control_cycle(
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost=cost,
-        run_id=run_id,
+        run_id=resolved_run_id,
         attempt=attempts,
+        duration_ms=duration_ms,
         model=model,
     )
 
     result_dict = {
+        "run_id": resolved_run_id,
         "task_id": safe_task_id,
         "action": act_val,
         "action_confidence": round(act_conf, 2),

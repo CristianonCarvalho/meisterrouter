@@ -128,3 +128,107 @@ def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
     wt_res = subprocess.run(["git", "worktree", "list"], cwd=cwd, capture_output=True, text=True)
     assert len(wt_res.stdout.strip().splitlines()) == 1
 
+
+def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
+    """E2E-6: Fluxo classify -> worker -> control propaga run_id e task_id, mede duração e emite worker_start/worker_end."""
+    from unittest.mock import patch
+    import json
+    from click.testing import CliRunner
+    from meister.cli import main
+    from meister.logger import read_events
+
+    log_dir = str(tmp_path / "logs")
+    monkeypatch.setenv("MEISTER_LOG_DIR", log_dir)
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    cwd = str(repo_dir)
+
+    subprocess.run(["git", "init", "-b", "main"], cwd=cwd, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ci@meisterrouter.local"], cwd=cwd, check=True)
+    subprocess.run(["git", "config", "user.name", "Meister CI"], cwd=cwd, check=True)
+
+    calc_file = repo_dir / "calc.py"
+    calc_file.write_text("def add(a, b):\n    return a + b\n")
+    tests_dir = repo_dir / "tests"
+    tests_dir.mkdir()
+    test_calc = tests_dir / "test_calc.py"
+    test_calc.write_text("from calc import add\n\ndef test_add():\n    assert add(2, 3) == 5\n")
+    pyproject = repo_dir / "pyproject.toml"
+    pyproject.write_text("[tool.pytest.ini_options]\npythonpath = [\".\"]\n")
+
+    subprocess.run(["git", "add", "."], cwd=cwd, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=cwd, check=True)
+
+    runner = CliRunner()
+
+    # 1. Classify
+    res_cls = runner.invoke(main, ["classify", "--context", "Adicione a função mul"])
+    assert res_cls.exit_code == 0
+    cls_data = json.loads(res_cls.output)
+    expected_run_id = cls_data["run_id"]
+    expected_task_id = cls_data["task_id"]
+    assert expected_run_id != "global"
+    assert expected_task_id != ""
+
+    # 2. Worker
+    def fake_execute_worker_task(model, task, target_files, cwd, config_path=None):
+        with open(os.path.join(cwd, "calc.py"), "a", encoding="utf-8") as f:
+            f.write("\ndef mul(a, b):\n    return a * b\n")
+        return {
+            "status": "done",
+            "modified_files": ["calc.py"],
+            "exit_code": 0,
+            "cost": 0.00005,
+        }
+
+    with patch("meister.worker.is_herdr_available", return_value=False), \
+         patch("meister.worker.execute_worker_task", side_effect=fake_execute_worker_task):
+        res_wrk = runner.invoke(
+            main,
+            [
+                "worker",
+                "--model", "luna",
+                "--task", "Adicione a função mul",
+                "--files", "calc.py",
+                "--cwd", cwd,
+                "--no-pane",
+            ],
+        )
+        assert res_wrk.exit_code == 0
+
+    # 3. Control
+    res_ctl = runner.invoke(
+        main,
+        [
+            "control",
+            "--diff-summary", "1 file changed",
+            "--test-result", "pass",
+            "--no-close-worker",
+        ],
+    )
+    assert res_ctl.exit_code == 0
+
+    # 4. Verificar eventos de telemetria
+    events = read_events()
+    assert len(events) == 4, f"Esperava 4 eventos, obteve {len(events)}: {[e['event'] for e in events]}"
+
+    event_types = [e["event"] for e in events]
+    assert event_types == ["classify", "worker_start", "worker_end", "control"]
+
+    # Todos os 4 eventos devem compartilhar o mesmo run_id e mesmo task_id
+    for ev in events:
+        assert ev["run_id"] == expected_run_id
+        assert ev["task_id"] == expected_task_id
+        assert ev["duration_ms"] >= 0.0
+
+    # Worker_start e worker_end
+    start_ev = events[1]
+    end_ev = events[2]
+    assert start_ev["tier"] == "luna"
+    assert end_ev["tier"] == "luna"
+    assert end_ev["exit_code"] == 0
+    assert end_ev["cost"] == 0.00005
+    assert end_ev["duration_ms"] >= 0.0
+
+

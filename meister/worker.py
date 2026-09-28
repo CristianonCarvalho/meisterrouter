@@ -622,6 +622,8 @@ async def run_worker_in_herdr_pane_async(
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
     config_path: Optional[str] = None,
+    run_id: Optional[str] = None,
+    task_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Abre um terminal lateral visível no Herdr (split pane) e aguarda conclusão."""
     from meister.herdr.client import HerdrSocketClient
@@ -639,13 +641,15 @@ async def run_worker_in_herdr_pane_async(
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 
-    run_id = uuid.uuid4().hex[:8]
-    task_file = os.path.join(runs_dir, f"{run_id}_task.json")
-    result_file = os.path.join(runs_dir, f"{run_id}.json")
+    resolved_run_id = run_id or os.environ.get("MEISTER_RUN_ID") or uuid.uuid4().hex[:8]
+    resolved_task_id = task_id or resolved_run_id
+    task_file = os.path.join(runs_dir, f"{resolved_run_id}_task.json")
+    result_file = os.path.join(runs_dir, f"{resolved_run_id}.json")
 
     # Contrato task.json gravado de forma atômica (Achados #7, #11)
     task_payload = {
-        "task_id": run_id,
+        "run_id": resolved_run_id,
+        "task_id": resolved_task_id,
         "model": model,
         "task": task,
         "target_files": target_files or [],
@@ -653,11 +657,17 @@ async def run_worker_in_herdr_pane_async(
         "config_path": resolved_config_path,
         "timeout": timeout,
         "result_file": result_file,
+        "log_dir": os.environ.get("MEISTER_LOG_DIR"),
     }
     write_atomic_json(task_file, task_payload)
 
     cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
-    command_str = f"MEISTER_IN_PANE=1 {' '.join(shlex.quote(p) for p in cmd_parts)}"
+    env_vars = ["MEISTER_IN_PANE=1"]
+    if os.environ.get("MEISTER_LOG_DIR"):
+        env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
+    if resolved_run_id:
+        env_vars.append(f"MEISTER_RUN_ID={shlex.quote(resolved_run_id)}")
+    command_str = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
     client = HerdrSocketClient(socket_path=socket_path)
     pane_id = await client.split_pane(
@@ -749,6 +759,8 @@ def run_worker_in_herdr_pane(
     socket_path: Optional[str] = None,
     timeout: float = 180.0,
     config_path: Optional[str] = None,
+    run_id: Optional[str] = None,
+    task_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Wrapper síncrono para execução do worker em pane lateral do Herdr."""
     return asyncio.run(
@@ -760,6 +772,8 @@ def run_worker_in_herdr_pane(
             socket_path=socket_path,
             timeout=timeout,
             config_path=config_path,
+            run_id=run_id,
+            task_id=task_id,
         )
     )
 
@@ -773,6 +787,8 @@ async def run_worker_in_herdr_tab_async(
     timeout: float = 180.0,
     label: Optional[str] = None,
     config_path: Optional[str] = None,
+    run_id: Optional[str] = None,
+    task_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Abre uma tab dedicada no Herdr (focus=False) e aguarda conclusão via result.json ou pane.exited (Achados #10, #13)."""
     from meister.herdr.client import HerdrSocketClient
@@ -790,12 +806,14 @@ async def run_worker_in_herdr_tab_async(
     runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
     os.makedirs(runs_dir, exist_ok=True)
 
-    run_id = uuid.uuid4().hex[:8]
-    task_file = os.path.join(runs_dir, f"{run_id}_task.json")
-    result_file = os.path.join(runs_dir, f"{run_id}.json")
+    resolved_run_id = run_id or os.environ.get("MEISTER_RUN_ID") or uuid.uuid4().hex[:8]
+    resolved_task_id = task_id or resolved_run_id
+    task_file = os.path.join(runs_dir, f"{resolved_run_id}_task.json")
+    result_file = os.path.join(runs_dir, f"{resolved_run_id}.json")
 
     task_payload = {
-        "task_id": run_id,
+        "run_id": resolved_run_id,
+        "task_id": resolved_task_id,
         "model": model,
         "task": task,
         "target_files": target_files or [],
@@ -803,11 +821,17 @@ async def run_worker_in_herdr_tab_async(
         "config_path": resolved_config_path,
         "timeout": timeout,
         "result_file": result_file,
+        "log_dir": os.environ.get("MEISTER_LOG_DIR"),
     }
     write_atomic_json(task_file, task_payload)
 
     cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
-    command_str = f"MEISTER_IN_PANE=1 {' '.join(shlex.quote(p) for p in cmd_parts)}"
+    env_vars = ["MEISTER_IN_PANE=1"]
+    if os.environ.get("MEISTER_LOG_DIR"):
+        env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
+    if resolved_run_id:
+        env_vars.append(f"MEISTER_RUN_ID={shlex.quote(resolved_run_id)}")
+    command_str = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
     client = HerdrSocketClient(socket_path=socket_path)
     tab_label = label or f"worker:{model}:{run_id}"
@@ -907,6 +931,8 @@ def run_worker_in_herdr_tab(
     timeout: float = 180.0,
     label: Optional[str] = None,
     config_path: Optional[str] = None,
+    run_id: Optional[str] = None,
+    task_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Wrapper síncrono para execução do worker em tab dedicada do Herdr."""
     return asyncio.run(
@@ -919,6 +945,8 @@ def run_worker_in_herdr_tab(
             timeout=timeout,
             label=label,
             config_path=config_path,
+            run_id=run_id,
+            task_id=task_id,
         )
     )
 
@@ -947,6 +975,9 @@ def execute_task_file(
 
     task_id = task_data.get("task_id", uuid.uuid4().hex[:8])
     run_id = task_data.get("run_id") or os.environ.get("MEISTER_RUN_ID")
+    log_dir = task_data.get("log_dir")
+    if log_dir:
+        os.environ["MEISTER_LOG_DIR"] = log_dir
     model = task_data.get("model", "luna")
     task = task_data.get("task", "")
     target_files = task_data.get("target_files")
