@@ -734,76 +734,83 @@ class HerdrEventBridge:
         plan_success = await self.execute_plan(steps)
 
         if plan_success:
+            diff_summary = ""
+            test_passed = False
             if self._integration_pipeline is not None:
-                ok_int_final, int_err = self._integration_pipeline.finish_integration(fast_forward=True)
-                if not ok_int_final:
-                    logger.warning("Falha na validação/merge final da integração: %s", int_err)
+                # 1. Validação final determinística na branch de integração ANTES de tocar na main
+                test_passed, test_output = self._integration_pipeline.validate_final_integration()
+                if not test_passed:
+                    logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
+                    msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
+                    await self.client.show_notification(msg)
                     sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
                     return False
-                test_passed = True
-                test_output = int_err
+                diff_summary = self._integration_pipeline.get_integration_diff_summary()
             else:
                 gate = self.gate
                 if gate is None:
                     from meister.gate import DeterministicGate
                     gate = DeterministicGate()
                 test_passed, test_output = gate.run_verification()
+                if not test_passed:
+                    logger.warning("Deterministic quality gate failed: test verification did not pass.")
+                    msg = "MeisterRouter: Plan executed but quality gate test verification failed."
+                    await self.client.show_notification(msg)
+                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    return False
+                diff_summary = gate.get_diff_summary()
 
+            # 2. Avaliação de conclusão com Jev/regras ANTES do fast-forward
             gate = self.gate
             if gate is None:
                 from meister.gate import DeterministicGate
                 gate = DeterministicGate()
-            diff_summary = gate.get_diff_summary()
-
-            if not test_passed:
-                logger.warning("Deterministic quality gate failed: test verification did not pass.")
-                msg = "MeisterRouter: Plan executed but quality gate test verification failed."
-                await self.client.show_notification(msg)
-                sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
-                return False
-
             eval_result = gate.evaluate_completion(diff_summary=diff_summary, test_passed=test_passed)
 
             action = eval_result.get("action", "COMPLETE")
-            if action == "COMPLETE":
-                sm.transition_run(self.current_run_id, to_state=RunState.COMPLETED)
-                # Fecha todos os active panes registrados em SQLite para esta execução
-                for p_id in sm.get_active_panes(self.current_run_id):
-                    try:
-                        await self.client.close_pane(p_id)
-                    except Exception as e:
-                        logger.debug("Failed closing worker pane %s: %s", p_id, e)
-                    sm.unregister_pane(p_id)
-
-                for p_id in list(self.active_workers.keys()):
-                    try:
-                        await self.client.close_pane(p_id)
-                    except Exception as e:
-                        logger.debug("Failed closing worker pane %s: %s", p_id, e)
-                    sm.unregister_pane(p_id)
-                msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
+            if action != "COMPLETE":
+                logger.warning("Deterministic completion rejected with action %s: %s", action, eval_result.get("reason"))
+                msg = f"MeisterRouter: Tasks executed but completion evaluation returned {action}."
                 await self.client.show_notification(msg)
-                log_event(
-                    event_type="orchestration_end",
-                    run_id=self.current_run_id,
-                    task_id="orchestrator",
-                    exit_code=0,
-                    status="completed",
-                )
-                return True
-            else:
                 sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
-                msg = f"MeisterRouter: Plan executed but quality gate returned {action}."
-                await self.client.show_notification(msg)
-                log_event(
-                    event_type="orchestration_end",
-                    run_id=self.current_run_id,
-                    task_id="orchestrator",
-                    exit_code=1,
-                    status="failed",
-                    action=action,
-                )
                 return False
+
+            # 3. Fast-forward no repositório principal acontece APENAS após aprovação total
+            if self._integration_pipeline is not None:
+                ok_ff, ff_msg = self._integration_pipeline.apply_fast_forward()
+                if not ok_ff:
+                    logger.error("Fast-forward na main falhou: %s", ff_msg)
+                    msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
+                    await self.client.show_notification(msg)
+                    sm.transition_run(self.current_run_id, to_state=RunState.FAILED)
+                    return False
+
+            # 4. Sucesso confirmado: marca COMPLETED e encerra panes
+            sm.transition_run(self.current_run_id, to_state=RunState.COMPLETED)
+            # Fecha todos os active panes registrados em SQLite para esta execução
+            for p_id in sm.get_active_panes(self.current_run_id):
+                try:
+                    await self.client.close_pane(p_id)
+                except Exception as e:
+                    logger.debug("Failed closing worker pane %s: %s", p_id, e)
+                sm.unregister_pane(p_id)
+
+            for p_id in list(self.active_workers.keys()):
+                try:
+                    await self.client.close_pane(p_id)
+                except Exception as e:
+                    logger.debug("Failed closing worker pane %s: %s", p_id, e)
+                sm.unregister_pane(p_id)
+            msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
+            await self.client.show_notification(msg)
+            log_event(
+                event_type="orchestration_end",
+                run_id=self.current_run_id,
+                task_id="orchestrator",
+                exit_code=0,
+                status="completed",
+            )
+            return True
         else:
             if self._integration_pipeline is not None:
                 self._integration_pipeline.abort_integration()

@@ -230,3 +230,40 @@ def test_sequential_merge_of_two_subtasks(git_test_repo):
     # Both modules should exist in main repo
     assert os.path.exists(os.path.join(repo_path, "module_x.py"))
     assert os.path.exists(os.path.join(repo_path, "module_y.py"))
+
+
+def test_finish_integration_fails_closed_when_repo_is_dirty(git_test_repo):
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-dirty-repo")
+
+    # Integrate a valid subtask
+    wt1 = wt_mgr.create_worktree("task-dirty-subtask", base_ref=int_info.branch_name)
+    with open(os.path.join(wt1.worktree_path, "new_file.py"), "w", encoding="utf-8") as f:
+        f.write("# valid new file\n")
+    ok, msg = pipeline.integrate_subtask(wt1, target_files=["new_file.py"])
+    assert ok is True
+    wt_mgr.cleanup_worktree(wt1.task_id, force=True)
+
+    # Dirty the main repo with unstaged tracked modification
+    head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+    with open(os.path.join(repo_path, "app.py"), "a", encoding="utf-8") as f:
+        f.write("\n# uncommitted change in main repo\n")
+
+    # Attempting to finish integration with fast_forward=True must FAIL CLOSED
+    ok_finish, err_finish = pipeline.finish_integration(fast_forward=True)
+    assert ok_finish is False
+    assert "dirty" in err_finish.lower() or "fast-forward" in err_finish.lower()
+
+    # Main HEAD must NOT have moved
+    head_after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_path, capture_output=True, text=True, check=True).stdout.strip()
+    assert head_before == head_after
+
+    # Integration worktree/branch must be preserved for inspection
+    assert os.path.exists(int_info.worktree_path)
+
+    # Cleanup test resources
+    pipeline.abort_integration()

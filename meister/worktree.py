@@ -560,26 +560,66 @@ class IntegrationPipeline:
 
         return True, f"Subtarefa {subtask_wt.task_id} integrada com sucesso ({commit_sha[:8]})."
 
+    def validate_final_integration(self) -> Tuple[bool, str]:
+        """Valida o portão de qualidade determinístico na branch de integração antes de qualquer alteração na main."""
+        if self.integration_info is None:
+            return False, "Nenhuma integração ativa."
+        passed, out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)
+        return passed, out
+
+    def get_integration_diff_summary(self) -> str:
+        """Obtém resumo de diff entre a branch de integração e a base para julgamento de conclusão."""
+        if self.integration_info is None:
+            return ""
+        try:
+            res = subprocess.run(
+                ["git", "diff", "--stat", f"{self.base_ref}..HEAD"],
+                cwd=self.integration_info.worktree_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            return res.stdout.strip()
+        except Exception:
+            return ""
+
+    def apply_fast_forward(self) -> Tuple[bool, str]:
+        """Aplica fast-forward no repositório principal somente após aprovação de todos os gates.
+
+        Se o fast-forward falhar (ex.: repo dirty), retorna False e mantém a branch de integração
+        intacta para inspeção manual.
+        """
+        if self.integration_info is None:
+            return False, "Nenhuma integração ativa."
+
+        ok, ff_msg = self.wt_mgr.fast_forward_repo(self.integration_info.branch_name)
+        if not ok:
+            # Mantém a branch e o worktree de integração para inspeção manual (Achado Item 1)
+            logger.error("Falha no fast-forward do repositório principal: %s", ff_msg)
+            return False, f"Falha no fast-forward: {ff_msg}"
+
+        # Fast-forward com sucesso: limpa o worktree e remove a branch de integração
+        self.wt_mgr.cleanup_worktree(self.integration_info.task_id, delete_branch=True, force=True)
+        self.integration_info = None
+        return True, ff_msg
+
     def finish_integration(self, fast_forward: bool = True) -> Tuple[bool, str]:
         """Finaliza a integração: valida portão final, aplica fast-forward se configurado e limpa worktree."""
         if self.integration_info is None:
             return False, "Nenhuma integração ativa."
 
         # Portão final
-        passed, out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)
+        passed, out = self.validate_final_integration()
         if not passed:
             return False, f"Portão final de integração falhou:\n{out}"
 
-        ff_msg = "Fast-forward desabilitado"
         if fast_forward:
-            ok, ff_msg = self.wt_mgr.fast_forward_repo(self.integration_info.branch_name)
-            if not ok:
-                logger.warning("Aviso no fast-forward do repositório principal: %s", ff_msg)
+            return self.apply_fast_forward()
 
         # Limpa o worktree de integração, mantendo a branch se não fez ff
         self.wt_mgr.cleanup_worktree(self.integration_info.task_id, delete_branch=False, force=True)
         self.integration_info = None
-        return True, f"Integração concluída com sucesso. {ff_msg}"
+        return True, "Integração validada com sucesso (fast-forward desabilitado)."
 
     def abort_integration(self) -> None:
         """Aborta a integração e limpa o worktree e a branch de integração."""

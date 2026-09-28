@@ -1,8 +1,9 @@
 import pytest
 import asyncio
+import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 from meister.herdr.bridge import HerdrEventBridge
-from meister.config import load_config
+from meister.config import load_config, MeisterConfig
 
 
 @pytest.mark.asyncio
@@ -173,6 +174,7 @@ async def test_bridge_run_orchestration_cycle(tmp_path):
 version: "1.0"
 concurrency:
   max_parallel_workers: 2
+  isolation_mode: "none"
 """)
     config = load_config(str(cfg_file))
     mock_client = AsyncMock()
@@ -325,7 +327,9 @@ async def test_bridge_run_orchestration_cycle_with_direct_task():
     mock_gate.get_diff_summary.return_value = "1 file changed"
     mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
 
-    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    cfg = MeisterConfig()
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client, gate=mock_gate)
     success = await bridge.run_orchestration_cycle(
         workspace_id="w1",
         architect_pane_id="w1:p1",
@@ -351,7 +355,9 @@ async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
     mock_gate.get_diff_summary.return_value = "1 file changed"
     mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
 
-    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    cfg = MeisterConfig()
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client, gate=mock_gate)
     success = await bridge.run_orchestration_cycle(
         workspace_id=None,
         architect_pane_id=None,
@@ -359,5 +365,142 @@ async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
     assert success is True
     mock_client.get_current_pane.assert_called_once()
     assert any(c[0][0] == "auto_pane" for c in mock_client.read_pane.call_args_list)
+
+
+def _init_git_repo(path):
+    subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "ci@meister.local"], cwd=path, check=True)
+    subprocess.run(["git", "config", "user.name", "Meister CI"], cwd=path, check=True)
+    app = path / "app.py"
+    app.write_text("def test_func():\n    return True\n")
+    pytest_ini = path / "pytest.ini"
+    pytest_ini.write_text("[pytest]\npythonpath = .\n")
+    subprocess.run(["git", "add", "."], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, check=True)
+
+
+@pytest.mark.asyncio
+async def test_bridge_orchestration_eval_verify_does_not_advance_main(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
+
+    head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.prompt_agent.return_value = {"status": "done"}
+    mock_client.read_pane.return_value = "Task completed"
+    mock_client.show_notification = AsyncMock()
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+    mock_gate.get_diff_summary.return_value = "1 file changed"
+    # Jev returns VERIFY instead of COMPLETE
+    mock_gate.evaluate_completion.return_value = {"action": "VERIFY", "reason": "Requires human approval"}
+
+    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p0",
+        task="1. Add feature",
+    )
+    # Orchestration cycle must fail because Jev rejected completion
+    assert success is False
+
+    # Main branch MUST NOT have advanced!
+    head_after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+    assert head_before == head_after
+
+
+@pytest.mark.asyncio
+async def test_bridge_orchestration_dirty_repo_fails_fast_forward_and_preserves_main(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
+
+    head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+
+    # Dirty the main repository
+    with open(repo_dir / "app.py", "a", encoding="utf-8") as f:
+        f.write("\n# uncommitted changes\n")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.prompt_agent.return_value = {"status": "done"}
+    mock_client.read_pane.return_value = "Task completed"
+    mock_client.show_notification = AsyncMock()
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+    mock_gate.get_diff_summary.return_value = "1 file changed"
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+
+    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p0",
+        task="1. Add feature",
+    )
+    # Orchestration cycle must fail because fast-forward to dirty repo is rejected
+    assert success is False
+
+    # Main branch HEAD must NOT have advanced
+    head_after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+    assert head_before == head_after
+
+
+@pytest.mark.asyncio
+async def test_bridge_orchestration_happy_path_fast_forwards_main(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "git_repo"
+    repo_dir.mkdir()
+    _init_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
+
+    head_before = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.show_notification = AsyncMock()
+
+    # Simulate worker writing and committing a file in its worktree
+    async def mock_prompt(*args, **kwargs):
+        # find the active worktree and write a change
+        from meister.worktree import WorktreeManager
+        wm = WorktreeManager(repo_root=str(repo_dir))
+        for wt in wm.list_active_worktrees():
+            if "integration" not in wt.task_id:
+                p = Path(wt.worktree_path) / "feature.py"
+                p.write_text("FEATURE = True\n")
+                wm.commit_worktree(wt.worktree_path, "feat: worker feature")
+        return {"status": "done"}
+
+    from pathlib import Path
+    mock_client.prompt_agent.side_effect = mock_prompt
+    mock_client.read_pane.return_value = "Task completed"
+
+    mock_gate = MagicMock()
+    mock_gate.run_verification.return_value = (True, "All tests passed")
+    mock_gate.get_diff_summary.return_value = "feature.py | 1 +"
+    mock_gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+
+    bridge = HerdrEventBridge(client=mock_client, gate=mock_gate)
+    success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p0",
+        task="1. Add feature",
+    )
+    assert success is True
+
+    # Main branch MUST have advanced!
+    head_after = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_dir, capture_output=True, text=True, check=True).stdout.strip()
+    assert head_before != head_after
+    assert (repo_dir / "feature.py").exists()
+
 
 
