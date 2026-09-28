@@ -2,15 +2,25 @@
 meister.worktree — Gerenciador determinístico de Git Worktrees para isolamento de workers.
 
 Responsável por:
-- Criação de worktrees dedicados por tarefa/subtarefa.
+- Criação de worktrees dedicados por tarefa/subtarefa fora da árvore do repositório principal.
 - Inspeção determinística de diff e arquivos modificados (git diff base..HEAD + untracked).
 - Validação de escopo estrito (impedir que workers alterem arquivos fora de target_files).
 - Limpeza pós-merge e pós-falha (git worktree remove, remoção de branch, git worktree prune).
 - Varredura e descarte automático de worktrees órfãos na inicialização.
+
+Segurança e Isolamento:
+- Por padrão, os worktrees são criados FORA da árvore do repositório principal
+  (em ~/.meister/worktrees/<hash_do_repo>/ ou via MEISTER_WORKTREES_DIR),
+  impedindo que workers acessem arquivos como .env na raiz do repo via path traversal (../../../.env).
+- Nota de Isolamento: O isolamento via worktrees externos protege arquivos e segredos do repositório,
+  mas um isolamento total de processos e sistema operacional requer sandboxing no nível de container/OS.
+  Para ferramentas CLI como Codex, Claude e Antigravity, utilize apenas flags formais documentadas por seus
+  respectivos --help.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -21,6 +31,12 @@ from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+
+
+def compute_repo_hash(repo_root: str) -> str:
+    """Calcula um hash determinístico curto para isolar worktrees de diferentes repositórios."""
+    real_path = os.path.realpath(os.path.abspath(repo_root))
+    return hashlib.sha256(real_path.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -38,10 +54,21 @@ class WorktreeInfo:
 class WorktreeManager:
     """Gerencia o ciclo de vida completo de worktrees isolados no Git."""
 
-    def __init__(self, repo_root: Optional[str] = None):
+    def __init__(
+        self,
+        repo_root: Optional[str] = None,
+        worktrees_dir: Optional[str] = None,
+    ):
         self.repo_root = os.path.abspath(repo_root or self._find_repo_root())
-        self.worktrees_dir = os.path.join(self.repo_root, ".meister", "worktrees")
-        self.metadata_dir = os.path.join(self.repo_root, ".meister", "worktree_meta")
+        repo_hash = compute_repo_hash(self.repo_root)
+
+        if worktrees_dir:
+            self.worktrees_dir = os.path.abspath(worktrees_dir)
+        else:
+            base_dir = os.environ.get("MEISTER_WORKTREES_DIR") or os.path.expanduser("~/.meister/worktrees")
+            self.worktrees_dir = os.path.abspath(os.path.join(base_dir, repo_hash))
+
+        self.metadata_dir = os.path.join(self.worktrees_dir, ".metadata")
         os.makedirs(self.worktrees_dir, exist_ok=True)
         os.makedirs(self.metadata_dir, exist_ok=True)
         meister_gitignore = os.path.join(self.repo_root, ".meister", ".gitignore")
@@ -406,6 +433,8 @@ class WorktreeManager:
 
         if os.path.exists(self.worktrees_dir):
             for entry in os.listdir(self.worktrees_dir):
+                if entry.startswith("."):
+                    continue
                 wt_path = os.path.abspath(os.path.join(self.worktrees_dir, entry))
                 meta_file = os.path.join(self.metadata_dir, f"{entry}.json")
 

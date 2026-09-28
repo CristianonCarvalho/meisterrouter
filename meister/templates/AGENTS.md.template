@@ -16,6 +16,9 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
    - Maximum Escalation: **Claude Sonnet 5** / **Claude Opus 5.5**.
    - ⚠️ **Zero Direct Implementation by Orchestrator:** If the recommended implementer (e.g. Luna) is inactive or unavailable, the orchestrator MUST NOT write code. It must dispatch immediately to **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
 3. **Deterministic Evidence:** Evidence from tests, linters, and git diff always precedes completion declarations.
+4. **Workspace Isolation & Sandboxing:**
+   - Worker worktrees are placed strictly outside the repository root (by default in `~/.meister/worktrees/<repo_hash>/` or via `MEISTER_WORKTREES_DIR`), preventing workers from accessing repository root secrets (`.env`) via path traversal.
+   - External worktrees provide filesystem segregation; full process and OS-level containment requires container/OS sandboxing. Workers use verified CLI flags confirmed via `--help`.
 
 ## Standard Execution Loop
 ```

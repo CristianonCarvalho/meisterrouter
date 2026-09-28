@@ -119,3 +119,50 @@ def test_worktree_cleanup_orphans_on_startup(git_repo):
     assert "orphan-task" in cleaned
     assert "leftover-branch" in cleaned
     assert not os.path.exists(info.worktree_path)
+
+
+def test_worktree_isolated_outside_repo_root(git_repo, tmp_path, monkeypatch):
+    repo_path = str(git_repo)
+    custom_worktrees_base = tmp_path / "global_worktrees"
+    monkeypatch.setenv("MEISTER_WORKTREES_DIR", str(custom_worktrees_base))
+
+    # Initialize manager with default behavior using the env
+    manager = WorktreeManager(repo_root=repo_path)
+
+    # 1. Create worktree
+    info = manager.create_worktree("isolated-task")
+    assert os.path.exists(info.worktree_path)
+
+    # 2. Verify worktree is strictly NOT inside repo_root
+    real_repo = os.path.realpath(repo_path)
+    real_wt = os.path.realpath(info.worktree_path)
+    assert not real_wt.startswith(real_repo), f"Worktree {real_wt} must not be inside repo {real_repo}"
+
+    # Verify that a worker doing relative traversal cannot hit repo_root
+    from pathlib import Path
+    with pytest.raises(ValueError):
+        Path(real_wt).relative_to(Path(real_repo))
+
+    # 3. Modify files and commit in isolated worktree
+    app_wt = os.path.join(info.worktree_path, "app.py")
+    with open(app_wt, "w", encoding="utf-8") as f:
+        f.write("def run():\n    return 'isolated'\n")
+
+    sha = manager.commit_worktree(info.worktree_path, "feat: isolated work")
+    assert sha is not None
+
+    # 4. Cleanup worktree
+    success = manager.cleanup_worktree("isolated-task", delete_branch=True, force=True)
+    assert success is True
+    assert not os.path.exists(info.worktree_path)
+
+    # 5. Verify orphan cleanup works outside repo
+    info_orphan = manager.create_worktree("orphan-outside")
+    meta_file = os.path.join(manager.metadata_dir, "orphan-outside.json")
+    with open(meta_file, "w", encoding="utf-8") as f:
+        f.write('{"task_id": "orphan-outside", "worktree_path": "' + info_orphan.worktree_path + '", "branch_name": "' + info_orphan.branch_name + '", "base_ref": "HEAD", "base_commit": "' + info_orphan.base_commit + '", "created_at": 0.0, "pid": 99999999, "status": "active"}')
+
+    cleaned = manager.cleanup_orphans()
+    assert "orphan-outside" in cleaned
+    assert not os.path.exists(info_orphan.worktree_path)
+
