@@ -291,7 +291,11 @@ class WorkerSpawner:
         )
 
         if cmd and pane_id:
-            cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+            cmd_str = (
+                task_context.get("command_str")
+                if task_context and "command_str" in task_context
+                else (" ".join(cmd) if isinstance(cmd, list) else str(cmd))
+            )
             try:
                 if hasattr(self.herdr_client, "wait_pane_ready"):
                     await self.herdr_client.wait_pane_ready(pane_id)

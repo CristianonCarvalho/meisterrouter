@@ -274,24 +274,37 @@ async def test_bridge_circuit_breaker_trips_and_records_usage(tmp_path):
     )
 
     mock_client = AsyncMock()
-    mock_client.split_pane.side_effect = ["w1:p1", "w1:p2"]
 
-    # 1ª tentativa (luna) falha com 429; 2ª tentativa (gemini_flash) tem sucesso com usage
-    mock_client.prompt_agent.side_effect = [
-        {"status": "error", "output": "HTTP 429 Too Many Requests: Rate limit exceeded"},
-        {
-            "status": "done",
-            "output": "Implementation complete",
-            "usage": {"prompt_tokens": 120, "completion_tokens": 40, "cost": 0.00015},
-        },
-    ]
+    from meister.worker import write_atomic_json, read_atomic_json
+
+    attempt = 0
+    async def fake_split(*args, **kwargs):
+        nonlocal attempt
+        attempt += 1
+        cmd = kwargs.get("command")
+        if cmd and len(cmd) >= 5 and cmd[-2] == "run-task":
+            tfile = cmd[-1]
+            data = read_atomic_json(tfile)
+            if data and "result_file" in data:
+                if attempt == 1:
+                    res = {"status": "error", "output": "HTTP 429 Too Many Requests: Rate limit exceeded"}
+                else:
+                    res = {
+                        "status": "done",
+                        "output": "Implementation complete",
+                        "usage": {"prompt_tokens": 120, "completion_tokens": 40, "cost": 0.00015},
+                    }
+                write_atomic_json(data["result_file"], res)
+        return f"w1:p{attempt}"
+
+    mock_client.split_pane.side_effect = fake_split
     mock_client.read_pane.side_effect = [
         "HTTP 429 Too Many Requests: Rate limit exceeded",
         "Implementation complete",
     ]
 
     bridge = HerdrEventBridge(config=config, client=mock_client, state_manager=sm)
-    subtask = {"id": "sub_quota_test", "description": "Fix auth", "target_files": ["auth.py"]}
+    subtask = {"id": "sub_quota_test", "description": "Fix auth", "target_files": ["auth.py"], "cwd": str(tmp_path)}
 
     # Executa subtask
     with patch.dict(os.environ, {"MEISTER_RETRY_BACKOFF": "0.001"}):

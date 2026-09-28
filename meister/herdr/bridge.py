@@ -8,6 +8,9 @@ concurrency configuration, and reactive zero-latency quota failover.
 from __future__ import annotations
 
 import os
+import sys
+import time
+import shlex
 import asyncio
 import json
 import logging
@@ -23,6 +26,11 @@ from meister.herdr.workers import (
 )
 from meister.state import StateManager, RunState, SubtaskState, compute_subtask_id
 from meister.logger import log_event
+from meister.worker import (
+    write_atomic_json,
+    read_atomic_json,
+    ensure_meister_dir,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +293,48 @@ class HerdrEventBridge:
                 except Exception as e:
                     logger.debug("State transition error: %s", e)
 
+            resolved_cwd = task_dict.get("cwd") or task_dict.get("worktree") or os.getcwd()
+            ensure_meister_dir(resolved_cwd)
+            runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
+            os.makedirs(runs_dir, exist_ok=True)
+
+            task_file = os.path.join(runs_dir, f"{active_run_id}_{task_id}_{attempt_count}_task.json")
+            result_file = os.path.join(runs_dir, f"{active_run_id}_{task_id}_{attempt_count}.json")
+
+            resolved_config_path = getattr(self.config, "config_path", None) or os.environ.get("MEISTER_CONFIG_PATH")
+            if not resolved_config_path:
+                for fname in ("meister.config.yaml", "meister.config.yml"):
+                    cand = os.path.join(resolved_cwd, fname)
+                    if os.path.exists(cand):
+                        resolved_config_path = os.path.abspath(cand)
+                        break
+
+            timeout_val = float(task_dict.get("timeout", 300.0))
+            task_payload = {
+                "run_id": active_run_id,
+                "task_id": task_id,
+                "model": current_tier,
+                "task": description,
+                "target_files": target_files or [],
+                "cwd": resolved_cwd,
+                "config_path": resolved_config_path,
+                "timeout": timeout_val,
+                "result_file": result_file,
+                "log_dir": os.environ.get("MEISTER_LOG_DIR"),
+            }
+            write_atomic_json(task_file, task_payload)
+            task_dict["task_file"] = task_file
+            task_dict["result_file"] = result_file
+
+            cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
+            env_vars = ["MEISTER_IN_PANE=1"]
+            if os.environ.get("MEISTER_LOG_DIR"):
+                env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
+            if active_run_id:
+                env_vars.append(f"MEISTER_RUN_ID={shlex.quote(active_run_id)}")
+            task_dict["command"] = cmd_parts
+            task_dict["command_str"] = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
+
             tab_id = None
             try:
                 if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
@@ -340,32 +390,45 @@ class HerdrEventBridge:
                 "subtask": task_dict,
             }
 
-            prompt_text = (
-                f"Execute subtask {task_id}: {description}\n"
-                f"Target files: {target_files}\n"
-            )
+            prompt_result: Optional[Dict[str, Any]] = None
+            start_wait = time.monotonic()
+            poll_interval = 0.2
 
-            prompt_task = asyncio.create_task(
-                self.client.prompt_agent(
-                    pane_id=pane_id,
-                    prompt=prompt_text,
-                    wait_until="done",
-                )
-            )
-            quota_waiter = asyncio.create_task(quota_event.wait())
-            exit_waiter = asyncio.create_task(exit_event.wait())
+            while time.monotonic() - start_wait < timeout_val:
+                if os.path.exists(result_file):
+                    res_data = read_atomic_json(result_file)
+                    if res_data is not None:
+                        prompt_result = res_data
+                        try:
+                            os.remove(result_file)
+                        except Exception:
+                            pass
+                        try:
+                            if os.path.exists(task_file):
+                                os.remove(task_file)
+                        except Exception:
+                            pass
+                        break
 
-            done, pending = await asyncio.wait(
-                [prompt_task, quota_waiter, exit_waiter],
-                return_when=asyncio.FIRST_COMPLETED,
-            )
+                if quota_event.is_set() or self.active_workers.get(pane_id, {}).get("status") == "quota_error":
+                    break
 
-            for t in pending:
-                t.cancel()
-                try:
-                    await t
-                except asyncio.CancelledError:
-                    pass
+                if exit_event.is_set():
+                    await asyncio.sleep(0.5)
+                    if os.path.exists(result_file):
+                        res_data = read_atomic_json(result_file)
+                        if res_data is not None:
+                            prompt_result = res_data
+                            try:
+                                os.remove(result_file)
+                                if os.path.exists(task_file):
+                                    os.remove(task_file)
+                            except Exception:
+                                pass
+                            break
+                    break
+
+                await asyncio.sleep(poll_interval)
 
             self._quota_events.pop(pane_id, None)
             self._exit_events.pop(pane_id, None)
@@ -411,58 +474,52 @@ class HerdrEventBridge:
                 current_tier = next_tier.name
                 continue
 
-            # Process prompt or exit completion
-            if exit_event.is_set() and not prompt_task.done():
-                prompt_result = {"status": "done", "pane_id": pane_id}
-            else:
+            if prompt_result is None:
+                err_msg = f"Worker pane {pane_id} exited prematurely or timed out without result"
+                logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, err_msg)
+                max_retries = getattr(tier_obj, "max_retries", 2) if tier_obj else 2
+                tier_failures[current_tier] = tier_failures.get(current_tier, 0) + 1
+                sm.record_harness_failure(current_tier, is_quota=False, failure_threshold=max_retries)
+                log_event(
+                    event_type="worker_error",
+                    run_id=active_run_id,
+                    task_id=task_id,
+                    attempt=attempt_count,
+                    tier=current_tier,
+                    exit_code=1,
+                    error=err_msg,
+                )
                 try:
-                    prompt_result = prompt_task.result()
-                except Exception as e:
-                    logger.warning("Worker execution error in pane %s (%s): %s. Escalating...", pane_id, current_tier, e)
-                    max_retries = getattr(tier_obj, "max_retries", 2) if tier_obj else 2
-                    tier_failures[current_tier] = tier_failures.get(current_tier, 0) + 1
-                    sm.record_harness_failure(current_tier, is_quota=False, failure_threshold=max_retries)
-                    log_event(
-                        event_type="worker_error",
-                        run_id=active_run_id,
-                        task_id=task_id,
-                        attempt=attempt_count,
-                        tier=current_tier,
-                        exit_code=1,
-                        error=str(e),
-                    )
+                    await self.client.send_interrupt(pane_id)
+                except Exception:
+                    pass
+                if active_run_id:
+                    sm.unregister_pane(pane_id)
                     try:
-                        await self.client.send_interrupt(pane_id)
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error=err_msg)
                     except Exception:
                         pass
-                    if active_run_id:
-                        sm.unregister_pane(pane_id)
-                        try:
-                            sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error=str(e))
-                        except Exception:
-                            pass
-                    if tab_id and hasattr(self.client, "close_tab"):
-                        try:
-                            await self.client.close_tab(tab_id)
-                        except Exception:
-                            pass
+                if tab_id and hasattr(self.client, "close_tab"):
+                    try:
+                        await self.client.close_tab(tab_id)
+                    except Exception:
+                        pass
 
-                    # Requeue with backoff if attempts remain on current tier and breaker is available
-                    if tier_failures[current_tier] < max_retries and sm.is_harness_available(current_tier):
-                        base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
-                        await asyncio.sleep(base_backoff * (2 ** min(4, tier_failures[current_tier] - 1)))
-                        continue
+                if tier_failures[current_tier] < max_retries and sm.is_harness_available(current_tier):
+                    base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                    await asyncio.sleep(base_backoff * (2 ** min(4, tier_failures[current_tier] - 1)))
+                    continue
 
-                    next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
-                    if next_tier is not None:
-                        current_tier = next_tier.name
-                        continue
-                    if active_run_id:
-                        try:
-                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=str(e))
-                        except Exception:
-                            pass
-                    return False
+                next_tier = self.spawner.get_next_available_tier(current_tier, state_manager=sm)
+                if next_tier is not None:
+                    current_tier = next_tier.name
+                    continue
+                if active_run_id:
+                    try:
+                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
+                    except Exception:
+                        pass
+                return False
 
             # Inspect terminal output and prompt response for quota errors
             terminal_output = ""
