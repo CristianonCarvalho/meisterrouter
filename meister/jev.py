@@ -107,11 +107,11 @@ class ClassifyResponse(BaseModel):
     task_id: str
     run_id: Optional[str] = None
     classification: str
-    classification_confidence: float
+    classification_confidence: Optional[float] = None
     classification_probabilities: Dict[str, float]
     recommended_implementer: str
     fallback_chain: List[str]
-    implementer_confidence: float
+    implementer_confidence: Optional[float] = None
     fallback_rule_applied: bool = False
     cost: float = 0.0
 
@@ -120,7 +120,7 @@ class ControlResponse(BaseModel):
     task_id: str
     run_id: Optional[str] = None
     action: str
-    action_confidence: float
+    action_confidence: Optional[float] = None
     should_escalate: bool
     escalate_probability: float
     switch_implementer: bool
@@ -290,6 +290,8 @@ def classify_task(
 
     fallback_applied = False
     cost = 0.0
+    cls_conf: Optional[float] = None
+    impl_conf: Optional[float] = None
 
     try:
         raw = call_decisions(state=state, questions=questions, model=model, use_cache=use_cache)
@@ -316,8 +318,8 @@ def classify_task(
         logger.warning("Decisions API indisponível (%s). Aplicando tabela determinística de regras (Achado #24).", e)
         fallback_applied = True
         cls_probs = {}
-        cls_conf = 0.85
-        impl_conf = 0.85
+        cls_conf = None
+        impl_conf = None
         tokens_in = 0
         tokens_out = 0
 
@@ -383,11 +385,11 @@ def classify_task(
         "run_id": resolved_run_id,
         "task_id": safe_task_id,
         "classification": cls_val,
-        "classification_confidence": round(cls_conf, 2),
+        "classification_confidence": round(cls_conf, 2) if cls_conf is not None else None,
         "classification_probabilities": cls_probs,
         "recommended_implementer": impl_val,
         "fallback_chain": fallback_chain,
-        "implementer_confidence": round(impl_conf, 2),
+        "implementer_confidence": round(impl_conf, 2) if impl_conf is not None else None,
         "fallback_rule_applied": fallback_applied,
         "cost": round(cost, 6),
     }
@@ -470,6 +472,7 @@ def control_cycle(
 
     fallback_applied = False
     cost = 0.0
+    act_conf: Optional[float] = None
 
     try:
         raw = call_decisions(state=state, questions=questions, model=model, use_cache=use_cache)
@@ -496,7 +499,7 @@ def control_cycle(
     except Exception as e:
         logger.warning("Decisions API indisponível (%s). Aplicando tabela determinística de controle por regras (Achado #24).", e)
         fallback_applied = True
-        act_conf = 0.90
+        act_conf = None
         tokens_in = 0
         tokens_out = 0
 
@@ -551,7 +554,7 @@ def control_cycle(
         "run_id": resolved_run_id,
         "task_id": safe_task_id,
         "action": act_val,
-        "action_confidence": round(act_conf, 2),
+        "action_confidence": round(act_conf, 2) if act_conf is not None else None,
         "should_escalate": esc_val,
         "escalate_probability": round(esc_prob, 2),
         "switch_implementer": sw_val,

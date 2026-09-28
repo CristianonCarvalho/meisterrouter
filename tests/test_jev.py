@@ -157,6 +157,8 @@ def test_classify_task_rule_based_fallback_on_api_error():
         assert res_sec["fallback_rule_applied"] is True
         assert res_sec["classification"] == "HIGH"
         assert res_sec["recommended_implementer"] == "gemini_flash"
+        assert res_sec["classification_confidence"] is None
+        assert res_sec["implementer_confidence"] is None
 
         # 2. Regra para typo/doc -> SMALL / luna
         res_typo = classify_task("Fix typo in README documentation")
@@ -244,17 +246,43 @@ def test_control_cycle_rule_based_fallback_on_api_error():
         res_pass = control_cycle(diff_summary="clean diff", test_result="pass", attempts=1)
         assert res_pass["fallback_rule_applied"] is True
         assert res_pass["action"] == "COMPLETE"
+        assert res_pass["action_confidence"] is None
         assert res_pass["should_escalate"] is False
 
         # 2. Testes falhando na 1ª tentativa -> RETRY
         res_fail1 = control_cycle(diff_summary="err diff", test_result="fail", attempts=1)
         assert res_fail1["fallback_rule_applied"] is True
         assert res_fail1["action"] == "RETRY"
+        assert res_fail1["action_confidence"] is None
         assert res_fail1["should_escalate"] is False
 
         # 3. Testes falhando na 2ª tentativa -> ESCALATE
         res_fail2 = control_cycle(diff_summary="err diff", test_result="fail", attempts=2)
         assert res_fail2["fallback_rule_applied"] is True
         assert res_fail2["action"] == "ESCALATE"
+        assert res_fail2["action_confidence"] is None
         assert res_fail2["should_escalate"] is True
         assert res_fail2["switch_implementer"] is True
+
+
+def test_e2e10_fallback_rule_applied_null_confidence():
+    """E2E-10: Fallback por regras do Jev reporta confiança nula (None / null em JSON) em vez de inventada."""
+    import json
+
+    with patch("meister.jev.call_decisions", side_effect=RuntimeError("Decisions API unavailable")):
+        cls_res = classify_task("Some random code task")
+        assert cls_res["fallback_rule_applied"] is True
+        assert cls_res["classification_confidence"] is None
+        assert cls_res["implementer_confidence"] is None
+
+        cls_json = json.loads(json.dumps(cls_res))
+        assert cls_json["classification_confidence"] is None
+        assert cls_json["implementer_confidence"] is None
+
+        ctl_res = control_cycle(diff_summary="diff", test_result="pass")
+        assert ctl_res["fallback_rule_applied"] is True
+        assert ctl_res["action_confidence"] is None
+
+        ctl_json = json.loads(json.dumps(ctl_res))
+        assert ctl_json["action_confidence"] is None
+
