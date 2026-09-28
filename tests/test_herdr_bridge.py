@@ -1032,5 +1032,130 @@ async def test_bridge_run_orchestration_cycle_sweeps_active_panes_on_exit(tmp_pa
     assert "w1:p_dangling" in close_calls
 
 
+@pytest.mark.asyncio
+async def test_workers_in_same_run_get_distinct_worktree_paths(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    from meister.worktree import WorktreeManager, IntegrationPipeline
+    wt_mgr = WorktreeManager(repo_root=str(repo_dir))
+    pipeline = IntegrationPipeline(wt_mgr)
+    pipeline.start_integration("run-unique-paths")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    spawned_cwds = []
+
+    async def fake_spawn_tab(tier_name, task_context, cwd, **kwargs):
+        spawned_cwds.append(cwd)
+        auto_write_result(tmp_path)
+        return ("t1", "w1:p1", None)
+
+    mock_spawner = MagicMock()
+    mock_spawner.spawn_worker_tab = AsyncMock(side_effect=fake_spawn_tab)
+    mock_spawner.get_tier.return_value = MagicMock(name="luna", model="gpt-6-luna")
+
+    bridge = HerdrEventBridge(client=mock_client, spawner=mock_spawner)
+    bridge._integration_pipeline = pipeline
+    bridge.current_run_id = "run-unique-paths"
+
+    # Execute same task twice (simulating retry or zombie restart in same run)
+    subtask = {
+        "id": "t2",
+        "description": "Task 2 shout",
+        "target_files": ["text.py"],
+        "cwd": str(repo_dir),
+    }
+
+    # Worker 1
+    await bridge.execute_subtask(subtask)
+
+    # Worker 2 (second run or retry)
+    await bridge.execute_subtask(subtask)
+
+    assert len(spawned_cwds) == 2
+    # The two workers in the same run must have distinct worktree paths to avoid collisions
+    assert spawned_cwds[0] != spawned_cwds[1], f"Worktree paths collided: {spawned_cwds}"
+
+
+@pytest.mark.asyncio
+async def test_resumed_orchestration_closes_registered_panes_before_cleanup(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    from tests.mocks.mock_herdr_server import run_mock_herdr_server
+    from meister.herdr.client import HerdrSocketClient
+    sock_path = str(tmp_path / "herdr_resume.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        client = HerdrSocketClient(sock_path)
+        await client.connect()
+
+        cfg = MeisterConfig()
+        cfg.concurrency.layout_strategy = "tabs"
+        cfg.concurrency.isolation_mode = "git_worktree"
+
+        bridge = HerdrEventBridge(config=cfg, client=client)
+        sm = bridge.get_state_manager()
+
+        # Simulate previous run that crashed, leaving active pane and tab in SQLite
+        raw_plan = '[{"id":"t1","description":"task 1","target_files":[],"depends_on":[]}]'
+        run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=os.getcwd())
+        old_run_id = str(run_record["run_id"])
+        sm.register_pane("w1:p_zombie", run_id=old_run_id, tab_id="w1:t_zombie")
+
+        # Mock execute_plan so we just observe what happens on resume startup
+        async def fake_execute_plan(steps):
+            return True
+
+        bridge.execute_plan = fake_execute_plan
+
+        # On resume, run_orchestration_cycle is called with the SAME task
+        await bridge.run_orchestration_cycle(
+            workspace_id="w1",
+            architect_pane_id="w1:p0",
+            task=raw_plan,
+        )
+
+        # Verify that w1:t_zombie and/or w1:p_zombie were closed in Herdr
+        close_requests = [
+            r for r in server.received_requests
+            if r.get("method") in ("tab.close", "pane.close")
+        ]
+        closed_ids = []
+        for r in close_requests:
+            params = r.get("params", {})
+            if "tab_id" in params:
+                closed_ids.append(params["tab_id"])
+            if "pane_id" in params:
+                closed_ids.append(params["pane_id"])
+
+        assert "w1:t_zombie" in closed_ids or "w1:p_zombie" in closed_ids, (
+            f"Orphan pane/tab was not closed on resume. Received: {closed_ids}"
+        )
+        # SQLite active_panes should no longer contain the orphan
+        assert "w1:p_zombie" not in sm.get_active_panes(old_run_id)
+
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+
 
 

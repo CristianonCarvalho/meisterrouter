@@ -190,9 +190,19 @@ class StateManager:
                 pane_id TEXT PRIMARY KEY,
                 run_id TEXT,
                 subtask_id TEXT,
+                tab_id TEXT,
+                pid INTEGER,
                 created_at TEXT NOT NULL
             );
             """)
+
+            cursor.execute("PRAGMA table_info(active_panes);")
+            active_cols = [row["name"] for row in cursor.fetchall()]
+            if "tab_id" not in active_cols:
+                cursor.execute("ALTER TABLE active_panes ADD COLUMN tab_id TEXT;")
+            if "pid" not in active_cols:
+                cursor.execute("ALTER TABLE active_panes ADD COLUMN pid INTEGER;")
+
 
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS circuit_breakers (
@@ -484,6 +494,8 @@ class StateManager:
         pane_id: str,
         run_id: Optional[str] = None,
         subtask_id: Optional[str] = None,
+        tab_id: Optional[str] = None,
+        pid: Optional[int] = None,
     ) -> None:
         """Registra terminal ativo para fechamento posterior determinístico."""
         now = utc_now_iso()
@@ -491,10 +503,10 @@ class StateManager:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT OR REPLACE INTO active_panes (pane_id, run_id, subtask_id, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT OR REPLACE INTO active_panes (pane_id, run_id, subtask_id, tab_id, pid, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (pane_id, run_id, subtask_id, now),
+                (pane_id, run_id, subtask_id, tab_id, pid, now),
             )
 
     def unregister_pane(self, pane_id: str) -> None:
@@ -512,6 +524,16 @@ class StateManager:
             else:
                 cursor.execute("SELECT pane_id FROM active_panes")
             return [row["pane_id"] for row in cursor.fetchall()]
+
+    def get_active_panes_details(self, run_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Retorna registros detalhados (pane_id, tab_id, pid, run_id, subtask_id) dos panes ativos."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            if run_id:
+                cursor.execute("SELECT * FROM active_panes WHERE run_id = ?", (run_id,))
+            else:
+                cursor.execute("SELECT * FROM active_panes")
+            return [dict(row) for row in cursor.fetchall()]
 
     # =========================================================================
     # Circuit Breakers & Quota Accounting (Achados #22, #23)

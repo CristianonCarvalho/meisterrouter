@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 import shlex
 import asyncio
 import json
@@ -257,10 +258,11 @@ class HerdrEventBridge:
         try:
             if self._integration_pipeline is not None and self._integration_pipeline.integration_info is not None:
                 try:
+                    nonce = uuid.uuid4().hex[:6]
                     base_branch = self._integration_pipeline.integration_info.branch_name
                     subtask_wt = await asyncio.to_thread(
                         self._integration_pipeline.wt_mgr.create_worktree,
-                        task_id=f"{active_run_id}_{task_id}",
+                        task_id=f"{active_run_id}_{task_id}_{nonce}",
                         base_ref=base_branch,
                     )
                     task_dict["cwd"] = subtask_wt.worktree_path
@@ -394,7 +396,7 @@ class HerdrEventBridge:
 
                     # Register active worker state and active pane
                     if active_run_id:
-                        sm.register_pane(pane_id, run_id=active_run_id, subtask_id=subtask_id)
+                        sm.register_pane(pane_id, run_id=active_run_id, subtask_id=subtask_id, tab_id=tab_id)
 
                     log_event(
                         event_type="worker_spawn",
@@ -820,6 +822,78 @@ class HerdrEventBridge:
 
         return True
 
+    async def cleanup_run_panes(self, run_id: str) -> None:
+        """Fecha panes e tabs registrados no SQLite para o run e encerra grupos de processos órfãos."""
+        sm = self.get_state_manager()
+        pane_records = sm.get_active_panes_details(run_id)
+        if not pane_records:
+            pane_ids = sm.get_active_panes(run_id)
+            pane_records = [{"pane_id": p} for p in pane_ids]
+
+        known_panes = {rec.get("pane_id") for rec in pane_records if rec.get("pane_id")}
+        for p in list(self.active_workers.keys()):
+            if p not in known_panes:
+                pane_records.append({"pane_id": p})
+
+        for rec in pane_records:
+            pane_id = rec.get("pane_id")
+            tab_id = rec.get("tab_id")
+            rec_pid = rec.get("pid")
+
+            if not pane_id and not tab_id:
+                continue
+
+            # 1. Encerra o grupo de processos do worker órfão
+            if self.client is not None and self.client.is_connected and pane_id:
+                try:
+                    await self.client.send_interrupt(pane_id)
+                except Exception as e:
+                    logger.debug("Falha ao enviar interrupção para pane %s: %s", pane_id, e)
+
+                try:
+                    pinfo = await self.client._call("pane.process_info", {"pane_id": pane_id})
+                    if isinstance(pinfo, dict):
+                        pgid = pinfo.get("foreground_process_group_id") or pinfo.get("shell_pid")
+                        if pgid:
+                            try:
+                                os.killpg(int(pgid), 15)
+                            except (OSError, ProcessLookupError):
+                                pass
+                except Exception as e:
+                    logger.debug("Não foi possível obter process_info do pane %s: %s", pane_id, e)
+
+            if rec_pid:
+                try:
+                    os.killpg(os.getpgid(int(rec_pid)), 15)
+                except (OSError, ProcessLookupError):
+                    try:
+                        os.kill(int(rec_pid), 15)
+                    except (OSError, ProcessLookupError):
+                        pass
+
+            # 2. Fecha tab e pane no Herdr
+            if self.client is not None and self.client.is_connected:
+                if tab_id and hasattr(self.client, "close_tab"):
+                    try:
+                        await self.client.close_tab(tab_id)
+                    except Exception as e:
+                        logger.debug("Falha ao fechar tab %s: %s", tab_id, e)
+
+                if pane_id and hasattr(self.client, "close_pane"):
+                    try:
+                        await self.client.close_pane(pane_id)
+                    except Exception as e:
+                        logger.debug("Falha ao fechar pane %s: %s", pane_id, e)
+
+            # 3. Remove registro do SQLite
+            if pane_id:
+                try:
+                    sm.unregister_pane(pane_id)
+                except Exception:
+                    pass
+
+        self.active_workers.clear()
+
     async def run_orchestration_cycle(
         self,
         workspace_id: Optional[str] = None,
@@ -878,6 +952,9 @@ class HerdrEventBridge:
         )
         sm.add_subtasks(run_id, steps)
         sm.recover_stranded_tasks(run_id)
+
+        # R-2: Ao retomar, ANTES de limpar worktrees: fechar panes/tabs e encerrar processos de workers órfãos
+        await self.cleanup_run_panes(run_id)
 
         logger.info(
             "Parsed %d actionable steps for run %s from architect pane %s in workspace %s",
@@ -985,18 +1062,7 @@ class HerdrEventBridge:
                 )
                 return False
         finally:
-            # Varredura de panes registrados no SQLite ao terminar o run (Achados P-7)
+            # Varredura de panes registrados no SQLite ao terminar o run (Achados P-7, R-2)
             rid = run_id or self.current_run_id
             if rid:
-                active_panes = set(sm.get_active_panes(rid)) | set(self.active_workers.keys())
-                for p_id in active_panes:
-                    try:
-                        if hasattr(self.client, "close_pane"):
-                            await self.client.close_pane(p_id)
-                    except Exception as e:
-                        logger.debug("Failed closing worker pane %s in run sweep: %s", p_id, e)
-                    try:
-                        sm.unregister_pane(p_id)
-                    except Exception:
-                        pass
-                self.active_workers.clear()
+                await self.cleanup_run_panes(rid)
