@@ -148,3 +148,29 @@ def test_copilot_harness_worker_run_task(tmp_path):
         assert "-p" in call_args
         assert "--allow-all" in call_args
         assert "--no-ask-user" in call_args
+
+
+def test_copilot_excluded_from_default_tiers_and_opt_in(monkeypatch):
+    from meister.config import load_config
+    from pathlib import Path
+
+    # Default configuration must NOT include copilot in tier order because CLI flags are unverified
+    monkeypatch.delenv("MEISTER_ENABLE_COPILOT", raising=False)
+    default_config = load_config()
+    tier_names = [t.name for t in default_config.workers.tier_order]
+    assert "copilot" not in tier_names, "Copilot must be excluded from default worker tiers until verified"
+
+    # Explicit opt-in via MEISTER_ENABLE_COPILOT=true includes copilot
+    monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
+    opt_in_config = load_config()
+    opt_in_tier_names = [t.name for t in opt_in_config.workers.tier_order]
+    assert "copilot" in opt_in_tier_names, "Copilot must be included when MEISTER_ENABLE_COPILOT is set"
+
+    # Verify documentation and source warnings regarding unverified flags
+    repo_root = Path(__file__).resolve().parent.parent
+    readme_content = (repo_root / "README.md").read_text(encoding="utf-8")
+    assert "NÃO VERIFICADO" in readme_content
+    assert "--allow-all" in readme_content
+
+    worker_src = (repo_root / "meister" / "worker.py").read_text(encoding="utf-8")
+    assert "NÃO VERIFICADAS" in worker_src

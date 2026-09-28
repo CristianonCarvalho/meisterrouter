@@ -226,3 +226,10 @@ meisterrouter/
 ├── ARCHITECTURE.md              # Documentação profunda da máquina de estados
 └── pyproject.toml / setup.py    # Pacote Python instalável
 ```
+
+---
+
+### Adaptador GitHub Copilot CLI (Status: NÃO VERIFICADO)
+> ⚠️ **AVISO: EXECUÇÃO EXPERIMENTAL E NÃO VERIFICADA**
+> As flags `-p`, `--allow-all` e `--no-ask-user` para o adaptador Copilot CLI (`copilot`) **não foram verificadas** em ambiente de produção devido à ausência do executável Copilot CLI instalado no ambiente de desenvolvimento local.
+> Por este motivo, o Copilot **NÃO compõe a lista de tiers padrão** de workers do MeisterRouter. Ele pode ser habilitado de forma opt-in definindo `MEISTER_ENABLE_COPILOT=true` no ambiente ou configurando explicitamente via `meister.config.yaml`.

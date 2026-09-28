@@ -217,6 +217,8 @@ class WorkerSpawner:
             elif tier_obj.model:
                 cmd.extend(["--model", tier_obj.model])
         elif harness in ("copilot", "github-copilot"):
+            # AVISO: As flags '-p', '--allow-all' e '--no-ask-user' para GitHub Copilot CLI são
+            # NÃO VERIFICADAS em produção (CLI do Copilot não instalado localmente).
             cmd = ["copilot"]
             if task_context and "description" in task_context and task_context["description"]:
                 cmd.extend(["-p", str(task_context["description"]), "--allow-all", "--no-ask-user"])

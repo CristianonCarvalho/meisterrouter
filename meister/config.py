@@ -76,15 +76,23 @@ def _default_worker_tiers() -> List[WorkerTier]:
             max_retries=1,
             best_for=["architectural_recovery", "systemic_regressions"],
         ),
-        WorkerTier(
-            name="copilot",
-            harness="copilot",
-            model=os.environ.get("MEISTER_COPILOT_MODEL", "auto"),
-            cost_per_m_tokens=0.20,
-            max_retries=2,
-            best_for=["github_integration", "code_completion"],
-        ),
     ]
+
+    # NOTA: O adaptador Copilot e suas flags (-p, --allow-all, --no-ask-user) são experimentais e
+    # NÃO FORAM VERIFICADOS com um CLI oficial instalado localmente. Por isso, NÃO compõem a lista de
+    # tiers padrão a menos que habilitado explicitamente via MEISTER_ENABLE_COPILOT=true ou meister.config.yaml.
+    enable_copilot = os.environ.get("MEISTER_ENABLE_COPILOT", "").lower() in ("true", "1", "yes")
+    if enable_copilot:
+        tiers.append(
+            WorkerTier(
+                name="copilot",
+                harness="copilot",
+                model=os.environ.get("MEISTER_COPILOT_MODEL", "auto"),
+                cost_per_m_tokens=0.20,
+                max_retries=2,
+                best_for=["github_integration", "code_completion"],
+            )
+        )
 
     if disable_luna:
         tiers = [t for t in tiers if t.name != "luna"]
