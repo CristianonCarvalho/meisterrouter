@@ -631,6 +631,19 @@ class HerdrEventBridge:
 
                     if prompt_result.get("status") == "error":
                         logger.warning("Subtask %s returned error status", task_id)
+                        err_text = str(prompt_result.get("error", "Worker returned error status"))[:200]
+                        self.last_failure_reason = f"Subtask {task_id} error: {err_text}"
+                        log_event(
+                            event_type="subtask_rejected",
+                            run_id=active_run_id,
+                            task_id=task_id,
+                            attempt=attempt_count,
+                            tier=current_tier,
+                            reason="worker_error",
+                            error=err_text,
+                            output=err_text,
+                            exit_code=1,
+                        )
                         if subtask_wt is not None and self._integration_pipeline is not None:
                             await asyncio.to_thread(
                                 self._integration_pipeline.wt_mgr.cleanup_worktree,
@@ -643,7 +656,7 @@ class HerdrEventBridge:
                         if active_run_id:
                             sm.unregister_pane(pane_id)
                             try:
-                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error="Worker returned error status")
+                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_text)
                             except Exception:
                                 pass
                         return False
@@ -666,6 +679,27 @@ class HerdrEventBridge:
                             subtask_wt = None
                             if not ok_int:
                                 logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
+                                reason = "integration"
+                                if "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
+                                    reason = "gate"
+                                elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
+                                    reason = "scope"
+                                elif "merge" in int_err.lower() or "conflito" in int_err.lower():
+                                    reason = "merge"
+
+                                short_err = int_err.strip()[:200]
+                                self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
+                                log_event(
+                                    event_type="subtask_rejected",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    attempt=attempt_count,
+                                    tier=current_tier,
+                                    reason=reason,
+                                    output=short_err,
+                                    error=short_err,
+                                    exit_code=1,
+                                )
                                 if active_run_id:
                                     sm.unregister_pane(pane_id)
                                     try:
@@ -994,6 +1028,16 @@ class HerdrEventBridge:
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
                         await self.client.show_notification(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
+                        err_reason = f"Gate test verification failed on integration branch: {test_output[:200]}"
+                        log_event(
+                            event_type="orchestration_end",
+                            run_id=run_id,
+                            task_id="orchestrator",
+                            exit_code=1,
+                            status="failed",
+                            reason=err_reason,
+                            error=err_reason,
+                        )
                         return False
                     diff_summary = self._integration_pipeline.get_integration_diff_summary()
                 else:
@@ -1007,6 +1051,16 @@ class HerdrEventBridge:
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed."
                         await self.client.show_notification(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
+                        err_reason = f"Gate test verification failed: {test_output[:200]}"
+                        log_event(
+                            event_type="orchestration_end",
+                            run_id=run_id,
+                            task_id="orchestrator",
+                            exit_code=1,
+                            status="failed",
+                            reason=err_reason,
+                            error=err_reason,
+                        )
                         return False
                     diff_summary = gate.get_diff_summary()
 
@@ -1023,6 +1077,16 @@ class HerdrEventBridge:
                     msg = f"MeisterRouter: Tasks executed but completion evaluation returned {action}."
                     await self.client.show_notification(msg)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
+                    err_reason = f"Completion evaluation returned {action}: {eval_result.get('reason', '')[:200]}"
+                    log_event(
+                        event_type="orchestration_end",
+                        run_id=run_id,
+                        task_id="orchestrator",
+                        exit_code=1,
+                        status="failed",
+                        reason=err_reason,
+                        error=err_reason,
+                    )
                     return False
 
                 # 3. Fast-forward no repositório principal acontece APENAS após aprovação total
@@ -1033,6 +1097,16 @@ class HerdrEventBridge:
                         msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
                         await self.client.show_notification(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
+                        err_reason = f"Fast-forward failed: {ff_msg[:200]}"
+                        log_event(
+                            event_type="orchestration_end",
+                            run_id=run_id,
+                            task_id="orchestrator",
+                            exit_code=1,
+                            status="failed",
+                            reason=err_reason,
+                            error=err_reason,
+                        )
                         return False
 
                 # 4. Sucesso confirmado: marca COMPLETED
@@ -1053,12 +1127,15 @@ class HerdrEventBridge:
                 sm.transition_run(run_id, to_state=RunState.FAILED)
                 msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
                 await self.client.show_notification(msg)
+                fail_reason = getattr(self, "last_failure_reason", None) or "Plan execution failed: one or more subtasks failed"
                 log_event(
                     event_type="orchestration_end",
                     run_id=run_id,
                     task_id="orchestrator",
                     exit_code=1,
                     status="failed",
+                    reason=fail_reason,
+                    error=fail_reason,
                 )
                 return False
         finally:

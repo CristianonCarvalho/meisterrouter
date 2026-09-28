@@ -1156,6 +1156,88 @@ async def test_resumed_orchestration_closes_registered_panes_before_cleanup(tmp_
         await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_subtask_rejected_logged_when_gate_fails(tmp_path, monkeypatch):
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(log_dir))
+    monkeypatch.chdir(tmp_path)
+
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("def add(a, b): return a + b\n")
+    tests_dir = repo_dir / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_app.py").write_text("def test_app(): assert 1 == 1\n")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True)
+
+    from meister.worktree import WorktreeManager, IntegrationPipeline
+    from meister.gate import DeterministicGate
+
+    wt_mgr = WorktreeManager(repo_root=str(repo_dir))
+    gate = DeterministicGate(repo_path=str(repo_dir))
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    pipeline.start_integration("run-gate-fail")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+
+    async def fake_spawn_tab(tier_name, task_context, cwd, **kwargs):
+        # Worker introduces a deliberate failing test
+        test_file = Path(cwd) / "tests" / "test_app.py"
+        test_file.write_text("def test_failing(): assert 1 == 2\n")
+        auto_write_result(cwd)
+        return ("t1", "w1:p1", None)
+
+    mock_spawner = MagicMock()
+    mock_spawner.spawn_worker_tab = AsyncMock(side_effect=fake_spawn_tab)
+    mock_spawner.get_tier.return_value = MagicMock(name="luna", model="gpt-6-luna")
+
+    bridge = HerdrEventBridge(client=mock_client, spawner=mock_spawner, gate=gate)
+    bridge._integration_pipeline = pipeline
+    bridge.current_run_id = "run-gate-fail"
+
+    subtask = {
+        "id": "t2",
+        "description": "Fail gate",
+        "target_files": ["tests/test_app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is False
+
+    # Read orchestration log jsonl
+    log_file = log_dir / "orchestration_log.jsonl"
+    assert log_file.exists()
+    events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    rejected_events = [e for e in events if e.get("event_type") == "subtask_rejected" and e.get("task_id") == "t2"]
+    assert len(rejected_events) >= 1, f"Expected subtask_rejected event in log: {events}"
+    rej = rejected_events[0]
+    assert rej.get("reason") == "gate"
+    assert rej.get("error") is not None and len(rej.get("error")) > 0
+
+    # Also verify orchestration_end event logs the failure reason
+    plan_json = json.dumps([subtask])
+    cycle_success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p0",
+        task=plan_json,
+    )
+    assert cycle_success is False
+    events2 = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    end_events = [e for e in events2 if e.get("event_type") == "orchestration_end" and e.get("exit_code") == 1]
+    assert len(end_events) >= 1
+    assert end_events[-1].get("reason") is not None and "rejected" in end_events[-1]["reason"]
+
+
+
+
 
 
 
