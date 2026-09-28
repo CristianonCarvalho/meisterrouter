@@ -1,7 +1,9 @@
+import os
 import sys
 import json
 import stat
 import time
+import shlex
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from click.testing import CliRunner
@@ -223,3 +225,40 @@ def test_cli_run_task_command(tmp_path):
         assert res.exit_code == 0
         assert "Status: done" in res.output
         assert "f.txt" in res.output
+
+
+@pytest.mark.asyncio
+async def test_worker_pane_dispatch_uses_sys_executable_and_module(tmp_path, monkeypatch):
+    """E2E-1: Dispatch do worker invoca sys.executable -m meister.cli run-task e ignora meister no PATH."""
+    fake_bin_dir = tmp_path / "bin"
+    fake_bin_dir.mkdir()
+    fake_meister = fake_bin_dir / "meister"
+    fake_meister.write_text("#!/bin/sh\necho 'Error: No such command run-task' >&2\nexit 1\n")
+    fake_meister.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin_dir}:{os.environ.get('PATH', '')}")
+
+    mock_client = MagicMock()
+    async def fake_split_pane(**kwargs):
+        runs_dir = tmp_path / ".meister" / "runs"
+        runs_dir.mkdir(parents=True, exist_ok=True)
+        for tfile in runs_dir.glob("*_task.json"):
+            rfile = str(tfile).replace("_task.json", ".json")
+            write_atomic_json(rfile, {"status": "done", "modified_files": []})
+        return "pane-test-e2e1"
+
+    mock_client.split_pane = AsyncMock(side_effect=fake_split_pane)
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
+        res = await run_worker_in_herdr_pane_async(
+            model="luna",
+            task="Test task",
+            cwd=str(tmp_path),
+            timeout=5.0,
+        )
+
+    assert res["status"] == "done"
+    called_command = mock_client.split_pane.call_args[1]["command"]
+    assert shlex.quote(sys.executable) in called_command
+    assert "-m meister.cli run-task" in called_command
+    assert str(fake_meister) not in called_command
+

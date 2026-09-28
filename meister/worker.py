@@ -573,9 +573,8 @@ async def run_worker_in_herdr_pane_async(
     }
     write_atomic_json(task_file, task_payload)
 
-    meister_bin = shutil.which("meister") or os.path.expanduser("~/.local/bin/meister")
-    # Achado #11: Invocação imune a shell injection via meister run-task
-    command_str = f"MEISTER_IN_PANE=1 {shlex.quote(meister_bin)} run-task {shlex.quote(task_file)}"
+    cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
+    command_str = f"MEISTER_IN_PANE=1 {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
     client = HerdrSocketClient(socket_path=socket_path)
     pane_id = await client.split_pane(
@@ -711,8 +710,8 @@ async def run_worker_in_herdr_tab_async(
     }
     write_atomic_json(task_file, task_payload)
 
-    meister_bin = shutil.which("meister") or os.path.expanduser("~/.local/bin/meister")
-    command_str = f"MEISTER_IN_PANE=1 {shlex.quote(meister_bin)} run-task {shlex.quote(task_file)}"
+    cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
+    command_str = f"MEISTER_IN_PANE=1 {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
     client = HerdrSocketClient(socket_path=socket_path)
     tab_label = label or f"worker:{model}:{run_id}"
