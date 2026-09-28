@@ -931,5 +931,106 @@ async def test_bridge_subtask_and_integration_run_in_threads_without_blocking_ev
     assert "cleanup_worktree" in dispatched_targets
 
 
+@pytest.mark.asyncio
+async def test_bridge_closes_worker_tab_per_attempt(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.create_tab = AsyncMock()
+    mock_client.close_tab = AsyncMock()
+    mock_client.wait_pane_ready = AsyncMock(return_value=True)
+    mock_client.send_text = AsyncMock()
+
+    closed_tabs = []
+    created_tabs = []
+
+    async def fake_create_tab(*args, **kwargs):
+        tab_num = len(created_tabs) + 1
+        t_id = f"w1:t{tab_num}"
+        p_id = f"w1:p{tab_num}"
+        created_tabs.append(t_id)
+        auto_write_result(tmp_path)
+        return (t_id, p_id)
+
+    async def fake_close_tab(tab_id):
+        closed_tabs.append(tab_id)
+        return True
+
+    mock_client.create_tab.side_effect = fake_create_tab
+    mock_client.close_tab.side_effect = fake_close_tab
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tabs"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Tab close test",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+    # Tab was created and closed upon attempt exit!
+    assert len(created_tabs) == 1
+    assert closed_tabs == ["w1:t1"]
+
+
+@pytest.mark.asyncio
+async def test_bridge_run_orchestration_cycle_sweeps_active_panes_on_exit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.create_tab = AsyncMock(return_value=("w1:t2", "w1:p2"))
+    mock_client.close_pane = AsyncMock()
+    mock_client.show_notification = AsyncMock()
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    # Pre-register a dangling pane
+    sm = bridge.get_state_manager()
+
+    async def fake_execute_plan(steps):
+        # simulate worker pane registered in SQLite during run
+        sm.register_pane("w1:p_dangling", run_id=bridge.current_run_id)
+        return False
+
+    bridge.execute_plan = fake_execute_plan
+
+    success = await bridge.run_orchestration_cycle(
+        workspace_id="w1",
+        architect_pane_id="w1:p0",
+        task="1. Add feature",
+    )
+    assert success is False
+    # Even on failure, all active panes for the run must be swept and closed
+    assert mock_client.close_pane.called
+    close_calls = [c.args[0] for c in mock_client.close_pane.call_args_list]
+    assert "w1:p_dangling" in close_calls
+
+
 
 
