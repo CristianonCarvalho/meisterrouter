@@ -391,6 +391,7 @@ async def test_bridge_run_orchestration_cycle_with_direct_task():
 
     cfg = MeisterConfig()
     cfg.concurrency.isolation_mode = "none"
+    cfg.concurrency.layout_strategy = "tiled"
     bridge = HerdrEventBridge(config=cfg, client=mock_client, gate=mock_gate)
     success = await bridge.run_orchestration_cycle(
         workspace_id="w1",
@@ -423,6 +424,7 @@ async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
 
     cfg = MeisterConfig()
     cfg.concurrency.isolation_mode = "none"
+    cfg.concurrency.layout_strategy = "tiled"
     bridge = HerdrEventBridge(config=cfg, client=mock_client, gate=mock_gate)
     success = await bridge.run_orchestration_cycle(
         workspace_id=None,

@@ -114,3 +114,32 @@ def test_mypy_floor_and_optional_narrowing():
     assert 'resolved_model: str = str(model or os.environ.get("MEISTER_JEV_MODEL") or "typesafe/jev-1.13")' in logger_src
     assert 'run_id: str = str(run_record["run_id"])' in bridge_src
     assert "sm.transition_run(run_id, to_state=RunState.RUNNING)" in bridge_src
+
+
+def test_test_environment_isolation_guard():
+    """Guarda: a suíte de testes nunca deve apontar para o banco ou logs do repo ou de ~/.meister."""
+    from meister.state import StateManager
+
+    repo_root = str(Path(__file__).resolve().parent.parent)
+    home_meister = os.path.expanduser("~/.meister")
+
+    # Verifica StateManager padrão sob o ambiente de teste
+    sm = StateManager()
+    db_path = os.path.abspath(sm.db_path)
+    assert not db_path.startswith(repo_root), f"DB path {db_path} deve estar isolado fora do repo {repo_root}"
+    assert not db_path.startswith(home_meister), f"DB path {db_path} deve estar isolado fora de ~/.meister"
+
+    # Verifica logger padrão sob o ambiente de teste
+    log_dir = os.environ.get("MEISTER_LOG_DIR")
+    assert log_dir is not None, "MEISTER_LOG_DIR deve estar definido pela fixture de teste"
+    abs_log_dir = os.path.abspath(log_dir)
+    assert not abs_log_dir.startswith(repo_root), f"Log dir {abs_log_dir} deve estar isolado fora do repo {repo_root}"
+    assert not abs_log_dir.startswith(home_meister), f"Log dir {abs_log_dir} deve estar isolado fora de ~/.meister"
+
+    # Verifica worktrees dir sob o ambiente de teste
+    wt_dir = os.environ.get("MEISTER_WORKTREES_DIR")
+    assert wt_dir is not None, "MEISTER_WORKTREES_DIR deve estar definido pela fixture de teste"
+    abs_wt_dir = os.path.abspath(wt_dir)
+    assert not abs_wt_dir.startswith(repo_root), f"WT dir {abs_wt_dir} deve estar isolado fora do repo {repo_root}"
+    assert not abs_wt_dir.startswith(home_meister), f"WT dir {abs_wt_dir} deve estar isolado fora de ~/.meister"
+
