@@ -183,7 +183,7 @@ def test_cli_worker_with_pane_dispatch(tmp_path):
          patch("meister.worker.run_worker_in_herdr_pane", return_value=mock_result) as mock_pane:
         result = runner.invoke(
             main,
-            ["worker", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Worker task finished in Herdr pane" in result.output
@@ -197,7 +197,7 @@ def test_cli_worker_pane_timeout_blocks_direct_reexecution(tmp_path):
          patch("meister.worker.execute_worker_task") as mock_direct_exec:
         result = runner.invoke(
             main,
-            ["worker", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code != 0
         assert "Timeout no worker do Herdr" in result.output
@@ -315,7 +315,7 @@ def test_cli_worker_infrastructure_error_fast_exit(tmp_path):
 
     runner = CliRunner()
     with patch("meister.worker.is_herdr_available", return_value=True), \
-         patch("meister.worker.run_worker_in_herdr_pane", side_effect=WorkerInfrastructureError("process exited")):
+         patch("meister.worker.run_worker_in_herdr_tab", side_effect=WorkerInfrastructureError("process exited")):
         res = runner.invoke(
             main,
             [

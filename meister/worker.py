@@ -883,7 +883,7 @@ async def run_worker_in_herdr_tab_async(
     command_str = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
 
     client = HerdrSocketClient(socket_path=socket_path)
-    tab_label = label or f"worker:{model}:{run_id}"
+    tab_label = label or (f"worker:{resolved_task_id}" if resolved_task_id else f"worker:{model}:{resolved_run_id}")
     tab_id, pane_id = await client.create_tab(
         cwd=resolved_cwd,
         label=tab_label,

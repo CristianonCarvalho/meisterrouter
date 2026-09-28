@@ -315,12 +315,13 @@ def test():
 @click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
 @click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
 @click.option("--cwd", default=None, help="Diretório de trabalho")
-@click.option("--pane/--no-pane", default=True, help="Abrir terminal lateral visível no Herdr se disponível")
-@click.option("--tab", is_flag=True, default=False, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13)")
+@click.option("--pane/--no-pane", "pane", default=None, help="Abrir terminal lateral no Herdr em vez de tab")
+@click.option("--tab/--no-tab", "tab", default=True, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13, E2E-9)")
+@click.option("--split", is_flag=True, default=False, help="Forçar abertura em split pane lateral em vez de tab")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
 @click.option("--run-id", default=None, help="Correlation ID da execução")
 @click.option("--task-id", default=None, help="ID determinístico da tarefa")
-def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
+def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_id):
     """Inicia worker nativo do MeisterRouter."""
     from meister.worker import (
         execute_worker_task,
@@ -337,9 +338,11 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
     ensure_meister_dir(resolved_cwd)
 
     if task:
-        # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível
+        # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível (E2E-9)
         in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
-        should_split = (tab or pane) and not in_pane and is_herdr_available()
+        herdr_disabled = (pane is False) or (tab is False)
+        should_spawn_in_herdr = not herdr_disabled and not in_pane and is_herdr_available()
+        use_split_pane = split or (pane is True)
 
         current = get_current_run()
         resolved_run_id = (
@@ -402,19 +405,8 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
             worker_cwd = subtask_wt.worktree_path
 
         try:
-            if should_split:
-                if tab:
-                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
-                    res = run_worker_in_herdr_tab(
-                        model=model,
-                        task=task,
-                        target_files=target_files,
-                        cwd=worker_cwd,
-                        config_path=config_path,
-                        run_id=resolved_run_id,
-                        task_id=resolved_task_id,
-                    )
-                else:
+            if should_spawn_in_herdr:
+                if use_split_pane:
                     click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
                     res = run_worker_in_herdr_pane(
                         model=model,
@@ -425,8 +417,20 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
                         run_id=resolved_run_id,
                         task_id=resolved_task_id,
                     )
+                else:
+                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
+                    res = run_worker_in_herdr_tab(
+                        model=model,
+                        task=task,
+                        target_files=target_files,
+                        cwd=worker_cwd,
+                        config_path=config_path,
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                        label=resolved_task_id,
+                    )
             else:
-                # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
+                # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando ou --no-pane)
                 click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
                 res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
 
@@ -495,7 +499,7 @@ def worker(model, task, files, cwd, pane, tab, config_path, run_id, task_id):
                     click.echo(f"❌ [MeisterRouter] Falha no fast-forward da main: {ff_msg}", err=True)
                     sys.exit(1)
 
-            where = "Herdr tab" if tab else "Herdr pane" if should_split else "worker"
+            where = "Herdr pane" if (should_spawn_in_herdr and use_split_pane) else "Herdr tab" if should_spawn_in_herdr else "worker"
             click.echo(f"Worker task finished in {where}. Status: {status}")
             if res.get("modified_files"):
                 click.echo(f"Modified files: {res['modified_files']}")

@@ -272,4 +272,35 @@ def test_e2e_meister_gitignore_clean_git_status(tmp_path):
     assert st.stdout.strip() == ""
 
 
+def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
+    """E2E-9: meister worker despacha para aba dedicada no Herdr por padrão (tab.create), e split pane apenas sob demanda."""
+    from unittest.mock import patch
+    from click.testing import CliRunner
+    from meister.cli import main
+
+    runner = CliRunner()
+
+    with patch("meister.worker.is_herdr_available", return_value=True), \
+         patch("meister.worker.run_worker_in_herdr_tab", return_value={"status": "done", "modified_files": []}) as mock_tab, \
+         patch("meister.worker.run_worker_in_herdr_pane", return_value={"status": "done", "modified_files": []}) as mock_pane:
+
+        # 1. Padrão: sem flags de pane/split -> deve abrir TAB
+        res_default = runner.invoke(main, ["worker", "--model", "luna", "--task", "task 1", "--cwd", str(tmp_path)])
+        assert res_default.exit_code == 0
+        assert "aba dedicada no Herdr" in res_default.output
+        mock_tab.assert_called_once()
+        mock_pane.assert_not_called()
+
+        mock_tab.reset_mock()
+        mock_pane.reset_mock()
+
+        # 2. Com --split ou --pane -> deve abrir PANE lateral
+        res_split = runner.invoke(main, ["worker", "--model", "luna", "--task", "task 2", "--cwd", str(tmp_path), "--split"])
+        assert res_split.exit_code == 0
+        assert "terminal lateral no Herdr" in res_split.output
+        mock_pane.assert_called_once()
+        mock_tab.assert_not_called()
+
+
+
 
