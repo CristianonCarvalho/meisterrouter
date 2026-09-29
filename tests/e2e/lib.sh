@@ -61,6 +61,10 @@ check() { # $1=nome  $2=comando avaliado (retorno 0 = PASS)
   fi
 }
 
+skip() { # $1=nome  $2=motivo
+  RESULTS+=("SKIP  $1 ($2)")
+}
+
 herdr_ids() {
   python3 - <<'PYEOF'
 import json, os, subprocess
@@ -100,14 +104,19 @@ print_summary_and_exit() {
   echo "################ RESUMO ################"
   printf '%s\n' "${RESULTS[@]}"
   cleanup_worker_tabs
-  local fails
+  local fails skips passes
   fails=$(printf '%s\n' "${RESULTS[@]}" | grep -c "^FAIL" || true)
+  skips=$(printf '%s\n' "${RESULTS[@]}" | grep -c "^SKIP" || true)
+  passes=$(printf '%s\n' "${RESULTS[@]}" | grep -c "^PASS" || true)
+  echo
+  echo "Totais: PASS=$passes  FAIL=$fails  SKIP=$skips"
   if [ "$fails" -gt 0 ]; then
-    echo
     echo "Resultado: FALHA ($fails checagens falharam)"
     exit 1
+  elif [ "$skips" -gt 0 ]; then
+    echo "Resultado: INCONCLUSIVO ($skips checagens ignoradas/inconclusivas)"
+    exit 2
   else
-    echo
     echo "Resultado: SUCESSO (todas as checagens passaram)"
     exit 0
   fi

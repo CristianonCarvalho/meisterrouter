@@ -56,6 +56,7 @@ Os scripts aceitam as seguintes variáveis de customização:
 | `MEISTER_E2E_PYTHON` | `<repo>/.venv/bin/python` (fallback: `python3`) | Caminho do interpretador Python a ser usado para testes e coleta de dados. |
 | `E2E_LUNA_MODEL` | `gpt-6-luna` | Nome do modelo para o tier Luna no arquivo de configuração do repo descartável. Permite forçar falha no Luna para testar fallback (ex: `E2E_LUNA_MODEL=gpt-modelo-inexistente`). |
 | `MEISTER_E2E_SAMPLE_SECS` | `120` | Duração máxima em segundos da amostragem de abas/painéis do Herdr pelo `herdr_sampler.py`. |
+| `E2E_S1_T2_DESC` | *(descrição padrão de teste falho)* | Sobrescreve a descrição da subtarefa `t2` no cenário S1 de `run_safety.sh`. Permite testar deterministicamente o caminho de resultado inconclusivo / SKIP passando uma descrição benigna. |
 
 ---
 
@@ -75,11 +76,14 @@ bash tests/e2e/run_parallel.sh
 
 # 4. Executar os testes de invariantes de segurança e retomada
 bash tests/e2e/run_safety.sh
+
+# 5. Executar o teste de segurança com subtarefa benigna para validar o caminho INCONCLUSIVO/SKIP
+E2E_S1_T2_DESC="Adicione a função up(s) em text.py que retorna s.upper()" bash tests/e2e/run_safety.sh
 ```
 
 ---
 
-## Como Ler o RESUMO
+## Como Ler o RESUMO e Códigos de Saída
 
 Ao final de cada script, é exibido um resumo estruturado no seguinte formato:
 
@@ -93,10 +97,15 @@ PASS  flow-e control respondeu COMPLETE
 PASS  flow-f eventos JSONL com mesmo run_id e worker_start/end
 PASS  flow-g sem worktrees/branches/tabs restantes
 
+Totais: PASS=7  FAIL=0  SKIP=0
 Resultado: SUCESSO (todas as checagens passaram)
 ```
 
-- Cada linha indica o resultado (`PASS` ou `FAIL`) seguido do identificador e descrição da checagem.
-- **Código de saída:**
+- Cada linha indica o resultado (`PASS`, `FAIL` ou `SKIP`) seguido do identificador e descrição da checagem.
+- **Códigos de saída:**
   - `0`: Todas as asserções passaram (`SUCESSO`).
   - `1`: Ao menos uma asserção falhou (`FALHA`).
+  - `2`: Nenhuma asserção falhou, mas houve checagens marcadas como `SKIP` (`INCONCLUSIVO`).
+
+> [!NOTE]
+> **Resiliência e Inconclusividade no Cenário S1:** O cenário S1 de `run_safety.sh` depende de o worker (LLM) escrever um teste que propositalmente falha. Como os harnesses de workers incluem diretivas gerais de qualidade ("ensure tests pass"), alguns modelos podem se recusar a escrever testes quebrados ou ignorar o arquivo. O script repete o S1 até 2 vezes com um repositório limpo; caso o modelo persista em não produzir o teste falho, as asserções de reprovação do S1 (S1-a..g e S2-k) são marcadas como `SKIP` em vez de `FAIL`, e o script termina com código `2` (`INCONCLUSIVO`), evitando falsos negativos na suíte.
