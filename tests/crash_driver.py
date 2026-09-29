@@ -22,6 +22,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -78,6 +79,34 @@ def setup_temp_repo(repo_dir: str) -> str:
     return repo_dir
 
 
+def _atomic_write_json(path: str, obj: Any) -> None:
+    """Atomically write obj to path as JSON using a tempfile in the same directory."""
+    dir_name = os.path.dirname(os.path.abspath(path))
+    os.makedirs(dir_name, exist_ok=True)
+    tmp_path: Optional[str] = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=dir_name,
+            prefix=f"{os.path.basename(path)}.",
+            suffix=".tmp",
+            mode="w",
+            encoding="utf-8",
+            delete=False,
+        ) as f:
+            tmp_path = f.name
+            json.dump(obj, f)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
+    finally:
+        if tmp_path is not None and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+
 # ---- Fake Herdr state (persisted to file, survives across runs) ----
 
 class FakeHerdrState:
@@ -94,8 +123,7 @@ class FakeHerdrState:
                 self.data = json.load(f)
 
     def _save(self):
-        with open(self.state_file, "w") as f:
-            json.dump(self.data, f)
+        _atomic_write_json(self.state_file, self.data)
 
     def create_tab(self, label: str) -> Tuple[str, str]:
         tab_id = f"tab_{uuid.uuid4().hex[:8]}"
@@ -226,9 +254,7 @@ class FakeWorkerSpawner:
                 "output": f"Fake worker completed {task_id}",
                 "task_id": task_id,
             }
-            os.makedirs(os.path.dirname(result_file), exist_ok=True)
-            with open(result_file, "w") as f:
-                json.dump(result, f)
+            _atomic_write_json(result_file, result)
 
 
 def _apply_t1_edits(work_dir: str):
@@ -360,8 +386,7 @@ async def run_orchestration(repo_dir: str, state_dir: str) -> int:
         success = False
 
     # Persist spawn counts
-    with open(spawn_counts_file, "w") as f:
-        json.dump(spawn_counts, f)
+    _atomic_write_json(spawn_counts_file, spawn_counts)
 
     return 0 if success else 1
 
