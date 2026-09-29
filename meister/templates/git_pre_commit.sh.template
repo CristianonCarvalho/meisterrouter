@@ -30,23 +30,8 @@ elif [ -f "Cargo.toml" ]; then
 fi
 
 if [ "$TEST_RESULT" = "fail" ]; then
-    echo "❌ [MeisterRouter] Testes falharam! Bloqueando commit."
+    echo "❌ [MeisterRouter] Verificação determinística falhou! Bloqueando commit (fail-closed)."
     exit 1
-fi
-
-# 3. Invocar Jev Control se o comando meister estiver disponível
-if command -v meister &> /dev/null; then
-    echo "⚖️ [MeisterRouter] Consultando Jev Decisions API para autorização do commit..."
-    CONTROL_OUTPUT=$(meister control --diff-summary "$DIFF_SUMMARY" --test-result "$TEST_RESULT" --attempts 1 2>/dev/null || echo '{"action": "COMPLETE"}')
-    
-    ACTION=$(echo "$CONTROL_OUTPUT" | grep -o '"action": *"[^"]*"' | cut -d'"' -f4 || echo "COMPLETE")
-    
-    if [ "$ACTION" != "COMPLETE" ] && [ "$ACTION" != "VERIFY" ]; then
-        echo "🛑 [MeisterRouter] O Jev Router rejeitou o commit! Ação requerida: $ACTION"
-        echo "Detalhes do Jev: $CONTROL_OUTPUT"
-        exit 1
-    fi
-    echo "✅ [MeisterRouter] Jev autorizou o commit ($ACTION)."
 fi
 
 echo "🚀 [MeisterRouter] Verificação determinística concluída com sucesso."

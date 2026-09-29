@@ -21,15 +21,19 @@ import json
 import signal
 import asyncio
 import logging
+import subprocess
+import uuid
+import time
+import hashlib
 from typing import Optional
 
 import click
 
 from meister.jev import classify_task, control_cycle, call_decisions
-from meister.models import MODEL_PRICING
+from meister.models import MODEL_PRICING, estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
-from meister.logger import get_log_file, log_event
-from meister.config import load_config
+from meister.logger import get_events_by_run_id, log_event, get_current_run
+from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge
 
@@ -118,7 +122,8 @@ def init(target, type_, no_hooks):
         f.write(content)
     click.echo("  ✅ Criado AGENTS.md (Diretivas universais para agentes)")
 
-    # 4. Cria diretório local .meister para logs se desejado
+    # 4. Cria diretório local .meister com .gitignore para logs
+    ensure_meister_dir(target_dir)
     local_meister = os.path.join(target_dir, ".meister", "logs")
     os.makedirs(local_meister, exist_ok=True)
     click.echo("  ✅ Criado diretório de telemetria local (.meister/logs/)")
@@ -141,10 +146,12 @@ def init(target, type_, no_hooks):
 @main.command("classify")
 @click.option("--context", "-c", required=True, help="Descrição da tarefa para o Jev")
 @click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
-def classify(context, model):
+@click.option("--run-id", default=None, help="Correlation ID da execução")
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+def classify(context, model, run_id, task_id):
     """Executa a classificação de complexidade da tarefa."""
     try:
-        result = classify_task(context=context, model=model)
+        result = classify_task(context=context, model=model, run_id=run_id, task_id=task_id)
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as e:
         sys.stderr.write(f"Erro no classify: {e}\n")
@@ -169,12 +176,14 @@ def classify(context, model):
     help="Se altera código sensível à segurança",
 )
 @click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
+@click.option("--run-id", default=None, help="Correlation ID da execução")
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
 @click.option(
     "--close-worker/--no-close-worker",
     default=True,
     help="Fechar automaticamente o terminal do worker no Herdr se aprovado (COMPLETE)",
 )
-def control(diff_summary, test_result, attempts, security_sensitive, model, close_worker):
+def control(diff_summary, test_result, attempts, security_sensitive, model, run_id, task_id, close_worker):
     """Executa a decisão de controle do loop do agente."""
     try:
         result = control_cycle(
@@ -183,26 +192,44 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, clos
             attempts=attempts,
             security_sensitive=security_sensitive,
             model=model,
+            run_id=run_id,
+            task_id=task_id,
         )
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
 
-        # Se a ação for COMPLETE e close_worker for True, fecha o terminal do worker automaticamente
+        # Se a ação for COMPLETE e close_worker for True, fecha os terminais dos workers automaticamente (Achado #7)
         if result.get("action") == "COMPLETE" and close_worker:
+            client = get_herdr_client()
+
+            # Fecha todos os active panes registrados no SQLite
+            try:
+                from meister.state import StateManager
+                state_mgr = StateManager()
+                active_panes = state_mgr.get_active_panes()
+                for p_id in active_panes:
+                    if client is not None:
+                        async def _close(p):
+                            await client.close_pane(p)
+                        asyncio.run(_close(p_id))
+                        click.echo(f"🧹 [MeisterRouter] Terminal do worker ({p_id}) fechado automaticamente após aprovação.")
+                    state_mgr.unregister_pane(p_id)
+            except Exception as e:
+                logger.debug("Could not auto-close registered worker panes: %s", e)
+
+            # Mantém suporte legado para active_worker_pane.txt se existir
             active_pane_file = os.path.join(os.getcwd(), ".meister", "active_worker_pane.txt")
             if os.path.exists(active_pane_file):
                 try:
                     with open(active_pane_file, "r", encoding="utf-8") as f:
                         pane_id = f.read().strip()
-                    if pane_id:
-                        client = get_herdr_client()
-                        if client is not None:
-                            async def _close():
-                                await client.close_pane(pane_id)
-                            asyncio.run(_close())
-                            click.echo(f"🧹 [MeisterRouter] Terminal do worker ({pane_id}) fechado automaticamente após aprovação.")
+                    if pane_id and client is not None:
+                        async def _close_legacy():
+                            await client.close_pane(pane_id)
+                        asyncio.run(_close_legacy())
+                        click.echo(f"🧹 [MeisterRouter] Terminal do worker ({pane_id}) fechado automaticamente após aprovação.")
                     os.remove(active_pane_file)
                 except Exception as e:
-                    logger.debug("Could not auto-close worker pane: %s", e)
+                    logger.debug("Could not auto-close legacy worker pane: %s", e)
 
     except Exception as e:
         sys.stderr.write(f"Erro no control: {e}\n")
@@ -288,72 +315,291 @@ def test():
 @click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
 @click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
 @click.option("--cwd", default=None, help="Diretório de trabalho")
-@click.option("--pane/--no-pane", default=True, help="Abrir terminal lateral visível no Herdr se disponível")
-@click.option("--run-id", default=None, hidden=True, help="ID interno de execução do worker em pane")
-def worker(model, task, files, cwd, pane, run_id):
+@click.option("--pane/--no-pane", "pane", default=None, help="Abrir terminal lateral no Herdr em vez de tab")
+@click.option("--tab/--no-tab", "tab", default=True, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13, E2E-9)")
+@click.option("--split", is_flag=True, default=False, help="Forçar abertura em split pane lateral em vez de tab")
+@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+@click.option("--run-id", default=None, help="Correlation ID da execução")
+@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_id):
     """Inicia worker nativo do MeisterRouter."""
     from meister.worker import (
         execute_worker_task,
         run_worker_interactive_loop,
         is_herdr_available,
         run_worker_in_herdr_pane,
+        run_worker_in_herdr_tab,
+        write_atomic_json,
+        WorkerInfrastructureError,
     )
-    import json
-    import time
 
     target_files = [f.strip() for f in files.split(",")] if files else None
+    resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    ensure_meister_dir(resolved_cwd)
 
     if task:
-        # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre um terminal visível
+        # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível (E2E-9)
         in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
-        should_split = pane and not in_pane and is_herdr_available()
+        herdr_disabled = (pane is False) or (tab is False)
+        should_spawn_in_herdr = not herdr_disabled and not in_pane and is_herdr_available()
+        use_split_pane = split or (pane is True)
 
-        if should_split:
-            click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+        current = get_current_run()
+        resolved_run_id = (
+            run_id
+            or os.environ.get("MEISTER_RUN_ID")
+            or current.get("run_id")
+            or f"run_{uuid.uuid4().hex[:8]}"
+        )
+        resolved_task_id = (
+            task_id
+            or current.get("task_id")
+            or hashlib.sha256(task.encode("utf-8")).hexdigest()[:16]
+        )
+
+        worker_start_time = time.monotonic()
+        if not in_pane:
+            log_event(
+                event_type="worker_start",
+                run_id=resolved_run_id,
+                task_id=resolved_task_id,
+                tier=model,
+                model=model,
+            )
+
+        # Isolamento com WorktreeManager + IntegrationPipeline (E2E-3)
+        is_git = False
+        if not in_pane:
             try:
-                res = run_worker_in_herdr_pane(model=model, task=task, target_files=target_files, cwd=cwd)
-                status = res.get("status", "done")
-                click.echo(f"Worker task finished in Herdr pane. Status: {status}")
-                if res.get("modified_files"):
-                    click.echo(f"Modified files: {res['modified_files']}")
-                return
-            except Exception as e:
-                click.echo(f"Aviso: Não foi possível abrir pane no Herdr ({e}). Executando diretamente...", err=True)
+                chk = subprocess.run(
+                    ["git", "rev-parse", "--is-inside-work-tree"],
+                    cwd=resolved_cwd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                is_git = chk.returncode == 0 and chk.stdout.strip() == "true"
+            except Exception:
+                is_git = False
 
-        # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando)
-        click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+        wt_mgr = None
+        pipeline = None
+        subtask_wt = None
+        worker_cwd = resolved_cwd
+
+        if is_git and not in_pane:
+            from meister.worktree import WorktreeManager, IntegrationPipeline
+            from meister.gate import DeterministicGate
+
+            wt_mgr = WorktreeManager(repo_root=resolved_cwd)
+            wt_mgr.cleanup_orphans()
+            gate = DeterministicGate(repo_path=resolved_cwd)
+            pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+
+            pipeline.start_integration(resolved_run_id)
+
+            subtask_wt = wt_mgr.create_worktree(
+                task_id=f"worker_{resolved_run_id}",
+                base_ref=pipeline.integration_info.branch_name,
+            )
+            worker_cwd = subtask_wt.worktree_path
+
         try:
-            res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=cwd)
+            if should_spawn_in_herdr:
+                if use_split_pane:
+                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+                    res = run_worker_in_herdr_pane(
+                        model=model,
+                        task=task,
+                        target_files=target_files,
+                        cwd=worker_cwd,
+                        config_path=config_path,
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                    )
+                else:
+                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
+                    res = run_worker_in_herdr_tab(
+                        model=model,
+                        task=task,
+                        target_files=target_files,
+                        cwd=worker_cwd,
+                        config_path=config_path,
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                        label=resolved_task_id,
+                    )
+            else:
+                # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando ou --no-pane)
+                click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+                res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+
             status = res.get("status", "done")
-            click.echo(f"Worker task finished. Status: {status}")
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            cost_val = res.get("cost")
+            if cost_val is None:
+                cost_val = estimate_cost(model)
+
+            if status != "done":
+                if subtask_wt is not None and wt_mgr is not None:
+                    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                if pipeline is not None:
+                    pipeline.abort_integration()
+                if not in_pane:
+                    log_event(
+                        event_type="worker_end",
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                        tier=model,
+                        duration_ms=worker_duration_ms,
+                        exit_code=res.get("exit_code", 1),
+                        cost=cost_val,
+                        status=status,
+                    )
+                click.echo(f"❌ [MeisterRouter] Worker terminou com status: {status}", err=True)
+                sys.exit(1)
+
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=res.get("exit_code", 0),
+                    cost=cost_val,
+                    status=status,
+                    modified_files=res.get("modified_files", []),
+                )
+
+            # Se worktree/pipeline estavam ativos, integra determinísticamente (gate -> commit -> merge -> gate -> ff) (E2E-3)
+            if pipeline is not None and subtask_wt is not None and wt_mgr is not None:
+                ok_int, int_err = pipeline.integrate_subtask(
+                    subtask_wt=subtask_wt,
+                    target_files=target_files,
+                    commit_message=f"worker({model}): {task}",
+                )
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+                subtask_wt = None
+
+                if not ok_int:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Falha no portão/merge de integração: {int_err}", err=True)
+                    sys.exit(1)
+
+                passed, out = pipeline.validate_final_integration()
+                if not passed:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Portão de qualidade falhou antes do fast-forward:\n{out}", err=True)
+                    sys.exit(1)
+
+                ok_ff, ff_msg = pipeline.apply_fast_forward()
+                if not ok_ff:
+                    pipeline.abort_integration()
+                    click.echo(f"❌ [MeisterRouter] Falha no fast-forward da main: {ff_msg}", err=True)
+                    sys.exit(1)
+
+            where = "Herdr pane" if (should_spawn_in_herdr and use_split_pane) else "Herdr tab" if should_spawn_in_herdr else "worker"
+            click.echo(f"Worker task finished in {where}. Status: {status}")
             if res.get("modified_files"):
                 click.echo(f"Modified files: {res['modified_files']}")
 
             # Se estiver rodando dentro de um pane criado pelo Herdr, grava o arquivo de resultado para o pai
-            if run_id:
-                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+            if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
-                os.makedirs(runs_dir, exist_ok=True)
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
-                with open(result_file, "w", encoding="utf-8") as f:
-                    json.dump(res, f, ensure_ascii=False, indent=2)
+                write_atomic_json(result_file, res)
                 click.echo("\n🏁 [Worker] Código gerado com sucesso.")
                 click.echo("ℹ️ Aguardando verificação determinística e aprovação do orquestrador (meister control)...")
 
+            return
+
+        except WorkerInfrastructureError as e:
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=2,
+                    cost=0.0,
+                    status="infrastructure_error",
+                    error=str(e),
+                )
+            click.echo(f"❌ [MeisterRouter] Erro de infraestrutura no worker ({e}). Abortando sem escalar tier.", err=True)
+            sys.exit(2)
+
+        except TimeoutError as e:
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=1,
+                    cost=estimate_cost(model),
+                    status="timeout",
+                    error=str(e),
+                )
+            click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
+            sys.exit(1)
         except Exception as e:
-            click.echo(f"Worker failed: {e}", err=True)
-            if run_id:
-                resolved_cwd = os.path.abspath(cwd or os.getcwd())
+            if subtask_wt is not None and wt_mgr is not None:
+                wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+            if pipeline is not None:
+                pipeline.abort_integration()
+            worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
+            if not in_pane:
+                log_event(
+                    event_type="worker_end",
+                    run_id=resolved_run_id,
+                    task_id=resolved_task_id,
+                    tier=model,
+                    duration_ms=worker_duration_ms,
+                    exit_code=1,
+                    cost=estimate_cost(model),
+                    status="error",
+                    error=str(e),
+                )
+            click.echo(f"❌ [MeisterRouter] Falha ao despachar worker ({e}).", err=True)
+            if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
-                os.makedirs(runs_dir, exist_ok=True)
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
-                with open(result_file, "w", encoding="utf-8") as f:
-                    json.dump({"status": "error", "error": str(e)}, f, ensure_ascii=False, indent=2)
+                write_atomic_json(result_file, {"status": "error", "error": str(e)})
                 click.echo("\n❌ [Worker] Falha na execução da tarefa. Terminal mantido para inspeção de erro.")
             sys.exit(1)
     else:
         click.echo(f"MeisterRouter worker starting with tier/model: {model}")
         run_worker_interactive_loop(model=model, cwd=cwd)
+
+
+@main.command("run-task")
+@click.argument("task_file", type=click.Path(exists=True))
+@click.option("--result-file", default=None, help="Caminho alternativo para o arquivo de resultado")
+def run_task(task_file, result_file):
+    """Executa uma tarefa descrita em um arquivo task.json de forma segura e atômica."""
+    from meister.worker import execute_task_file
+    try:
+        res = execute_task_file(task_file, result_file=result_file)
+        status = res.get("status", "done")
+        click.echo(f"Task finished. Status: {status}")
+        if res.get("modified_files"):
+            click.echo(f"Modified files: {res['modified_files']}")
+    except Exception as e:
+        click.echo(f"Task failed: {e}", err=True)
+        sys.exit(1)
 
 
 @main.command("daemon")
@@ -402,23 +648,49 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
         return
 
     if start:
-        # Check if already running
-        if os.path.exists(resolved_pid):
+        pid_dir = os.path.dirname(os.path.abspath(resolved_pid))
+        os.makedirs(pid_dir, exist_ok=True)
+
+        try:
+            pid_fd = os.open(resolved_pid, os.O_CREAT | os.O_RDWR, 0o644)
+        except OSError as e:
+            click.echo(f"Error opening PID file: {e}")
+            return
+
+        import fcntl
+        try:
+            fcntl.flock(pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except (BlockingIOError, OSError):
             try:
                 with open(resolved_pid, "r") as f:
                     pid = int(f.read().strip())
-                if is_pid_alive(pid):
-                    click.echo(f"Meister daemon is already running (PID: {pid}).")
-                    return
-                else:
-                    os.remove(resolved_pid)
             except Exception:
+                pid = "unknown"
+            click.echo(f"Meister daemon is already running (PID: {pid}).")
+            os.close(pid_fd)
+            return
+
+        # Check if existing PID inside file belongs to an active process
+        content = os.read(pid_fd, 64).decode("utf-8").strip()
+        if content:
+            try:
+                existing_pid = int(content)
+                if is_pid_alive(existing_pid):
+                    click.echo(f"Meister daemon is already running (PID: {existing_pid}).")
+                    try:
+                        fcntl.flock(pid_fd, fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                    os.close(pid_fd)
+                    return
+            except ValueError:
                 pass
 
-        # Write current PID
-        os.makedirs(os.path.dirname(os.path.abspath(resolved_pid)), exist_ok=True)
-        with open(resolved_pid, "w") as f:
-            f.write(str(os.getpid()))
+        # Write current PID atomically
+        os.ftruncate(pid_fd, 0)
+        os.lseek(pid_fd, 0, os.SEEK_SET)
+        os.write(pid_fd, f"{os.getpid()}\n".encode("utf-8"))
+        os.fsync(pid_fd)
 
         click.echo(f"Starting MeisterRouter daemon (PID: {os.getpid()})...")
 
@@ -465,6 +737,14 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
         try:
             asyncio.run(_run_loop())
         finally:
+            try:
+                fcntl.flock(pid_fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+            try:
+                os.close(pid_fd)
+            except Exception:
+                pass
             if os.path.exists(resolved_pid):
                 try:
                     with open(resolved_pid, "r") as f:
@@ -590,6 +870,78 @@ def orchestrate(workspace_id, architect_pane_id, task, socket_path, config_path)
         sys.exit(1)
 
 
+@main.command("replay")
+@click.argument("run_id")
+@click.option("--json", "json_format", is_flag=True, default=False, help="Exibe eventos em formato JSON puro")
+def replay(run_id: str, json_format: bool):
+    """Replay e auditoria determinística dos eventos de uma execução pelo run_id (Achado #32)."""
+    events = get_events_by_run_id(run_id)
+
+    if not events:
+        try:
+            from meister.state import StateManager
+            sm = StateManager()
+            run_record = sm.get_run(run_id)
+            if not run_record:
+                click.echo(f"Erro: Nenhuma execução encontrada com run_id '{run_id}'.", err=True)
+                sys.exit(1)
+            subtasks = sm.get_subtasks(run_id)
+            if json_format:
+                click.echo(json.dumps({"run": run_record, "subtasks": subtasks}, indent=2, ensure_ascii=False))
+                return
+            click.echo(f"\n🔮 [MeisterRouter] Replay da Execução: {run_id} (via SQLite)")
+            click.echo(f"Tarefa: {run_record.get('task_prompt')}")
+            click.echo(f"Status: {run_record.get('state')}")
+            click.echo("Subtasks:")
+            for st in subtasks:
+                click.echo(f"  • {st.get('subtask_id')}: status={st.get('status')} tier={st.get('assigned_tier')} attempts={st.get('attempts')}")
+            return
+        except Exception:
+            click.echo(f"Erro: Nenhuma execução encontrada com run_id '{run_id}'.", err=True)
+            sys.exit(1)
+
+    if json_format:
+        click.echo(json.dumps(events, indent=2, ensure_ascii=False))
+        return
+
+    # Formatação amigável de linha do tempo
+    click.echo(f"\n🔮 [MeisterRouter] Replay da Execução: {run_id}")
+    click.echo("=" * 80)
+    click.echo(f"{'TIMESTAMP':<24} | {'EVENTO':<18} | {'TIER':<12} | {'TASK ID':<12} | {'DETALHES'}")
+    click.echo("-" * 80)
+
+    total_cost = 0.0
+    for ev in events:
+        ts = str(ev.get("ts") or ev.get("timestamp") or "")[:23]
+        event_name = str(ev.get("event") or ev.get("event_type") or "unknown").upper()
+        tier = str(ev.get("tier") or ev.get("model") or "-")[:12]
+        task_id = str(ev.get("task_id") or "-")[:12]
+        cost = float(ev.get("cost") or ev.get("cost_usd") or 0.0)
+        total_cost += cost
+
+        info_parts = []
+        if ev.get("attempt"):
+            info_parts.append(f"att={ev.get('attempt')}")
+        if ev.get("duration_ms"):
+            info_parts.append(f"{ev.get('duration_ms')}ms")
+        if cost > 0:
+            info_parts.append(f"${cost:.6f}")
+        if ev.get("classification"):
+            info_parts.append(f"class={ev.get('classification')}")
+        if ev.get("action"):
+            info_parts.append(f"action={ev.get('action')}")
+        if ev.get("error"):
+            info_parts.append(f"err={str(ev.get('error'))[:25]}")
+        if ev.get("status"):
+            info_parts.append(f"status={ev.get('status')}")
+
+        info_str = " | ".join(info_parts)
+        click.echo(f"{ts:<24} | {event_name:<18} | {tier:<12} | {task_id:<12} | {info_str}")
+
+    click.echo("=" * 80)
+    click.echo(f"📊 Total de eventos: {len(events)} | Custo total: ${total_cost:.6f}\n")
+
+
 # Aliases para compatibilidade caso chamados diretamente
 cmd_init = init
 cmd_classify = classify
@@ -598,6 +950,7 @@ cmd_dashboard = dashboard
 cmd_install_hooks = install_hooks
 cmd_models = models
 cmd_test = test
+cmd_replay = replay
 
 
 if __name__ == "__main__":

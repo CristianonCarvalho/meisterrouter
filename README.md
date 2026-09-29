@@ -226,3 +226,11 @@ meisterrouter/
 ├── ARCHITECTURE.md              # Documentação profunda da máquina de estados
 └── pyproject.toml / setup.py    # Pacote Python instalável
 ```
+
+---
+
+### Adaptador GitHub Copilot CLI (Tier Complementar Opt-In)
+> ℹ️ **STATUS: VERIFICADO (GitHub Copilot CLI 1.0.88)**
+> O adaptador Copilot CLI (`copilot`) utiliza as flags oficiais `-p`, `--allow-all` e `--no-ask-user` para execução não-interativa autônoma.
+> Por padrão, atua como **tier complementar opt-in**, mantendo a hierarquia determinística principal focada em Luna/Gemini Flash/Haiku.
+> Pode ser ativado definindo `MEISTER_ENABLE_COPILOT=true` no ambiente ou configurado na lista `tier_order` em `meister.config.yaml`.

@@ -3,7 +3,6 @@
 import pytest
 from meister.herdr.dag import (
     SubtaskNode,
-    TaskDAG,
     build_subtask_dag,
     get_independent_batches,
     CycleDetectedError,

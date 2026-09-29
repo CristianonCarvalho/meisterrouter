@@ -2,10 +2,9 @@ import os
 import json
 import signal
 import asyncio
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
-from meister.cli import main, is_pid_alive
+from meister.cli import main
 
 
 def test_cli_has_herdr_commands():

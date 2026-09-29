@@ -4,7 +4,6 @@ from meister.config import load_config, MeisterConfig, WorkerTier, WorkersConfig
 from meister.herdr.workers import (
     WorkerSpawner,
     detect_quota_or_rate_limit,
-    spawn_worker_pane,
     get_next_tier,
 )
 
@@ -87,6 +86,23 @@ def test_resolve_command():
     # Task context command override
     cmd_override = spawner.resolve_command("luna", task_context={"command": ["my-agent", "--run"]})
     assert cmd_override == ["my-agent", "--run"]
+
+    # When task_context description is provided, claude/codex generate non-interactive commands
+    cmd_claude_task = spawner.resolve_command("haiku", task_context={"description": "fix bug"})
+    assert "--dangerously-skip-permissions" in cmd_claude_task
+    assert "-p" in cmd_claude_task
+    assert "fix bug" in cmd_claude_task
+
+    cmd_codex_task = spawner.resolve_command("codex_tier", task_context={"description": "write tests"})
+    assert "exec" in cmd_codex_task
+    assert "--dangerously-bypass-approvals-and-sandbox" in cmd_codex_task
+    assert "write tests" in cmd_codex_task
+
+    # When task_file is provided, native harness resolves to sys.executable run-task
+    import sys
+    cmd_task_file = spawner.resolve_command("luna", task_context={"task_file": "/tmp/test_task.json"})
+    assert cmd_task_file == [sys.executable, "-m", "meister.cli", "run-task", "/tmp/test_task.json"]
+
 
 
 @pytest.mark.asyncio

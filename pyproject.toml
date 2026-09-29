@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meisterrouter"
+version = "1.0.0"
+description = "Multi-Model Autonomous Orchestration Framework for Claude Code & OpenAI Codex"
+authors = [
+    { name = "Cristiano Carvalho" }
+]
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31.0",
+    "flask>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "click>=8.0.0",
+    "PyYAML>=6.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.1.0",
+    "mypy>=1.10.0",
+    "types-PyYAML>=6.0.0",
+    "types-requests>=2.31.0",
+    'tomli>=2.0; python_version < "3.11"',
+]
+
+[project.scripts]
+meister = "meister.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "strict"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true

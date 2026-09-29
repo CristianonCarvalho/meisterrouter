@@ -5,10 +5,10 @@ Define a matriz de inteligência, limites de contexto, custos por milhão de tok
 e suporte para o roteamento do MeisterRouter.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 # Preços em USD por 1 milhão de tokens (conforme Artificial Analysis e tabelas oficiais 2026)
-MODEL_PRICING: Dict[str, Dict[str, float]] = {
+MODEL_PRICING: Dict[str, Dict[str, Any]] = {
     # 1. Primary Low-Cost Implementer (Disruptivo)
     "openai/gpt-6-luna": {
         "name": "GPT-6 Luna (medium)",
@@ -100,7 +100,19 @@ MODEL_PRICING: Dict[str, Dict[str, float]] = {
     },
 
     # 4. Master Architect (Claude Code)
-    "anthropic/claude-3-7-sonnet": {
+    "anthropic/claude-sonnet-5": {
+        "name": "Claude Sonnet 5 (Adaptive Reasoning)",
+        "provider": "Anthropic",
+        "input": 2.00,
+        "output": 10.00,
+        "cache_read": 0.20,
+        "intelligence_index": 28,
+        "terminal_bench": 2,
+        "automation_bench": 28,
+        "scicode": 52,
+        "role": "architect",
+    },
+    "anthropic/claude-3-7-sonnet": {  # Deprecated alias
         "name": "Claude Sonnet 5 (Adaptive Reasoning)",
         "provider": "Anthropic",
         "input": 2.00,

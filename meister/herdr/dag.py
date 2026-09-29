@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +147,7 @@ class TaskDAG:
             for j in range(i + 1, len(node_list)):
                 n1 = node_list[i]
                 n2 = node_list[j]
-                pair_key = tuple(sorted([n1.id, n2.id]))
+                pair_key: Tuple[str, str] = (min(n1.id, n2.id), max(n1.id, n2.id))
                 if pair_key in seen_pairs:
                     continue
 
@@ -225,7 +225,7 @@ class TaskDAG:
         return batches
 
 
-def build_subtask_dag(actionable_steps: List[Dict[str, Any] | SubtaskNode]) -> TaskDAG:
+def build_subtask_dag(actionable_steps: Sequence[Dict[str, Any] | SubtaskNode]) -> TaskDAG:
     """Build and validate a TaskDAG from a list of action steps or SubtaskNodes."""
     dag = TaskDAG()
     for step in actionable_steps:

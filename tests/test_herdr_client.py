@@ -1,5 +1,4 @@
 import asyncio
-import os
 import pytest
 from tests.mocks.mock_herdr_server import run_mock_herdr_server
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError
@@ -38,6 +37,25 @@ async def test_client_prompt_agent(tmp_path):
     finally:
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_prompt_agent_raises_on_agent_not_found(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+    server.custom_handlers["agent.prompt"] = lambda p: {
+        "__error__": {"code": -32000, "message": "agent_not_found: no agent in pane"}
+    }
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            with pytest.raises(HerdrRPCError) as exc_info:
+                await client.prompt_agent("w1:p1", prompt="Fix bug")
+            assert "agent_not_found" in exc_info.value.message
+    finally:
+        server.close()
+        await server.wait_closed()
+
 
 
 @pytest.mark.asyncio
@@ -185,5 +203,79 @@ async def test_client_get_current_pane(tmp_path):
     finally:
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_mock_herdr_server_validates_schema_and_rejects_invalid_params(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            # 1. Direct call with invalid parameters outside schema (Finding #12) must fail validation
+            with pytest.raises(HerdrRPCError) as exc_info:
+                await client._call("pane.split", {"direction": "right", "split_ratio": 0.5, "command": ["echo"]})
+            assert exc_info.value.code == -32602
+            assert "Schema validation failed" in exc_info.value.message
+            assert "split_ratio" in exc_info.value.message or "command" in exc_info.value.message
+
+            # 2. Client helper split_pane must conform to schema and succeed
+            pane_id = await client.split_pane(direction="right", command=["echo", "hello"], split_ratio=0.5)
+            assert pane_id == "w1:p2"
+
+            # Verify the params sent to pane.split on the server had only schema fields
+            split_reqs = [r for r in server.received_requests if r.get("method") == "pane.split"]
+            assert len(split_reqs) == 2
+            valid_params = split_reqs[1].get("params", {})
+            assert "command" not in valid_params
+            assert "split_ratio" not in valid_params
+            assert valid_params.get("direction") == "right"
+            assert valid_params.get("ratio") == 0.5
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_wait_for_output_and_wait_pane_ready(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            # 1. wait_pane_ready helper waits for shell prompt readiness before sending text
+            ready = await client.wait_pane_ready("w1:p1", timeout=0.5)
+            assert ready is True
+
+            # Verify request conforms to herdr_schema.json, reached server, and used regex prompt pattern
+            wait_reqs = [r for r in server.received_requests if r.get("method") == "pane.wait_for_output"]
+            assert len(wait_reqs) == 1
+            params = wait_reqs[0].get("params", {})
+            assert params.get("pane_id") == "w1:p1"
+            assert params.get("source") == "recent"
+            match = params.get("match", {})
+            assert match.get("type") == "regex", "match.type must be regex, not substring"
+            assert match.get("value") != "", "match.value cannot be empty string"
+            assert any(sym in match.get("value", "") for sym in ("$", "%", "#", ">", "❯"))
+
+            # 2. Direct call to wait_for_output with custom regex or substring match
+            res = await client.wait_for_output(
+                "w1:p1",
+                match={"type": "regex", "value": r"ready>"},
+                source="recent",
+                timeout=1.0,
+            )
+            assert res is True
+            assert len([r for r in server.received_requests if r.get("method") == "pane.wait_for_output"]) == 2
+
+            # 3. Ensure NO call ever sent empty substring
+            for req in server.received_requests:
+                if req.get("method") == "pane.wait_for_output":
+                    m = req.get("params", {}).get("match", {})
+                    assert not (m.get("type") == "substring" and m.get("value") == "")
+    finally:
+        server.close()
+        await server.wait_closed()
+
 
 
