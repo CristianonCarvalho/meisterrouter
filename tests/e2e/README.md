@@ -46,6 +46,11 @@ Valida a robustez e invariantes de segurança do orquestrador sob condições ad
 - **Cenário S3 (Crash após merge):** Injeta `MEISTER_CRASH_AT=after_merge_before_state` e `MEISTER_CRASH_TASK=t1` somente no primeiro `meister orchestrate`, simulando uma queda após o merge e antes da persistência do estado. A retomada roda sem injeção e verifica o evento `fault_injected`, que a t1 é reexecutada no máximo 1 vez (o estado dela não chegou a ser gravado) e a t2 uma só vez, integração única de `mul` e `shout`, `pytest` e limpeza de worktrees, branches e abas (tempo aproximado: a medir).
 - **Cenário S4 (Crash após fast-forward):** Injeta `MEISTER_CRASH_AT=after_fast_forward_before_state` somente no primeiro `meister orchestrate`, simulando uma queda após o fast-forward e antes da persistência do estado. A retomada sem injeção valida os mesmos invariantes de S3 (tempo aproximado: a medir).
 
+### 4. `run_plan.sh` (tempo aproximado: a medir)
+Valida o fluxo end-to-end baseado em contrato de plano canônico (`superpowers -> plan import -> plan validate -> orchestrate --plan-file`) com 18 checagens (P0 com 5 e P1 com 13):
+- **Cenário P0 (Validação rápida sem LLM):** Valida a rejeição estrita de planos inválidos na conversão (`meister plan import` falha com código de saída diferente de zero citando a tarefa sem a seção `**Files:**`, e tem sucesso com `--allow-unscoped`), e confirma que o orquestrador bloqueia texto livre (`meister orchestrate --task "texto livre"` sai com código 2 sem criar registro de run no SQLite do repositório descartável e com zero eventos `worker_spawn` no JSONL).
+- **Cenário P1 (Fluxo de plano real com LLM e retomada idempotente):** Converte um plano de implementação real no formato Superpowers (`plan.md`) para JSON canônico (`plan.json`) via `meister plan import`, valida o esquema canônico via `meister plan validate` e despacha a execução autônoma multi-tarefa via `meister orchestrate --plan-file`. Valida a ordem de dependência sequencial (`task_2` depende de `task_1`), a execução e integração correta na branch `main` (`def mul` em `calc.py` e `def shout` em `text.py` exatamente 1 vez cada), aprovação da suíte `pytest` na `main`, telemetria no JSONL (`worker_spawn` e `subtask_completed`), e a idempotência da retomada ao reexecutar exatamente o mesmo comando (`run_id` estável gerado a partir do JSON canônico, zero novos spawns de worker), além da limpeza total de worktrees, branches temporárias e abas de worker.
+
 ---
 
 ## Variáveis de Ambiente
@@ -81,6 +86,9 @@ bash tests/e2e/run_safety.sh
 
 # 5. Executar o teste de segurança com subtarefa benigna para validar o caminho INCONCLUSIVO/SKIP
 E2E_S1_T2_DESC="Adicione a função up(s) em text.py que retorna s.upper()" bash tests/e2e/run_safety.sh
+
+# 6. Executar o fluxo E2E baseado em contrato de plano (Superpowers -> import -> validate -> orchestrate)
+bash tests/e2e/run_plan.sh
 ```
 
 ---
@@ -163,3 +171,63 @@ O script `run_safety.sh` valida as seguintes checagens para os cenários S3 e S4
 - `S4-g sem worktrees restantes`
 - `S4-h sem branches meister/worktree/* e meister/integration/*`
 - `S4-i sem tabs worker:* restantes`
+
+---
+
+## run_plan.sh: Fluxo de Contrato de Plano e Idempotência
+
+O script `run_plan.sh` valida o fluxo completo baseado em contratos de planos canônicos: conversão a partir do formato Superpowers, validação estrita de esquema e de integridade referencial do grafo de dependências, execução autônoma multi-tarefa com workers locais via Herdr e garantia determinística de idempotência na retomada de execução.
+
+### Pré-requisitos
+
+Os mesmos pré-requisitos gerais da suíte E2E:
+1. Sessão ativa no Herdr com `HERDR_ENV=1` e CLI `herdr` disponível.
+2. CLI `codex` (Luna) e CLI `agy` (Gemini Flash).
+3. `git` e `python3` com as dependências do projeto.
+
+### Comparativo dos Cenários
+
+| Cenário | Descrição | Envolve LLM | Tempo Aprox. |
+|---|---|---|---|
+| **P0** | Validação sintática e rejeição de planos/tarefas sem escopo ou em texto livre. | Não | a medir |
+| **P1** | Importação de plano Superpowers (`mul` + `shout`), validação de esquema, execução pelo orquestrador e retomada idempotente. | Sim (Luna/Gemini Flash) | run completo (P0+P1): cerca de 1 minuto em uma medição (2026-09-29) |
+
+### O que Cada Cenário Prova
+
+1. **Cenário P0 (Validação Rápida sem LLM):**
+   - **Rejeição de tarefas sem escopo:** `meister plan import` rejeita planos onde tarefas não possuam a seção obrigatória `**Files:**` (código de saída != 0), citando explicitamente a tarefa ofensiva no relatório de erro.
+   - **Permissão explícita com flag:** A flag `--allow-unscoped` permite a conversão de tarefas sem escopo de arquivos com código de saída 0 e emissão de aviso.
+   - **Bloqueio de texto livre no orquestrador:** A execução de `meister orchestrate --task` com texto livre não-canônico falha imediatamente com código `2` sem criar novos registros na tabela `runs` do banco SQLite (`.meister/meister.db`) e sem disparar nenhum evento `worker_spawn` na telemetria JSONL.
+
+2. **Cenário P1 (Fluxo Real com Workers e Retomada Idempotente):**
+   - **Passo 1 (Import):** Converte o arquivo Markdown no formato Superpowers (`plan.md`) para o arquivo canônico `plan.json` com resolução de dependência sequencial padrão (`task_2` depende de `task_1`).
+   - **Passo 2 (Validate):** Executa `meister plan validate plan.json`, assegurando que o esquema das tarefas é rigorosamente compatível.
+   - **Passo 3 (Orchestrate):** Executa `meister orchestrate --plan-file plan.json`, despachando os workers locais configurados (Luna e Gemini Flash) para resolver ordenadamente as subtarefas em worktrees isolados e integrá-las via pipeline determinístico na branch `main`.
+   - **Passo 4 (Retomada / Idempotência):** Executa novamente o mesmo comando `meister orchestrate --plan-file plan.json`. Como a representação do plano em JSON canônico deriva o mesmo identificador determinístico de execução (`run_id`) e as subtarefas já constam como concluídas no banco de dados SQLite, o comando termina com código 0 imediatamente sem instanciar nenhum novo worker.
+
+### Lista de Checagens Executadas no Script
+
+O script `run_plan.sh` valida 18 checagens distribuídas entre os cenários P0 e P1:
+
+#### Cenário P0
+- `P0-a import de plano sem Files sai com rc != 0 e cita task`
+- `P0-b import com --allow-unscoped sai com rc 0`
+- `P0-c orchestrate com texto livre sai com rc != 0 (2)`
+- `P0-d orchestrate com texto livre NAO cria run no SQLite`
+- `P0-e zero worker_spawn no JSONL`
+
+#### Cenário P1
+- `P1-a import rc 0 e plan.json com 2 tarefas e dependencias corretas`
+- `P1-b validate saiu com rc 0`
+- `P1-c orchestrate saiu com rc 0`
+- `P1-d main tem def mul exatamente 1x em calc.py`
+- `P1-e main tem def shout exatamente 1x em text.py`
+- `P1-f pytest passa na main`
+- `P1-g eventos subtask_completed para task_1 e task_2 no JSONL`
+- `P1-h worker_spawn de cada task == 1 apos primeiro orchestrate`
+- `P1-i retomada (passo 4) saiu com rc 0`
+- `P1-j retomada NAO criou novos worker_spawn`
+- `P1-k sem worktrees restantes`
+- `P1-l sem branches meister/worktree/* e meister/integration/*`
+- `P1-m sem tabs worker:* restantes`
+
