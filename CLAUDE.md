@@ -74,3 +74,43 @@ Após coletar as evidências determinísticas:
 ./bin/meister dashboard
 # Abre http://localhost:5050
 ```
+
+## 05. Fluxo de Trabalho com Planos Estruturados (superpowers → orchestrate)
+
+Use este fluxo para tarefas de múltiplos passos geradas pela skill `superpowers:writing-plans`:
+
+### 1. Escrever o plano com `superpowers:writing-plans`
+A skill gera um arquivo em `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`.
+
+### 2. Converter para JSON canônico
+```bash
+meister plan import --format superpowers docs/superpowers/plans/YYYY-MM-DD-<feature>.md \
+  -o plano.json
+```
+O comando imprime a tabela de tarefas (id, arquivos, dependências) para revisão humana.
+Opcionalmente adicione a linha `**Depends on:** Task 2, Task 5` em tarefas no plano para
+controlar dependências explicitamente.
+
+### 3. Revisar o DAG
+Confirme que ids, arquivos e dependências estão corretos antes de executar.
+
+### 4. Executar com orchestrate
+```bash
+meister orchestrate --plan-file plano.json
+```
+> ⚠️ **Use `meister orchestrate`** — não os executores internos do superpowers
+> (`subagent-driven-development`, `executing-plans`) nesta etapa. O `orchestrate`
+> integra commits do worker, gerencia worktrees e aciona o evidence gate.
+
+### 5. Validar um plano JSON existente
+```bash
+meister plan validate plano.json
+```
+
+### Notas sobre formatos legados
+O flag `--allow-freeform` permite usar texto livre/lista markdown com `orchestrate`
+(comportamento pré-contrato, sem validação de esquema):
+```bash
+meister orchestrate --task "lista de tarefas livre" --allow-freeform
+```
+Não use em produção — não valida dependências, tipos ou chaves proibidas.
