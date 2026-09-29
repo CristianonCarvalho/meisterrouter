@@ -26,9 +26,12 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Set, Tuple
+
+from meister.faults import crash_point
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +74,7 @@ class WorktreeManager:
         self.metadata_dir = os.path.join(self.worktrees_dir, ".metadata")
         os.makedirs(self.worktrees_dir, exist_ok=True)
         os.makedirs(self.metadata_dir, exist_ok=True)
+        self._worktree_lock = threading.RLock()
         meister_dir = os.path.join(self.repo_root, ".meister")
         os.makedirs(meister_dir, exist_ok=True)
         meister_gitignore = os.path.join(meister_dir, ".gitignore")
@@ -121,38 +125,74 @@ class WorktreeManager:
         target_branch = branch_name or f"meister/worktree/{safe_id}"
         worktree_path = os.path.join(self.worktrees_dir, safe_id)
 
-        # Se já existir worktree ou branch anterior com esse nome, limpa defensivamente
-        if os.path.exists(worktree_path):
-            self.cleanup_worktree(safe_id, force=True)
-        else:
-            try:
-                self._run_git(["branch", "-D", target_branch])
-            except Exception:
-                pass
+        _transient_patterns = ("commondir", "index.lock", ".lock")
 
-        # Obtém o hash exato do commit base
-        base_commit = self._run_git(["rev-parse", base_ref])
+        with self._worktree_lock:
+            # Se já existir worktree ou branch anterior com esse nome, limpa defensivamente
+            if os.path.exists(worktree_path):
+                self.cleanup_worktree(safe_id, force=True)
+            else:
+                try:
+                    self._run_git(["branch", "-D", target_branch])
+                except Exception:
+                    pass
 
-        # Cria o worktree com o branch novo apontando para base_ref
-        self._run_git([
-            "worktree", "add", "-b", target_branch, worktree_path, base_ref
-        ])
+            # Obtém o hash exato do commit base
+            base_commit = self._run_git(["rev-parse", base_ref])
 
-        info = WorktreeInfo(
-            task_id=task_id,
-            worktree_path=worktree_path,
-            branch_name=target_branch,
-            base_ref=base_ref,
-            base_commit=base_commit,
-            created_at=time.time(),
-            pid=os.getpid(),
-            status="active",
-        )
+            # Cria o worktree com o branch novo apontando para base_ref
+            # Retry limitado para falhas transitórias do git (corrida entre worktrees paralelos)
+            _retry_waits = (0.2, 0.5, 1.0)
+            _last_exc: Optional[Exception] = None
+            for _attempt, _wait in enumerate((*_retry_waits, None), start=1):
+                try:
+                    self._run_git([
+                        "worktree", "add", "-b", target_branch, worktree_path, base_ref
+                    ])
+                    _last_exc = None
+                    break
+                except Exception as exc:
+                    err_str = str(exc)
+                    is_transient = any(pat in err_str for pat in _transient_patterns)
+                    if not is_transient or _wait is None:
+                        raise
+                    logger.warning(
+                        "Falha transitória ao criar worktree para task %s (tentativa %d): %s — aguardando %.1fs",
+                        task_id, _attempt, err_str, _wait,
+                    )
+                    _last_exc = exc
+                    try:
+                        self._run_git(["worktree", "prune"])
+                    except Exception:
+                        pass
+                    try:
+                        self._run_git(["branch", "-D", target_branch])
+                    except Exception:
+                        pass
+                    try:
+                        if os.path.exists(worktree_path):
+                            shutil.rmtree(worktree_path, ignore_errors=True)
+                    except Exception:
+                        pass
+                    time.sleep(_wait)
+            if _last_exc is not None:
+                raise _last_exc
 
-        # Persiste metadados
-        meta_file = os.path.join(self.metadata_dir, f"{safe_id}.json")
-        with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(asdict(info), f, indent=2)
+            info = WorktreeInfo(
+                task_id=task_id,
+                worktree_path=worktree_path,
+                branch_name=target_branch,
+                base_ref=base_ref,
+                base_commit=base_commit,
+                created_at=time.time(),
+                pid=os.getpid(),
+                status="active",
+            )
+
+            # Persiste metadados
+            meta_file = os.path.join(self.metadata_dir, f"{safe_id}.json")
+            with open(meta_file, "w", encoding="utf-8") as f:
+                json.dump(asdict(info), f, indent=2)
 
         logger.info("Criado worktree para task %s em %s (branch: %s)", task_id, worktree_path, target_branch)
         return info
@@ -496,49 +536,50 @@ class WorktreeManager:
 
         success = True
 
-        # 1. Remove worktree via Git
-        cmd = ["worktree", "remove"]
-        if force:
-            cmd.append("--force")
-        cmd.append(worktree_path)
+        with self._worktree_lock:
+            # 1. Remove worktree via Git
+            cmd = ["worktree", "remove"]
+            if force:
+                cmd.append("--force")
+            cmd.append(worktree_path)
 
-        try:
-            self._run_git(cmd)
-        except Exception as e:
-            logger.debug("Aviso ao remover worktree via git (%s): %s", worktree_path, e)
-            if os.path.exists(worktree_path):
-                try:
-                    shutil.rmtree(worktree_path, ignore_errors=True)
-                except Exception:
-                    success = False
+            try:
+                self._run_git(cmd)
+            except Exception as e:
+                logger.debug("Aviso ao remover worktree via git (%s): %s", worktree_path, e)
+                if os.path.exists(worktree_path):
+                    try:
+                        shutil.rmtree(worktree_path, ignore_errors=True)
+                    except Exception:
+                        success = False
 
-        # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
-        if delete_branch:
-            can_delete = True
-            if archive_unmerged:
-                base_ref = meta_data.get("base_ref")
-                base_commit = meta_data.get("base_commit")
-                archive_ok, _ = self._archive_branch_if_unmerged(
-                    branch_name, task_id, base_ref=base_ref, base_commit=base_commit
-                )
-                if not archive_ok:
-                    can_delete = False
-                    success = False
-                    logger.error(
-                        "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
-                        branch_name,
+            # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
+            if delete_branch:
+                can_delete = True
+                if archive_unmerged:
+                    base_ref = meta_data.get("base_ref")
+                    base_commit = meta_data.get("base_commit")
+                    archive_ok, _ = self._archive_branch_if_unmerged(
+                        branch_name, task_id, base_ref=base_ref, base_commit=base_commit
                     )
-            if can_delete:
-                try:
-                    self._run_git(["branch", "-D", branch_name])
-                except Exception as e:
-                    logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
+                    if not archive_ok:
+                        can_delete = False
+                        success = False
+                        logger.error(
+                            "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
+                            branch_name,
+                        )
+                if can_delete:
+                    try:
+                        self._run_git(["branch", "-D", branch_name])
+                    except Exception as e:
+                        logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
 
-        # 3. Executa git worktree prune
-        try:
-            self._run_git(["worktree", "prune"])
-        except Exception as e:
-            logger.debug("Aviso ao rodar git worktree prune: %s", e)
+            # 3. Executa git worktree prune
+            try:
+                self._run_git(["worktree", "prune"])
+            except Exception as e:
+                logger.debug("Aviso ao rodar git worktree prune: %s", e)
 
         # 4. Remove arquivo de metadados
         if os.path.exists(meta_file):
@@ -895,6 +936,7 @@ class IntegrationPipeline:
         5. Executa o portão de verificação no worktree de integração.
         6. Se o portão falhar, faz rollback (git reset --hard) para o commit anterior.
         """
+        self.last_integrated_sha = None
         if self.integration_info is None:
             return False, "Pipeline de integração não foi inicializado."
 
@@ -906,6 +948,7 @@ class IntegrationPipeline:
         )
         if not valid_scope:
             return False, f"Violação de escopo detectada no worktree: {out_of_scope}"
+        crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
         passed, out = self.gate.run_verification(repo_path=subtask_wt.worktree_path)
@@ -916,9 +959,66 @@ class IntegrationPipeline:
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
         commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
         if not commit_sha:
+            if target_files:
+                base_run = getattr(self.integration_info, "base_commit", None)
+                if not base_run:
+                    try:
+                        base_run = self.wt_mgr._run_git(
+                            ["merge-base", self.base_ref, self.integration_info.branch_name],
+                            cwd=self.integration_info.worktree_path,
+                        ).strip()
+                    except Exception:
+                        base_run = None
+
+                existing_sha = None
+                matched_id = subtask_wt.task_id
+                if base_run:
+                    try:
+                        log_out = self.wt_mgr._run_git(
+                            ["log", "--format=%H%x00%s", f"{base_run}..{self.integration_info.branch_name}"],
+                            cwd=self.integration_info.worktree_path,
+                        )
+                        candidate_ids = [subtask_wt.task_id]
+                        if commit_message and commit_message.startswith("subtask("):
+                            idx = commit_message.find("):")
+                            if idx != -1:
+                                extracted = commit_message[len("subtask("):idx].strip()
+                                if extracted and extracted not in candidate_ids:
+                                    candidate_ids.append(extracted)
+
+                        subtask_sha = None
+                        merge_sha = None
+                        for line in log_out.splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            parts = line.split("\x00", 1)
+                            if len(parts) != 2:
+                                continue
+                            sha, subject = parts
+                            for tid in candidate_ids:
+                                if subject.startswith(f"subtask({tid}):"):
+                                    if not subtask_sha:
+                                        subtask_sha = sha
+                                        matched_id = tid
+                                elif subject.startswith(f"Merge subtask {tid} ("):
+                                    if not merge_sha:
+                                        merge_sha = sha
+                                        if not subtask_sha:
+                                            matched_id = tid
+                        existing_sha = subtask_sha or merge_sha
+                    except Exception as e:
+                        logger.debug("Erro ao verificar commits anteriores da subtarefa no git log: %s", e)
+
+                if existing_sha:
+                    self.last_integrated_sha = existing_sha
+                    return True, f"Subtarefa {matched_id} já integrada anteriormente ({existing_sha[:8]})."
+
+                return False, f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})"
             return True, "Nenhuma alteração para integrar."
 
         self.last_integrated_sha = commit_sha
+        crash_point("after_worker_commit", task_id=subtask_wt.task_id)
 
         # 4. Merge sequencial na branch de integração
         merged, rollback_sha_or_err = self.wt_mgr.merge_branch_into(
@@ -930,6 +1030,7 @@ class IntegrationPipeline:
             return False, f"Falha no merge com a branch de integração: {rollback_sha_or_err}"
 
         rollback_sha = rollback_sha_or_err
+        crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
 
         # 5. Gate determinístico no worktree de integração após o merge
         int_passed, int_out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)

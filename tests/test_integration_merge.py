@@ -374,3 +374,118 @@ def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo):
     assert ok_ff is False
     assert "invariante" in ff_err.lower() or "ancestral" in ff_err.lower()
 
+
+def test_integration_subtask_noop_with_target_files_rejected(git_test_repo):
+    """(a) diff vazio + target_files sem histórico -> False, mensagem contém 'sem alterações'."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-noop-rejected")
+
+    subtask_wt = wt_mgr.create_worktree("noop-subtask", base_ref=int_info.branch_name)
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+
+    assert ok is False
+    assert "sem alterações" in msg.lower()
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_subtask_noop_without_target_files_accepted(git_test_repo):
+    """(b) diff vazio sem target_files -> True."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-noop-accepted")
+
+    subtask_wt = wt_mgr.create_worktree("noop-subtask-no-targets", base_ref=int_info.branch_name)
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=None)
+
+    assert ok is True
+    assert "nenhuma alteração" in msg.lower()
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_subtask_noop_with_target_files_already_integrated_accepted(git_test_repo):
+    """(c) diff vazio + target_files, mas integração já tem subtask(<id>): ... -> True e last_integrated_sha."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-noop-resume")
+
+    # Step 1: Subtask t1 initially makes changes and integrates successfully
+    subtask_wt1 = wt_mgr.create_worktree("t1", base_ref=int_info.branch_name)
+    app_file = os.path.join(subtask_wt1.worktree_path, "app.py")
+    with open(app_file, "a", encoding="utf-8") as f:
+        f.write("\ndef mul(a, b):\n    return a * b\n")
+    test_file = os.path.join(subtask_wt1.worktree_path, "tests", "test_app.py")
+    with open(test_file, "a", encoding="utf-8") as f:
+        f.write("\ndef test_mul():\n    from app import mul\n    assert mul(2, 3) == 6\n")
+
+    ok1, msg1 = pipeline.integrate_subtask(subtask_wt1, target_files=["app.py", "tests/test_app.py"])
+    assert ok1 is True
+    first_sha = pipeline.last_integrated_sha
+    assert first_sha is not None
+    wt_mgr.cleanup_worktree(subtask_wt1.task_id, force=True)
+
+    # Step 2: On resume, t1 is re-executed on top of the integration branch (already has changes)
+    subtask_wt1_resume = wt_mgr.create_worktree("t1", base_ref=int_info.branch_name)
+    # Worker modifies nothing (code already present)
+    ok_res, msg_res = pipeline.integrate_subtask(subtask_wt1_resume, target_files=["app.py", "tests/test_app.py"])
+    assert ok_res is True
+    assert "já integrada anteriormente" in msg_res.lower()
+    assert pipeline.last_integrated_sha == first_sha
+
+    wt_mgr.cleanup_worktree(subtask_wt1_resume.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_last_integrated_sha_does_not_leak_to_noop(git_test_repo):
+    """(d) last_integrated_sha de uma subtarefa anterior NÃO vaza para um no-op."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-sha-leak")
+
+    # Step 1: Subtask t1 succeeds and sets last_integrated_sha
+    subtask_wt1 = wt_mgr.create_worktree("t1", base_ref=int_info.branch_name)
+    app_file = os.path.join(subtask_wt1.worktree_path, "app.py")
+    with open(app_file, "a", encoding="utf-8") as f:
+        f.write("\ndef mul(a, b):\n    return a * b\n")
+    test_file = os.path.join(subtask_wt1.worktree_path, "tests", "test_app.py")
+    with open(test_file, "a", encoding="utf-8") as f:
+        f.write("\ndef test_mul():\n    from app import mul\n    assert mul(2, 3) == 6\n")
+
+    ok1, _ = pipeline.integrate_subtask(subtask_wt1, target_files=["app.py", "tests/test_app.py"])
+    assert ok1 is True
+    t1_sha = pipeline.last_integrated_sha
+    assert t1_sha is not None
+    wt_mgr.cleanup_worktree(subtask_wt1.task_id, force=True)
+
+    # Step 2: Subtask t2 is a no-op without target_files -> last_integrated_sha must become None, not t1_sha
+    subtask_wt2 = wt_mgr.create_worktree("t2", base_ref=int_info.branch_name)
+    ok2, _ = pipeline.integrate_subtask(subtask_wt2, target_files=None)
+    assert ok2 is True
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt2.task_id, force=True)
+
+    # Step 3: Subtask t3 is a no-op with target_files without history -> rejected, last_integrated_sha must be None
+    subtask_wt3 = wt_mgr.create_worktree("t3", base_ref=int_info.branch_name)
+    ok3, _ = pipeline.integrate_subtask(subtask_wt3, target_files=["new_module.py"])
+    assert ok3 is False
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt3.task_id, force=True)
+
+    pipeline.abort_integration()
+

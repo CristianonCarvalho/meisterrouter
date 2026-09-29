@@ -26,6 +26,7 @@ from meister.herdr.workers import (
     detect_quota_or_rate_limit,
 )
 from meister.state import StateManager, RunState, SubtaskState, compute_subtask_id
+from meister.faults import crash_point
 from meister.logger import log_event
 from meister.worker import (
     write_atomic_json,
@@ -268,7 +269,22 @@ class HerdrEventBridge:
                     task_dict["cwd"] = subtask_wt.worktree_path
                     task_dict["worktree"] = subtask_wt.worktree_path
                 except Exception as e:
-                    logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
+                    err_msg = f"Falha ao criar worktree para subtask {task_id}: {e}"
+                    logger.warning(err_msg)
+                    log_event(
+                        event_type="subtask_rejected",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        reason="worktree_create_failed",
+                        error=str(e)[:200],
+                    )
+                    self.last_failure_reason = err_msg
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
+                        except Exception:
+                            pass
+                    return False
 
             attempt_count = 0
 
@@ -406,6 +422,7 @@ class HerdrEventBridge:
                         tier=current_tier,
                         pane_id=pane_id,
                     )
+                    crash_point("after_worker_spawned", task_id=task_id, run_id=active_run_id)
 
                     quota_event = asyncio.Event()
                     self._quota_events[pane_id] = quota_event
@@ -662,6 +679,7 @@ class HerdrEventBridge:
                         return False
 
                     if subtask_wt is not None and self._integration_pipeline is not None:
+                        crash_point("after_worker_result", task_id=task_id, run_id=active_run_id)
                         async with self._merge_lock:
                             ok_int, int_err = await asyncio.to_thread(
                                 self._integration_pipeline.integrate_subtask,
@@ -680,7 +698,9 @@ class HerdrEventBridge:
                             if not ok_int:
                                 logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
                                 reason = "integration"
-                                if "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
+                                if "sem alterações" in int_err.lower():
+                                    reason = "no_changes"
+                                elif "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
                                     reason = "gate"
                                 elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
                                     reason = "scope"
@@ -739,6 +759,7 @@ class HerdrEventBridge:
                     )
                     if active_run_id:
                         integrated_sha = getattr(self._integration_pipeline, "last_integrated_sha", None)
+                        crash_point("after_merge_before_state", task_id=task_id, run_id=active_run_id)
                         try:
                             sm.transition_subtask(
                                 subtask_id,
@@ -749,6 +770,7 @@ class HerdrEventBridge:
                             )
                         except Exception as e:
                             logger.debug("State transition to COMPLETED error: %s", e)
+                        crash_point("after_subtask_completed", task_id=task_id, run_id=active_run_id)
                     return True
                 finally:
                     if tab_id and hasattr(self.client, "close_tab"):
@@ -986,6 +1008,7 @@ class HerdrEventBridge:
         )
         sm.add_subtasks(run_id, steps)
         sm.recover_stranded_tasks(run_id)
+        crash_point("after_run_created", run_id=run_id)
 
         # R-2: Ao retomar, ANTES de limpar worktrees: fechar panes/tabs e encerrar processos de workers órfãos
         await self.cleanup_run_panes(run_id)
@@ -1011,6 +1034,7 @@ class HerdrEventBridge:
                 pipeline = IntegrationPipeline(wt_mgr, gate=self.gate, state_manager=sm)
                 pipeline.start_integration(run_id, state_manager=sm)
                 self._integration_pipeline = pipeline
+                crash_point("after_integration_started", run_id=run_id)
             except Exception as e:
                 logger.warning("Não foi possível inicializar pipeline de integração: %s", e)
 
@@ -1022,6 +1046,7 @@ class HerdrEventBridge:
                 test_passed = False
                 if self._integration_pipeline is not None:
                     # 1. Validação final determinística na branch de integração ANTES de tocar na main
+                    crash_point("before_final_gate", run_id=run_id)
                     test_passed, test_output = await asyncio.to_thread(self._integration_pipeline.validate_final_integration)
                     if not test_passed:
                         logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
@@ -1091,6 +1116,7 @@ class HerdrEventBridge:
 
                 # 3. Fast-forward no repositório principal acontece APENAS após aprovação total
                 if self._integration_pipeline is not None:
+                    crash_point("before_fast_forward", run_id=run_id)
                     ok_ff, ff_msg = await asyncio.to_thread(self._integration_pipeline.apply_fast_forward)
                     if not ok_ff:
                         logger.error("Fast-forward na main falhou: %s", ff_msg)
@@ -1110,6 +1136,7 @@ class HerdrEventBridge:
                         return False
 
                 # 4. Sucesso confirmado: marca COMPLETED
+                crash_point("after_fast_forward_before_state", run_id=run_id)
                 sm.transition_run(run_id, to_state=RunState.COMPLETED)
                 msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
                 await self.client.show_notification(msg)
@@ -1120,6 +1147,7 @@ class HerdrEventBridge:
                     exit_code=0,
                     status="completed",
                 )
+                crash_point("after_run_completed", run_id=run_id)
                 return True
             else:
                 if self._integration_pipeline is not None:
