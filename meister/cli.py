@@ -842,10 +842,50 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
 @click.option("--workspace-id", default=None, help="ID do workspace no Herdr (auto-detectado se omitido)")
 @click.option("--architect-pane-id", default=None, help="ID do pane do arquiteto (auto-detectado se omitido)")
 @click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
+@click.option("--plan-file", default=None, help="Caminho para arquivo JSON de plano canônico (.json)")
+@click.option("--allow-freeform", is_flag=True, default=False, help="Aceitar formatos legados (pipe, markdown, texto livre) — sem validação de esquema")
 @click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-def orchestrate(workspace_id, architect_pane_id, task, socket_path, config_path):
+def orchestrate(workspace_id, architect_pane_id, task, plan_file, allow_freeform, socket_path, config_path):
     """Inicia o ciclo de orquestração autônoma multi-agente."""
+    from meister.plan import load_plan, PlanError, canonical_json
+
+    # If --plan-file provided, load and validate before creating any run
+    if plan_file:
+        try:
+            with open(plan_file, "r", encoding="utf-8") as fh:
+                raw_plan_text = fh.read()
+        except OSError as exc:
+            click.echo(f"Erro ao ler --plan-file {plan_file!r}: {exc}", err=True)
+            sys.exit(1)
+        try:
+            validated_tasks = load_plan(raw_plan_text, allow_freeform=allow_freeform)
+        except PlanError as exc:
+            click.echo("Erro: plano inválido:", err=True)
+            for msg in exc.messages:
+                click.echo(f"  • {msg}", err=True)
+            click.echo(
+                "\nFormato esperado: JSON array de objetos com chaves id, description, target_files, depends_on.",
+                err=True,
+            )
+            sys.exit(2)
+        # Use canonical JSON as the task text so run_id is stable
+        task = canonical_json(validated_tasks)
+    elif task and not allow_freeform:
+        # Validate strict JSON plan from --task
+        try:
+            validated = load_plan(task, allow_freeform=False)
+            task = canonical_json(validated)
+        except PlanError as exc:
+            click.echo("Erro: --task não é um plano JSON canônico válido:", err=True)
+            for msg in exc.messages:
+                click.echo(f"  • {msg}", err=True)
+            click.echo(
+                "\nUse --allow-freeform para formatos legados (lista markdown, pipe, texto livre).",
+                err=True,
+            )
+            sys.exit(2)
+
     cfg = load_config(config_path)
     client = get_herdr_client(socket_path=socket_path)
     bridge = HerdrEventBridge(config=cfg, client=client)
@@ -855,6 +895,7 @@ def orchestrate(workspace_id, architect_pane_id, task, socket_path, config_path)
             workspace_id=workspace_id,
             architect_pane_id=architect_pane_id,
             task=task,
+            allow_freeform=allow_freeform,
         )
 
     try:
@@ -940,6 +981,109 @@ def replay(run_id: str, json_format: bool):
 
     click.echo("=" * 80)
     click.echo(f"📊 Total de eventos: {len(events)} | Custo total: ${total_cost:.6f}\n")
+
+
+# ── plan subcommand group ──────────────────────────────────────────────────────
+
+@main.group("plan")
+def plan_group():
+    """Gerencia planos canônicos de orquestração (importar, validar)."""
+
+
+@plan_group.command("validate")
+@click.argument("plan_json", type=click.Path(exists=True, readable=True))
+def plan_validate(plan_json):
+    """Valida um arquivo JSON de plano canônico e imprime os erros encontrados.
+
+    PLAN_JSON: caminho para o arquivo .json a validar.
+    """
+    from meister.plan import load_plan, PlanError
+    try:
+        with open(plan_json, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        click.echo(f"Erro ao ler {plan_json!r}: {exc}", err=True)
+        sys.exit(1)
+    try:
+        tasks = load_plan(raw)
+    except PlanError as exc:
+        click.echo(f"Plano inválido: {plan_json}", err=True)
+        for msg in exc.messages:
+            click.echo(f"  • {msg}", err=True)
+        sys.exit(2)
+    click.echo(f"✅ Plano válido: {len(tasks)} tarefas em {plan_json}")
+
+
+@plan_group.command("import")
+@click.argument("plan_md", type=click.Path(exists=True, readable=True))
+@click.option("--format", "fmt", default="superpowers", show_default=True,
+              help="Formato do plano de entrada (ex: superpowers)")
+@click.option("-o", "--output", "output_path", default=None,
+              help="Caminho de saída .json (padrão: stdout)")
+@click.option("--deps", default="sequential", show_default=True,
+              type=click.Choice(["sequential", "files"]),
+              help="Estratégia de resolução de dependências")
+@click.option("--allow-unscoped", is_flag=True, default=False,
+              help="Permitir tarefas sem Files: (target_files vazio)")
+def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
+    """Converte um arquivo de plano (markdown) para JSON canônico.
+
+    PLAN_MD: caminho para o arquivo de plano no formato de entrada.
+
+    Imprime a tabela de tarefas (id, arquivos, dependências) para revisão
+    humana antes de executar com 'meister orchestrate --plan-file'.
+    """
+    import meister.plan_adapters  # noqa: F401 — ensure all adapters are registered
+    from meister.plan import ADAPTERS, PlanError, canonical_json, validate_tasks
+
+    if fmt not in ADAPTERS:
+        known = ", ".join(sorted(ADAPTERS.keys())) or "(nenhum)"
+        click.echo(f"Erro: formato desconhecido {fmt!r}. Adaptadores disponíveis: {known}", err=True)
+        sys.exit(1)
+
+    try:
+        with open(plan_md, "r", encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        click.echo(f"Erro ao ler {plan_md!r}: {exc}", err=True)
+        sys.exit(1)
+
+    try:
+        adapter_fn = ADAPTERS[fmt]
+        tasks = adapter_fn(text, deps=deps, allow_unscoped=allow_unscoped)
+        validate_tasks(tasks)
+    except PlanError as exc:
+        click.echo(f"Erro ao converter plano ({fmt}):", err=True)
+        for msg in exc.messages:
+            click.echo(f"  • {msg}", err=True)
+        sys.exit(2)
+
+    # Print human-readable table
+    header = f"{'id':<12} {'arquivos':<50} {'depends_on'}"
+    separator = "-" * max(len(header), 80)
+    click.echo(separator)
+    click.echo(header)
+    click.echo(separator)
+    for task in tasks:
+        files_str = ", ".join(task.get("target_files") or []) or "(nenhum)"
+        deps_str = ", ".join(task.get("depends_on") or []) or "—"
+        tid = task.get("id", "?")
+        click.echo(f"{tid:<12} {files_str:<50} {deps_str}")
+    click.echo(separator)
+    click.echo(f"{len(tasks)} tarefas importadas de {plan_md!r} (formato: {fmt}, deps: {deps})")
+
+    # Serialize canonical JSON
+    out = canonical_json(tasks)
+    if output_path:
+        try:
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(out)
+            click.echo(f"Plano salvo em {output_path!r}")
+        except OSError as exc:
+            click.echo(f"Erro ao escrever {output_path!r}: {exc}", err=True)
+            sys.exit(1)
+    else:
+        click.echo(out)
 
 
 # Aliases para compatibilidade caso chamados diretamente

@@ -28,6 +28,7 @@ from meister.herdr.workers import (
 from meister.state import StateManager, RunState, SubtaskState, compute_subtask_id
 from meister.faults import crash_point
 from meister.logger import log_event
+from meister.plan import PlanError, load_plan
 from meister.worker import (
     write_atomic_json,
     read_atomic_json,
@@ -955,6 +956,7 @@ class HerdrEventBridge:
         workspace_id: Optional[str] = None,
         architect_pane_id: Optional[str] = None,
         task: Optional[str] = None,
+        allow_freeform: bool = True,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
         if self.client is None:
@@ -993,7 +995,24 @@ class HerdrEventBridge:
         else:
             raw_plan = await self.client.read_pane(architect_pane_id)
 
-        steps = parse_architect_plan(raw_plan)
+        try:
+            steps = load_plan(raw_plan, allow_freeform=allow_freeform)
+        except PlanError as e:
+            if allow_freeform:
+                steps = parse_architect_plan(raw_plan)
+            else:
+                err_msg = f"Plano rejeitado: {e}"
+                logger.error(err_msg)
+                log_event(
+                    event_type="plan_rejected",
+                    task_id="orchestrator",
+                    exit_code=1,
+                    status="rejected",
+                    reason="plan_invalid",
+                    error=str(e)[:200],
+                )
+                await self.client.show_notification(f"MeisterRouter: {err_msg[:200]}", title="MeisterRouter")
+                return False
 
         sm = self.get_state_manager()
         run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=os.getcwd())

@@ -204,6 +204,7 @@ def test_cli_orchestrate_command_success():
             workspace_id="ws-main",
             architect_pane_id="pane-arch",
             task=None,
+            allow_freeform=False,
         )
 
 
