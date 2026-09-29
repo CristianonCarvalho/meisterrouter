@@ -30,6 +30,8 @@ import time
 from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Set, Tuple
 
+from meister.faults import crash_point
+
 logger = logging.getLogger(__name__)
 
 
@@ -906,6 +908,7 @@ class IntegrationPipeline:
         )
         if not valid_scope:
             return False, f"Violação de escopo detectada no worktree: {out_of_scope}"
+        crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
         passed, out = self.gate.run_verification(repo_path=subtask_wt.worktree_path)
@@ -919,6 +922,7 @@ class IntegrationPipeline:
             return True, "Nenhuma alteração para integrar."
 
         self.last_integrated_sha = commit_sha
+        crash_point("after_worker_commit", task_id=subtask_wt.task_id)
 
         # 4. Merge sequencial na branch de integração
         merged, rollback_sha_or_err = self.wt_mgr.merge_branch_into(
@@ -930,6 +934,7 @@ class IntegrationPipeline:
             return False, f"Falha no merge com a branch de integração: {rollback_sha_or_err}"
 
         rollback_sha = rollback_sha_or_err
+        crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
 
         # 5. Gate determinístico no worktree de integração após o merge
         int_passed, int_out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)
