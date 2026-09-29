@@ -26,6 +26,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import time
 from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Set, Tuple
@@ -73,6 +74,7 @@ class WorktreeManager:
         self.metadata_dir = os.path.join(self.worktrees_dir, ".metadata")
         os.makedirs(self.worktrees_dir, exist_ok=True)
         os.makedirs(self.metadata_dir, exist_ok=True)
+        self._worktree_lock = threading.RLock()
         meister_dir = os.path.join(self.repo_root, ".meister")
         os.makedirs(meister_dir, exist_ok=True)
         meister_gitignore = os.path.join(meister_dir, ".gitignore")
@@ -123,38 +125,74 @@ class WorktreeManager:
         target_branch = branch_name or f"meister/worktree/{safe_id}"
         worktree_path = os.path.join(self.worktrees_dir, safe_id)
 
-        # Se já existir worktree ou branch anterior com esse nome, limpa defensivamente
-        if os.path.exists(worktree_path):
-            self.cleanup_worktree(safe_id, force=True)
-        else:
-            try:
-                self._run_git(["branch", "-D", target_branch])
-            except Exception:
-                pass
+        _transient_patterns = ("commondir", "index.lock", ".lock")
 
-        # Obtém o hash exato do commit base
-        base_commit = self._run_git(["rev-parse", base_ref])
+        with self._worktree_lock:
+            # Se já existir worktree ou branch anterior com esse nome, limpa defensivamente
+            if os.path.exists(worktree_path):
+                self.cleanup_worktree(safe_id, force=True)
+            else:
+                try:
+                    self._run_git(["branch", "-D", target_branch])
+                except Exception:
+                    pass
 
-        # Cria o worktree com o branch novo apontando para base_ref
-        self._run_git([
-            "worktree", "add", "-b", target_branch, worktree_path, base_ref
-        ])
+            # Obtém o hash exato do commit base
+            base_commit = self._run_git(["rev-parse", base_ref])
 
-        info = WorktreeInfo(
-            task_id=task_id,
-            worktree_path=worktree_path,
-            branch_name=target_branch,
-            base_ref=base_ref,
-            base_commit=base_commit,
-            created_at=time.time(),
-            pid=os.getpid(),
-            status="active",
-        )
+            # Cria o worktree com o branch novo apontando para base_ref
+            # Retry limitado para falhas transitórias do git (corrida entre worktrees paralelos)
+            _retry_waits = (0.2, 0.5, 1.0)
+            _last_exc: Optional[Exception] = None
+            for _attempt, _wait in enumerate((*_retry_waits, None), start=1):
+                try:
+                    self._run_git([
+                        "worktree", "add", "-b", target_branch, worktree_path, base_ref
+                    ])
+                    _last_exc = None
+                    break
+                except Exception as exc:
+                    err_str = str(exc)
+                    is_transient = any(pat in err_str for pat in _transient_patterns)
+                    if not is_transient or _wait is None:
+                        raise
+                    logger.warning(
+                        "Falha transitória ao criar worktree para task %s (tentativa %d): %s — aguardando %.1fs",
+                        task_id, _attempt, err_str, _wait,
+                    )
+                    _last_exc = exc
+                    try:
+                        self._run_git(["worktree", "prune"])
+                    except Exception:
+                        pass
+                    try:
+                        self._run_git(["branch", "-D", target_branch])
+                    except Exception:
+                        pass
+                    try:
+                        if os.path.exists(worktree_path):
+                            shutil.rmtree(worktree_path, ignore_errors=True)
+                    except Exception:
+                        pass
+                    time.sleep(_wait)
+            if _last_exc is not None:
+                raise _last_exc
 
-        # Persiste metadados
-        meta_file = os.path.join(self.metadata_dir, f"{safe_id}.json")
-        with open(meta_file, "w", encoding="utf-8") as f:
-            json.dump(asdict(info), f, indent=2)
+            info = WorktreeInfo(
+                task_id=task_id,
+                worktree_path=worktree_path,
+                branch_name=target_branch,
+                base_ref=base_ref,
+                base_commit=base_commit,
+                created_at=time.time(),
+                pid=os.getpid(),
+                status="active",
+            )
+
+            # Persiste metadados
+            meta_file = os.path.join(self.metadata_dir, f"{safe_id}.json")
+            with open(meta_file, "w", encoding="utf-8") as f:
+                json.dump(asdict(info), f, indent=2)
 
         logger.info("Criado worktree para task %s em %s (branch: %s)", task_id, worktree_path, target_branch)
         return info
@@ -498,49 +536,50 @@ class WorktreeManager:
 
         success = True
 
-        # 1. Remove worktree via Git
-        cmd = ["worktree", "remove"]
-        if force:
-            cmd.append("--force")
-        cmd.append(worktree_path)
+        with self._worktree_lock:
+            # 1. Remove worktree via Git
+            cmd = ["worktree", "remove"]
+            if force:
+                cmd.append("--force")
+            cmd.append(worktree_path)
 
-        try:
-            self._run_git(cmd)
-        except Exception as e:
-            logger.debug("Aviso ao remover worktree via git (%s): %s", worktree_path, e)
-            if os.path.exists(worktree_path):
-                try:
-                    shutil.rmtree(worktree_path, ignore_errors=True)
-                except Exception:
-                    success = False
+            try:
+                self._run_git(cmd)
+            except Exception as e:
+                logger.debug("Aviso ao remover worktree via git (%s): %s", worktree_path, e)
+                if os.path.exists(worktree_path):
+                    try:
+                        shutil.rmtree(worktree_path, ignore_errors=True)
+                    except Exception:
+                        success = False
 
-        # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
-        if delete_branch:
-            can_delete = True
-            if archive_unmerged:
-                base_ref = meta_data.get("base_ref")
-                base_commit = meta_data.get("base_commit")
-                archive_ok, _ = self._archive_branch_if_unmerged(
-                    branch_name, task_id, base_ref=base_ref, base_commit=base_commit
-                )
-                if not archive_ok:
-                    can_delete = False
-                    success = False
-                    logger.error(
-                        "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
-                        branch_name,
+            # 2. Deleta o branch do worktree se solicitado (arquivando commits não integrados se solicitado)
+            if delete_branch:
+                can_delete = True
+                if archive_unmerged:
+                    base_ref = meta_data.get("base_ref")
+                    base_commit = meta_data.get("base_commit")
+                    archive_ok, _ = self._archive_branch_if_unmerged(
+                        branch_name, task_id, base_ref=base_ref, base_commit=base_commit
                     )
-            if can_delete:
-                try:
-                    self._run_git(["branch", "-D", branch_name])
-                except Exception as e:
-                    logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
+                    if not archive_ok:
+                        can_delete = False
+                        success = False
+                        logger.error(
+                            "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
+                            branch_name,
+                        )
+                if can_delete:
+                    try:
+                        self._run_git(["branch", "-D", branch_name])
+                    except Exception as e:
+                        logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
 
-        # 3. Executa git worktree prune
-        try:
-            self._run_git(["worktree", "prune"])
-        except Exception as e:
-            logger.debug("Aviso ao rodar git worktree prune: %s", e)
+            # 3. Executa git worktree prune
+            try:
+                self._run_git(["worktree", "prune"])
+            except Exception as e:
+                logger.debug("Aviso ao rodar git worktree prune: %s", e)
 
         # 4. Remove arquivo de metadados
         if os.path.exists(meta_file):

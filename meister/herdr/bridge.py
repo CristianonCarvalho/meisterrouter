@@ -269,7 +269,22 @@ class HerdrEventBridge:
                     task_dict["cwd"] = subtask_wt.worktree_path
                     task_dict["worktree"] = subtask_wt.worktree_path
                 except Exception as e:
-                    logger.warning("Falha ao criar worktree para subtask %s: %s", task_id, e)
+                    err_msg = f"Falha ao criar worktree para subtask {task_id}: {e}"
+                    logger.warning(err_msg)
+                    log_event(
+                        event_type="subtask_rejected",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        reason="worktree_create_failed",
+                        error=str(e)[:200],
+                    )
+                    self.last_failure_reason = err_msg
+                    if active_run_id:
+                        try:
+                            sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
+                        except Exception:
+                            pass
+                    return False
 
             attempt_count = 0
 
