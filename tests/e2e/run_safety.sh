@@ -5,6 +5,8 @@
 #      Esperado: main NAO avanca (nem com o trabalho bom da t1), rc != 0, nada sobra (worktrees/branches/tabs).
 #  S2  SIGKILL no meio + retomada: t2 depende de t1. Mata o orquestrador quando t2 ja esta rodando e roda o MESMO comando.
 #      Esperado: t1 nao e refeita E o resultado final na main tem o trabalho da t1 e da t2.
+#  S3  Crash apos merge antes de persistir estado; S4 crash apos fast-forward antes do estado.
+#      Esperado: injecao apenas no primeiro comando, retomada integra mul e shout sem refazer subtarefas.
 #
 set -uo pipefail
 
@@ -133,5 +135,79 @@ if printf '%s\n' "${RESULTS[@]}" | grep -q "FAIL  S2-d"; then
   echo ">> S2-d FALHOU: se S2-c passou, a HIPOTESE se confirma (t1 pulada, mas seu merge foi descartado ao recriar a"
   echo "   branch de integração). O trabalho antigo deve estar em refs/meister/archive (veja 'refs de arquivo' acima)."
 fi
+
+# =============================================================================================
+echo; echo "################ S3: crash apos merge + retomada ################"
+S3="$WORK/e2e_safety_s3"; ST3="$WORK/e2e_safety_state/s3"
+rm -rf "$ST3"; mkdir -p "$ST3/logs" "$ST3/wt"
+make_disposable_repo "$S3"
+export MEISTER_LOG_DIR="$ST3/logs" MEISTER_WORKTREES_DIR="$ST3/wt"
+cd "$S3" || exit 1
+echo "== orchestrate #1 com crash apos merge $(date +%H:%M:%S)"
+RC3_1=0
+MEISTER_CRASH_AT=after_merge_before_state MEISTER_CRASH_TASK=t1 meister orchestrate --task "$PLAN2" > "$ST3/run1.out" 2>&1 || RC3_1=$?
+FAULT3="$(python3 - "$ST3/logs/orchestration_log.jsonl" <<'PYEOF'
+import json, sys
+try:
+    print(sum(1 for line in open(sys.argv[1]) if (lambda e: (e.get('event') or e.get('event_type')) == 'fault_injected')(json.loads(line))))
+except FileNotFoundError:
+    print(0)
+PYEOF
+)"
+T1_SPAWN_3="$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)"
+T2_SPAWN_3="$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)"
+echo "run #1 rc=$RC3_1 fault_injected=$FAULT3"
+echo "== orchestrate #2 (retomada sem injecao) $(date +%H:%M:%S)"
+RC3=0
+meister orchestrate --task "$PLAN2" > "$ST3/run2.out" 2>&1 || RC3=$?
+echo "rc=$RC3  fim: $(date +%H:%M:%S)"; tail -n 5 "$ST3/run2.out"
+echo "== estado final S3"; repo_state "$S3"
+echo "== eventos S3"; timeline "$MEISTER_LOG_DIR"
+check "S3-a kill/crash injetado registrado no JSONL" '[ "$RC3_1" != 0 ] && [ "$FAULT3" -ge 1 ]'
+check "S3-b retomada terminou com rc 0" '[ "$RC3" = 0 ]'
+check "S3-c subtarefas nao foram reexecutadas" '[ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" = "$T1_SPAWN_3" ] && [ "$T1_SPAWN_3" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = "$T2_SPAWN_3" ] && [ "$T2_SPAWN_3" = 1 ]'
+check "S3-d main tem mul exatamente uma vez" '[ "$(git -C "$S3" show main:calc.py | grep -c "def mul")" = 1 ]'
+check "S3-e main tem shout exatamente uma vez" '[ "$(git -C "$S3" show main:text.py | grep -c "def shout")" = 1 ]'
+check "S3-f pytest passa na main" '(cd "$S3" && "$PY" -m pytest -q)'
+check "S3-g sem worktrees restantes" '[ "$(git -C "$S3" worktree list | wc -l | tr -d " ")" = 1 ]'
+check "S3-h sem branches meister/worktree/* e meister/integration/*" '[ -z "$(git -C "$S3" branch --list "meister/worktree/*" "meister/integration/*")" ]'
+check "S3-i sem tabs worker:* restantes" '[ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
+
+# =============================================================================================
+echo; echo "################ S4: crash apos fast-forward + retomada ################"
+S4="$WORK/e2e_safety_s4"; ST4="$WORK/e2e_safety_state/s4"
+rm -rf "$ST4"; mkdir -p "$ST4/logs" "$ST4/wt"
+make_disposable_repo "$S4"
+export MEISTER_LOG_DIR="$ST4/logs" MEISTER_WORKTREES_DIR="$ST4/wt"
+cd "$S4" || exit 1
+echo "== orchestrate #1 com crash apos fast-forward $(date +%H:%M:%S)"
+RC4_1=0
+MEISTER_CRASH_AT=after_fast_forward_before_state meister orchestrate --task "$PLAN2" > "$ST4/run1.out" 2>&1 || RC4_1=$?
+FAULT4="$(python3 - "$ST4/logs/orchestration_log.jsonl" <<'PYEOF'
+import json, sys
+try:
+    print(sum(1 for line in open(sys.argv[1]) if (lambda e: (e.get('event') or e.get('event_type')) == 'fault_injected')(json.loads(line))))
+except FileNotFoundError:
+    print(0)
+PYEOF
+)"
+T1_SPAWN_4="$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)"
+T2_SPAWN_4="$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)"
+echo "run #1 rc=$RC4_1 fault_injected=$FAULT4"
+echo "== orchestrate #2 (retomada sem injecao) $(date +%H:%M:%S)"
+RC4=0
+meister orchestrate --task "$PLAN2" > "$ST4/run2.out" 2>&1 || RC4=$?
+echo "rc=$RC4  fim: $(date +%H:%M:%S)"; tail -n 5 "$ST4/run2.out"
+echo "== estado final S4"; repo_state "$S4"
+echo "== eventos S4"; timeline "$MEISTER_LOG_DIR"
+check "S4-a kill/crash injetado registrado no JSONL" '[ "$RC4_1" != 0 ] && [ "$FAULT4" -ge 1 ]'
+check "S4-b retomada terminou com rc 0" '[ "$RC4" = 0 ]'
+check "S4-c subtarefas nao foram reexecutadas" '[ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" = "$T1_SPAWN_4" ] && [ "$T1_SPAWN_4" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = "$T2_SPAWN_4" ] && [ "$T2_SPAWN_4" = 1 ]'
+check "S4-d main tem mul exatamente uma vez" '[ "$(git -C "$S4" show main:calc.py | grep -c "def mul")" = 1 ]'
+check "S4-e main tem shout exatamente uma vez" '[ "$(git -C "$S4" show main:text.py | grep -c "def shout")" = 1 ]'
+check "S4-f pytest passa na main" '(cd "$S4" && "$PY" -m pytest -q)'
+check "S4-g sem worktrees restantes" '[ "$(git -C "$S4" worktree list | wc -l | tr -d " ")" = 1 ]'
+check "S4-h sem branches meister/worktree/* e meister/integration/*" '[ -z "$(git -C "$S4" branch --list "meister/worktree/*" "meister/integration/*")" ]'
+check "S4-i sem tabs worker:* restantes" '[ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
 
 print_summary_and_exit
