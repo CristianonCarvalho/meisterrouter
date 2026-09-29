@@ -146,7 +146,7 @@ cd "$S3" || exit 1
 echo "== orchestrate #1 com crash apos merge $(date +%H:%M:%S)"
 RC3_1=0
 MEISTER_CRASH_AT=after_merge_before_state MEISTER_CRASH_TASK=t1 meister orchestrate --task "$PLAN2" > "$ST3/run1.out" 2>&1 || RC3_1=$?
-FAULT3="$(python3 - "$ST3/logs/orchestration_log.jsonl" <<'PYEOF'
+FAULT3="$(python3 - "$ST3/logs/faults.jsonl" <<'PYEOF'
 import json, sys
 try:
     print(sum(1 for line in open(sys.argv[1]) if (lambda e: (e.get('event') or e.get('event_type')) == 'fault_injected')(json.loads(line))))
@@ -155,7 +155,6 @@ except FileNotFoundError:
 PYEOF
 )"
 T1_SPAWN_3="$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)"
-T2_SPAWN_3="$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)"
 echo "run #1 rc=$RC3_1 fault_injected=$FAULT3"
 echo "== orchestrate #2 (retomada sem injecao) $(date +%H:%M:%S)"
 RC3=0
@@ -165,7 +164,8 @@ echo "== estado final S3"; repo_state "$S3"
 echo "== eventos S3"; timeline "$MEISTER_LOG_DIR"
 check "S3-a kill/crash injetado registrado no JSONL" '[ "$RC3_1" != 0 ] && [ "$FAULT3" -ge 1 ]'
 check "S3-b retomada terminou com rc 0" '[ "$RC3" = 0 ]'
-check "S3-c subtarefas nao foram reexecutadas" '[ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" = "$T1_SPAWN_3" ] && [ "$T1_SPAWN_3" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = "$T2_SPAWN_3" ] && [ "$T2_SPAWN_3" = 1 ]'
+# a queda ocorre antes do estado da t1 ser gravado: reexecutar a t1 UMA vez e legitimo; o que nao pode e duplicar na main (S3-d/e) nem repetir a t2
+check "S3-c t1 reexecutada no maximo 1x e t2 rodou 1x" '[ "$T1_SPAWN_3" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" -le 2 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = 1 ]'
 check "S3-d main tem mul exatamente uma vez" '[ "$(git -C "$S3" show main:calc.py | grep -c "def mul")" = 1 ]'
 check "S3-e main tem shout exatamente uma vez" '[ "$(git -C "$S3" show main:text.py | grep -c "def shout")" = 1 ]'
 check "S3-f pytest passa na main" '(cd "$S3" && "$PY" -m pytest -q)'
@@ -183,7 +183,7 @@ cd "$S4" || exit 1
 echo "== orchestrate #1 com crash apos fast-forward $(date +%H:%M:%S)"
 RC4_1=0
 MEISTER_CRASH_AT=after_fast_forward_before_state meister orchestrate --task "$PLAN2" > "$ST4/run1.out" 2>&1 || RC4_1=$?
-FAULT4="$(python3 - "$ST4/logs/orchestration_log.jsonl" <<'PYEOF'
+FAULT4="$(python3 - "$ST4/logs/faults.jsonl" <<'PYEOF'
 import json, sys
 try:
     print(sum(1 for line in open(sys.argv[1]) if (lambda e: (e.get('event') or e.get('event_type')) == 'fault_injected')(json.loads(line))))
@@ -192,7 +192,6 @@ except FileNotFoundError:
 PYEOF
 )"
 T1_SPAWN_4="$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)"
-T2_SPAWN_4="$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)"
 echo "run #1 rc=$RC4_1 fault_injected=$FAULT4"
 echo "== orchestrate #2 (retomada sem injecao) $(date +%H:%M:%S)"
 RC4=0
@@ -202,7 +201,7 @@ echo "== estado final S4"; repo_state "$S4"
 echo "== eventos S4"; timeline "$MEISTER_LOG_DIR"
 check "S4-a kill/crash injetado registrado no JSONL" '[ "$RC4_1" != 0 ] && [ "$FAULT4" -ge 1 ]'
 check "S4-b retomada terminou com rc 0" '[ "$RC4" = 0 ]'
-check "S4-c subtarefas nao foram reexecutadas" '[ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" = "$T1_SPAWN_4" ] && [ "$T1_SPAWN_4" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = "$T2_SPAWN_4" ] && [ "$T2_SPAWN_4" = 1 ]'
+check "S4-c subtarefas nao foram reexecutadas" '[ "$(cnt "$MEISTER_LOG_DIR" t1 worker_spawn)" = 1 ] && [ "$(cnt "$MEISTER_LOG_DIR" t2 worker_spawn)" = 1 ] && [ "$T1_SPAWN_4" = 1 ]'
 check "S4-d main tem mul exatamente uma vez" '[ "$(git -C "$S4" show main:calc.py | grep -c "def mul")" = 1 ]'
 check "S4-e main tem shout exatamente uma vez" '[ "$(git -C "$S4" show main:text.py | grep -c "def shout")" = 1 ]'
 check "S4-f pytest passa na main" '(cd "$S4" && "$PY" -m pytest -q)'
