@@ -683,7 +683,9 @@ class HerdrEventBridge:
                             if not ok_int:
                                 logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
                                 reason = "integration"
-                                if "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
+                                if "sem alterações" in int_err.lower():
+                                    reason = "no_changes"
+                                elif "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
                                     reason = "gate"
                                 elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
                                     reason = "scope"

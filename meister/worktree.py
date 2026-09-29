@@ -897,6 +897,7 @@ class IntegrationPipeline:
         5. Executa o portão de verificação no worktree de integração.
         6. Se o portão falhar, faz rollback (git reset --hard) para o commit anterior.
         """
+        self.last_integrated_sha = None
         if self.integration_info is None:
             return False, "Pipeline de integração não foi inicializado."
 
@@ -919,6 +920,62 @@ class IntegrationPipeline:
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
         commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
         if not commit_sha:
+            if target_files:
+                base_run = getattr(self.integration_info, "base_commit", None)
+                if not base_run:
+                    try:
+                        base_run = self.wt_mgr._run_git(
+                            ["merge-base", self.base_ref, self.integration_info.branch_name],
+                            cwd=self.integration_info.worktree_path,
+                        ).strip()
+                    except Exception:
+                        base_run = None
+
+                existing_sha = None
+                matched_id = subtask_wt.task_id
+                if base_run:
+                    try:
+                        log_out = self.wt_mgr._run_git(
+                            ["log", "--format=%H%x00%s", f"{base_run}..{self.integration_info.branch_name}"],
+                            cwd=self.integration_info.worktree_path,
+                        )
+                        candidate_ids = [subtask_wt.task_id]
+                        if commit_message and commit_message.startswith("subtask("):
+                            idx = commit_message.find("):")
+                            if idx != -1:
+                                extracted = commit_message[len("subtask("):idx].strip()
+                                if extracted and extracted not in candidate_ids:
+                                    candidate_ids.append(extracted)
+
+                        subtask_sha = None
+                        merge_sha = None
+                        for line in log_out.splitlines():
+                            line = line.strip()
+                            if not line:
+                                continue
+                            parts = line.split("\x00", 1)
+                            if len(parts) != 2:
+                                continue
+                            sha, subject = parts
+                            for tid in candidate_ids:
+                                if subject.startswith(f"subtask({tid}):"):
+                                    if not subtask_sha:
+                                        subtask_sha = sha
+                                        matched_id = tid
+                                elif subject.startswith(f"Merge subtask {tid} ("):
+                                    if not merge_sha:
+                                        merge_sha = sha
+                                        if not subtask_sha:
+                                            matched_id = tid
+                        existing_sha = subtask_sha or merge_sha
+                    except Exception as e:
+                        logger.debug("Erro ao verificar commits anteriores da subtarefa no git log: %s", e)
+
+                if existing_sha:
+                    self.last_integrated_sha = existing_sha
+                    return True, f"Subtarefa {matched_id} já integrada anteriormente ({existing_sha[:8]})."
+
+                return False, f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})"
             return True, "Nenhuma alteração para integrar."
 
         self.last_integrated_sha = commit_sha
