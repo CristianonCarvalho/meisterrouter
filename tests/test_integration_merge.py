@@ -489,3 +489,223 @@ def test_integration_last_integrated_sha_does_not_leak_to_noop(git_test_repo):
 
     pipeline.abort_integration()
 
+
+def test_integration_worker_committed_all_changes_integrated(git_test_repo):
+    """(B) worker edita app.py e commita tudo no worktree: ok is True, mergeado, last_integrated_sha = worker HEAD."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-b")
+
+    subtask_wt = wt_mgr.create_worktree("worker-b", base_ref=int_info.branch_name)
+    subprocess.run(["git", "config", "user.name", "Worker Dev"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "config", "user.email", "worker@example.com"], cwd=subtask_wt.worktree_path, check=True)
+
+    app_file = os.path.join(subtask_wt.worktree_path, "app.py")
+    with open(app_file, "a", encoding="utf-8") as f:
+        f.write("\ndef worker_func():\n    return 'from_worker'\n")
+
+    subprocess.run(["git", "add", "app.py"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "commit", "-m", "worker: implement worker_func"], cwd=subtask_wt.worktree_path, check=True)
+    worker_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=subtask_wt.worktree_path, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+    assert ok is True, f"integrate_subtask failed: {msg}"
+    assert pipeline.last_integrated_sha == worker_head
+
+    # Verify integration worktree contains the new function
+    with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
+        int_content = f.read()
+    assert "def worker_func():" in int_content
+
+    # Verify merge entered integration git log
+    log_out = wt_mgr._run_git(["log", "--format=%H", "HEAD"], cwd=int_info.worktree_path)
+    assert worker_head in log_out.splitlines()
+
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_worker_committed_and_loose_edits_both_integrated(git_test_repo):
+    """(C) commita e deixa uma segunda edição solta em app.py: ok is True e a integração contém as DUAS funções."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-c")
+
+    subtask_wt = wt_mgr.create_worktree("worker-c", base_ref=int_info.branch_name)
+    subprocess.run(["git", "config", "user.name", "Worker Dev"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "config", "user.email", "worker@example.com"], cwd=subtask_wt.worktree_path, check=True)
+
+    app_file = os.path.join(subtask_wt.worktree_path, "app.py")
+    with open(app_file, "a", encoding="utf-8") as f:
+        f.write("\ndef committed_func():\n    return 'committed'\n")
+
+    subprocess.run(["git", "add", "app.py"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "commit", "-m", "worker: committed func"], cwd=subtask_wt.worktree_path, check=True)
+
+    with open(app_file, "a", encoding="utf-8") as f:
+        f.write("\ndef loose_func():\n    return 'loose'\n")
+
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+    assert ok is True, f"integrate_subtask failed: {msg}"
+
+    with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
+        int_content = f.read()
+    assert "def committed_func():" in int_content
+    assert "def loose_func():" in int_content
+
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_worker_commits_out_of_scope_file_rejected(git_test_repo):
+    """(D) worker commita um arquivo FORA de target_files: ok is False com violação de escopo, integração intacta."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-d")
+
+    subtask_wt = wt_mgr.create_worktree("worker-d", base_ref=int_info.branch_name)
+    subprocess.run(["git", "config", "user.name", "Worker Dev"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "config", "user.email", "worker@example.com"], cwd=subtask_wt.worktree_path, check=True)
+
+    # Worker modifies app.py and also commits an unauthorized file
+    with open(os.path.join(subtask_wt.worktree_path, "app.py"), "a", encoding="utf-8") as f:
+        f.write("\ndef allowed_func():\n    return True\n")
+    with open(os.path.join(subtask_wt.worktree_path, "secret_out_of_scope.py"), "w", encoding="utf-8") as f:
+        f.write("SECRET = 42\n")
+
+    subprocess.run(["git", "add", "."], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "commit", "-m", "worker: rogue changes"], cwd=subtask_wt.worktree_path, check=True)
+
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+    assert ok is False
+    assert "violação de escopo" in msg.lower()
+    assert "secret_out_of_scope.py" in msg
+
+    # Integration worktree remains intact: out of scope file does NOT exist
+    assert not os.path.exists(os.path.join(int_info.worktree_path, "secret_out_of_scope.py"))
+    with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
+        assert "def allowed_func():" not in f.read()
+
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_worker_commits_failing_gate_rejected(git_test_repo):
+    """(E) worker commita código que faz o gate falhar (teste quebrado): ok is False, integração intacta."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-e")
+
+    subtask_wt = wt_mgr.create_worktree("worker-e", base_ref=int_info.branch_name)
+    subprocess.run(["git", "config", "user.name", "Worker Dev"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "config", "user.email", "worker@example.com"], cwd=subtask_wt.worktree_path, check=True)
+
+    app_file = os.path.join(subtask_wt.worktree_path, "app.py")
+    with open(app_file, "w", encoding="utf-8") as f:
+        f.write("def add(a, b):\n    return 0  # breaks test_add\n")
+
+    subprocess.run(["git", "add", "app.py"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "commit", "-m", "worker: broken test commit"], cwd=subtask_wt.worktree_path, check=True)
+
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+    assert ok is False
+    assert "portão determinístico falhou" in msg.lower()
+
+    # Integration worktree remains intact
+    with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
+        assert "return 0" not in f.read()
+
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_integration_regression_worker_without_commit_or_change(git_test_repo):
+    """(F) regressão: worker sem commit e sem mudança + target_files continua False com 'sem alterações'; sem target_files continua True."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-f")
+
+    # F1: with target_files -> False with 'sem alterações'
+    subtask_wt1 = wt_mgr.create_worktree("worker-f1", base_ref=int_info.branch_name)
+    ok1, msg1 = pipeline.integrate_subtask(subtask_wt1, target_files=["app.py"])
+    assert ok1 is False
+    assert "sem alterações" in msg1.lower()
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt1.task_id, force=True)
+
+    # F2: without target_files -> True with 'nenhuma alteração'
+    subtask_wt2 = wt_mgr.create_worktree("worker-f2", base_ref=int_info.branch_name)
+    ok2, msg2 = pipeline.integrate_subtask(subtask_wt2, target_files=None)
+    assert ok2 is True
+    assert "nenhuma alteração" in msg2.lower()
+    assert pipeline.last_integrated_sha is None
+    wt_mgr.cleanup_worktree(subtask_wt2.task_id, force=True)
+
+    pipeline.abort_integration()
+
+
+def test_integration_multiple_worker_commits_all_integrated(git_test_repo):
+    """(G) múltiplos commits do worker: todos entram."""
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration("run-worker-commits-g")
+
+    subtask_wt = wt_mgr.create_worktree("worker-g", base_ref=int_info.branch_name)
+    subprocess.run(["git", "config", "user.name", "Worker Dev"], cwd=subtask_wt.worktree_path, check=True)
+    subprocess.run(["git", "config", "user.email", "worker@example.com"], cwd=subtask_wt.worktree_path, check=True)
+
+    app_file = os.path.join(subtask_wt.worktree_path, "app.py")
+    commits = []
+    for i in range(1, 4):
+        with open(app_file, "a", encoding="utf-8") as f:
+            f.write(f"\ndef func_{i}():\n    return {i}\n")
+        subprocess.run(["git", "add", "app.py"], cwd=subtask_wt.worktree_path, check=True)
+        subprocess.run(["git", "commit", "-m", f"worker: add func_{i}"], cwd=subtask_wt.worktree_path, check=True)
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=subtask_wt.worktree_path, capture_output=True, text=True, check=True
+        ).stdout.strip()
+        commits.append(sha)
+
+    final_worker_head = commits[-1]
+
+    ok, msg = pipeline.integrate_subtask(subtask_wt, target_files=["app.py"])
+    assert ok is True, f"integrate_subtask failed: {msg}"
+    assert pipeline.last_integrated_sha == final_worker_head
+
+    # All functions in app.py in integration worktree
+    with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
+        content = f.read()
+    for i in range(1, 4):
+        assert f"def func_{i}():" in content
+
+    # All commits are ancestors of integration HEAD
+    for sha in commits:
+        res = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", sha, "HEAD"],
+            cwd=int_info.worktree_path,
+        )
+        assert res.returncode == 0, f"Commit {sha} is not an ancestor of integration HEAD"
+
+    wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
