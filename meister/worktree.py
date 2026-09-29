@@ -958,6 +958,17 @@ class IntegrationPipeline:
         # 3. Commit das alterações no worktree do worker
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
         commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
+        if not commit_sha and getattr(subtask_wt, "base_commit", None):
+            try:
+                count_str = self.wt_mgr._run_git(
+                    ["rev-list", "--count", f"{subtask_wt.base_commit}..HEAD"],
+                    cwd=subtask_wt.worktree_path,
+                )
+                if int(count_str.strip()) > 0:
+                    commit_sha = self.wt_mgr._run_git(["rev-parse", "HEAD"], cwd=subtask_wt.worktree_path)
+            except Exception as e:
+                logger.debug("Erro ao verificar commits do worker em %s: %s", subtask_wt.worktree_path, e)
+
         if not commit_sha:
             if target_files:
                 base_run = getattr(self.integration_info, "base_commit", None)
