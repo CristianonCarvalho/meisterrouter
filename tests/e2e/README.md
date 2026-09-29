@@ -43,6 +43,8 @@ Testa a orquestração concorrente de subtarefas independentes (arquivos disjunt
 Valida a robustez e invariantes de segurança do orquestrador sob condições adversas:
 - **Cenário S1 (Gate Reprova):** Uma subtarefa válida e outra contendo um teste que falha propositalmente. Garante que o gate determinístico bloqueia a integração, a branch `main` permanece intacta no commit base original, nenhum código inválido é incorporado e todos os worktrees temporários são limpos.
 - **Cenário S2 (SIGKILL e Retomada):** Interrompe o orquestrador com sinal `SIGKILL` enquanto uma subtarefa dependente está em execução, e em seguida reexecuta exatamente o mesmo comando. Garante a idempotência da retomada: subtarefas já concluídas não são reexecutadas e o resultado integrado na `main` preserva o trabalho de todas as tarefas.
+- **Cenário S3 (Crash após merge):** Injeta `MEISTER_CRASH_AT=after_merge_before_state` e `MEISTER_CRASH_TASK=t1` somente no primeiro `meister orchestrate`, simulando uma queda após o merge e antes da persistência do estado. A retomada roda sem injeção e verifica o evento `fault_injected`, ausência de reexecução das subtarefas, integração única de `mul` e `shout`, `pytest` e limpeza de worktrees, branches e abas.
+- **Cenário S4 (Crash após fast-forward):** Injeta `MEISTER_CRASH_AT=after_fast_forward_before_state` somente no primeiro `meister orchestrate`, simulando uma queda após o fast-forward e antes da persistência do estado. A retomada sem injeção valida os mesmos invariantes de S3.
 
 ---
 
