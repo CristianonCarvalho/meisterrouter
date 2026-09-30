@@ -7,6 +7,9 @@
 #  P1  Real (luna/gemini): plano superpowers canônico (mul + shout), import (-o plan.json),
 #      validate plan.json, orchestrate --plan-file plan.json, retomada do mesmo comando (idempotência),
 #      checagens determinísticas de git, pytest, eventos JSONL e limpeza de recursos.
+#  P2  Real (luna/gemini): dependência real entre tarefas sem arquivo em comum (mul em calc.py
+#      e square em geo.py dependendo de mul); valida import sequencial com target_files disjuntos,
+#      ordem temporal de worker_spawn da task_2 após subtask_completed da task_1, integridade e limpeza.
 #
 set -uo pipefail
 
@@ -167,5 +170,118 @@ check "P1-j retomada NAO criou novos worker_spawn"        '[ "$T1_SPAWN_2" = 1 ]
 check "P1-k sem worktrees restantes"                      '[ "$(git -C "$P1" worktree list | wc -l | tr -d " ")" = 1 ]'
 check "P1-l sem branches meister/worktree/* e meister/integration/*" '[ -z "$(git -C "$P1" branch --list "meister/worktree/*" "meister/integration/*")" ]'
 check "P1-m sem tabs worker:* restantes"                  '[ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
+
+# =============================================================================================
+echo; echo "################ P2: dependencia real entre tasks sem arquivo em comum ################"
+P2="$WORK/e2e_plan_p2"; ST2="$WORK/e2e_plan_state/p2"
+rm -rf "$ST2"; mkdir -p "$ST2/logs" "$ST2/wt"
+make_disposable_repo "$P2"
+export MEISTER_LOG_DIR="$ST2/logs" MEISTER_WORKTREES_DIR="$ST2/wt"
+cd "$P2" || exit 1
+
+cat <<'EOF' > plan.md
+# Plano Dependencia Implementation Plan
+
+**Goal:** mul em calc.py e square em geo.py, que depende de mul.
+
+## Global Constraints
+- Python 3, sem dependências externas.
+
+### Task 1: mul
+**Files:**
+- Modify: `calc.py`
+- Test: `tests/test_calc.py`
+
+Adicione mul(a, b) que retorna a*b em calc.py e test_mul em tests/test_calc.py. Nao altere outros arquivos.
+
+### Task 2: square
+**Files:**
+- Create: `geo.py`
+- Test: `tests/test_geo.py`
+
+Crie geo.py com a funcao square(x) que retorna mul(x, x), usando 'from calc import mul' (a funcao mul e criada por outra tarefa em calc.py; NAO a reimplemente nem altere calc.py). Crie tests/test_geo.py com test_square verificando square(3) == 9. Nao altere outros arquivos.
+EOF
+
+echo "== passo 1: meister plan import $(date +%H:%M:%S)"
+RC_P2_IMPORT=0
+meister plan import --format superpowers plan.md -o plan.json > "$ST2/import.out" 2>&1 || RC_P2_IMPORT=$?
+
+echo "== passo 2: meister plan validate $(date +%H:%M:%S)"
+RC_P2_VALIDATE=0
+meister plan validate plan.json > "$ST2/validate.out" 2>&1 || RC_P2_VALIDATE=$?
+
+echo "== passo 3: meister orchestrate --plan-file $(date +%H:%M:%S)"
+RC_P2_ORCH=0
+meister orchestrate --plan-file plan.json > "$ST2/run.out" 2>&1 || RC_P2_ORCH=$?
+T1_SPAWN_P2="$(cnt "$MEISTER_LOG_DIR" task_1 worker_spawn)"
+T2_SPAWN_P2="$(cnt "$MEISTER_LOG_DIR" task_2 worker_spawn)"
+
+echo "== estado final P2"; repo_state "$P2"
+echo "== eventos P2"; timeline "$MEISTER_LOG_DIR"
+
+verify_p2_plan_json() {
+  [ "$RC_P2_IMPORT" = 0 ] || return 1
+  python3 -c '
+import json, sys
+try:
+    d = json.load(open("plan.json"))
+    assert len(d) == 2
+    by_id = {t["id"]: t for t in d}
+    t1 = by_id["task_1"]
+    t2 = by_id["task_2"]
+    assert t1.get("depends_on") == []
+    assert t2.get("depends_on") == ["task_1"]
+    f1 = set(t1.get("target_files", []))
+    f2 = set(t2.get("target_files", []))
+    assert len(f1) > 0 and len(f2) > 0
+    assert f1.isdisjoint(f2)
+except Exception:
+    sys.exit(1)
+'
+}
+
+verify_p2_order() {
+  python3 - "$MEISTER_LOG_DIR/orchestration_log.jsonl" <<'PYEOF'
+import json, sys
+from datetime import datetime
+
+t1_done = None
+t2_spawn = None
+
+try:
+    for line in open(sys.argv[1]):
+        try:
+            e = json.loads(line)
+        except Exception:
+            continue
+        tid = e.get("task_id")
+        ev = e.get("event") or e.get("event_type")
+        ts = e.get("ts") or e.get("timestamp")
+        if not ts:
+            continue
+        if tid == "task_1" and ev == "subtask_completed":
+            t1_done = ts
+        elif tid == "task_2" and ev == "worker_spawn" and t2_spawn is None:
+            t2_spawn = ts
+
+    if not t1_done or not t2_spawn:
+        sys.exit(1)
+
+    d1 = datetime.fromisoformat(t1_done.replace("Z", "+00:00"))
+    d2 = datetime.fromisoformat(t2_spawn.replace("Z", "+00:00"))
+    assert d2 > d1
+except Exception:
+    sys.exit(1)
+PYEOF
+}
+
+check "P2-a import rc 0, plan.json com 2 tarefas, dependencias e target_files disjuntos" 'verify_p2_plan_json'
+check "P2-b validate rc 0 e orchestrate rc 0"                    '[ "$RC_P2_VALIDATE" = 0 ] && [ "$RC_P2_ORCH" = 0 ]'
+check "P2-c worker_spawn da task_2 ocorreu apos subtask_completed da task_1" 'verify_p2_order'
+check "P2-d main tem geo.py contendo from calc import mul e def square" 'git -C "$P2" show main:geo.py | grep -q "from calc import mul" && git -C "$P2" show main:geo.py | grep -q "def square"'
+check "P2-e main tem def mul exatamente 1x em calc.py"           '[ "$(git -C "$P2" show main:calc.py | grep -c "def mul")" = 1 ]'
+check "P2-f pytest passa na main"                                '(cd "$P2" && "$PY" -m pytest -q)'
+check "P2-g worker_spawn de cada task == 1"                     '[ "$T1_SPAWN_P2" = 1 ] && [ "$T2_SPAWN_P2" = 1 ]'
+check "P2-h sem worktrees, branches temporarias ou tabs restantes" '[ "$(git -C "$P2" worktree list | wc -l | tr -d " ")" = 1 ] && [ -z "$(git -C "$P2" branch --list "meister/worktree/*" "meister/integration/*")" ] && [ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
 
 print_summary_and_exit
