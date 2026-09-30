@@ -151,7 +151,14 @@ def init(target, type_, no_hooks):
 def classify(context, model, run_id, task_id):
     """Executa a classificação de complexidade da tarefa."""
     try:
-        result = classify_task(context=context, model=model, run_id=run_id, task_id=task_id)
+        cfg = load_config()
+        result = classify_task(
+            context=context,
+            model=model,
+            run_id=run_id,
+            task_id=task_id,
+            implementers=cfg.workers.tier_order,
+        )
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as e:
         sys.stderr.write(f"Erro no classify: {e}\n")
@@ -1147,6 +1154,7 @@ def config_show(config_path, json_format):
                 "provider": cfg.master.provider,
                 "temperature": cfg.master.temperature,
             },
+            "router": {"mode": cfg.router.mode},
             "source": cfg.config_source,
             "version": cfg.version,
             "workers": {
@@ -1193,6 +1201,9 @@ def config_show(config_path, json_format):
     click.echo(f"  Model: {cfg.master.model}")
     click.echo(f"  Temperature: {cfg.master.temperature}")
     click.echo(f"  API Key Env: {cfg.master.api_key_env}")
+
+    click.echo("\nRouter:")
+    click.echo(f"  Mode: {cfg.router.mode}")
 
     click.echo("\nArquiteto / Planejador:")
     click.echo(f"  Harness: {cfg.architect.harness}")

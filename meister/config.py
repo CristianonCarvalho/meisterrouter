@@ -49,6 +49,11 @@ class MasterConfig:
 
 
 @dataclass
+class RouterConfig:
+    mode: str = "first"
+
+
+@dataclass
 class ArchitectConfig:
     harness: str = "claude"
     model: str = "claude-sonnet-5-5"
@@ -148,6 +153,7 @@ class ConcurrencyConfig:
 class MeisterConfig:
     version: str = "1.0"
     master: MasterConfig = field(default_factory=MasterConfig)
+    router: RouterConfig = field(default_factory=RouterConfig)
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
@@ -174,6 +180,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         temperature=float(master_data.get("temperature", 0.0)),
         api_key_env=master_data.get("api_key_env", "OPENROUTER_API_KEY"),
     )
+
+    # Router
+    router_data = data.get("router") or {}
+    if isinstance(router_data, dict):
+        router = RouterConfig(mode=_as_str(router_data.get("mode"), "first"))
+    else:
+        router = RouterConfig(mode=_as_str(router_data))
 
     # Architect
     architect_data = data.get("architect") or {}
@@ -249,6 +262,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     return MeisterConfig(
         version=version,
         master=master,
+        router=router,
         architect=architect,
         workers=workers,
         concurrency=concurrency,
@@ -312,6 +326,15 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
 
     # Erros
+    if config.router.mode not in {"first", "jev"}:
+        issues.append(
+            ConfigIssue(
+                level="error",
+                path="router.mode",
+                message=f"router.mode inválido: '{config.router.mode}'. Valores válidos: first, jev",
+            )
+        )
+
     # 1. tier_order efetivo vazio
     if not config.workers.tier_order:
         if config.workers.disabled:
@@ -438,6 +461,20 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 )
 
     # Avisos
+    if config.router.mode == "jev":
+        try:
+            from meister.jev import get_api_key
+
+            get_api_key()
+        except ValueError:
+            issues.append(
+                ConfigIssue(
+                    level="warning",
+                    path="router.mode",
+                    message="OPENROUTER_API_KEY ausente; sem chave, o roteamento cai na primeira via",
+                )
+            )
+
     for i, tier in enumerate(config.workers.tier_order):
         h = (tier.harness or "native").strip().lower()
         # 1. Harness desconhecido
@@ -484,7 +521,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             )
 
         # 4. best_for / cost_per_m_tokens preenchidos
-        if tier.best_for:
+        if tier.best_for and config.router.mode == "first":
             issues.append(
                 ConfigIssue(
                     level="info",
@@ -492,7 +529,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     message="Campo 'best_for' preenchido nao influencia o roteamento",
                 )
             )
-        if tier.cost_per_m_tokens != 0.0:
+        if tier.cost_per_m_tokens != 0.0 and config.router.mode == "first":
             issues.append(
                 ConfigIssue(
                     level="info",

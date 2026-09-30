@@ -36,6 +36,7 @@ from meister.worker import (
     WorkerInfrastructureError,
     ensure_meister_dir,
 )
+from meister.jev import classify_task
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,9 @@ class HerdrEventBridge:
     ) -> bool:
         """Execute a single subtask with automated quota failover and tier escalation.
 
+        Jev routing only escalates forward in tier_order; selecting a later tier
+        does not retain an earlier, cheaper fallback.
+
         Returns True if subtask completes successfully, False otherwise.
         """
         if isinstance(subtask, SubtaskNode):
@@ -233,11 +237,12 @@ class HerdrEventBridge:
         active_run_id = run_id or self.current_run_id
         sm = self.get_state_manager()
         subtask_id = compute_subtask_id(active_run_id or "default", task_id, description)
+        existing_subtask = None
 
         # Retomada idempotente: se a subtask já estiver COMPLETED no SQLite, pula reexecução (Achados #7, #28)
         if active_run_id:
-            existing = sm.get_subtask(subtask_id)
-            if existing and existing.get("status") == SubtaskState.COMPLETED.value:
+            existing_subtask = sm.get_subtask(subtask_id)
+            if existing_subtask and existing_subtask.get("status") == SubtaskState.COMPLETED.value:
                 logger.info("Subtask %s (%s) já concluída na execução %s. Pulando.", task_id, subtask_id, active_run_id)
                 return True
 
@@ -245,9 +250,68 @@ class HerdrEventBridge:
         current_tier = initial_tier
         if not current_tier:
             if self.config.workers and self.config.workers.tier_order:
-                current_tier = self.config.workers.tier_order[0].name
+                tier_order = self.config.workers.tier_order
+                current_tier = tier_order[0].name
             else:
+                tier_order = []
                 current_tier = "luna"
+
+            if getattr(getattr(self.config, "router", None), "mode", "first") == "jev" and len(tier_order) > 1:
+                tier_names = {tier.name for tier in tier_order}
+                if (
+                    existing_subtask
+                    and existing_subtask.get("status") == SubtaskState.RUNNING.value
+                    and existing_subtask.get("assigned_tier") in tier_names
+                ):
+                    current_tier = existing_subtask["assigned_tier"]
+                    log_event(
+                        event_type="route_decision",
+                        run_id=active_run_id,
+                        task_id=subtask_id,
+                        tier=current_tier,
+                        classification=None,
+                        confidence=None,
+                        fallback_rule_applied=False,
+                        status="resumed",
+                    )
+                else:
+                    context = f"{description}\nArquivos: {', '.join(str(path) for path in target_files or [])}"[:2000]
+                    try:
+                        result = await asyncio.to_thread(
+                            classify_task,
+                            context=context,
+                            model=self.config.master.model,
+                            task_id=subtask_id,
+                            run_id=active_run_id,
+                            implementers=tier_order,
+                        )
+                        recommended = result.get("recommended_implementer")
+                        if recommended in tier_names:
+                            current_tier = recommended
+                        log_event(
+                            event_type="route_decision",
+                            run_id=active_run_id,
+                            task_id=subtask_id,
+                            tier=current_tier,
+                            classification=result.get("classification"),
+                            confidence=result.get("classification_confidence"),
+                            fallback_rule_applied=bool(result.get("fallback_rule_applied", False))
+                            or recommended not in tier_names,
+                        )
+                    except Exception as e:
+                        logger.warning("Jev routing failed for subtask %s; using first tier: %s", task_id, e)
+                        current_tier = tier_order[0].name
+                        log_event(
+                            event_type="route_decision",
+                            run_id=active_run_id,
+                            task_id=subtask_id,
+                            tier=current_tier,
+                            classification=None,
+                            confidence=None,
+                            fallback_rule_applied=True,
+                            status="fallback",
+                            error=str(e)[:200],
+                        )
 
         if sm and hasattr(self.spawner, "get_first_available_tier"):
             tier_obj = self.spawner.get_tier(current_tier) if hasattr(self.spawner, "get_tier") else None

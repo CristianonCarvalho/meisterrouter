@@ -9,6 +9,7 @@ from meister.jev import (
     clear_decisions_cache,
     get_decisions_cache,
 )
+from meister.config import WorkerTier
 
 
 @pytest.fixture(autouse=True)
@@ -203,6 +204,94 @@ def test_classify_task_disable_luna(monkeypatch):
         assert res["recommended_implementer"] == "gemini_flash"
 
 
+def test_classify_task_configured_implementers_build_criteria_and_order():
+    implementers = [
+        WorkerTier(
+            name="copilot",
+            harness="copilot",
+            model="gpt-6-luna",
+            cost_per_m_tokens=0.2,
+            best_for=["github_integration", "code_completion"],
+        ),
+        WorkerTier(name="local", harness="native", model="", best_for=["small_edits"]),
+        WorkerTier(name="premium", harness="claude", model="sonnet", cost_per_m_tokens=0.0),
+    ]
+    mock_raw = {
+        "answers": {
+            "complexity": {"choice": "medium", "confidence": 0.9},
+            "recommended_implementer": {"choice": "local", "confidence": 0.95},
+        },
+        "usage": {},
+    }
+
+    with patch("meister.jev.call_decisions", return_value=mock_raw) as mock_call:
+        result = classify_task("Configured routes", implementers=implementers)
+
+    criteria = mock_call.call_args.kwargs["questions"]["recommended_implementer"]["criteria"]
+    assert list(criteria) == ["copilot", "local", "premium"]
+    assert criteria["copilot"] == "gpt-6-luna via copilot ($0.2/M): github_integration, code_completion"
+    assert criteria["local"] == "native via native: small_edits"
+    assert criteria["premium"] == "sonnet via claude"
+    assert result["recommended_implementer"] == "local"
+    assert result["fallback_chain"] == ["premium"]
+
+
+def test_classify_task_configured_invalid_answer_falls_back_to_first():
+    implementers = [
+        WorkerTier(name="copilot", harness="copilot"),
+        WorkerTier(name="luna", harness="native"),
+    ]
+    mock_raw = {
+        "answers": {
+            "complexity": {"choice": "medium"},
+            "recommended_implementer": {"choice": "not-configured"},
+        },
+        "usage": {},
+    }
+
+    with patch("meister.jev.call_decisions", return_value=mock_raw):
+        result = classify_task("Configured routes", implementers=implementers)
+
+    assert result["recommended_implementer"] == "copilot"
+    assert result["fallback_rule_applied"] is True
+    assert result["fallback_chain"] == ["luna"]
+
+
+def test_classify_task_configured_api_failure_uses_first_and_ordered_fallback():
+    implementers = [
+        WorkerTier(name="copilot", harness="copilot"),
+        WorkerTier(name="luna", harness="native"),
+    ]
+    with patch("meister.jev.call_decisions", side_effect=RuntimeError("offline")):
+        result = classify_task("Security migration", implementers=implementers)
+
+    assert result["recommended_implementer"] == "copilot"
+    assert result["fallback_rule_applied"] is True
+    assert result["fallback_chain"] == ["luna"]
+
+
+def test_classify_task_configured_last_tier_has_empty_fallback_chain(monkeypatch):
+    monkeypatch.setenv("MEISTER_DISABLE_LUNA", "true")
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "unknown")
+    implementers = [
+        WorkerTier(name="copilot", harness="copilot"),
+        WorkerTier(name="custom", harness="native"),
+    ]
+    mock_raw = {
+        "answers": {
+            "complexity": {"choice": "small"},
+            "recommended_implementer": {"choice": "custom"},
+        },
+        "usage": {},
+    }
+
+    with patch("meister.jev.call_decisions", return_value=mock_raw):
+        result = classify_task("Fix typo", implementers=implementers)
+
+    assert result["recommended_implementer"] == "custom"
+    assert result["fallback_chain"] == []
+
+
 # ─── Testes do control_cycle (Gate Hard, Cost, Rule Fallback) ────────────────
 
 def test_control_cycle_success_with_cost():
@@ -285,4 +374,3 @@ def test_e2e10_fallback_rule_applied_null_confidence():
 
         ctl_json = json.loads(json.dumps(ctl_res))
         assert ctl_json["action_confidence"] is None
-

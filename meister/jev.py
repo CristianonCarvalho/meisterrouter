@@ -22,7 +22,7 @@ import os
 import time
 import uuid
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 import requests
 from pydantic import BaseModel, Field, ValidationError
@@ -35,6 +35,7 @@ except ImportError:
     pass
 
 from meister.logger import log_classify, log_control, get_current_run, save_current_run
+from meister.config import WorkerTier
 
 logger = logging.getLogger(__name__)
 
@@ -245,6 +246,7 @@ def classify_task(
     use_cache: bool = True,
     run_id: Optional[str] = None,
     attempt: int = 1,
+    implementers: Optional[Sequence[WorkerTier]] = None,
 ) -> Dict[str, Any]:
     """Classifica a complexidade da tarefa e sugere o subagente ideal.
 
@@ -264,6 +266,28 @@ def classify_task(
     )
     safe_task_id = task_id or hashlib.sha256(f"classify:{context}".encode("utf-8")).hexdigest()[:16]
     save_current_run(run_id=resolved_run_id, task_id=safe_task_id)
+    implementer_names = [tier.name for tier in implementers] if implementers is not None else []
+    if implementers is not None and not implementers:
+        raise ValueError("implementers não pode ser uma sequência vazia")
+
+    if implementers is None:
+        implementer_criteria = {
+            "luna": "GPT-6 Luna ($0.077/M): altíssima eficiência para tarefas small/medium.",
+            "gemini_flash": "Gemini 3.8 Flash ($0.577/M): líder de automação e raciocínio para código complexo ou falha.",
+            "haiku": "Claude 4.5 Haiku ($0.77/M): subagente lite rápido para features médias e refatorações.",
+            "sonnet": "Claude Sonnet 5 ($3.00/M): raciocínio máximo para recuperação arquitetural e regressões.",
+        }
+    else:
+        implementer_criteria = {}
+        for tier in implementers:
+            description_parts = [tier.model or tier.harness, f"via {tier.harness}" if tier.harness else ""]
+            if tier.cost_per_m_tokens:
+                description_parts.append(f"(${tier.cost_per_m_tokens}/M)")
+            description = " ".join(part for part in description_parts if part)
+            if tier.best_for:
+                description += f": {', '.join(tier.best_for)}"
+            implementer_criteria[tier.name] = description
+
     state = {"task_description": context}
     questions = {
         "complexity": {
@@ -279,12 +303,7 @@ def classify_task(
         "recommended_implementer": {
             "type": "choice",
             "instructions": "Qual subagente de implementação é mais adequado considerando custo e precisão?",
-            "criteria": {
-                "luna": "GPT-6 Luna ($0.077/M): altíssima eficiência para tarefas small/medium.",
-                "gemini_flash": "Gemini 3.8 Flash ($0.577/M): líder de automação e raciocínio para código complexo ou falha.",
-                "haiku": "Claude 4.5 Haiku ($0.77/M): subagente lite rápido para features médias e refatorações.",
-                "sonnet": "Claude Sonnet 5 ($3.00/M): raciocínio máximo para recuperação arquitetural e regressões.",
-            },
+            "criteria": implementer_criteria,
         },
     }
 
@@ -304,9 +323,17 @@ def classify_task(
         cls_conf = float(cls_ans.get("confidence", 0.8))
         cls_probs = dict(cls_ans.get("probabilities", {}))
 
-        impl_val = str(impl_ans.get("choice", "luna")).lower()
-        if impl_val == "gemini_antigravity":
-            impl_val = "gemini_flash"
+        if implementers is None:
+            impl_val = str(impl_ans.get("choice", "luna")).lower()
+            if impl_val == "gemini_antigravity":
+                impl_val = "gemini_flash"
+        else:
+            raw_impl_val = impl_ans.get("choice")
+            if raw_impl_val is None:
+                impl_val = implementer_names[0]
+                fallback_applied = True
+            else:
+                impl_val = str(raw_impl_val)
         impl_conf = float(impl_ans.get("confidence", 0.8))
 
         usage = raw.get("usage", {})
@@ -326,43 +353,52 @@ def classify_task(
         ctx_lower = context.lower()
         if any(w in ctx_lower for w in ["security", "auth", "crypto", "architect", "vulnerability", "refactor all", "migration"]):
             cls_val = "HIGH"
-            impl_val = "gemini_flash"
+            impl_val = implementer_names[0] if implementers is not None else "gemini_flash"
         elif any(w in ctx_lower for w in ["typo", "fix doc", "readme", "comment", "format", "rename", "tiny", "trivial"]):
             cls_val = "SMALL"
-            impl_val = "luna"
+            impl_val = implementer_names[0] if implementers is not None else "luna"
         else:
             cls_val = "MEDIUM"
-            impl_val = "luna"
+            impl_val = implementer_names[0] if implementers is not None else "luna"
 
     # Normalização de escolhas fora do enum padrão
     valid_complexities = {c.value for c in ComplexityLevel}
     if cls_val not in valid_complexities:
         cls_val = "MEDIUM"
 
-    valid_implementers = {i.value for i in ImplementerTier}
+    valid_implementers = set(implementer_names) if implementers is not None else {i.value for i in ImplementerTier}
     if impl_val not in valid_implementers:
-        impl_val = "gemini_flash"
+        impl_val = implementer_names[0] if implementers is not None else "gemini_flash"
+        if implementers is not None:
+            fallback_applied = True
 
     # Regras de override via variáveis de ambiente
     disable_luna = os.environ.get("MEISTER_DISABLE_LUNA", "").lower() in ("true", "1", "yes")
     primary_worker = os.environ.get("MEISTER_PRIMARY_WORKER", "").lower().strip()
 
-    if primary_worker:
+    if implementers is None:
+        if primary_worker:
+            impl_val = primary_worker
+        elif disable_luna and impl_val == "luna":
+            impl_val = "gemini_flash"
+        elif cls_val in ["SMALL", "MEDIUM"] and impl_val in ["haiku", "luna"]:
+            impl_val = "gemini_flash" if disable_luna else "luna"
+    elif primary_worker in valid_implementers:
         impl_val = primary_worker
-    elif disable_luna and impl_val == "luna":
-        impl_val = "gemini_flash"
-    elif cls_val in ["SMALL", "MEDIUM"] and impl_val in ["haiku", "luna"]:
-        impl_val = "gemini_flash" if disable_luna else "luna"
 
     # Define a cadeia determinística de fallback se o modelo recomendado não estiver ativo
-    if impl_val == "luna":
-        fallback_chain = ["gemini_flash", "haiku", "sonnet"]
-    elif impl_val == "gemini_flash":
-        fallback_chain = ["haiku", "sonnet"]
-    elif impl_val == "haiku":
-        fallback_chain = ["gemini_flash", "sonnet"]
+    if implementers is not None:
+        selected_index = implementer_names.index(impl_val)
+        fallback_chain = implementer_names[selected_index + 1:]
     else:
-        fallback_chain = ["gemini_flash", "haiku"]
+        if impl_val == "luna":
+            fallback_chain = ["gemini_flash", "haiku", "sonnet"]
+        elif impl_val == "gemini_flash":
+            fallback_chain = ["haiku", "sonnet"]
+        elif impl_val == "haiku":
+            fallback_chain = ["gemini_flash", "sonnet"]
+        else:
+            fallback_chain = ["gemini_flash", "haiku"]
 
     duration_ms = round((time.monotonic() - start_time) * 1000.0, 2)
     # Registra no log de telemetria com custo real e duração (Achado #26, E2E-6)

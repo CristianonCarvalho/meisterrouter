@@ -1774,3 +1774,212 @@ async def test_bridge_active_liveness_interval_zero_disabled(tmp_path, monkeypat
     assert success is True
     assert mock_client.pane_exists.call_count == 0
 
+
+def _make_router_bridge(tmp_path, mode="jev", tier_count=2):
+    from meister.config import load_config
+    from meister.state import StateManager
+
+    tiers = [
+        {"name": "copilot", "harness": "native", "model": "model-copilot"},
+        {"name": "luna", "harness": "native", "model": "model-luna"},
+    ][:tier_count]
+    config_file = tmp_path / f"{mode}_{tier_count}.yaml"
+    config_file.write_text(
+        "router:\n"
+        f"  mode: {mode}\n"
+        "master:\n"
+        "  model: test-jev\n"
+        "workers:\n"
+        "  tier_order:\n"
+        + "".join(
+            f"    - name: {tier['name']}\n"
+            f"      harness: {tier['harness']}\n"
+            f"      model: {tier['model']}\n"
+            for tier in tiers
+        )
+        + "concurrency:\n"
+        "  layout_strategy: tiled\n"
+        "  isolation_mode: none\n"
+    )
+    config = load_config(str(config_file))
+    client = AsyncMock()
+
+    async def fake_split(*args, **kwargs):
+        auto_write_result(tmp_path)
+        return f"w1:p{client.split_pane.call_count}"
+
+    client.split_pane.side_effect = fake_split
+    client.read_pane.return_value = "Done"
+    state_manager = StateManager(str(tmp_path / "state.db"))
+    bridge = HerdrEventBridge(config=config, client=client, state_manager=state_manager)
+    subtask = {
+        "id": "route-task",
+        "description": "Implement routed task",
+        "target_files": ["src/routed.py"],
+        "cwd": str(tmp_path),
+    }
+    return bridge, client, state_manager, subtask
+
+
+def _track_spawned_tiers(bridge):
+    spawned_tiers = []
+    original_spawn = bridge.spawner.spawn_worker_pane
+
+    async def track_spawn(tier_name, *args, **kwargs):
+        spawned_tiers.append(tier_name)
+        return await original_spawn(tier_name, *args, **kwargs)
+
+    bridge.spawner.spawn_worker_pane = track_spawn
+    return spawned_tiers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("mode", "tier_count"), [("first", 2), ("jev", 1)])
+async def test_bridge_does_not_classify_in_first_mode_or_single_tier(tmp_path, mode, tier_count):
+    bridge, _, _, subtask = _make_router_bridge(tmp_path, mode=mode, tier_count=tier_count)
+    spawned_tiers = _track_spawned_tiers(bridge)
+
+    with patch(
+        "meister.herdr.bridge.classify_task",
+        side_effect=AssertionError("Jev must not be called"),
+    ) as mock_classify:
+        assert await bridge.execute_subtask(subtask) is True
+
+    mock_classify.assert_not_called()
+    assert spawned_tiers == ["copilot"]
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_routes_and_logs_decision(tmp_path):
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    spawned_tiers = _track_spawned_tiers(bridge)
+    classify_result = {
+        "classification": "MEDIUM",
+        "classification_confidence": 0.88,
+        "recommended_implementer": "luna",
+        "implementer_confidence": 0.91,
+        "fallback_rule_applied": False,
+    }
+
+    with patch("meister.herdr.bridge.classify_task", return_value=classify_result) as mock_classify, \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(subtask, run_id="route-run") is True
+
+    mock_classify.assert_called_once()
+    assert mock_classify.call_args.kwargs["model"] == "test-jev"
+    assert mock_classify.call_args.kwargs["implementers"] == bridge.config.workers.tier_order
+    assert spawned_tiers == ["luna"]
+    route_events = [
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    ]
+    assert len(route_events) == 1
+    assert route_events[0]["tier"] == "luna"
+    assert route_events[0]["classification"] == "MEDIUM"
+    assert route_events[0]["confidence"] == 0.88
+    assert route_events[0]["fallback_rule_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    spawned_tiers = _track_spawned_tiers(bridge)
+
+    with patch("meister.herdr.bridge.classify_task", side_effect=RuntimeError("routing unavailable")), \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(subtask) is True
+
+    assert spawned_tiers == ["copilot"]
+    route_event = next(
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    )
+    assert route_event["fallback_rule_applied"] is True
+    assert route_event["status"] == "fallback"
+
+
+@pytest.mark.asyncio
+async def test_bridge_explicit_tier_and_running_assigned_tier_skip_jev(tmp_path):
+    from meister.state import SubtaskState, compute_subtask_id
+
+    bridge, _, state_manager, subtask = _make_router_bridge(tmp_path)
+    spawned_tiers = _track_spawned_tiers(bridge)
+    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must not classify")) as mock_classify:
+        assert await bridge.execute_subtask(subtask, initial_tier="luna") is True
+    mock_classify.assert_not_called()
+    assert spawned_tiers == ["luna"]
+
+    run_id = "resume-run"
+    state_manager.create_or_get_run("resume", cwd=str(tmp_path), force_run_id=run_id)
+    state_manager.add_subtasks(run_id, [subtask])
+    subtask_id = compute_subtask_id(run_id, subtask["id"], subtask["description"])
+    state_manager.transition_subtask(
+        subtask_id,
+        to_state=SubtaskState.RUNNING,
+        assigned_tier="luna",
+    )
+    spawned_tiers.clear()
+    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must reuse assignment")) as mock_classify:
+        assert await bridge.execute_subtask(subtask, run_id=run_id) is True
+    mock_classify.assert_not_called()
+    assert spawned_tiers == ["luna"]
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_choice_with_open_breaker_uses_next_tier(tmp_path):
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    spawned_tiers = _track_spawned_tiers(bridge)
+    next_tier = bridge.spawner.get_tier("luna")
+    bridge.spawner.get_first_available_tier = lambda *_args, **_kwargs: next_tier
+    classify_result = {
+        "classification": "MEDIUM",
+        "recommended_implementer": "copilot",
+        "implementer_confidence": 0.9,
+        "fallback_rule_applied": False,
+    }
+
+    with patch("meister.herdr.bridge.classify_task", return_value=classify_result), \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(subtask) is True
+
+    assert spawned_tiers == ["luna"]
+    assert any(
+        call.kwargs.get("event_type") == "tier_skipped_breaker"
+        for call in mock_log_event.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(tmp_path):
+    bridge, _, _, _ = _make_router_bridge(tmp_path)
+    spawned_tiers = _track_spawned_tiers(bridge)
+    subtask_count = 3
+
+    def slow_classify(**_kwargs):
+        time.sleep(0.2)
+        return {
+            "classification": "MEDIUM",
+            "recommended_implementer": "copilot",
+            "implementer_confidence": 0.9,
+            "fallback_rule_applied": False,
+        }
+
+    subtasks = [
+        {
+            "id": f"route-{index}",
+            "description": f"Parallel route {index}",
+            "target_files": [f"src/{index}.py"],
+            "cwd": str(tmp_path),
+        }
+        for index in range(subtask_count)
+    ]
+
+    with patch("meister.herdr.bridge.classify_task", side_effect=slow_classify) as mock_classify:
+        started = time.monotonic()
+        results = await asyncio.gather(*(bridge.execute_subtask(task) for task in subtasks))
+        elapsed = time.monotonic() - started
+
+    assert results == [True, True, True]
+    assert mock_classify.call_count == subtask_count
+    assert elapsed < subtask_count * 0.2
+    assert spawned_tiers == ["copilot"] * subtask_count

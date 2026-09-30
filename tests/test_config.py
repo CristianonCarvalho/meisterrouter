@@ -388,3 +388,52 @@ workers:
 
     assert not any("desconhecido" in issue.message for issue in issues)
 
+
+def test_router_mode_defaults_and_parses(tmp_path):
+    assert load_config().router.mode == "first"
+
+    config_yaml = tmp_path / "router.yaml"
+    config_yaml.write_text("router:\n  mode: jev\n")
+    assert load_config(str(config_yaml)).router.mode == "jev"
+
+
+def test_router_mode_validation_and_missing_api_key_warning(tmp_path, monkeypatch):
+    from meister.config import validate_config
+
+    invalid_yaml = tmp_path / "invalid_router.yaml"
+    invalid_yaml.write_text("router:\n  mode: random\n")
+    issues = validate_config(load_config(str(invalid_yaml)))
+    assert any(issue.level == "error" and issue.path == "router.mode" for issue in issues)
+
+    jev_yaml = tmp_path / "jev_router.yaml"
+    jev_yaml.write_text("router:\n  mode: jev\n")
+    monkeypatch.setattr(
+        "meister.jev.get_api_key",
+        lambda: (_ for _ in ()).throw(ValueError("missing key")),
+    )
+    issues = validate_config(load_config(str(jev_yaml)))
+    assert any(
+        issue.level == "warning"
+        and issue.path == "router.mode"
+        and "sem chave, o roteamento cai na primeira via" in issue.message
+        for issue in issues
+    )
+
+
+def test_router_jev_uses_metadata_without_informational_issues(tmp_path):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "jev_metadata.yaml"
+    config_yaml.write_text("""
+router:
+  mode: jev
+workers:
+  tier_order:
+    - name: luna
+      harness: native
+      model: gpt-6-luna
+      best_for: [small_edits]
+      cost_per_m_tokens: 0.077
+""")
+    issues = validate_config(load_config(str(config_yaml)))
+    assert not any(issue.level == "info" for issue in issues)
