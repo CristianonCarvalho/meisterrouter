@@ -1,0 +1,97 @@
+# MeisterRouter — Exemplo de Configuração Declarativa (meister.config.yaml)
+#
+# Para utilizar, copie este arquivo para meister.config.yaml na raiz do projeto
+# ou aponte o caminho através da variável de ambiente MEISTER_CONFIG_PATH.
+
+version: "1.0"
+
+# Configuração do Modelo Master (Decisões de Máquina de Estados / Jev)
+# Responsável determinístico pelas decisões de classificação (classify) e controle (control).
+# Executado exclusivamente via OpenRouter.
+master:
+  provider: "openrouter"
+  model: "typesafe/jev-1.13"
+  temperature: 0.0
+  api_key_env: "OPENROUTER_API_KEY"
+
+# Configuração do Arquiteto / Planejador
+# Define o modelo responsável pela geração e decomposição de planos estruturados.
+# (declarado; ainda não conectado a nenhum fluxo de execução direta).
+# Níveis válidos de effort: low, medium, high, xhigh, max.
+architect:
+  harness: "claude"
+  model: "claude-sonnet-5-5"
+  effort: "high"
+  prompt_template: "templates/architect_prompt.md"
+
+# Configuração dos Workers (Vias de Implementação de Código)
+# A ordem definida em tier_order governa a sequência de fallback da orquestração.
+# Vias marcadas com 'enabled: false' são desabilitadas e ignoradas no roteamento.
+# NOTA: Os campos 'best_for' e 'cost_per_m_tokens' são puramente informativos e NÃO influenciam o roteamento.
+workers:
+  tier_order:
+    # 1. GitHub Copilot CLI — Via principal recomendada quando há cota de Copilot disponível
+    - name: "copilot"
+      harness: "copilot"
+      model: "gpt-6-luna"
+      cost_per_m_tokens: 0.20
+      max_retries: 2
+      best_for:
+        - "github_integration"
+        - "code_completion"
+      enabled: true
+
+    # 2. Codex / Luna — Implementador primário nativo de baixíssimo custo ($0.077/1M), créditos limitados
+    - name: "luna"
+      harness: "native"
+      model: "gpt-6-luna"
+      cost_per_m_tokens: 0.077
+      max_retries: 2
+      best_for:
+        - "small_edits"
+        - "single_file"
+        - "css_fixes"
+        - "unit_test_additions"
+      enabled: true
+
+    # 3. Gemini 3.8 Flash — Campeão de raciocínio profundo, algoritmos complexos e resolução de bugs difíceis
+    - name: "gemini_flash"
+      harness: "native"
+      model: "gemini-3.8-flash-high"
+      cost_per_m_tokens: 0.577
+      max_retries: 2
+      best_for:
+        - "deep_reasoning"
+        - "complex_algorithms"
+        - "hard_bugs"
+      enabled: true
+
+    # 4. Claude 4.5 Haiku — Implementador secundário para refatoração e features médias
+    - name: "haiku"
+      harness: "claude"
+      model: "haiku"
+      cost_per_m_tokens: 0.77
+      max_retries: 2
+      best_for:
+        - "medium_features"
+        - "refactoring"
+      enabled: true
+
+    # 5. Claude Sonnet — Escalonamento de recuperação arquitetural.
+    # Desabilitado por padrão (enabled: false) neste exemplo para evitar custos elevados acidentais.
+    - name: "sonnet"
+      harness: "claude"
+      model: "sonnet"
+      cost_per_m_tokens: 3.00
+      max_retries: 1
+      best_for:
+        - "architectural_recovery"
+        - "systemic_regressions"
+      enabled: false
+
+# Restrições de Concorrência e Isolamento
+concurrency:
+  parallel_tasks: true
+  max_parallel_workers: 4
+  layout_strategy: "tabs"
+  isolation_mode: "git_worktree"
