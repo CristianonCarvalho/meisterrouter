@@ -278,4 +278,71 @@ async def test_wait_for_output_and_wait_pane_ready(tmp_path):
         await server.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_client_wait_for_pane_exit_real_events(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            # 1. Evento real pane_exited
+            wait_task1 = asyncio.create_task(client.wait_for_pane_exit("w9:pFM", timeout=2.0))
+            await asyncio.sleep(0.05)
+            await server.emit_event({
+                "data": {"pane_id": "w9:pFM", "type": "pane_exited", "workspace_id": "w9"},
+                "event": "pane_exited",
+            })
+            assert await wait_task1 is True
+
+            # 2. Evento real pane_closed (também deve desbloquear wait_for_pane_exit)
+            wait_task2 = asyncio.create_task(client.wait_for_pane_exit("w9:pFG", timeout=2.0))
+            await asyncio.sleep(0.05)
+            await server.emit_event({
+                "data": {"pane_id": "w9:pFG", "type": "pane_closed", "workspace_id": "w9"},
+                "event": "pane_closed",
+            })
+            assert await wait_task2 is True
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+@pytest.mark.asyncio
+async def test_client_pane_exists(tmp_path):
+    sock_path = str(tmp_path / "herdr.sock")
+    server = await run_mock_herdr_server(sock_path)
+
+    try:
+        async with HerdrSocketClient(sock_path) as client:
+            # 1. Pane existe: responde pane_info -> True
+            server.custom_handlers["pane.get"] = lambda params: {
+                "type": "pane_info",
+                "pane": {"pane_id": params.get("pane_id"), "workspace_id": "w1"},
+            }
+            exists = await client.pane_exists("w1:p1")
+            assert exists is True
+
+            # 2. Pane inexistente: HerdrRPCError com pane_not_found -> False
+            server.custom_handlers["pane.get"] = lambda params: {
+                "__error__": {"code": -32000, "message": "pane_not_found: pane not found"}
+            }
+            exists_not_found = await client.pane_exists("w1:p999")
+            assert exists_not_found is False
+
+            # 3. Outro erro RPC (ex: erro interno) -> True (não derrubar worker saudável)
+            server.custom_handlers["pane.get"] = lambda params: {
+                "__error__": {"code": -32603, "message": "Internal error in daemon"}
+            }
+            exists_other_err = await client.pane_exists("w1:p1")
+            assert exists_other_err is True
+
+        # 4. Falha de conexão / socket fechado -> True
+        bad_client = HerdrSocketClient(str(tmp_path / "nonexistent.sock"))
+        assert await bad_client.pane_exists("w1:p1") is True
+    finally:
+        server.close()
+        await server.wait_closed()
+
+
+
 

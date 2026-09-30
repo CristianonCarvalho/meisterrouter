@@ -329,4 +329,98 @@ def test_cli_worker_infrastructure_error_fast_exit(tmp_path):
         assert "Erro de infraestrutura no worker" in res.output
 
 
+@pytest.mark.asyncio
+async def test_run_worker_in_herdr_pane_active_liveness_pane_missing(tmp_path, monkeypatch):
+    """Checagem ativa no laço de pane: pane sumido (pane_exists is False) levanta WorkerInfrastructureError."""
+    import time
+    from meister.worker import run_worker_in_herdr_pane_async, WorkerInfrastructureError
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+
+    mock_client = MagicMock()
+    mock_client.split_pane = AsyncMock(return_value="p_test_dead")
+    mock_client.close_pane = AsyncMock()
+    mock_client.pane_exists = AsyncMock(return_value=False)
+    mock_client.subscribe_events = AsyncMock()
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
+        t0 = time.monotonic()
+        with pytest.raises(WorkerInfrastructureError) as exc_info:
+            await run_worker_in_herdr_pane_async(
+                model="luna",
+                task="any task",
+                cwd=str(tmp_path),
+                timeout=180.0,
+            )
+        duration = time.monotonic() - t0
+        assert duration < 5.0
+        assert "Pane p_test_dead do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in str(exc_info.value)
+        mock_client.close_pane.assert_called_with("p_test_dead")
+
+
+@pytest.mark.asyncio
+async def test_run_worker_in_herdr_tab_active_liveness_pane_missing(tmp_path, monkeypatch):
+    """Checagem ativa no laço de tab: pane sumido (pane_exists is False) levanta WorkerInfrastructureError."""
+    import time
+    from meister.worker import run_worker_in_herdr_tab_async, WorkerInfrastructureError
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+
+    mock_client = MagicMock()
+    mock_client.create_tab = AsyncMock(return_value=("t_tab1", "p_pane1"))
+    mock_client.wait_pane_ready = AsyncMock(return_value=True)
+    mock_client.send_text = AsyncMock()
+    mock_client.close_tab = AsyncMock()
+    mock_client.pane_exists = AsyncMock(return_value=False)
+    mock_client.subscribe_events = AsyncMock()
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
+        t0 = time.monotonic()
+        with pytest.raises(WorkerInfrastructureError) as exc_info:
+            await run_worker_in_herdr_tab_async(
+                model="luna",
+                task="any task",
+                cwd=str(tmp_path),
+                timeout=180.0,
+            )
+        duration = time.monotonic() - t0
+        assert duration < 5.0
+        assert "Pane p_pane1 do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in str(exc_info.value)
+        mock_client.close_tab.assert_called_with("t_tab1")
+
+
+@pytest.mark.asyncio
+async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
+    """Eventos reais (pane_closed) no listener do worker disparam saída rápida."""
+    import time
+    from meister.worker import run_worker_in_herdr_pane_async, WorkerInfrastructureError
+
+    mock_client = MagicMock()
+    mock_client.split_pane = AsyncMock(return_value="w9:pFG")
+    mock_client.close_pane = AsyncMock()
+
+    async def fake_subscribe(callback):
+        # Dispara evento pane_closed real com dados dentro de data
+        await callback({
+            "data": {"pane_id": "w9:pFG", "type": "pane_closed", "workspace_id": "w9"},
+            "event": "pane_closed",
+        })
+
+    mock_client.subscribe_events = AsyncMock(side_effect=fake_subscribe)
+
+    with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
+        t0 = time.monotonic()
+        with pytest.raises(WorkerInfrastructureError) as exc_info:
+            await run_worker_in_herdr_pane_async(
+                model="luna",
+                task="any task",
+                cwd=str(tmp_path),
+                timeout=180.0,
+            )
+        duration = time.monotonic() - t0
+        assert duration < 5.0
+        assert "erro de infraestrutura" in str(exc_info.value)
+
+
+
 

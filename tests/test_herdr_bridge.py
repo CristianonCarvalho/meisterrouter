@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from pathlib import Path
 import pytest
 import asyncio
@@ -1535,3 +1536,241 @@ concurrency:
     assert success2 is True
     assert max_observed_concurrent == 2
     assert mock_client.split_pane.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_bridge_handle_herdr_event_real_formats():
+    """Verifica que bridge.handle_herdr_event processa formatos reais de pane_exited e pane_closed."""
+    bridge = HerdrEventBridge()
+    ev1 = asyncio.Event()
+    bridge._exit_events["w9:pFM"] = ev1
+    ev2 = asyncio.Event()
+    bridge._exit_events["w9:pFG"] = ev2
+    ev3 = asyncio.Event()
+    bridge._exit_events["w9:p1"] = ev3
+
+    # pane_exited REAL aciona _exit_events
+    await bridge.handle_herdr_event({
+        "data": {"pane_id": "w9:pFM", "type": "pane_exited", "workspace_id": "w9"},
+        "event": "pane_exited",
+    })
+    assert ev1.is_set()
+
+    # pane_closed REAL aciona _exit_events
+    await bridge.handle_herdr_event({
+        "data": {"pane_id": "w9:pFG", "type": "pane_closed", "workspace_id": "w9"},
+        "event": "pane_closed",
+    })
+    assert ev2.is_set()
+
+    # pane_created REAL NÃO aciona
+    await bridge.handle_herdr_event({
+        "data": {"pane": {"pane_id": "w9:p1", "workspace_id": "w9"}},
+        "event": "pane_created",
+    })
+    assert not ev3.is_set()
+
+    # pane de OUTRO id NÃO aciona
+    ev4 = asyncio.Event()
+    bridge._exit_events["w9:pOther"] = ev4
+    await bridge.handle_herdr_event({
+        "data": {"pane_id": "w9:pDifferent", "type": "pane_exited", "workspace_id": "w9"},
+        "event": "pane_exited",
+    })
+    assert not ev4.is_set()
+
+    # Formatos antigos continuam funcionando
+    ev_old = asyncio.Event()
+    bridge._exit_events["w1:pOld"] = ev_old
+    await bridge.handle_herdr_event({
+        "method": "pane.exited",
+        "params": {"pane_id": "w1:pOld", "exit_code": 0}
+    })
+    assert ev_old.is_set()
+
+
+@pytest.mark.asyncio
+async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypatch):
+    """Checagem ativa: pane sumido (pane_exists is False) falha rápido sem escalar tier."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.read_pane.return_value = ""
+
+    call_count = 0
+    async def fake_pane_exists(pane_id):
+        nonlocal call_count
+        call_count += 1
+        if call_count >= 2:
+            return False
+        return True
+
+    mock_client.pane_exists = AsyncMock(side_effect=fake_pane_exists)
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    with patch("meister.herdr.bridge.log_event") as mock_log_event:
+        t0 = time.monotonic()
+        success = await bridge.execute_subtask(subtask)
+        elapsed = time.monotonic() - t0
+
+        assert success is False
+        assert elapsed < 2.0
+        assert mock_client.split_pane.call_count == 1
+
+        err_calls = [
+            kwargs for _, kwargs in mock_log_event.call_args_list
+            if kwargs.get("status") == "infrastructure_error"
+        ]
+        assert len(err_calls) >= 1
+        assert "Pane w1:p1 do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in err_calls[0].get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_bridge_active_liveness_pane_missing_but_result_exists(tmp_path, monkeypatch):
+    """Variante: pane_exists devolve False mas o result_file já existe -> sucesso."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.read_pane.return_value = ""
+
+    async def fake_pane_exists(pane_id):
+        # Escreve o resultado antes ou no momento em que detecta sumiço
+        auto_write_result(repo_dir)
+        return False
+
+    mock_client.pane_exists = AsyncMock(side_effect=fake_pane_exists)
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+
+
+@pytest.mark.asyncio
+async def test_bridge_active_liveness_pane_exists_success(tmp_path, monkeypatch):
+    """Variante: pane_exists sempre True e resultado aparece -> sucesso normal."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.read_pane.return_value = ""
+    mock_client.pane_exists = AsyncMock(return_value=True)
+
+    async def write_later():
+        await asyncio.sleep(0.3)
+        auto_write_result(repo_dir)
+
+    asyncio.create_task(write_later())
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+    assert mock_client.pane_exists.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_active_liveness_interval_zero_disabled(tmp_path, monkeypatch):
+    """Variante: MEISTER_PANE_LIVENESS_INTERVAL=0 -> nenhuma chamada a pane_exists."""
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0")
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.split_pane.return_value = "w1:p1"
+    mock_client.read_pane.return_value = ""
+    mock_client.pane_exists = AsyncMock(return_value=True)
+
+    async def write_later():
+        await asyncio.sleep(0.05)
+        auto_write_result(repo_dir)
+
+    asyncio.create_task(write_later())
+
+    cfg = MeisterConfig()
+    cfg.concurrency.layout_strategy = "tiled"
+    cfg.concurrency.isolation_mode = "none"
+    bridge = HerdrEventBridge(config=cfg, client=mock_client)
+
+    subtask = {
+        "id": "t1",
+        "description": "Add feature",
+        "target_files": ["app.py"],
+        "cwd": str(repo_dir),
+    }
+
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+    assert mock_client.pane_exists.call_count == 0
+

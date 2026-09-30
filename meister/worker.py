@@ -20,6 +20,7 @@ import shlex
 import signal
 from typing import Optional, List, Dict, Any, Tuple
 from meister.logger import log_event
+from meister.herdr.events import is_pane_gone
 
 logger = logging.getLogger(__name__)
 
@@ -735,10 +736,7 @@ async def run_worker_in_herdr_pane_async(
     pane_exited_event = asyncio.Event()
 
     async def _on_pane_event(event: dict):
-        params = event.get("params", event)
-        ev_type = params.get("type") or event.get("type")
-        p_id = params.get("pane_id") or event.get("pane_id")
-        if ev_type == "pane_exited" and p_id == pane_id:
+        if is_pane_gone(event, pane_id):
             pane_exited_event.set()
 
     try:
@@ -748,6 +746,12 @@ async def run_worker_in_herdr_pane_async(
 
     # Aguarda o worker terminar no pane lendo o arquivo de resultado de forma atômica ou evento pane.exited
     start = time.monotonic()
+    try:
+        liveness_interval = float(os.environ.get("MEISTER_PANE_LIVENESS_INTERVAL", "5.0"))
+    except (ValueError, TypeError):
+        liveness_interval = 0.0
+    last_liveness_check = time.monotonic()
+
     while time.monotonic() - start < timeout:
         if os.path.exists(result_file):
             result = read_atomic_json(result_file)
@@ -785,6 +789,37 @@ async def run_worker_in_herdr_pane_async(
             raise WorkerInfrastructureError(
                 f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
             )
+
+        if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
+            last_liveness_check = time.monotonic()
+            if client is not None and hasattr(client, "pane_exists"):
+                try:
+                    exists = await client.pane_exists(pane_id)
+                    if exists is False:
+                        await asyncio.sleep(0.5)
+                        if os.path.exists(result_file):
+                            result = read_atomic_json(result_file)
+                            if result is not None:
+                                try:
+                                    os.remove(result_file)
+                                    if os.path.exists(task_file):
+                                        os.remove(task_file)
+                                except Exception:
+                                    pass
+                                return result
+                        try:
+                            if os.path.exists(task_file):
+                                os.remove(task_file)
+                            await client.close_pane(pane_id)
+                        except Exception:
+                            pass
+                        raise WorkerInfrastructureError(
+                            f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                        )
+                except WorkerInfrastructureError:
+                    raise
+                except Exception:
+                    pass
 
         await asyncio.sleep(0.3)
 
@@ -911,10 +946,7 @@ async def run_worker_in_herdr_tab_async(
     pane_exited_event = asyncio.Event()
 
     async def _on_tab_event(event: dict):
-        params = event.get("params", event)
-        ev_type = params.get("type") or event.get("type")
-        p_id = params.get("pane_id") or event.get("pane_id")
-        if ev_type == "pane_exited" and p_id == pane_id:
+        if is_pane_gone(event, pane_id):
             pane_exited_event.set()
 
     try:
@@ -924,6 +956,12 @@ async def run_worker_in_herdr_tab_async(
 
     # Aguarda conclusão via result.json ou evento pane.exited
     start = time.monotonic()
+    try:
+        liveness_interval = float(os.environ.get("MEISTER_PANE_LIVENESS_INTERVAL", "5.0"))
+    except (ValueError, TypeError):
+        liveness_interval = 0.0
+    last_liveness_check = time.monotonic()
+
     while time.monotonic() - start < timeout:
         if os.path.exists(result_file):
             result = read_atomic_json(result_file)
@@ -966,6 +1004,38 @@ async def run_worker_in_herdr_tab_async(
             raise WorkerInfrastructureError(
                 f"Worker na tab {tab_id} (pane {pane_id}) encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
             )
+
+        if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
+            last_liveness_check = time.monotonic()
+            if client is not None and hasattr(client, "pane_exists"):
+                try:
+                    exists = await client.pane_exists(pane_id)
+                    if exists is False:
+                        await asyncio.sleep(0.5)
+                        if os.path.exists(result_file):
+                            result = read_atomic_json(result_file)
+                            if result is not None:
+                                try:
+                                    os.remove(result_file)
+                                    if os.path.exists(task_file):
+                                        os.remove(task_file)
+                                    await client.close_tab(tab_id)
+                                except Exception:
+                                    pass
+                                return result
+                        try:
+                            if os.path.exists(task_file):
+                                os.remove(task_file)
+                            await client.close_tab(tab_id)
+                        except Exception:
+                            pass
+                        raise WorkerInfrastructureError(
+                            f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                        )
+                except WorkerInfrastructureError:
+                    raise
+                except Exception:
+                    pass
 
         await asyncio.sleep(0.3)
 
