@@ -47,9 +47,10 @@ Valida a robustez e invariantes de segurança do orquestrador sob condições ad
 - **Cenário S4 (Crash após fast-forward):** Injeta `MEISTER_CRASH_AT=after_fast_forward_before_state` somente no primeiro `meister orchestrate`, simulando uma queda após o fast-forward e antes da persistência do estado. A retomada sem injeção valida os mesmos invariantes de S3 (tempo aproximado: a medir).
 
 ### 4. `run_plan.sh` (tempo aproximado: a medir)
-Valida o fluxo end-to-end baseado em contrato de plano canônico (`superpowers -> plan import -> plan validate -> orchestrate --plan-file`) com 18 checagens (P0 com 5 e P1 com 13):
+Valida o fluxo end-to-end baseado em contrato de plano canônico (`superpowers -> plan import -> plan validate -> orchestrate --plan-file`) com 26 checagens (P0 com 5, P1 com 13 e P2 com 8):
 - **Cenário P0 (Validação rápida sem LLM):** Valida a rejeição estrita de planos inválidos na conversão (`meister plan import` falha com código de saída diferente de zero citando a tarefa sem a seção `**Files:**`, e tem sucesso com `--allow-unscoped`), e confirma que o orquestrador bloqueia texto livre (`meister orchestrate --task "texto livre"` sai com código 2 sem criar registro de run no SQLite do repositório descartável e com zero eventos `worker_spawn` no JSONL).
 - **Cenário P1 (Fluxo de plano real com LLM e retomada idempotente):** Converte um plano de implementação real no formato Superpowers (`plan.md`) para JSON canônico (`plan.json`) via `meister plan import`, valida o esquema canônico via `meister plan validate` e despacha a execução autônoma multi-tarefa via `meister orchestrate --plan-file`. Valida a ordem de dependência sequencial (`task_2` depende de `task_1`), a execução e integração correta na branch `main` (`def mul` em `calc.py` e `def shout` em `text.py` exatamente 1 vez cada), aprovação da suíte `pytest` na `main`, telemetria no JSONL (`worker_spawn` e `subtask_completed`), e a idempotência da retomada ao reexecutar exatamente o mesmo comando (`run_id` estável gerado a partir do JSON canônico, zero novos spawns de worker), além da limpeza total de worktrees, branches temporárias e abas de worker.
+- **Cenário P2 (Dependência real entre tarefas sem arquivo em comum):** Valida a execução ordenada de tarefas com dependência lógica real onde a Task 2 consome um símbolo criado pela Task 1 (`square` em `geo.py` que faz `from calc import mul`), sem compartilhar arquivos (`target_files` estritamente disjuntos). Com `--deps sequential` padrão, comprova via telemetria que a Task 2 só é despachada após o término bem-sucedido da Task 1, integrando ambas na `main` com aprovação dos testes.
 
 ---
 
@@ -190,7 +191,8 @@ Os mesmos pré-requisitos gerais da suíte E2E:
 | Cenário | Descrição | Envolve LLM | Tempo Aprox. |
 |---|---|---|---|
 | **P0** | Validação sintática e rejeição de planos/tarefas sem escopo ou em texto livre. | Não | a medir |
-| **P1** | Importação de plano Superpowers (`mul` + `shout`), validação de esquema, execução pelo orquestrador e retomada idempotente. | Sim (Luna/Gemini Flash) | run completo (P0+P1): cerca de 1 minuto em uma medição (2026-09-29) |
+| **P1** | Importação de plano Superpowers (`mul` + `shout`), validação de esquema, execução pelo orquestrador e retomada idempotente. | Sim (Luna/Gemini Flash) | P0+P1 sem o P2: cerca de 1 minuto em uma medição (2026-09-29); o run completo P0+P1+P2 levou 2 min 17 s em uma medição (2026-09-30) |
+| **P2** | Dependência real entre tarefas sem arquivo em comum (`mul` em `calc.py` e `square` em `geo.py` importando `mul`). | Sim (Luna/Gemini Flash) | a medir (run sequencial de 2 tarefas levou cerca de 1 minuto em medição manual em 2026-09-30) |
 
 ### O que Cada Cenário Prova
 
@@ -205,9 +207,14 @@ Os mesmos pré-requisitos gerais da suíte E2E:
    - **Passo 3 (Orchestrate):** Executa `meister orchestrate --plan-file plan.json`, despachando os workers locais configurados (Luna e Gemini Flash) para resolver ordenadamente as subtarefas em worktrees isolados e integrá-las via pipeline determinístico na branch `main`.
    - **Passo 4 (Retomada / Idempotência):** Executa novamente o mesmo comando `meister orchestrate --plan-file plan.json`. Como a representação do plano em JSON canônico deriva o mesmo identificador determinístico de execução (`run_id`) e as subtarefas já constam como concluídas no banco de dados SQLite, o comando termina com código 0 imediatamente sem instanciar nenhum novo worker.
 
+3. **Cenário P2 (Dependência Real entre Tarefas sem Arquivo em Comum):**
+   - **Grafo de dependência sequencial com arquivos disjuntos:** Converte o plano onde a `task_2` cria `geo.py` com `square(x)` importando `mul` de `calc.py` (criada pela `task_1`). Valida que `task_1` não possui dependências (`depends_on: []`), `task_2` depende de `task_1` (`depends_on: ["task_1"]`) e os conjuntos de `target_files` são estritamente disjuntos, provando que a dependência não advém de compartilhamento de arquivos.
+   - **Ordem temporal determinística de despacho:** Valida via log estruturado (`orchestration_log.jsonl`) que o evento `worker_spawn` da `task_2` ocorreu estritamente após o evento `subtask_completed` da `task_1`.
+   - **Integração e testes na main:** Confirma que a branch `main` integra `geo.py` (com `from calc import mul` e `def square`) e `calc.py` (com `def mul` exatamente uma vez), com aprovação da suíte `pytest` na branch `main` e limpeza total de worktrees, branches temporárias e abas de worker.
+
 ### Lista de Checagens Executadas no Script
 
-O script `run_plan.sh` valida 18 checagens distribuídas entre os cenários P0 e P1:
+O script `run_plan.sh` valida 26 checagens distribuídas entre os cenários P0, P1 e P2:
 
 #### Cenário P0
 - `P0-a import de plano sem Files sai com rc != 0 e cita task`
@@ -230,4 +237,14 @@ O script `run_plan.sh` valida 18 checagens distribuídas entre os cenários P0 e
 - `P1-k sem worktrees restantes`
 - `P1-l sem branches meister/worktree/* e meister/integration/*`
 - `P1-m sem tabs worker:* restantes`
+
+#### Cenário P2
+- `P2-a import rc 0, plan.json com 2 tarefas, dependencias e target_files disjuntos`
+- `P2-b validate rc 0 e orchestrate rc 0`
+- `P2-c worker_spawn da task_2 ocorreu apos subtask_completed da task_1`
+- `P2-d main tem geo.py contendo from calc import mul e def square`
+- `P2-e main tem def mul exatamente 1x em calc.py`
+- `P2-f pytest passa na main`
+- `P2-g worker_spawn de cada task == 1`
+- `P2-h sem worktrees, branches temporarias ou tabs restantes`
 
