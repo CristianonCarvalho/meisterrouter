@@ -886,13 +886,14 @@ class IntegrationPipeline:
 
         # Se a branch não existe ou não tem histórico, mas o SQLite possui subtarefas COMPLETED com SHAs:
         # Reconstruir reaplicando os commits/SHAs
-        completed_shas: List[str] = []
+        completed_entries: List[Tuple[str, str]] = []
         if self.state_manager is not None:
             try:
                 subtasks = self.state_manager.get_subtasks(run_id)
                 for st in subtasks:
                     if st.get("status") == "COMPLETED" and st.get("integrated_sha"):
-                        completed_shas.append(st["integrated_sha"])
+                        label = st.get("step_id") or st.get("subtask_id", "")
+                        completed_entries.append((label, st["integrated_sha"]))
             except Exception as e:
                 logger.debug("Não foi possível obter subtarefas do SQLite: %s", e)
 
@@ -903,9 +904,15 @@ class IntegrationPipeline:
         )
         self.integration_info = info
 
-        if completed_shas:
-            logger.info("Reconstruindo branch de integração %s reaplicando %d commits do SQLite...", branch_name, len(completed_shas))
-            for sha in completed_shas:
+        if completed_entries:
+            logger.info("Reconstruindo branch de integração %s reaplicando %d commits do SQLite...", branch_name, len(completed_entries))
+            env = os.environ.copy()
+            env.setdefault("GIT_AUTHOR_NAME", "MeisterRouter")
+            env.setdefault("GIT_AUTHOR_EMAIL", "bot@meisterrouter.dev")
+            env.setdefault("GIT_COMMITTER_NAME", "MeisterRouter")
+            env.setdefault("GIT_COMMITTER_EMAIL", "bot@meisterrouter.dev")
+
+            for label, sha in completed_entries:
                 is_anc = False
                 try:
                     self.wt_mgr._run_git(["merge-base", "--is-ancestor", sha, "HEAD"], cwd=info.worktree_path)
@@ -913,9 +920,41 @@ class IntegrationPipeline:
                 except Exception:
                     is_anc = False
                 if not is_anc:
+                    msg = f"Merge subtask {label} ({sha[:8]})" if label else f"Merge subtask ({sha[:8]})"
                     try:
-                        self.wt_mgr._run_git(["cherry-pick", sha], cwd=info.worktree_path)
+                        res = subprocess.run(
+                            ["git", "merge", "--no-ff", "--no-edit", "-m", msg, sha],
+                            cwd=info.worktree_path,
+                            capture_output=True,
+                            text=True,
+                            env=env,
+                        )
+                        if res.returncode != 0:
+                            err_msg = res.stderr.strip() or res.stdout.strip()
+                            try:
+                                subprocess.run(
+                                    ["git", "merge", "--abort"],
+                                    cwd=info.worktree_path,
+                                    capture_output=True,
+                                    text=True,
+                                )
+                            except Exception:
+                                pass
+                            logger.warning(
+                                "Falha ao reaplicar commit %s na reconstrução (merge falhou: %s)",
+                                sha,
+                                err_msg,
+                            )
                     except Exception as e:
+                        try:
+                            subprocess.run(
+                                ["git", "merge", "--abort"],
+                                cwd=info.worktree_path,
+                                capture_output=True,
+                                text=True,
+                            )
+                        except Exception:
+                            pass
                         logger.warning("Falha ao reaplicar commit %s na reconstrução: %s", sha, e)
 
         logger.info("Pipeline de integração iniciado no branch %s (worktree: %s)", branch_name, info.worktree_path)

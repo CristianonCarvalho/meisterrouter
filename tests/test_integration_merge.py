@@ -709,3 +709,334 @@ def test_integration_multiple_worker_commits_all_integrated(git_test_repo):
     wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
     pipeline.abort_integration()
 
+
+def test_rebuild_ancestry_after_clean_abort_single_subtask(git_test_repo):
+    """(1) Reconstrução após falha limpa: 1 subtarefa COMPLETED preserva ancestralidade."""
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+
+    sm = StateManager(db_path=db_path)
+    run_id = "test-rebuild-single"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(
+        run_id,
+        [{"id": "t1", "description": "task 1", "target_files": ["calc.py", "tests/test_calc.py"]}],
+    )
+    sub1_id = subs[0]["subtask_id"]
+
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+    pipeline1 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info1 = pipeline1.start_integration(run_id, state_manager=sm)
+
+    # Subtask 1: adds calc.py and tests/test_calc.py
+    wt1 = wt_mgr.create_worktree("t1", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt1.worktree_path, "calc.py"), "w", encoding="utf-8") as f:
+        f.write("def mul(a, b):\n    return a * b\n")
+    with open(os.path.join(wt1.worktree_path, "tests", "test_calc.py"), "w", encoding="utf-8") as f:
+        f.write("from calc import mul\ndef test_mul():\n    assert mul(2, 3) == 6\n")
+
+    ok1, msg1 = pipeline1.integrate_subtask(wt1, target_files=["calc.py", "tests/test_calc.py"])
+    assert ok1 is True, f"Integrate t1 failed: {msg1}"
+    t1_sha = pipeline1.last_integrated_sha
+    assert t1_sha is not None
+
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=t1_sha)
+    wt_mgr.cleanup_worktree(wt1.task_id, force=True)
+
+    # Simula falha limpa: abort_integration arquiva e apaga a branch de integração
+    pipeline1.abort_integration()
+
+    # Confirma que a branch de integração não existe mais
+    res_b = subprocess.run(
+        ["git", "rev-parse", "--verify", f"refs/heads/meister/integration/{run_id}"],
+        cwd=repo_path,
+        capture_output=True,
+    )
+    assert res_b.returncode != 0
+
+    import time
+    time.sleep(1.05)
+
+    # Novo pipeline para o mesmo run_id: dispara reconstrução a partir do SQLite
+    pipeline2 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info2 = pipeline2.start_integration(run_id, state_manager=sm)
+
+    # Assert: o arquivo existe na branch reconstruída
+    calc_path = os.path.join(int_info2.worktree_path, "calc.py")
+    assert os.path.exists(calc_path), "calc.py ausente na branch de integração reconstruída"
+    with open(calc_path, "r", encoding="utf-8") as f:
+        assert "def mul" in f.read()
+
+    # Assert: commit original é ancestral do HEAD (invariante passa)
+    anc_ok, anc_msg = pipeline2.verify_completed_subtasks_ancestry()
+    assert anc_ok is True, f"verify_completed_subtasks_ancestry falhou: {anc_msg}"
+
+    pipeline2.abort_integration()
+
+
+def test_rebuild_ancestry_two_completed_subtasks(git_test_repo):
+    """(2) Duas subtarefas COMPLETED preservam ancestralidade e passam na validação final."""
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+
+    sm = StateManager(db_path=db_path)
+    run_id = "test-rebuild-two"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(
+        run_id,
+        [
+            {"id": "t1", "description": "task 1", "target_files": ["calc.py", "tests/test_calc.py"]},
+            {"id": "t2", "description": "task 2", "target_files": ["text.py", "tests/test_text.py"]},
+        ],
+    )
+    sub1_id = subs[0]["subtask_id"]
+    sub2_id = subs[1]["subtask_id"]
+
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+    pipeline1 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info1 = pipeline1.start_integration(run_id, state_manager=sm)
+
+    # Subtask 1
+    wt1 = wt_mgr.create_worktree("t1", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt1.worktree_path, "calc.py"), "w", encoding="utf-8") as f:
+        f.write("def mul(a, b):\n    return a * b\n")
+    with open(os.path.join(wt1.worktree_path, "tests", "test_calc.py"), "w", encoding="utf-8") as f:
+        f.write("from calc import mul\ndef test_mul():\n    assert mul(2, 3) == 6\n")
+
+    ok1, msg1 = pipeline1.integrate_subtask(wt1, target_files=["calc.py", "tests/test_calc.py"])
+    assert ok1 is True, msg1
+    t1_sha = pipeline1.last_integrated_sha
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=t1_sha)
+    wt_mgr.cleanup_worktree(wt1.task_id, force=True)
+
+    # Subtask 2
+    wt2 = wt_mgr.create_worktree("t2", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt2.worktree_path, "text.py"), "w", encoding="utf-8") as f:
+        f.write("def shout(msg):\n    return msg.upper()\n")
+    with open(os.path.join(wt2.worktree_path, "tests", "test_text.py"), "w", encoding="utf-8") as f:
+        f.write("from text import shout\ndef test_shout():\n    assert shout('hi') == 'HI'\n")
+
+    ok2, msg2 = pipeline1.integrate_subtask(wt2, target_files=["text.py", "tests/test_text.py"])
+    assert ok2 is True, msg2
+    t2_sha = pipeline1.last_integrated_sha
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.COMPLETED, integrated_sha=t2_sha)
+    wt_mgr.cleanup_worktree(wt2.task_id, force=True)
+
+    # Falha limpa
+    pipeline1.abort_integration()
+
+    # Reconstrução
+    pipeline2 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info2 = pipeline2.start_integration(run_id, state_manager=sm)
+
+    # Ambos os arquivos existem na branch de integração reconstruída
+    assert os.path.exists(os.path.join(int_info2.worktree_path, "calc.py"))
+    assert os.path.exists(os.path.join(int_info2.worktree_path, "text.py"))
+
+    # Ambas ancestrais
+    anc_ok, anc_msg = pipeline2.verify_completed_subtasks_ancestry()
+    assert anc_ok is True, f"verify_completed_subtasks_ancestry falhou: {anc_msg}"
+
+    val_ok, val_msg = pipeline2.validate_final_integration()
+    assert val_ok is True, f"validate_final_integration falhou: {val_msg}"
+
+    pipeline2.abort_integration()
+
+
+def test_rebuild_ancestry_resume_complete_and_finish(git_test_repo):
+    """(3) Retomada completa: integra 3a subtarefa após reconstrução e finish_integration(fast_forward=True) sucede."""
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+
+    sm = StateManager(db_path=db_path)
+    run_id = "test-rebuild-resume"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(
+        run_id,
+        [
+            {"id": "t1", "description": "task 1", "target_files": ["calc.py", "tests/test_calc.py"]},
+            {"id": "t2", "description": "task 2", "target_files": ["text.py", "tests/test_text.py"]},
+            {"id": "t3", "description": "task 3", "target_files": ["math_ops.py", "tests/test_math.py"]},
+        ],
+    )
+    sub1_id = subs[0]["subtask_id"]
+    sub2_id = subs[1]["subtask_id"]
+    sub3_id = subs[2]["subtask_id"]
+
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+    pipeline1 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info1 = pipeline1.start_integration(run_id, state_manager=sm)
+
+    # Integra t1 e t2
+    wt1 = wt_mgr.create_worktree("t1", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt1.worktree_path, "calc.py"), "w", encoding="utf-8") as f:
+        f.write("def mul(a, b):\n    return a * b\n")
+    with open(os.path.join(wt1.worktree_path, "tests", "test_calc.py"), "w", encoding="utf-8") as f:
+        f.write("from calc import mul\ndef test_mul():\n    assert mul(2, 3) == 6\n")
+    ok1, _ = pipeline1.integrate_subtask(wt1, target_files=["calc.py", "tests/test_calc.py"])
+    assert ok1 is True
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=pipeline1.last_integrated_sha)
+    wt_mgr.cleanup_worktree(wt1.task_id, force=True)
+
+    wt2 = wt_mgr.create_worktree("t2", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt2.worktree_path, "text.py"), "w", encoding="utf-8") as f:
+        f.write("def shout(msg):\n    return msg.upper()\n")
+    with open(os.path.join(wt2.worktree_path, "tests", "test_text.py"), "w", encoding="utf-8") as f:
+        f.write("from text import shout\ndef test_shout():\n    assert shout('hi') == 'HI'\n")
+    ok2, _ = pipeline1.integrate_subtask(wt2, target_files=["text.py", "tests/test_text.py"])
+    assert ok2 is True
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.COMPLETED, integrated_sha=pipeline1.last_integrated_sha)
+    wt_mgr.cleanup_worktree(wt2.task_id, force=True)
+
+    # Aborta pipeline1 (limpa a branch de integração)
+    pipeline1.abort_integration()
+
+    # Pipeline2 reconstrói do SQLite
+    pipeline2 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info2 = pipeline2.start_integration(run_id, state_manager=sm)
+
+    # Integra t3 na branch reconstruída
+    wt3 = wt_mgr.create_worktree("t3", base_ref=int_info2.branch_name)
+    with open(os.path.join(wt3.worktree_path, "math_ops.py"), "w", encoding="utf-8") as f:
+        f.write("def div(a, b):\n    return a // b\n")
+    with open(os.path.join(wt3.worktree_path, "tests", "test_math.py"), "w", encoding="utf-8") as f:
+        f.write("from math_ops import div\ndef test_div():\n    assert div(10, 2) == 5\n")
+    ok3, msg3 = pipeline2.integrate_subtask(wt3, target_files=["math_ops.py", "tests/test_math.py"])
+    assert ok3 is True, msg3
+    sm.transition_subtask(sub3_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub3_id, to_state=SubtaskState.COMPLETED, integrated_sha=pipeline2.last_integrated_sha)
+    wt_mgr.cleanup_worktree(wt3.task_id, force=True)
+
+    # finish_integration com fast-forward
+    ok_ff, msg_ff = pipeline2.finish_integration(fast_forward=True)
+    assert ok_ff is True, f"finish_integration falhou: {msg_ff}"
+
+    # Repositório principal contém todas as 3 subtarefas
+    assert os.path.exists(os.path.join(repo_path, "calc.py"))
+    assert os.path.exists(os.path.join(repo_path, "text.py"))
+    assert os.path.exists(os.path.join(repo_path, "math_ops.py"))
+
+
+def test_rebuild_ancestry_conflict_handling_aborts_and_reports(git_test_repo):
+    """(4) Conflito na reconstrução: não levanta exceção, remove MERGE_HEAD e invariante falha citando o SHA."""
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+
+    sm = StateManager(db_path=db_path)
+    run_id = "test-rebuild-conflict"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(
+        run_id,
+        [
+            {"id": "t1", "description": "task 1", "target_files": ["conflict.py"]},
+            {"id": "t2", "description": "task 2", "target_files": ["conflict.py"]},
+        ],
+    )
+    sub1_id = subs[0]["subtask_id"]
+    sub2_id = subs[1]["subtask_id"]
+
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+
+    # Cria dois commits conflitantes a partir da mesma base HEAD
+    wt1 = wt_mgr.create_worktree("conf-1", base_ref="HEAD")
+    with open(os.path.join(wt1.worktree_path, "conflict.py"), "w", encoding="utf-8") as f:
+        f.write("def val(): return 'worker1'\n")
+    sha1 = wt_mgr.commit_worktree(wt1.worktree_path, "worker1 commit")
+    assert sha1 is not None
+    wt_mgr.cleanup_worktree("conf-1", delete_branch=True, force=True)
+
+    wt2 = wt_mgr.create_worktree("conf-2", base_ref="HEAD")
+    with open(os.path.join(wt2.worktree_path, "conflict.py"), "w", encoding="utf-8") as f:
+        f.write("def val(): return 'worker2'\n")
+    sha2 = wt_mgr.commit_worktree(wt2.worktree_path, "worker2 commit")
+    assert sha2 is not None
+    wt_mgr.cleanup_worktree("conf-2", delete_branch=True, force=True)
+
+    # Registra ambos no SQLite como COMPLETED
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=sha1)
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub2_id, to_state=SubtaskState.COMPLETED, integrated_sha=sha2)
+
+    # Inicia integração: reconstrução não deve levantar exceção mesmo com conflito
+    gate = DeterministicGate(repo_path)
+    pipeline = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info = pipeline.start_integration(run_id, state_manager=sm)
+
+    # Confirma que MERGE_HEAD não ficou ativo no worktree
+    mh_rel = subprocess.run(
+        ["git", "rev-parse", "--git-path", "MERGE_HEAD"],
+        cwd=int_info.worktree_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    mh_full = mh_rel if os.path.isabs(mh_rel) else os.path.join(int_info.worktree_path, mh_rel)
+    assert not os.path.exists(mh_full), f"MERGE_HEAD ainda existe em {mh_full}"
+
+    # Invariante deve barrar e citar o SHA conflitante (sha2)
+    anc_ok, anc_msg = pipeline.verify_completed_subtasks_ancestry()
+    assert anc_ok is False
+    assert sha2[:8] in anc_msg, f"Mensagem deveria citar sha {sha2[:8]}: {anc_msg}"
+
+    pipeline.abort_integration()
+
+
+def test_rebuild_ancestry_reuse_path_regression(git_test_repo):
+    """(5) Regressão: o caminho de REUSO (branch de integração ainda existe) continua preservado."""
+    repo_path = str(git_test_repo)
+    db_path = os.path.join(repo_path, ".meister", "meister.db")
+    from meister.state import StateManager, SubtaskState
+
+    sm = StateManager(db_path=db_path)
+    run_id = "test-rebuild-reuse"
+    sm.create_or_get_run("task prompt", cwd=repo_path, force_run_id=run_id)
+    subs = sm.add_subtasks(
+        run_id,
+        [{"id": "t1", "description": "task 1", "target_files": ["calc.py", "tests/test_calc.py"]}],
+    )
+    sub1_id = subs[0]["subtask_id"]
+
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    gate = DeterministicGate(repo_path)
+    pipeline1 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info1 = pipeline1.start_integration(run_id, state_manager=sm)
+
+    wt1 = wt_mgr.create_worktree("t1", base_ref=int_info1.branch_name)
+    with open(os.path.join(wt1.worktree_path, "calc.py"), "w", encoding="utf-8") as f:
+        f.write("def mul(a, b):\n    return a * b\n")
+    with open(os.path.join(wt1.worktree_path, "tests", "test_calc.py"), "w", encoding="utf-8") as f:
+        f.write("from calc import mul\ndef test_mul():\n    assert mul(2, 3) == 6\n")
+
+    ok1, msg1 = pipeline1.integrate_subtask(wt1, target_files=["calc.py", "tests/test_calc.py"])
+    assert ok1 is True
+    t1_sha = pipeline1.last_integrated_sha
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.RUNNING)
+    sm.transition_subtask(sub1_id, to_state=SubtaskState.COMPLETED, integrated_sha=t1_sha)
+    wt_mgr.cleanup_worktree(wt1.task_id, force=True)
+
+    # NÃO chama abort_integration: a branch de integração permanece viva no git
+    # Novo pipeline para o mesmo run_id deve REUTILIZAR a branch existente sem reconstruir
+    pipeline2 = IntegrationPipeline(wt_mgr, gate=gate)
+    int_info2 = pipeline2.start_integration(run_id, state_manager=sm)
+
+    # Confirma que a branch foi reutilizada
+    assert int_info2.branch_name == int_info1.branch_name
+    anc_ok, anc_msg = pipeline2.verify_completed_subtasks_ancestry()
+    assert anc_ok is True, anc_msg
+
+    pipeline2.abort_integration()
+
+
