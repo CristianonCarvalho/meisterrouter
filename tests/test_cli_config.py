@@ -23,6 +23,8 @@ def test_cli_config_show_default():
     assert result.exit_code == 0
     assert "Origem: padrao" in result.output
     assert "Master:" in result.output
+    assert "Router:" in result.output
+    assert "Mode: first" in result.output
     assert "Arquiteto / Planejador:" in result.output
     assert "claude-sonnet-5-5" in result.output
     assert "high" in result.output
@@ -69,12 +71,43 @@ def test_cli_config_show_json():
     assert data["architect"]["model"] == "claude-sonnet-5-5"
     assert data["architect"]["effort"] == "high"
     assert data["architect"]["note"] == "(declarado; ainda nao conectado a nenhum fluxo)"
+    assert data["router"] == {"mode": "first"}
     assert len(data["workers"]["tier_order"]) == 4
     assert data["workers"]["disabled"] == []
 
     # Verifica que json tem chaves ordenadas (estável)
     keys = list(data.keys())
     assert keys == sorted(keys)
+
+
+def test_cli_config_show_json_reports_jev_router(tmp_path):
+    runner = CliRunner()
+    cfg_file = tmp_path / "jev.yaml"
+    cfg_file.write_text("router:\n  mode: jev\n")
+
+    result = runner.invoke(main, ["config", "show", "--json", "--config-path", str(cfg_file)])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output)["router"] == {"mode": "jev"}
+
+
+def test_cli_classify_passes_configured_implementers(tmp_path, monkeypatch):
+    runner = CliRunner()
+    cfg_file = tmp_path / "routes.yaml"
+    cfg_file.write_text("""
+workers:
+  tier_order:
+    - name: copilot
+      harness: copilot
+      model: gpt-6-luna
+""")
+    monkeypatch.setenv("MEISTER_CONFIG_PATH", str(cfg_file))
+
+    with patch("meister.cli.classify_task", return_value={"classification": "SMALL"}) as mock_classify:
+        result = runner.invoke(main, ["classify", "--context", "Tiny task"])
+
+    assert result.exit_code == 0
+    assert mock_classify.call_args.kwargs["implementers"][0].name == "copilot"
 
 
 def test_cli_config_validate_on_default():

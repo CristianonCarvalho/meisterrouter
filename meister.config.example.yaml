@@ -14,6 +14,15 @@ master:
   temperature: 0.0
   api_key_env: "OPENROUTER_API_KEY"
 
+# Roteamento inicial por subtarefa. "first" (padrão) sempre usa a primeira via.
+# "jev" deixa o Jev escolher a via inicial entre as configuradas; o fallback
+# segue tier_order somente para a frente. Mantenha as vias em ordem crescente
+# de custo/escalada: se o Jev escolher uma via do fim, não há reserva mais barata
+# atrás dela (fallback circular será implementado futuramente).
+# best_for e cost_per_m_tokens só influenciam o modo "jev".
+router:
+  mode: "first"
+
 # Configuração do Arquiteto / Planejador
 # Define o modelo responsável pela geração e decomposição de planos estruturados.
 # (declarado; ainda não conectado a nenhum fluxo de execução direta).
@@ -27,7 +36,7 @@ architect:
 # Configuração dos Workers (Vias de Implementação de Código)
 # A ordem definida em tier_order governa a sequência de fallback da orquestração.
 # Vias marcadas com 'enabled: false' são desabilitadas e ignoradas no roteamento.
-# NOTA: Os campos 'best_for' e 'cost_per_m_tokens' são puramente informativos e NÃO influenciam o roteamento.
+# Os campos 'best_for' e 'cost_per_m_tokens' só influenciam o roteamento com router.mode: jev.
 workers:
   tier_order:
     # 1. GitHub Copilot CLI — Via principal recomendada quando há cota de Copilot disponível

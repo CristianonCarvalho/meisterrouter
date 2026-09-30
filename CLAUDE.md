@@ -25,6 +25,8 @@ Para toda tarefa de engenharia:
 
 ## 03. Fluxo de Trabalho Obrigatório do Agente
 
+Com `router.mode: jev`, o `orchestrate` usa o Jev para escolher a via inicial de cada subtarefa.
+
 ### Passo 1: Classificação Inicial (`classify`)
 Antes de implementar ou criar subagentes, rodar:
 ```bash
@@ -115,4 +117,3 @@ meister orchestrate --task "lista de tarefas livre" --allow-freeform
 ```
 Não use em produção — não valida dependências, tipos ou chaves proibidas.
 Tarefas sem `target_files` (ex.: `--allow-unscoped` ou `--allow-freeform`) rodam isoladas, sem paralelismo, por não haver como saber se conflitam.
-
