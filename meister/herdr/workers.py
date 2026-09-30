@@ -130,6 +130,49 @@ class WorkerSpawner:
                 return None
         return None
 
+    def _is_tier_available(
+        self,
+        tier: WorkerTier,
+        state_manager: Optional[Any] = None,
+    ) -> bool:
+        """Verifica se o tier e seu harness estão disponíveis no circuit breaker."""
+        if state_manager is not None:
+            harness_ok = state_manager.is_harness_available(tier.harness)
+            tier_ok = state_manager.is_harness_available(tier.name)
+            if not harness_ok or not tier_ok:
+                logger.info(
+                    "Tier %s (%s) está em cooldown no circuit breaker. Pulando...",
+                    tier.name,
+                    tier.harness,
+                )
+                return False
+        return True
+
+    def get_first_available_tier(
+        self,
+        start_tier_name: str,
+        state_manager: Optional[Any] = None,
+    ) -> Optional[WorkerTier]:
+        """Retorna o primeiro tier disponível a partir de start_tier_name (inclusive) respeitando o circuit breaker."""
+        tiers = self.config.workers.tier_order
+        curr_idx = -1
+        for i, tier in enumerate(tiers):
+            if tier.name == start_tier_name:
+                curr_idx = i
+                break
+
+        if curr_idx == -1:
+            return None
+
+        if state_manager is None:
+            return tiers[curr_idx]
+
+        for tier in tiers[curr_idx:]:
+            if self._is_tier_available(tier, state_manager):
+                return tier
+
+        return None
+
     def get_next_available_tier(
         self,
         current_tier_name: str,
@@ -147,14 +190,8 @@ class WorkerSpawner:
             return None
 
         for next_tier in tiers[curr_idx + 1:]:
-            if state_manager is not None:
-                # Verifica circuit breaker para o tier e harness
-                harness_ok = state_manager.is_harness_available(next_tier.harness)
-                tier_ok = state_manager.is_harness_available(next_tier.name)
-                if not harness_ok or not tier_ok:
-                    logger.info("Tier %s (%s) está em cooldown no circuit breaker. Pulando...", next_tier.name, next_tier.harness)
-                    continue
-            return next_tier
+            if self._is_tier_available(next_tier, state_manager):
+                return next_tier
 
         return None
 

@@ -200,3 +200,65 @@ workers:
     next_tier = get_next_tier("luna", spawner=spawner)
     assert next_tier is not None
     assert next_tier.name == "gemini_flash"
+
+
+def test_get_first_available_tier():
+    from meister.state import StateManager
+
+    config = MeisterConfig(
+        workers=WorkersConfig(
+            tier_order=[
+                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
+                WorkerTier(name="gemini_flash", harness="agy", model="google/gemini-2.5-flash"),
+                WorkerTier(name="haiku", harness="claude", model="anthropic/claude-3-5-haiku-20241022"),
+            ]
+        )
+    )
+    spawner = WorkerSpawner(config, herdr_client=None)
+    sm = StateManager()
+
+    # (a) tier de partida disponível → ele mesmo
+    res_a = spawner.get_first_available_tier("luna", state_manager=sm)
+    assert res_a is not None
+    assert res_a.name == "luna"
+
+    # (b) tier de partida com breaker OPEN (pelo NOME) → o próximo
+    sm.record_harness_failure("luna", is_quota=True)
+    res_b = spawner.get_first_available_tier("luna", state_manager=sm)
+    assert res_b is not None
+    assert res_b.name == "gemini_flash"
+
+    # Reset circuit breakers
+    sm.reset_circuit_breakers()
+
+    # (c) breaker OPEN pelo HARNESS do tier de partida → o próximo
+    sm.record_harness_failure("native", is_quota=True)
+    res_c = spawner.get_first_available_tier("luna", state_manager=sm)
+    assert res_c is not None
+    assert res_c.name == "gemini_flash"
+
+    # (d) todos OPEN → None
+    sm.record_harness_failure("gemini_flash", is_quota=True)
+    sm.record_harness_failure("haiku", is_quota=True)
+    res_d = spawner.get_first_available_tier("luna", state_manager=sm)
+    assert res_d is None
+
+    # (e) nome desconhecido → None
+    res_e = spawner.get_first_available_tier("unknown_tier", state_manager=sm)
+    assert res_e is None
+
+    # (f) sem state_manager → o tier de partida
+    res_f = spawner.get_first_available_tier("luna", state_manager=None)
+    assert res_f is not None
+    assert res_f.name == "luna"
+    assert spawner.get_first_available_tier("unknown_tier", state_manager=None) is None
+
+    # (g) cooldown EXPIRADO → volta a devolver o tier de partida
+    sm.reset_circuit_breakers()
+    sm.record_harness_failure("luna", is_quota=True, cooldown_seconds=60)
+    assert not sm.is_harness_available("luna")
+    with sm._get_connection() as conn:
+        conn.execute("UPDATE circuit_breakers SET cooldown_until = 1.0 WHERE harness = 'luna'")
+    res_g = spawner.get_first_available_tier("luna", state_manager=sm)
+    assert res_g is not None
+    assert res_g.name == "luna"
