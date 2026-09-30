@@ -248,6 +248,26 @@ class HerdrEventBridge:
             else:
                 current_tier = "luna"
 
+        if sm and hasattr(self.spawner, "get_first_available_tier"):
+            tier_obj = self.spawner.get_tier(current_tier) if hasattr(self.spawner, "get_tier") else None
+            if tier_obj is not None:
+                first_tier = self.spawner.get_first_available_tier(current_tier, state_manager=sm)
+                first_tier_name = getattr(first_tier, "name", None)
+                if isinstance(first_tier_name, str) and first_tier_name != current_tier:
+                    logger.info(
+                        "Tier inicial %s está em cooldown no circuit breaker. Redirecionando para %s.",
+                        current_tier,
+                        first_tier_name,
+                    )
+                    log_event(
+                        event_type="tier_skipped_breaker",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        tier=first_tier_name,
+                        skipped_tier=current_tier,
+                    )
+                    current_tier = first_tier_name
+
         direction = "right"
         split_ratio = 0.5
 

@@ -1305,6 +1305,180 @@ async def test_subtask_rejected_logged_when_no_changes(tmp_path, monkeypatch):
     assert rej.get("error") is not None and "sem alterações" in rej.get("error").lower()
 
 
+@pytest.mark.asyncio
+async def test_bridge_skips_initial_tier_when_circuit_breaker_open(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("""
+version: "1.0"
+workers:
+  tier_order:
+    - name: "luna"
+      harness: "native"
+      model: "openai/gpt-6-luna"
+    - name: "gemini_flash"
+      harness: "native"
+      model: "google/gemini-2.5-flash"
+concurrency:
+  layout_strategy: tiled
+""")
+    config = load_config(str(cfg_file))
+    mock_client = AsyncMock()
+    mock_client.read_pane.return_value = "Done"
+
+    async def fake_split(*args, **kwargs):
+        auto_write_result(tmp_path, {"status": "done", "output": "ok"})
+        return "w1:p1"
+
+    mock_client.split_pane.side_effect = fake_split
+
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    sm = bridge.get_state_manager()
+    active_run = sm.create_or_get_run(task_prompt="test run")
+    bridge.current_run_id = active_run["run_id"]
+
+    spawned_tiers = []
+    orig_spawn = bridge.spawner.spawn_worker_pane
+    async def track_spawn(tier_name, *args, **kwargs):
+        spawned_tiers.append(tier_name)
+        return await orig_spawn(tier_name, *args, **kwargs)
+    bridge.spawner.spawn_worker_pane = track_spawn
+
+    # Open breaker for luna (first tier)
+    sm.record_harness_failure("luna", is_quota=True)
+
+    subtask = {"id": "t1", "description": "Auth module", "target_files": []}
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+
+    # Luna was NOT dispatched; first spawn was gemini_flash
+    assert len(spawned_tiers) == 1
+    assert spawned_tiers[0] == "gemini_flash"
+
+    # Check tier_skipped_breaker event
+    from meister.logger import get_log_file
+    log_file = Path(get_log_file())
+    assert log_file.exists()
+    events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    skip_events = [e for e in events if e.get("event") == "tier_skipped_breaker" or e.get("event_type") == "tier_skipped_breaker"]
+    assert len(skip_events) == 1
+    assert skip_events[0]["tier"] == "gemini_flash"
+    assert skip_events[0]["skipped_tier"] == "luna"
+    assert skip_events[0]["task_id"] == "t1"
+    assert skip_events[0]["run_id"] == bridge.current_run_id
+
+
+@pytest.mark.asyncio
+async def test_bridge_maintains_initial_tier_when_all_breakers_open(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("""
+version: "1.0"
+workers:
+  tier_order:
+    - name: "luna"
+      harness: "native"
+      model: "openai/gpt-6-luna"
+    - name: "gemini_flash"
+      harness: "native"
+      model: "google/gemini-2.5-flash"
+concurrency:
+  layout_strategy: tiled
+""")
+    config = load_config(str(cfg_file))
+    mock_client = AsyncMock()
+    mock_client.read_pane.return_value = "Done"
+
+    async def fake_split(*args, **kwargs):
+        auto_write_result(tmp_path, {"status": "done", "output": "ok"})
+        return "w1:p1"
+
+    mock_client.split_pane.side_effect = fake_split
+
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    sm = bridge.get_state_manager()
+    active_run = sm.create_or_get_run(task_prompt="test run")
+    bridge.current_run_id = active_run["run_id"]
+
+    spawned_tiers = []
+    orig_spawn = bridge.spawner.spawn_worker_pane
+    async def track_spawn(tier_name, *args, **kwargs):
+        spawned_tiers.append(tier_name)
+        return await orig_spawn(tier_name, *args, **kwargs)
+    bridge.spawner.spawn_worker_pane = track_spawn
+
+    # Open breaker for both tiers
+    sm.record_harness_failure("luna", is_quota=True)
+    sm.record_harness_failure("gemini_flash", is_quota=True)
+
+    subtask = {"id": "t1", "description": "Auth module", "target_files": []}
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+
+    # Maintains initial tier: luna
+    assert len(spawned_tiers) == 1
+    assert spawned_tiers[0] == "luna"
+
+    from meister.logger import get_log_file
+    log_file = Path(get_log_file())
+    if log_file.exists():
+        events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        skip_events = [e for e in events if e.get("event") == "tier_skipped_breaker" or e.get("event_type") == "tier_skipped_breaker"]
+        assert len(skip_events) == 0
+
+
+@pytest.mark.asyncio
+async def test_bridge_initial_tier_when_no_breakers_open(tmp_path):
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("""
+version: "1.0"
+workers:
+  tier_order:
+    - name: "luna"
+      harness: "native"
+      model: "openai/gpt-6-luna"
+    - name: "gemini_flash"
+      harness: "native"
+      model: "google/gemini-2.5-flash"
+concurrency:
+  layout_strategy: tiled
+""")
+    config = load_config(str(cfg_file))
+    mock_client = AsyncMock()
+    mock_client.read_pane.return_value = "Done"
+
+    async def fake_split(*args, **kwargs):
+        auto_write_result(tmp_path, {"status": "done", "output": "ok"})
+        return "w1:p1"
+
+    mock_client.split_pane.side_effect = fake_split
+
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    sm = bridge.get_state_manager()
+    active_run = sm.create_or_get_run(task_prompt="test run")
+    bridge.current_run_id = active_run["run_id"]
+
+    spawned_tiers = []
+    orig_spawn = bridge.spawner.spawn_worker_pane
+    async def track_spawn(tier_name, *args, **kwargs):
+        spawned_tiers.append(tier_name)
+        return await orig_spawn(tier_name, *args, **kwargs)
+    bridge.spawner.spawn_worker_pane = track_spawn
+
+    subtask = {"id": "t1", "description": "Auth module", "target_files": []}
+    success = await bridge.execute_subtask(subtask)
+    assert success is True
+
+    # Default initial tier is luna
+    assert len(spawned_tiers) == 1
+    assert spawned_tiers[0] == "luna"
+
+    from meister.logger import get_log_file
+    log_file = Path(get_log_file())
+    if log_file.exists():
+        events = [json.loads(line) for line in log_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        skip_events = [e for e in events if e.get("event") == "tier_skipped_breaker" or e.get("event_type") == "tier_skipped_breaker"]
+        assert len(skip_events) == 0
+
+
 
 
 
