@@ -8,10 +8,22 @@ and concurrency constraints.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Set
 import yaml
+
+
+VALID_ARCHITECT_EFFORTS: Set[str] = {"low", "medium", "high", "xhigh", "max"}
+KNOWN_HARNESSES: Set[str] = {"native", "claude", "copilot", "github-copilot"}
+
+
+@dataclass
+class ConfigIssue:
+    level: str  # "error" | "warning" | "info"
+    path: str
+    message: str
 
 
 def ensure_meister_dir(root_or_cwd: str) -> str:
@@ -39,8 +51,9 @@ class MasterConfig:
 @dataclass
 class ArchitectConfig:
     harness: str = "claude"
-    model: str = "anthropic/claude-sonnet-5"
+    model: str = "claude-sonnet-5-5"
     prompt_template: str = "templates/architect_prompt.md"
+    effort: str = "high"
 
 
 @dataclass
@@ -51,6 +64,7 @@ class WorkerTier:
     cost_per_m_tokens: float = 0.0
     max_retries: int = 2
     best_for: List[str] = field(default_factory=list)
+    enabled: bool = True
 
 
 def _default_worker_tiers() -> List[WorkerTier]:
@@ -96,16 +110,16 @@ def _default_worker_tiers() -> List[WorkerTier]:
     # Pode ser habilitado explicitamente via MEISTER_ENABLE_COPILOT=true ou meister.config.yaml.
     enable_copilot = os.environ.get("MEISTER_ENABLE_COPILOT", "").lower() in ("true", "1", "yes")
     if enable_copilot:
-        tiers.append(
-            WorkerTier(
-                name="copilot",
-                harness="copilot",
-                model=os.environ.get("MEISTER_COPILOT_MODEL", "auto"),
-                cost_per_m_tokens=0.20,
-                max_retries=2,
-                best_for=["github_integration", "code_completion"],
-            )
+        copilot_tier = WorkerTier(
+            name="copilot",
+            harness="copilot",
+            model=os.environ.get("MEISTER_COPILOT_MODEL", "gpt-6-luna"),
+            cost_per_m_tokens=0.20,
+            max_retries=2,
+            best_for=["github_integration", "code_completion"],
+            enabled=True,
         )
+        tiers.insert(0, copilot_tier)
 
     if disable_luna:
         tiers = [t for t in tiers if t.name != "luna"]
@@ -119,6 +133,7 @@ def _default_worker_tiers() -> List[WorkerTier]:
 @dataclass
 class WorkersConfig:
     tier_order: List[WorkerTier] = field(default_factory=_default_worker_tiers)
+    disabled: List[WorkerTier] = field(default_factory=list)
 
 
 @dataclass
@@ -136,6 +151,12 @@ class MeisterConfig:
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
+    config_source: str = "padrao"
+    _parse_issues: List[ConfigIssue] = field(default_factory=list)
+
+
+def _as_str(value: object, default: str = "") -> str:
+    return default if value is None else str(value)
 
 
 def _parse_config_dict(data: dict) -> MeisterConfig:
@@ -143,6 +164,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         return MeisterConfig()
 
     version = str(data.get("version", "1.0"))
+    parse_issues: List[ConfigIssue] = []
 
     # Master
     master_data = data.get("master") or {}
@@ -155,10 +177,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     # Architect
     architect_data = data.get("architect") or {}
+    raw_effort = architect_data.get("effort")
+    effort_val = "high" if raw_effort is None else str(raw_effort)
     architect = ArchitectConfig(
         harness=architect_data.get("harness", "claude"),
-        model=architect_data.get("model", "anthropic/claude-sonnet-5"),
+        model=architect_data.get("model", "claude-sonnet-5-5"),
         prompt_template=architect_data.get("prompt_template", "templates/architect_prompt.md"),
+        effort=effort_val,
     )
 
     # Workers
@@ -166,21 +191,49 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if workers_data is not None and isinstance(workers_data, dict) and "tier_order" in workers_data:
         raw_tiers = workers_data.get("tier_order") or []
         tier_list: List[WorkerTier] = []
-        for tier in raw_tiers:
+        disabled_list: List[WorkerTier] = []
+        for i, tier in enumerate(raw_tiers):
             if isinstance(tier, dict):
-                tier_list.append(
-                    WorkerTier(
-                        name=tier.get("name", ""),
-                        harness=tier.get("harness", "native"),
-                        model=tier.get("model", ""),
-                        cost_per_m_tokens=float(tier.get("cost_per_m_tokens", 0.0)),
-                        max_retries=int(tier.get("max_retries", 2)),
-                        best_for=list(tier.get("best_for", [])),
+                raw_enabled = tier.get("enabled", True)
+                if not isinstance(raw_enabled, bool):
+                    parse_issues.append(
+                        ConfigIssue(
+                            level="error",
+                            path=f"workers.tier_order[{i}].enabled",
+                            message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {raw_enabled!r}",
+                        )
                     )
+                    enabled_val = bool(raw_enabled)
+                else:
+                    enabled_val = raw_enabled
+
+                tier_obj = WorkerTier(
+                    name=_as_str(tier.get("name"), ""),
+                    harness=_as_str(tier.get("harness"), "native"),
+                    model=_as_str(tier.get("model"), ""),
+                    cost_per_m_tokens=float(tier.get("cost_per_m_tokens", 0.0)),
+                    max_retries=int(tier.get("max_retries", 2)),
+                    best_for=list(tier.get("best_for", [])),
+                    enabled=enabled_val,
                 )
+                if enabled_val:
+                    tier_list.append(tier_obj)
+                else:
+                    disabled_list.append(tier_obj)
             elif isinstance(tier, WorkerTier):
-                tier_list.append(tier)
-        workers = WorkersConfig(tier_order=tier_list)
+                if not isinstance(tier.enabled, bool):
+                    parse_issues.append(
+                        ConfigIssue(
+                            level="error",
+                            path=f"workers.tier_order[{i}].enabled",
+                            message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                        )
+                    )
+                if tier.enabled:
+                    tier_list.append(tier)
+                else:
+                    disabled_list.append(tier)
+        workers = WorkersConfig(tier_order=tier_list, disabled=disabled_list)
     else:
         workers = WorkersConfig()
 
@@ -199,6 +252,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         architect=architect,
         workers=workers,
         concurrency=concurrency,
+        _parse_issues=parse_issues,
     )
 
 
@@ -238,9 +292,213 @@ def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) ->
             target_path = Path("meister.config.yml")
 
     if not target_path:
-        return MeisterConfig()
+        cfg = MeisterConfig()
+        cfg.config_source = "padrao"
+        return cfg
 
     with open(target_path, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
-    return _parse_config_dict(data)
+    cfg = _parse_config_dict(data)
+    cfg.config_source = str(target_path)
+    return cfg
+
+
+def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
+    """Valida um objeto MeisterConfig retornando lista de ConfigIssue (erros e avisos).
+
+    Sem levantar exceção. A configuração padrão sem arquivo e sem env resulta em 0 erros.
+    """
+    issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
+
+    # Erros
+    # 1. tier_order efetivo vazio
+    if not config.workers.tier_order:
+        if config.workers.disabled:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path="workers.tier_order",
+                    message="tier_order efetivo está vazio (todas as vias estão desabilitadas)",
+                )
+            )
+        else:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path="workers.tier_order",
+                    message="tier_order efetivo está vazio (nenhuma via configurada)",
+                )
+            )
+
+    # 2. nome de via vazio ou repetido
+    seen_names: Set[str] = set()
+    for i, tier in enumerate(config.workers.tier_order):
+        if not tier.name or not tier.name.strip():
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.tier_order[{i}].name",
+                    message="Nome da via não pode ser vazio",
+                )
+            )
+        elif tier.name in seen_names:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.tier_order[{i}].name",
+                    message=f"Nome de via repetido: '{tier.name}'",
+                )
+            )
+        else:
+            seen_names.add(tier.name)
+
+    for j, tier in enumerate(config.workers.disabled):
+        if not tier.name or not tier.name.strip():
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.disabled[{j}].name",
+                    message="Nome da via não pode ser vazio",
+                )
+            )
+        elif tier.name in seen_names:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.disabled[{j}].name",
+                    message=f"Nome de via repetido: '{tier.name}'",
+                )
+            )
+        else:
+            seen_names.add(tier.name)
+
+    # 3. max_retries negativo
+    for i, tier in enumerate(config.workers.tier_order):
+        if tier.max_retries < 0:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.tier_order[{i}].max_retries",
+                    message=f"max_retries não pode ser negativo ({tier.max_retries})",
+                )
+            )
+    for j, tier in enumerate(config.workers.disabled):
+        if tier.max_retries < 0:
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.disabled[{j}].max_retries",
+                    message=f"max_retries não pode ser negativo ({tier.max_retries})",
+                )
+            )
+
+    # 4. concurrency.max_parallel_workers < 1
+    if config.concurrency.max_parallel_workers < 1:
+        issues.append(
+            ConfigIssue(
+                level="error",
+                path="concurrency.max_parallel_workers",
+                message=f"concurrency.max_parallel_workers deve ser >= 1 ({config.concurrency.max_parallel_workers})",
+            )
+        )
+
+    # 5. architect.effort fora dos valores válidos
+    if config.architect.effort not in VALID_ARCHITECT_EFFORTS:
+        issues.append(
+            ConfigIssue(
+                level="error",
+                path="architect.effort",
+                message=f"architect.effort inválido: '{config.architect.effort}'. Valores válidos: {', '.join(sorted(VALID_ARCHITECT_EFFORTS))}",
+            )
+        )
+
+    # 6. enabled não booleano (para objetos construídos diretamente em Python sem parse)
+    for i, tier in enumerate(config.workers.tier_order):
+        if not isinstance(tier.enabled, bool):
+            path_str = f"workers.tier_order[{i}].enabled"
+            if not any(iss.path == path_str for iss in issues):
+                issues.append(
+                    ConfigIssue(
+                        level="error",
+                        path=path_str,
+                        message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                    )
+                )
+    for j, tier in enumerate(config.workers.disabled):
+        if not isinstance(tier.enabled, bool):
+            path_str = f"workers.disabled[{j}].enabled"
+            if not any(iss.path == path_str for iss in issues):
+                issues.append(
+                    ConfigIssue(
+                        level="error",
+                        path=path_str,
+                        message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                    )
+                )
+
+    # Avisos
+    for i, tier in enumerate(config.workers.tier_order):
+        h = (tier.harness or "native").strip().lower()
+        # 1. Harness desconhecido
+        if h not in KNOWN_HARNESSES:
+            is_abs_path = os.path.isabs(h) and os.path.exists(h)
+            is_in_path = bool(shutil.which(h))
+            if not is_abs_path and not is_in_path:
+                issues.append(
+                    ConfigIssue(
+                        level="warning",
+                        path=f"workers.tier_order[{i}].harness",
+                        message=f"Harness '{h}' desconhecido e não encontrado no PATH nem como arquivo executável",
+                    )
+                )
+
+        # 2. Harness claude/copilot sem executável no PATH
+        if h == "claude":
+            if not shutil.which("claude"):
+                issues.append(
+                    ConfigIssue(
+                        level="warning",
+                        path=f"workers.tier_order[{i}].harness",
+                        message="Executável 'claude' não encontrado no PATH",
+                    )
+                )
+        elif h in ("copilot", "github-copilot"):
+            if not (shutil.which("copilot") or shutil.which("github-copilot-cli")):
+                issues.append(
+                    ConfigIssue(
+                        level="warning",
+                        path=f"workers.tier_order[{i}].harness",
+                        message="Executável 'copilot' não encontrado no PATH",
+                    )
+                )
+
+        # 3. model vazio em via não native
+        if h != "native" and not tier.model:
+            issues.append(
+                ConfigIssue(
+                    level="warning",
+                    path=f"workers.tier_order[{i}].model",
+                    message=f"model vazio em via com harness não nativo ('{h}')",
+                )
+            )
+
+        # 4. best_for / cost_per_m_tokens preenchidos
+        if tier.best_for:
+            issues.append(
+                ConfigIssue(
+                    level="info",
+                    path=f"workers.tier_order[{i}].best_for",
+                    message="Campo 'best_for' preenchido nao influencia o roteamento",
+                )
+            )
+        if tier.cost_per_m_tokens != 0.0:
+            issues.append(
+                ConfigIssue(
+                    level="info",
+                    path=f"workers.tier_order[{i}].cost_per_m_tokens",
+                    message="Campo 'cost_per_m_tokens' preenchido nao influencia o roteamento",
+                )
+            )
+
+    return issues

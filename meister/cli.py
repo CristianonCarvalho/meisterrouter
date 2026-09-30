@@ -887,6 +887,18 @@ def orchestrate(workspace_id, architect_pane_id, task, plan_file, allow_freeform
             sys.exit(2)
 
     cfg = load_config(config_path)
+    from meister.config import validate_config
+    issues = validate_config(cfg)
+    errors = [iss for iss in issues if iss.level == "error"]
+    warnings = [iss for iss in issues if iss.level == "warning"]
+    for w in warnings:
+        click.echo(f"AVISO [{w.path}]: {w.message}", err=True)
+    if errors:
+        click.echo("Erro: configuração inválida:", err=True)
+        for err in errors:
+            click.echo(f"  • [{err.path}] {err.message}", err=True)
+        sys.exit(2)
+
     client = get_herdr_client(socket_path=socket_path)
     bridge = HerdrEventBridge(config=cfg, client=client)
 
@@ -1084,6 +1096,157 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
             sys.exit(1)
     else:
         click.echo(out)
+
+
+# ── config subcommand group ───────────────────────────────────────────────────
+
+@main.group("config")
+def config_group():
+    """Gerencia e valida a configuração do MeisterRouter."""
+
+
+@config_group.command("show")
+@click.option("--config-path", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+@click.option("--json", "json_format", is_flag=True, default=False, help="Exibe configuração em formato JSON estável")
+def config_show(config_path, json_format):
+    """Exibe a configuração ativa do MeisterRouter."""
+    cfg = load_config(config_path)
+
+    active_overrides = {
+        k: os.environ[k]
+        for k in sorted(os.environ.keys())
+        if k in (
+            "MEISTER_CONFIG_PATH",
+            "MEISTER_ENABLE_COPILOT",
+            "MEISTER_DISABLE_LUNA",
+            "MEISTER_PRIMARY_WORKER",
+        )
+        or (k.startswith("MEISTER_") and k.endswith("_MODEL"))
+    }
+
+    if json_format:
+        data = {
+            "active_env_overrides": active_overrides,
+            "architect": {
+                "effort": cfg.architect.effort,
+                "harness": cfg.architect.harness,
+                "model": cfg.architect.model,
+                "note": "(declarado; ainda nao conectado a nenhum fluxo)",
+                "prompt_template": cfg.architect.prompt_template,
+            },
+            "concurrency": {
+                "isolation_mode": cfg.concurrency.isolation_mode,
+                "layout_strategy": cfg.concurrency.layout_strategy,
+                "max_parallel_workers": cfg.concurrency.max_parallel_workers,
+                "parallel_tasks": cfg.concurrency.parallel_tasks,
+            },
+            "env_overrides": active_overrides,
+            "master": {
+                "api_key_env": cfg.master.api_key_env,
+                "model": cfg.master.model,
+                "provider": cfg.master.provider,
+                "temperature": cfg.master.temperature,
+            },
+            "source": cfg.config_source,
+            "version": cfg.version,
+            "workers": {
+                "disabled": [
+                    {
+                        "best_for": t.best_for,
+                        "cost_per_m_tokens": t.cost_per_m_tokens,
+                        "enabled": False,
+                        "harness": t.harness,
+                        "max_retries": t.max_retries,
+                        "model": t.model,
+                        "name": t.name,
+                    }
+                    for t in cfg.workers.disabled
+                ],
+                "tier_order": [
+                    {
+                        "best_for": t.best_for,
+                        "cost_per_m_tokens": t.cost_per_m_tokens,
+                        "enabled": True,
+                        "harness": t.harness,
+                        "max_retries": t.max_retries,
+                        "model": t.model,
+                        "name": t.name,
+                        "position": i + 1,
+                    }
+                    for i, t in enumerate(cfg.workers.tier_order)
+                ],
+            },
+        }
+        click.echo(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
+        return
+
+    click.echo(f"Origem: {cfg.config_source}\n")
+    click.echo("Variáveis de ambiente (overrides ativos):")
+    if active_overrides:
+        for k, v in sorted(active_overrides.items()):
+            click.echo(f"  {k}={v}")
+    else:
+        click.echo("  (nenhuma)")
+
+    click.echo("\nMaster:")
+    click.echo(f"  Provider: {cfg.master.provider}")
+    click.echo(f"  Model: {cfg.master.model}")
+    click.echo(f"  Temperature: {cfg.master.temperature}")
+    click.echo(f"  API Key Env: {cfg.master.api_key_env}")
+
+    click.echo("\nArquiteto / Planejador:")
+    click.echo(f"  Harness: {cfg.architect.harness}")
+    click.echo(f"  Model: {cfg.architect.model}")
+    click.echo(f"  Effort: {cfg.architect.effort}")
+    click.echo("  (declarado; ainda nao conectado a nenhum fluxo)")
+
+    click.echo("\nVias ativas (tier_order):")
+    if cfg.workers.tier_order:
+        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11}"
+        click.echo(header)
+        click.echo("  " + "-" * (len(header) - 2))
+        for i, t in enumerate(cfg.workers.tier_order):
+            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11}")
+    else:
+        click.echo("  (nenhuma via ativa)")
+
+    click.echo("\nVias desabilitadas:")
+    if cfg.workers.disabled:
+        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11}"
+        click.echo(header)
+        click.echo("  " + "-" * (len(header) - 2))
+        for t in cfg.workers.disabled:
+            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11}")
+    else:
+        click.echo("  (nenhuma)")
+
+    click.echo("\nConcorrência:")
+    click.echo(f"  Parallel Tasks: {cfg.concurrency.parallel_tasks}")
+    click.echo(f"  Max Parallel Workers: {cfg.concurrency.max_parallel_workers}")
+    click.echo(f"  Layout Strategy: {cfg.concurrency.layout_strategy}")
+    click.echo(f"  Isolation Mode: {cfg.concurrency.isolation_mode}\n")
+
+
+@config_group.command("validate")
+@click.option("--config-path", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+def config_validate(config_path):
+    """Valida a configuração do MeisterRouter."""
+    from meister.config import validate_config
+    try:
+        cfg = load_config(config_path)
+    except FileNotFoundError as e:
+        click.echo(f"ERRO: {e}", err=True)
+        sys.exit(2)
+    issues = validate_config(cfg)
+    if not issues:
+        click.echo("Configuracao valida.")
+        return
+    for iss in issues:
+        tag = {"error": "ERRO", "warning": "AVISO", "info": "INFO"}[iss.level]
+        click.echo(f"{tag} [{iss.path}]: {iss.message}")
+    has_errors = any(iss.level == "error" for iss in issues)
+    if has_errors:
+        sys.exit(2)
 
 
 # Aliases para compatibilidade caso chamados diretamente

@@ -17,7 +17,7 @@ Para toda tarefa de engenharia:
 | **GitHub Copilot CLI** | **Implementador de Código (GitHub)** | Copilot CLI (`copilot`) | $0.20 |
 | **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $0.5775 (Líder em Código Difícil) |
 | **Claude 4.5 Haiku** | **Implementador Secundário** | Claude CLI (`claude`) | $0.77 |
-| **Claude Sonnet 5** | **Arquiteto / Orquestrador Geral** | Claude CLI (`claude`) | $3.00 |
+| **Claude Sonnet 5.5 (high)** | **Arquiteto / Planejador** | Claude CLI (`claude`) | $3.00 |
 | **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $15.00 |
 | **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.50 |
 
