@@ -1,0 +1,27 @@
+{
+  "pane_closed": {
+    "data": {
+      "pane_id": "w9:pFG",
+      "type": "pane_closed",
+      "workspace_id": "w9"
+    },
+    "event": "pane_closed"
+  },
+  "pane_exited": {
+    "data": {
+      "pane_id": "w9:pFM",
+      "type": "pane_exited",
+      "workspace_id": "w9"
+    },
+    "event": "pane_exited"
+  },
+  "pane_created": {
+    "data": {
+      "pane": {
+        "pane_id": "w9:p1",
+        "workspace_id": "w9"
+      }
+    },
+    "event": "pane_created"
+  }
+}

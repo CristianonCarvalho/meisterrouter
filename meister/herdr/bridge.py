@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, load_config
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
+from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -170,14 +171,14 @@ class HerdrEventBridge:
         if not isinstance(event, dict):
             return
 
+        norm_type, norm_pane_id = parse_pane_event(event)
         params = event.get("params", event)
-        pane_id = params.get("pane_id") or params.get("pane")
-        ev_type = params.get("type") or event.get("type") or event.get("method") or event.get("event")
+        pane_id = norm_pane_id or params.get("pane_id") or params.get("pane")
 
-        # Tratamento reativo de evento pane.exited (Achado #10)
-        if ev_type in ("pane_exited", "pane.exited") and pane_id:
-            if pane_id in self._exit_events:
-                self._exit_events[pane_id].set()
+        # Tratamento reativo de evento pane_exited e pane_closed (Achado #10 / E2E-2)
+        if norm_type in PANE_GONE_TYPES and norm_pane_id:
+            if norm_pane_id in self._exit_events:
+                self._exit_events[norm_pane_id].set()
 
         output = params.get("output") or params.get("text") or params.get("data") or ""
 
@@ -461,6 +462,12 @@ class HerdrEventBridge:
                     start_wait = time.monotonic()
                     poll_interval = 0.2
 
+                    try:
+                        liveness_interval = float(os.environ.get("MEISTER_PANE_LIVENESS_INTERVAL", "5.0"))
+                    except (ValueError, TypeError):
+                        liveness_interval = 0.0
+                    last_liveness_check = time.monotonic()
+
                     while time.monotonic() - start_wait < timeout_val:
                         if os.path.exists(result_file):
                             res_data = read_atomic_json(result_file)
@@ -495,6 +502,29 @@ class HerdrEventBridge:
                                     break
                             infra_error = f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
                             break
+
+                        if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
+                            last_liveness_check = time.monotonic()
+                            if self.client is not None and hasattr(self.client, "pane_exists"):
+                                try:
+                                    exists = await self.client.pane_exists(pane_id)
+                                    if exists is False:
+                                        await asyncio.sleep(0.5)
+                                        if os.path.exists(result_file):
+                                            res_data = read_atomic_json(result_file)
+                                            if res_data is not None:
+                                                prompt_result = res_data
+                                                try:
+                                                    os.remove(result_file)
+                                                    if os.path.exists(task_file):
+                                                        os.remove(task_file)
+                                                except Exception:
+                                                    pass
+                                                break
+                                        infra_error = f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                                        break
+                                except Exception:
+                                    pass
 
                         await asyncio.sleep(poll_interval)
 

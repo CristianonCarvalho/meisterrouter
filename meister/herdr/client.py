@@ -5,6 +5,8 @@ import logging
 import os
 from typing import Optional, Callable, Awaitable, Any, Union
 
+from meister.herdr.events import is_pane_gone
+
 logger = logging.getLogger(__name__)
 
 
@@ -291,14 +293,11 @@ class HerdrSocketClient:
         pane_id: str,
         timeout: float = 180.0,
     ) -> bool:
-        """Wait until pane.exited event is received for the given pane_id (Achado #10)."""
+        """Wait until pane.exited or pane.closed event is received for the given pane_id (Achado #10)."""
         exit_event = asyncio.Event()
 
         async def _check_event(event: dict):
-            params = event.get("params", event)
-            ev_type = params.get("type") or event.get("type")
-            target_pane = params.get("pane_id") or event.get("pane_id")
-            if ev_type == "pane_exited" and target_pane == pane_id:
+            if is_pane_gone(event, pane_id):
                 exit_event.set()
 
         await self.subscribe_events(_check_event)
@@ -310,6 +309,32 @@ class HerdrSocketClient:
         finally:
             if _check_event in self._event_callbacks:
                 self._event_callbacks.remove(_check_event)
+
+    async def pane_exists(self, pane_id: str) -> bool:
+        """Check if a pane exists in Herdr using pane.get.
+
+        Returns False ONLY if Herdr responds with a pane_not_found RPC error.
+        For any other error (connection error, timeout, other RPC error), returns True
+        to avoid prematurely failing a healthy worker.
+        """
+        try:
+            await self._call("pane.get", {"pane_id": pane_id})
+            return True
+        except HerdrRPCError as e:
+            err_msg = str(e.message or "").lower()
+            code_str = str(e.code).lower()
+            data_str = str(e.data or "").lower()
+            full_str = str(e).lower()
+            if (
+                "pane_not_found" in err_msg
+                or "pane_not_found" in code_str
+                or "pane_not_found" in data_str
+                or "pane_not_found" in full_str
+            ):
+                return False
+            return True
+        except Exception:
+            return True
 
     async def get_current_pane(self) -> dict[str, Any]:
         """Get information about the currently focused pane and workspace in Herdr.
