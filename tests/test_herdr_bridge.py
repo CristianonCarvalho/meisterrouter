@@ -1479,9 +1479,59 @@ concurrency:
         assert len(skip_events) == 0
 
 
+@pytest.mark.asyncio
+async def test_bridge_execute_plan_unscoped_serialized_disjoint_parallel(tmp_path):
+    """(i) Duas tarefas sem escopo NÃO ficam simultâneas (máx 1); duas com escopo disjunto ficam (máx 2)."""
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text("""
+version: "1.0"
+concurrency:
+  parallel_tasks: true
+  max_parallel_workers: 2
+  layout_strategy: tiled
+""")
+    config = load_config(str(cfg_file))
+    mock_client = AsyncMock()
 
+    active_concurrent = 0
+    max_observed_concurrent = 0
 
+    async def mock_split(*args, **kwargs):
+        nonlocal active_concurrent, max_observed_concurrent
+        active_concurrent += 1
+        if active_concurrent > max_observed_concurrent:
+            max_observed_concurrent = active_concurrent
+        auto_write_result(tmp_path)
+        await asyncio.sleep(0.02)
+        active_concurrent -= 1
+        return "w1:p1"
 
+    mock_client.split_pane.side_effect = mock_split
+    mock_client.read_pane.return_value = "Done"
 
+    bridge = HerdrEventBridge(config=config, client=mock_client)
 
+    # 1. Duas tarefas sem escopo: devem rodar em lotes separados, concorrência máxima = 1
+    unscoped_steps = [
+        {"id": "u1", "description": "Unscoped 1", "target_files": [], "depends_on": []},
+        {"id": "u2", "description": "Unscoped 2", "target_files": [], "depends_on": []},
+    ]
+    max_observed_concurrent = 0
+    active_concurrent = 0
+    success = await bridge.execute_plan(unscoped_steps)
+    assert success is True
+    assert max_observed_concurrent == 1
+    assert mock_client.split_pane.call_count == 2
 
+    # 2. Duas tarefas com escopos disjuntos: rodam no mesmo lote, concorrência máxima = 2
+    mock_client.split_pane.reset_mock()
+    disjoint_steps = [
+        {"id": "d1", "description": "Disjoint 1", "target_files": ["a.py"], "depends_on": []},
+        {"id": "d2", "description": "Disjoint 2", "target_files": ["b.py"], "depends_on": []},
+    ]
+    max_observed_concurrent = 0
+    active_concurrent = 0
+    success2 = await bridge.execute_plan(disjoint_steps)
+    assert success2 is True
+    assert max_observed_concurrent == 2
+    assert mock_client.split_pane.call_count == 2
