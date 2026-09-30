@@ -12,7 +12,15 @@ E2E_DIR = REPO_ROOT / "tests" / "e2e"
 
 def test_e2e_scripts_exist():
     assert E2E_DIR.is_dir(), f"Diretório E2E não encontrado: {E2E_DIR}"
-    expected_scripts = {"lib.sh", "run_flow.sh", "run_parallel.sh", "run_safety.sh", "herdr_sampler.py"}
+    expected_scripts = {
+        "lib.sh",
+        "run_flow.sh",
+        "run_parallel.sh",
+        "run_safety.sh",
+        "run_plan.sh",
+        "run_chain.sh",
+        "herdr_sampler.py",
+    }
     found_files = {p.name for p in E2E_DIR.iterdir()}
     for exp in expected_scripts:
         assert exp in found_files, f"Arquivo esperado '{exp}' não encontrado em {E2E_DIR}"

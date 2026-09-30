@@ -52,6 +52,9 @@ Valida o fluxo end-to-end baseado em contrato de plano canônico (`superpowers -
 - **Cenário P1 (Fluxo de plano real com LLM e retomada idempotente):** Converte um plano de implementação real no formato Superpowers (`plan.md`) para JSON canônico (`plan.json`) via `meister plan import`, valida o esquema canônico via `meister plan validate` e despacha a execução autônoma multi-tarefa via `meister orchestrate --plan-file`. Valida a ordem de dependência sequencial (`task_2` depende de `task_1`), a execução e integração correta na branch `main` (`def mul` em `calc.py` e `def shout` em `text.py` exatamente 1 vez cada), aprovação da suíte `pytest` na `main`, telemetria no JSONL (`worker_spawn` e `subtask_completed`), e a idempotência da retomada ao reexecutar exatamente o mesmo comando (`run_id` estável gerado a partir do JSON canônico, zero novos spawns de worker), além da limpeza total de worktrees, branches temporárias e abas de worker.
 - **Cenário P2 (Dependência real entre tarefas sem arquivo em comum):** Valida a execução ordenada de tarefas com dependência lógica real onde a Task 2 consome um símbolo criado pela Task 1 (`square` em `geo.py` que faz `from calc import mul`), sem compartilhar arquivos (`target_files` estritamente disjuntos). Com `--deps sequential` padrão, comprova via telemetria que a Task 2 só é despachada após o término bem-sucedido da Task 1, integrando ambas na `main` com aprovação dos testes.
 
+### 5. `run_chain.sh` (tempo aproximado: ~3 min)
+Provar que o MeisterRouter aguenta um trabalho de tamanho real: **6 tarefas encadeadas**, cada uma sobre o resultado integrado da anterior, com workers reais, terminando com os testes passando na `main`. Cobre 6 integrações e 6 gates pytest em sequência, toques repetidos nos mesmos arquivos (`calc.py`, `geo.py`, `report.py`), dependência de interface em 3 níveis (`report` → `geo` → `calc`) e invariantes de ancestralidade com 10 checagens determinísticas (C-a a C-j).
+
 ---
 
 ## Variáveis de Ambiente
@@ -90,6 +93,9 @@ E2E_S1_T2_DESC="Adicione a função up(s) em text.py que retorna s.upper()" bash
 
 # 6. Executar o fluxo E2E baseado em contrato de plano (Superpowers -> import -> validate -> orchestrate)
 bash tests/e2e/run_plan.sh
+
+# 7. Executar o plano em cadeia de 6 tarefas (escala)
+bash tests/e2e/run_chain.sh
 ```
 
 ---
@@ -247,4 +253,58 @@ O script `run_plan.sh` valida 26 checagens distribuídas entre os cenários P0, 
 - `P2-f pytest passa na main`
 - `P2-g worker_spawn de cada task == 1`
 - `P2-h sem worktrees, branches temporarias ou tabs restantes`
+
+---
+
+## run_chain.sh: Plano em Cadeia de 6 Tarefas (Escala)
+
+O script `run_chain.sh` valida a capacidade do MeisterRouter de suportar um trabalho de tamanho real: **6 tarefas encadeadas**, cada uma sobre o resultado integrado da anterior, com workers reais, terminando com os testes passando na `main`. Hoje só provamos o caminho completo com 1 a 2 tarefas (`run_plan.sh` P1/P2).
+
+### O que este Cenário Exercita e P0/P1/P2 não
+
+- **6 integrações e 6 gates em sequência:** Executa 6 integrações sucessivas na branch de integração acompanhadas de 6 gates de verificação (`pytest` da totalidade do repositório a cada tarefa concluída).
+- **Múltiplos toques no mesmo arquivo em sequência:** O mesmo arquivo é tocado por tarefas diferentes sequencialmente (`calc.py`: Tarefas 1 e 2; `geo.py`: Tarefas 3 e 4; `report.py`: Tarefas 5 e 6), garantindo que cada worker parte de uma base de código que já incorpora o trabalho consolidado das anteriores.
+- **Dependência de interface em 3 níveis:** Encadeamento de dependência em múltiplos níveis (`report` → `geo` → `calc`), que a simples sobreposição de arquivos não enxerga, provando que o padrão `--deps sequential` garante a ordem correta.
+- **Invariante de ancestralidade:** Validação estrita de que o `integrated_sha` registrado para cada uma das 6 subtarefas é ancestral direto da branch `main` (`git merge-base --is-ancestor`) e que constam exatamente 6 commits de merge na `main`.
+
+### Tabela das Tarefas Encadeadas
+
+| Tarefa | Arquivo de Produção | Arquivo de Teste | Operação e Dependência de Interface |
+|---|---|---|---|
+| **Task 1: mul** | `calc.py` (modifica) | `tests/test_calc.py` | Implementa `mul(a, b)` retornando `a * b` e `test_mul`. Não altera outros arquivos. |
+| **Task 2: square** | `calc.py` (modifica) | `tests/test_calc.py` | Implementa `square(x)` retornando `mul(x, x)` (usa `mul` já existente; sem reimplementar) e `test_square`. |
+| **Task 3: area_square** | `geo.py` (cria) | `tests/test_geo.py` | Cria `geo.py` com `area_square(side)` que retorna `square(side)`, usando `from calc import square` (sem reimplementar `square`), e `test_area_square` (`area_square(3) == 9`). |
+| **Task 4: area_rect** | `geo.py` (modifica) | `tests/test_geo.py` | Adiciona `area_rect(w, h)` retornando `mul(w, h)`, usando `from calc import mul` (sem reimplementar `mul`), e `test_area_rect` (`area_rect(2, 5) == 10`). |
+| **Task 5: describe** | `report.py` (cria) | `tests/test_report.py` | Cria `report.py` com `describe(side)` retornando `f"{side}:{area_square(side)}"`, usando `from geo import area_square` (sem reimplementar), e `test_describe` (`describe(3) == "3:9"`). |
+| **Task 6: describe_all** | `report.py` (modifica) | `tests/test_report.py` | Adiciona `describe_all(sides)` retornando as descrições separadas por `"|"`, usando `describe` (já existente em `report.py`; sem reimplementar), e `test_describe_all` (`describe_all([1, 2]) == "1:1|2:4"`). |
+
+### Como Executar
+
+A partir da raiz do repositório:
+
+```bash
+bash tests/e2e/run_chain.sh
+```
+
+### Lista de Checagens Executadas no Script
+
+O script `run_chain.sh` valida 10 checagens determinísticas (C-a a C-j), sem uso de `SKIP` (qualquer falha, mesmo decorrente do modelo, é reportada como `FAIL`):
+
+- `C-a import rc 0, plan.json com 6 tarefas encadeadas e target_files em pares`
+- `C-b plan validate rc 0 e orchestrate #1 rc 0`
+- `C-c SQLite run e 6 subtarefas COMPLETED com integrated_sha`
+- `C-d ordem temporal de worker_spawn da task_n apos subtask_completed da task_{n-1}`
+- `C-e conteudo na main com definicoes unicas e imports encadeados`
+- `C-f pytest passa na main com pelo menos 9 testes passados`
+- `C-g ancestralidade das 6 subtarefas e 6 merge commits na main`
+- `C-h worker_spawn de cada task == 1 sem retries`
+- `C-i idempotencia orchestrate #2 rc 0 e total de worker_spawn continua 6`
+- `C-j sem worktrees, branches temporarias ou tabs restantes`
+
+### Limitações Honestas
+
+1. **Dependência de LLM (Luna):** O script despacha código para workers reais (`gpt-6-luna`). Falhas de raciocínio, sintaxe ou geração de diff por parte do modelo durante as tarefas reprovam as asserções correspondentes como `FAIL`, alertando no resumo final que a cadeia foi interrompida ou incompleta.
+2. **Ambiente Não Suportado no CI:** O script requer sessão interativa do Herdr com multiplexação de terminal, workers locais instalados (`codex`, `agy`) e credenciais ativas. O CI executa exclusivamente a suíte rápida de testes-guarda em `tests/test_e2e_scripts.py` (sintaxe via `bash -n`, executabilidade `+x` e portabilidade sem caminhos absolutos).
+3. **Tempo de Execução:** medido em 2026-09-30 com luna: ~173 s no total (18:05:33 a 18:08:26, incluindo a segunda execução de idempotência), com 24 a 36 s por tarefa (task_1 24,2 s; task_2 24,1 s; task_3 29,4 s; task_4 27,2 s; task_5 23,9 s; task_6 35,8 s). Uma única medição; varia com o LLM.
+
 
