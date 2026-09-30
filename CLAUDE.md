@@ -114,3 +114,5 @@ O flag `--allow-freeform` permite usar texto livre/lista markdown com `orchestra
 meister orchestrate --task "lista de tarefas livre" --allow-freeform
 ```
 Não use em produção — não valida dependências, tipos ou chaves proibidas.
+Tarefas sem `target_files` (ex.: `--allow-unscoped` ou `--allow-freeform`) rodam isoladas, sem paralelismo, por não haver como saber se conflitam.
+

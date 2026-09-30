@@ -35,10 +35,17 @@ class SubtaskNode:
         return {os.path.normpath(f.strip()) for f in self.target_files if f and f.strip()}
 
     def conflicts_with(self, other: SubtaskNode) -> bool:
-        """Check if this subtask shares any target files with another subtask."""
-        if not self.target_files or not other.target_files:
-            return False
-        return bool(self.normalized_target_files() & other.normalized_target_files())
+        """Check if this subtask conflicts with another subtask.
+
+        An unscoped subtask (empty normalized target files) can touch any file,
+        so it conflicts with every other subtask. When both subtasks declare
+        target files, they conflict only if their normalized target file sets intersect.
+        """
+        self_files = self.normalized_target_files()
+        other_files = other.normalized_target_files()
+        if not self_files or not other_files:
+            return True
+        return bool(self_files & other_files)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> SubtaskNode:
@@ -136,6 +143,10 @@ class TaskDAG:
     def detect_file_conflicts(self) -> List[Dict[str, Any]]:
         """Identify pairs of subtasks that share target files.
 
+        Note: Unscoped subtasks (without declared target_files) do not appear
+        here as they have no explicit file overlaps, but the batch scheduler
+        treats them as conflicting with all tasks.
+
         Returns a list of conflict summaries:
             [{"task_ids": [t1, t2], "overlapping_files": [file1, ...]}]
         """
@@ -183,6 +194,7 @@ class TaskDAG:
         completed_ids: Set[str] = set()
         remaining_ids: List[str] = list(self.nodes.keys())
         batches: List[List[SubtaskNode]] = []
+        logged_unscoped: Set[str] = set()
 
         while remaining_ids:
             # Candidate tasks whose dependencies are already completely met
@@ -199,17 +211,19 @@ class TaskDAG:
                 )
 
             current_batch: List[SubtaskNode] = []
-            current_batch_files: Set[str] = set()
 
             for candidate in ready_candidates:
-                candidate_files = candidate.normalized_target_files()
-                # Check for file conflict with any node already added to current batch
-                if candidate_files and (candidate_files & current_batch_files):
-                    # Conflicts with a task already scheduled in this batch; defer to next batch
+                # Check for conflict with any node already added to current batch
+                if any(candidate.conflicts_with(node) for node in current_batch):
+                    if not candidate.normalized_target_files() and candidate.id not in logged_unscoped:
+                        logger.info(
+                            "Subtask '%s' has no declared target_files and will run in an isolated batch",
+                            candidate.id,
+                        )
+                        logged_unscoped.add(candidate.id)
                     continue
 
                 current_batch.append(candidate)
-                current_batch_files.update(candidate_files)
 
             # If all ready candidates conflicted with one another, at least the first one runs
             if not current_batch and ready_candidates:
