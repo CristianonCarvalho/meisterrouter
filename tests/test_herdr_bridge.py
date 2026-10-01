@@ -1835,6 +1835,18 @@ def _track_spawned_tiers(bridge):
 
 
 @pytest.mark.asyncio
+async def test_bridge_with_empty_tier_order_returns_false(tmp_path):
+    bridge, client, _, subtask = _make_router_bridge(tmp_path)
+    bridge.config.workers.tier_order.clear()
+
+    with patch("meister.herdr.bridge.logger.error") as mock_error:
+        assert await bridge.execute_subtask(subtask) is False
+
+    mock_error.assert_called_once()
+    client.split_pane.assert_not_called()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(("mode", "tier_count"), [("first", 2), ("jev", 1)])
 async def test_bridge_does_not_classify_in_first_mode_or_single_tier(tmp_path, mode, tier_count):
     bridge, _, _, subtask = _make_router_bridge(tmp_path, mode=mode, tier_count=tier_count)

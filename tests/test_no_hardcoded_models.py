@@ -8,6 +8,11 @@ SCANNED_FILES = (
     "meister/herdr/workers.py",
     "meister/jev.py",
     "meister/cli.py",
+    "meister/models.py",
+    "meister/state.py",
+    "meister/herdr/bridge.py",
+    "meister/herdr/tui.py",
+    "meister/logger.py",
 )
 FORBIDDEN = (
     "gpt-6",
@@ -42,15 +47,9 @@ def test_runtime_modules_have_no_hardcoded_model_catalog():
     occurrences = []
     for relative_path in SCANNED_FILES:
         path = REPO_ROOT / relative_path
-        in_pr_b_block = False
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if "TODO(PR B) BEGIN" in line:
-                in_pr_b_block = True
-            if not in_pr_b_block:
-                lowered = line.lower()
-                for forbidden in FORBIDDEN:
-                    if forbidden in lowered:
-                        occurrences.append(f"{relative_path}:{line_number}: {line.strip()}")
-            if "TODO(PR B) END" in line:
-                in_pr_b_block = False
+            lowered = line.lower()
+            for forbidden in FORBIDDEN:
+                if forbidden in lowered:
+                    occurrences.append(f"{relative_path}:{line_number}: {line.strip()}")
     assert not occurrences, "Hardcoded model catalog found:\n" + "\n".join(occurrences)

@@ -90,7 +90,7 @@ def render_tui_dashboard(session_state: Optional[Dict[str, Any]] = None,
         for w in workers[:5]:
             wid = str(w.get("id", ""))[:5]
             wname = str(w.get("name", wid))[:13]
-            wmodel = str(w.get("model", "luna"))[:17]
+            wmodel = str(w.get("model", "-"))[:17]
             wstatus = str(w.get("status", "IDLE"))[:11]
             wtask = str(w.get("task", ""))[:17]
             color = GREEN if wstatus in ["RUNNING", "ACTIVE"] else (YELLOW if wstatus == "WAITING" else WHITE)
