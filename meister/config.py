@@ -90,6 +90,7 @@ class WorkerTier:
     max_retries: int = 2
     best_for: List[str] = field(default_factory=list)
     enabled: bool = True
+    max_parallel: Optional[int] = None
 
 
 def _default_worker_tiers() -> List[WorkerTier]:
@@ -102,6 +103,7 @@ def _default_worker_tiers() -> List[WorkerTier]:
             max_retries=int(item.get("max_retries", 2)),
             best_for=list(item.get("best_for", [])),
             enabled=bool(item.get("enabled", True)),
+            max_parallel=item.get("max_parallel"),
         )
         for item in _default_config_data()["workers"]["tier_order"]
     ]
@@ -189,6 +191,20 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         for i, tier in enumerate(raw_tiers):
             if isinstance(tier, dict):
                 raw_enabled = tier.get("enabled", True)
+                raw_max_parallel = tier.get("max_parallel")
+                if raw_max_parallel is not None and (
+                    isinstance(raw_max_parallel, bool) or not isinstance(raw_max_parallel, int)
+                ):
+                    parse_issues.append(
+                        ConfigIssue(
+                            level="error",
+                            path=f"workers.tier_order[{i}].max_parallel",
+                            message=(
+                                "Campo 'max_parallel' deve ser um inteiro >= 1 (booleanos não são aceitos), "
+                                f"recebido: {raw_max_parallel!r}"
+                            ),
+                        )
+                    )
                 if not isinstance(raw_enabled, bool):
                     parse_issues.append(
                         ConfigIssue(
@@ -209,6 +225,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     max_retries=int(tier.get("max_retries", 2)),
                     best_for=list(tier.get("best_for", [])),
                     enabled=enabled_val,
+                    max_parallel=raw_max_parallel,
                 )
                 if enabled_val:
                     tier_list.append(tier_obj)
@@ -397,7 +414,37 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 )
             )
 
-    # 4. concurrency.max_parallel_workers < 1
+    # 4. Limite de paralelismo por via deve ser inteiro positivo.
+    for group_name, tiers in (
+        ("workers.tier_order", config.workers.tier_order),
+        ("workers.disabled", config.workers.disabled),
+    ):
+        for i, tier in enumerate(tiers):
+            if tier.max_parallel is None:
+                continue
+            path = f"{group_name}[{i}].max_parallel"
+            if isinstance(tier.max_parallel, bool) or not isinstance(tier.max_parallel, int):
+                if not any(issue.path == path for issue in issues):
+                    issues.append(
+                        ConfigIssue(
+                            level="error",
+                            path=path,
+                            message=(
+                                "Campo 'max_parallel' deve ser um inteiro >= 1 (booleanos não são aceitos), "
+                                f"recebido: {tier.max_parallel!r}"
+                            ),
+                        )
+                    )
+            elif tier.max_parallel < 1:
+                issues.append(
+                    ConfigIssue(
+                        level="error",
+                        path=path,
+                        message=f"max_parallel deve ser >= 1 ({tier.max_parallel})",
+                    )
+                )
+
+    # 5. concurrency.max_parallel_workers < 1
     if config.concurrency.max_parallel_workers < 1:
         issues.append(
             ConfigIssue(
@@ -407,7 +454,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             )
         )
 
-    # 5. architect.effort fora dos valores válidos
+    # 6. architect.effort fora dos valores válidos
     if config.architect.effort not in VALID_ARCHITECT_EFFORTS:
         issues.append(
             ConfigIssue(

@@ -22,6 +22,7 @@ Para toda tarefa de engenharia:
 
 > 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`, `copilot`).
 > O catálogo efetivo vive em `meister/default_config.yaml` / `meister.config.yaml`.
+> `workers.tier_order[].max_parallel` limita quantas subtarefas começam por via; fallback posterior não transfere a reserva.
 
 ## 03. Fluxo de Trabalho Obrigatório do Agente
 

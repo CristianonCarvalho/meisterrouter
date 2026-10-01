@@ -1169,6 +1169,7 @@ def config_show(config_path, json_format):
                         "enabled": False,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
+                        "max_parallel": t.max_parallel,
                         "model": t.model,
                         "name": t.name,
                     }
@@ -1181,6 +1182,7 @@ def config_show(config_path, json_format):
                         "enabled": True,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
+                        "max_parallel": t.max_parallel,
                         "model": t.model,
                         "name": t.name,
                         "position": i + 1,
@@ -1217,21 +1219,23 @@ def config_show(config_path, json_format):
 
     click.echo("\nVias ativas (tier_order):")
     if cfg.workers.tier_order:
-        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11}"
+        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, t in enumerate(cfg.workers.tier_order):
-            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11}")
+            max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
+            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12}")
     else:
         click.echo("  (nenhuma via ativa)")
 
     click.echo("\nVias desabilitadas:")
     if cfg.workers.disabled:
-        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11}"
+        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for t in cfg.workers.disabled:
-            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11}")
+            max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
+            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12}")
     else:
         click.echo("  (nenhuma)")
 
