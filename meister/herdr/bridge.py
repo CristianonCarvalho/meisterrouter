@@ -145,6 +145,7 @@ class HerdrEventBridge:
         self._tier_active: Dict[str, int] = {}
         self._tier_cond = asyncio.Condition()
         self._held_slots: Dict[str, str] = {}
+        self._jev_unavailable_until: float = 0.0
 
         # Concurrency limit from config
         max_workers = 4
@@ -352,31 +353,7 @@ class HerdrEventBridge:
                         status="resumed",
                     )
                 else:
-                    context = f"{description}\nArquivos: {', '.join(str(path) for path in target_files or [])}"[:2000]
-                    try:
-                        result = await asyncio.to_thread(
-                            classify_task,
-                            context=context,
-                            model=self.config.master.model,
-                            task_id=subtask_id,
-                            run_id=active_run_id,
-                            implementers=tier_order,
-                        )
-                        recommended = result.get("recommended_implementer")
-                        if recommended in tier_names:
-                            current_tier = recommended
-                        log_event(
-                            event_type="route_decision",
-                            run_id=active_run_id,
-                            task_id=subtask_id,
-                            tier=current_tier,
-                            classification=result.get("classification"),
-                            confidence=result.get("classification_confidence"),
-                            fallback_rule_applied=bool(result.get("fallback_rule_applied", False))
-                            or recommended not in tier_names,
-                        )
-                    except Exception as e:
-                        logger.warning("Jev routing failed for subtask %s; using first tier: %s", task_id, e)
+                    if time.monotonic() < self._jev_unavailable_until:
                         current_tier = tier_order[0].name
                         log_event(
                             event_type="route_decision",
@@ -386,9 +363,79 @@ class HerdrEventBridge:
                             classification=None,
                             confidence=None,
                             fallback_rule_applied=True,
-                            status="fallback",
-                            error=str(e)[:200],
+                            status="skipped_unavailable",
                         )
+                    else:
+                        context = f"{description}\nArquivos: {', '.join(str(path) for path in target_files or [])}"[:2000]
+                        try:
+                            timeout_seconds = self.config.router.timeout_seconds
+                            max_attempts = self.config.router.max_attempts
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    classify_task,
+                                    context=context,
+                                    model=self.config.master.model,
+                                    task_id=subtask_id,
+                                    run_id=active_run_id,
+                                    implementers=tier_order,
+                                    timeout=timeout_seconds,
+                                    max_attempts=max_attempts,
+                                ),
+                                timeout=timeout_seconds * max_attempts + 5,
+                            )
+                            recommended = result.get("recommended_implementer")
+                            if result.get("api_unavailable", False):
+                                error = "Jev Decisions API indisponível"
+                                self._jev_unavailable_until = (
+                                    time.monotonic() + self.config.router.unavailable_cooldown_seconds
+                                )
+                                logger.warning(
+                                    "Jev routing failed for subtask %s; using first tier: %s",
+                                    task_id,
+                                    error,
+                                )
+                                current_tier = tier_order[0].name
+                                log_event(
+                                    event_type="route_decision",
+                                    run_id=active_run_id,
+                                    task_id=subtask_id,
+                                    tier=current_tier,
+                                    classification=result.get("classification"),
+                                    confidence=result.get("classification_confidence"),
+                                    fallback_rule_applied=True,
+                                    status="fallback",
+                                    error=error,
+                                )
+                            else:
+                                if recommended in tier_names:
+                                    current_tier = recommended
+                                log_event(
+                                    event_type="route_decision",
+                                    run_id=active_run_id,
+                                    task_id=subtask_id,
+                                    tier=current_tier,
+                                    classification=result.get("classification"),
+                                    confidence=result.get("classification_confidence"),
+                                    fallback_rule_applied=bool(result.get("fallback_rule_applied", False))
+                                    or recommended not in tier_names,
+                                )
+                        except Exception as e:
+                            logger.warning("Jev routing failed for subtask %s; using first tier: %s", task_id, e)
+                            self._jev_unavailable_until = (
+                                time.monotonic() + self.config.router.unavailable_cooldown_seconds
+                            )
+                            current_tier = tier_order[0].name
+                            log_event(
+                                event_type="route_decision",
+                                run_id=active_run_id,
+                                task_id=subtask_id,
+                                tier=current_tier,
+                                classification=None,
+                                confidence=None,
+                                fallback_rule_applied=True,
+                                status="fallback",
+                                error=str(e)[:200] or "Jev routing timed out",
+                            )
 
         if sm and hasattr(self.spawner, "get_first_available_tier"):
             tier_obj = self.spawner.get_tier(current_tier) if hasattr(self.spawner, "get_tier") else None

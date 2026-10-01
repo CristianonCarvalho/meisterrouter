@@ -1158,7 +1158,12 @@ def config_show(config_path, json_format):
                 "provider": cfg.master.provider,
                 "temperature": cfg.master.temperature,
             },
-            "router": {"mode": cfg.router.mode},
+            "router": {
+                "mode": cfg.router.mode,
+                "timeout_seconds": cfg.router.timeout_seconds,
+                "max_attempts": cfg.router.max_attempts,
+                "unavailable_cooldown_seconds": cfg.router.unavailable_cooldown_seconds,
+            },
             "source": cfg.config_source,
             "version": cfg.version,
             "workers": {
@@ -1210,6 +1215,9 @@ def config_show(config_path, json_format):
 
     click.echo("\nRouter:")
     click.echo(f"  Mode: {cfg.router.mode}")
+    click.echo(f"  Timeout Seconds: {cfg.router.timeout_seconds}")
+    click.echo(f"  Max Attempts: {cfg.router.max_attempts}")
+    click.echo(f"  Unavailable Cooldown Seconds: {cfg.router.unavailable_cooldown_seconds}")
 
     click.echo("\nArquiteto / Planejador:")
     click.echo(f"  Harness: {cfg.architect.harness}")

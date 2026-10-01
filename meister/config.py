@@ -10,11 +10,12 @@ from __future__ import annotations
 import os
 import shutil
 import copy
+import math
 from functools import lru_cache
 from importlib.resources import files
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, List, Set
+from typing import Any, Optional, List, Set
 import yaml
 
 
@@ -71,6 +72,11 @@ class MasterConfig:
 @dataclass
 class RouterConfig:
     mode: str = field(default_factory=lambda: _default_section("router")["mode"])
+    timeout_seconds: float = field(default_factory=lambda: float(_default_section("router")["timeout_seconds"]))
+    max_attempts: int = field(default_factory=lambda: _default_section("router")["max_attempts"])
+    unavailable_cooldown_seconds: float = field(
+        default_factory=lambda: float(_default_section("router")["unavailable_cooldown_seconds"])
+    )
 
 
 @dataclass
@@ -167,9 +173,40 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     # Router
     router_data = data["router"]
     if isinstance(router_data, dict):
-        router = RouterConfig(mode=_as_str(router_data.get("mode")))
+        router_values = router_data
     else:
-        router = RouterConfig(mode=_as_str(router_data))
+        router_values = {"mode": router_data}
+
+    default_router = _default_section("router")
+
+    def router_number(key: str, valid_type: Any) -> Any:
+        value = router_values.get(key, default_router[key])
+        path = f"router.{key}"
+        valid = (
+            isinstance(value, valid_type)
+            and not isinstance(value, bool)
+            and (valid_type is int or math.isfinite(value))
+        )
+        if not valid:
+            parse_issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=path,
+                    message=f"Campo '{key}' tem tipo inválido: {value!r}",
+                )
+            )
+            return default_router[key]
+        return value
+
+    timeout_seconds = router_number("timeout_seconds", (int, float))
+    max_attempts = router_number("max_attempts", int)
+    unavailable_cooldown_seconds = router_number("unavailable_cooldown_seconds", (int, float))
+    router = RouterConfig(
+        mode=_as_str(router_values.get("mode")),
+        timeout_seconds=float(timeout_seconds),
+        max_attempts=max_attempts,
+        unavailable_cooldown_seconds=float(unavailable_cooldown_seconds),
+    )
 
     # Architect
     architect_data = data["architect"]
@@ -332,6 +369,39 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 message=f"router.mode inválido: '{config.router.mode}'. Valores válidos: first, jev",
             )
         )
+
+    for path, value in (
+        ("router.timeout_seconds", config.router.timeout_seconds),
+        ("router.max_attempts", config.router.max_attempts),
+        ("router.unavailable_cooldown_seconds", config.router.unavailable_cooldown_seconds),
+    ):
+        is_attempt_count = path == "router.max_attempts"
+        is_valid_type = (
+            isinstance(value, int) and not isinstance(value, bool)
+            if is_attempt_count
+            else isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+        )
+        if not is_valid_type:
+            if not any(issue.path == path for issue in issues):
+                issues.append(
+                    ConfigIssue(
+                        level="error",
+                        path=path,
+                        message=f"Campo '{path.rsplit('.', 1)[1]}' tem tipo inválido: {value!r}",
+                    )
+                )
+            continue
+        if path == "router.timeout_seconds" and value <= 0:
+            message = f"router.timeout_seconds deve ser > 0 ({value})"
+        elif path == "router.max_attempts" and value < 1:
+            message = f"router.max_attempts deve ser >= 1 ({value})"
+        elif path == "router.unavailable_cooldown_seconds" and value < 0:
+            message = f"router.unavailable_cooldown_seconds não pode ser negativo ({value})"
+        else:
+            continue
+        issues.append(ConfigIssue(level="error", path=path, message=message))
 
     # 1. tier_order efetivo vazio
     if not config.workers.tier_order:

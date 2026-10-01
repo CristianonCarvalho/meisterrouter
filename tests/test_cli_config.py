@@ -24,7 +24,10 @@ def test_cli_config_show_default():
     assert "Origem: padrao (meister/default_config.yaml)" in result.output
     assert "Master:" in result.output
     assert "Router:" in result.output
-    assert "Mode: first" in result.output
+    assert "Mode: jev" in result.output
+    assert "Timeout Seconds: 10.0" in result.output
+    assert "Max Attempts: 2" in result.output
+    assert "Unavailable Cooldown Seconds: 300" in result.output
     assert "Arquiteto / Planejador:" in result.output
     assert "claude-sonnet-5-5" in result.output
     assert "high" in result.output
@@ -71,7 +74,12 @@ def test_cli_config_show_json():
     assert data["architect"]["model"] == "claude-sonnet-5-5"
     assert data["architect"]["effort"] == "high"
     assert data["architect"]["note"] == "(declarado; ainda nao conectado a nenhum fluxo)"
-    assert data["router"] == {"mode": "first"}
+    assert data["router"] == {
+        "mode": "jev",
+        "timeout_seconds": 10.0,
+        "max_attempts": 2,
+        "unavailable_cooldown_seconds": 300.0,
+    }
     assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
         "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
     ]
@@ -115,7 +123,12 @@ def test_cli_config_show_json_reports_jev_router(tmp_path):
     result = runner.invoke(main, ["config", "show", "--json", "--config-path", str(cfg_file)])
 
     assert result.exit_code == 0
-    assert json.loads(result.output)["router"] == {"mode": "jev"}
+    assert json.loads(result.output)["router"] == {
+        "mode": "jev",
+        "timeout_seconds": 10.0,
+        "max_attempts": 2,
+        "unavailable_cooldown_seconds": 300.0,
+    }
 
 
 def test_cli_classify_passes_configured_implementers(tmp_path, monkeypatch):
@@ -144,7 +157,9 @@ def test_cli_config_validate_on_default():
     assert result.exit_code == 0
 
 
-def test_cli_config_validate_clean_file(tmp_path):
+def test_cli_config_validate_clean_file(tmp_path, monkeypatch):
+    # o modo jev (padrao) avisa quando falta a chave do OpenRouter; fixa a chave para nao depender da maquina
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     runner = CliRunner()
     clean_file = tmp_path / "clean.yaml"
     clean_file.write_text("""
@@ -163,6 +178,8 @@ def test_cli_config_validate_prints_info_with_success_exit_code(tmp_path):
     runner = CliRunner()
     config_file = tmp_path / "info.yaml"
     config_file.write_text("""
+router:
+  mode: first
 workers:
   tier_order:
     - name: luna

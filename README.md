@@ -125,6 +125,13 @@ Isso criará automaticamente no projeto:
 
 ### 2. Comandos do Jev Decisions
 
+O roteador padrão é `jev`: ele escolhe a via inicial de cada subtarefa. A configuração
+fica em `meister.config.yaml`; para operação offline e determinística, defina
+`router: {mode: first}`, que sempre usa a primeira via sem chamar o Jev.
+`router.timeout_seconds` limita cada chamada, `router.max_attempts` define as tentativas
+e `router.unavailable_cooldown_seconds` define por quanto tempo novas chamadas são
+evitadas após uma falha. Os padrões são `10`, `2` e `300`, respectivamente.
+
 #### Classificar uma Tarefa (`classify`):
 ```bash
 meister classify --context "Adicionar filtro de busca por data no painel"

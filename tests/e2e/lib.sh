@@ -165,6 +165,8 @@ make_disposable_repo() { # $1=target_dir
   printf '.meister/\n__pycache__/\n' > .gitignore
   local luna_m="${E2E_LUNA_MODEL:-gpt-6-luna}"
   cat <<CFG > meister.config.yaml
+router:
+  mode: first
 workers:
   tier_order:
     - {name: codex_luna, harness: codex, model: ${luna_m}, max_retries: 1}

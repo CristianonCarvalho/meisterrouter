@@ -29,3 +29,25 @@ def isolate_test_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Meister CI")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "ci@meisterrouter.local")
     yield
+
+
+@pytest.fixture(autouse=True)
+def block_network_and_stub_jev(monkeypatch):
+    """Prevent real network access and make bridge routing deterministic."""
+    def blocked_post(*_args, **_kwargs):
+        raise RuntimeError("rede bloqueada em testes")
+
+    def deterministic_classify_task(*, implementers, **_kwargs):
+        tiers = list(implementers)
+        names = [tier.name for tier in tiers]
+        return {
+            "recommended_implementer": names[0],
+            "classification": "SMALL",
+            "classification_confidence": 1.0,
+            "fallback_rule_applied": False,
+            "api_unavailable": False,
+            "fallback_chain": names[1:],
+        }
+
+    monkeypatch.setattr("requests.post", blocked_post)
+    monkeypatch.setattr("meister.herdr.bridge.classify_task", deterministic_classify_task)

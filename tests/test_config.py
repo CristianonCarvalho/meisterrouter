@@ -363,6 +363,7 @@ def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path,
         executable.write_text("#!/bin/sh\n")
         executable.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_path))
+    monkeypatch.setattr("meister.jev.get_api_key", lambda: "test-key")
 
     issues = validate_config(load_config())
     errors = [issue for issue in issues if issue.level == "error"]
@@ -371,11 +372,7 @@ def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path,
 
     assert not errors
     assert not warnings
-    assert len(info) == 8
-    assert all(
-        issue.path.endswith((".best_for", ".cost_per_m_tokens"))
-        for issue in info
-    )
+    assert not info
 
 
 def test_validate_config_normalizes_harness_before_checking(tmp_path, monkeypatch):
@@ -397,12 +394,44 @@ workers:
 
 
 def test_router_mode_defaults_and_parses(tmp_path):
-    assert load_config().router.mode == "first"
+    default = load_config()
+    assert default.router.mode == "jev"
+    assert default.router.timeout_seconds == 10
+    assert default.router.max_attempts == 2
+    assert default.router.unavailable_cooldown_seconds == 300
 
     config_yaml = tmp_path / "router.yaml"
     config_yaml.write_text("router:\n  mode: jev\n")
     assert load_config(str(config_yaml)).router.mode == "jev"
 
+    first_yaml = tmp_path / "first_router.yaml"
+    first_yaml.write_text("router: {mode: first}\n")
+    assert load_config(str(first_yaml)).router.mode == "first"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("timeout_seconds", "0"),
+        ("timeout_seconds", "-1"),
+        ("max_attempts", "0"),
+        ("max_attempts", "-1"),
+        ("unavailable_cooldown_seconds", "-1"),
+        ("timeout_seconds", '"ten"'),
+        ("timeout_seconds", "true"),
+        ("max_attempts", "1.5"),
+        ("max_attempts", "true"),
+        ("unavailable_cooldown_seconds", '"later"'),
+        ("unavailable_cooldown_seconds", "false"),
+    ],
+)
+def test_router_timing_validation_rejects_invalid_values(tmp_path, field, value):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "invalid_router_timing.yaml"
+    config_yaml.write_text(f"router:\n  {field}: {value}\n")
+    issues = validate_config(load_config(str(config_yaml)))
+    assert any(issue.level == "error" and issue.path == f"router.{field}" for issue in issues)
 
 def test_router_mode_validation_and_missing_api_key_warning(tmp_path, monkeypatch):
     from meister.config import validate_config

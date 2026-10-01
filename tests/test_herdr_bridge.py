@@ -1998,7 +1998,14 @@ async def test_bridge_active_liveness_interval_zero_disabled(tmp_path, monkeypat
     assert mock_client.pane_exists.call_count == 0
 
 
-def _make_router_bridge(tmp_path, mode="jev", tier_count=2):
+def _make_router_bridge(
+    tmp_path,
+    mode="jev",
+    tier_count=2,
+    unavailable_cooldown_seconds=300,
+    timeout_seconds=10,
+    max_attempts=2,
+):
     from meister.config import load_config
     from meister.state import StateManager
 
@@ -2010,6 +2017,9 @@ def _make_router_bridge(tmp_path, mode="jev", tier_count=2):
     config_file.write_text(
         "router:\n"
         f"  mode: {mode}\n"
+        f"  unavailable_cooldown_seconds: {unavailable_cooldown_seconds}\n"
+        f"  timeout_seconds: {timeout_seconds}\n"
+        f"  max_attempts: {max_attempts}\n"
         "master:\n"
         "  model: test-jev\n"
         "workers:\n"
@@ -2103,7 +2113,10 @@ async def test_bridge_jev_routes_and_logs_decision(tmp_path):
     mock_classify.assert_called_once()
     assert mock_classify.call_args.kwargs["model"] == "test-jev"
     assert mock_classify.call_args.kwargs["implementers"] == bridge.config.workers.tier_order
+    assert mock_classify.call_args.kwargs["timeout"] == bridge.config.router.timeout_seconds
+    assert mock_classify.call_args.kwargs["max_attempts"] == bridge.config.router.max_attempts
     assert spawned_tiers == ["luna"]
+    assert bridge._jev_unavailable_until == 0.0
     route_events = [
         call.kwargs for call in mock_log_event.call_args_list
         if call.kwargs.get("event_type") == "route_decision"
@@ -2131,6 +2144,97 @@ async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
     )
     assert route_event["fallback_rule_applied"] is True
     assert route_event["status"] == "fallback"
+    assert route_event["error"] == "routing unavailable"
+    assert bridge._jev_unavailable_until > time.monotonic()
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
+    bridge, _, _, first_subtask = _make_router_bridge(
+        tmp_path, unavailable_cooldown_seconds=0.05
+    )
+    spawned_tiers = _track_spawned_tiers(bridge)
+    failed = {
+        "classification": "SMALL",
+        "recommended_implementer": "copilot",
+        "fallback_rule_applied": True,
+        "api_unavailable": True,
+    }
+    healthy = {
+        "classification": "MEDIUM",
+        "recommended_implementer": "luna",
+        "fallback_rule_applied": False,
+        "api_unavailable": False,
+    }
+    second_subtask = {**first_subtask, "id": "route-task-2"}
+    third_subtask = {**first_subtask, "id": "route-task-3"}
+
+    with patch("meister.herdr.bridge.classify_task", side_effect=[failed, healthy]) as mock_classify, \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(first_subtask) is True
+        assert await bridge.execute_subtask(second_subtask) is True
+        assert mock_classify.call_count == 1
+        skipped = [
+            call.kwargs for call in mock_log_event.call_args_list
+            if call.kwargs.get("event_type") == "route_decision"
+            and call.kwargs.get("status") == "skipped_unavailable"
+        ]
+        assert len(skipped) == 1
+        assert skipped[0]["tier"] == "copilot"
+
+        await asyncio.sleep(0.06)
+        assert await bridge.execute_subtask(third_subtask) is True
+
+    assert mock_classify.call_count == 2
+    assert spawned_tiers == ["copilot", "copilot", "luna"]
+    route_events = [
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    ]
+    assert [event.get("status") for event in route_events] == [
+        "fallback", "skipped_unavailable", None
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_timeout_activates_cooldown(tmp_path):
+    bridge, _, _, subtask = _make_router_bridge(
+        tmp_path,
+        unavailable_cooldown_seconds=1,
+        timeout_seconds=0.001,
+        max_attempts=1,
+    )
+    spawned_tiers = _track_spawned_tiers(bridge)
+
+    def slow_classify(**_kwargs):
+        time.sleep(0.1)
+        return {"recommended_implementer": "luna", "api_unavailable": False}
+
+    real_wait_for = asyncio.wait_for
+    requested_timeouts = []
+
+    async def fast_timeout(awaitable, timeout):
+        requested_timeouts.append(timeout)
+        if timeout == 5.001:
+            timeout = 0.01
+        return await real_wait_for(awaitable, timeout=timeout)
+
+    with patch("meister.herdr.bridge.classify_task", side_effect=slow_classify) as mock_classify, \
+         patch("meister.herdr.bridge.asyncio.wait_for", side_effect=fast_timeout), \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(subtask) is True
+        assert await bridge.execute_subtask({**subtask, "id": "after-timeout"}) is True
+
+    assert mock_classify.call_count == 1
+    assert requested_timeouts == [5.001]
+    assert spawned_tiers == ["copilot", "copilot"]
+    route_events = [
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    ]
+    assert route_events[0]["status"] == "fallback"
+    assert "timed out" in route_events[0]["error"].lower()
+    assert route_events[1]["status"] == "skipped_unavailable"
 
 
 @pytest.mark.asyncio
