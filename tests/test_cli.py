@@ -5,10 +5,55 @@ import subprocess
 BIN_MEISTER = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "bin", "meister"))
 
 def test_cli_models():
-    res = subprocess.run([BIN_MEISTER, "models"], stdout=subprocess.PIPE, text=True)
-    assert res.returncode == 0
-    assert "GPT-6 Luna" in res.stdout
-    assert "Gemini 3.8 Flash" in res.stdout
+    from click.testing import CliRunner
+    from meister.cli import main
+
+    res = CliRunner().invoke(main, ["models"])
+    assert res.exit_code == 0, res.output
+    assert "Origem da configuração: padrao (meister/default_config.yaml)" in res.output
+    assert "copilot_luna" in res.output
+    assert "codex_luna" in res.output
+    assert "agy_gemini_flash" in res.output
+    assert "claude_sonnet" in res.output
+    assert "$0.200" in res.output
+    assert "$0.077" in res.output
+    assert "$0.577" in res.output
+    assert "$3.000" in res.output
+    assert res.output.index("copilot_luna") < res.output.index("codex_luna")
+    assert res.output.index("codex_luna") < res.output.index("agy_gemini_flash")
+    assert res.output.index("agy_gemini_flash") < res.output.index("claude_sonnet")
+
+
+def test_cli_models_shows_disabled_configured_via_only(tmp_path):
+    from click.testing import CliRunner
+    from meister.cli import main
+
+    config_path = tmp_path / "meister.config.yaml"
+    config_path.write_text(
+        "workers:\n"
+        "  tier_order:\n"
+        "    - name: enabled-custom\n"
+        "      harness: codex\n"
+        "      model: custom-model-a\n"
+        "      cost_per_m_tokens: 0.42\n"
+        "    - name: disabled-custom\n"
+        "      harness: copilot\n"
+        "      model: custom-model-b\n"
+        "      cost_per_m_tokens: 0.84\n"
+        "      enabled: false\n",
+        encoding="utf-8",
+    )
+
+    res = CliRunner().invoke(main, ["models", "--config", str(config_path)])
+    assert res.exit_code == 0, res.output
+    assert str(config_path) in res.output
+    assert "enabled-custom" in res.output
+    assert "custom-model-a" in res.output
+    assert "$0.420  ligada" in res.output
+    assert "disabled-custom" in res.output
+    assert "custom-model-b" in res.output
+    assert "$0.840  desligada" in res.output
+    assert "copilot_luna" not in res.output
 
 def test_cli_init():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -300,5 +345,4 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
         assert "terminal lateral no Herdr" in res_split.output
         mock_pane.assert_called_once()
         mock_tab.assert_not_called()
-
 

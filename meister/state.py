@@ -165,7 +165,7 @@ class StateManager:
                 description TEXT NOT NULL,
                 target_files_json TEXT DEFAULT '[]',
                 depends_on_json TEXT DEFAULT '[]',
-                assigned_tier TEXT DEFAULT 'luna',
+                assigned_tier TEXT DEFAULT '',
                 status TEXT NOT NULL,
                 attempts INTEGER DEFAULT 0,
                 pane_id TEXT,
@@ -346,7 +346,7 @@ class StateManager:
 
                 target_files = json.dumps(sub.get("target_files") or [], ensure_ascii=False)
                 depends_on = json.dumps(sub.get("depends_on") or [], ensure_ascii=False)
-                tier = str(sub.get("assigned_tier") or sub.get("tier") or "luna")
+                tier = str(sub.get("assigned_tier") or sub.get("tier") or "")
 
                 cursor.execute(
                     """

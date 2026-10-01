@@ -253,8 +253,8 @@ class HerdrEventBridge:
                 tier_order = self.config.workers.tier_order
                 current_tier = tier_order[0].name
             else:
-                tier_order = []
-                current_tier = "luna"
+                logger.error("Não é possível executar a subtarefa: nenhuma via está configurada.")
+                return False
 
             if getattr(getattr(self.config, "router", None), "mode", "first") == "jev" and len(tier_order) > 1:
                 tier_names = {tier.name for tier in tier_order}

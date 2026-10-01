@@ -115,6 +115,17 @@ def test_subtask_lifecycle_and_idempotency(tmp_path):
         sm.transition_subtask(s1_id, SubtaskState.RETRYING)
 
 
+def test_new_subtask_tier_defaults_to_empty_and_missing_tier_stays_empty(tmp_path):
+    sm = StateManager(str(tmp_path / "new-state.db"))
+    with sm._get_connection() as conn:
+        columns = {row["name"]: row for row in conn.execute("PRAGMA table_info(subtasks)")}
+    assert columns["assigned_tier"]["dflt_value"] == "''"
+
+    run = sm.create_or_get_run("Task without tier", cwd=str(tmp_path))
+    added = sm.add_subtasks(run["run_id"], [{"id": "step", "description": "No assigned via"}])
+    assert added[0]["assigned_tier"] == ""
+
+
 def test_recover_stranded_tasks():
     sm = StateManager(":memory:")
     run = sm.create_or_get_run("Interrupted Task")

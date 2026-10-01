@@ -30,7 +30,7 @@ from typing import Optional
 import click
 
 from meister.jev import classify_task, control_cycle, call_decisions
-from meister.models import MODEL_PRICING, estimate_cost
+from meister.models import estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import get_events_by_run_id, log_event, get_current_run
 from meister.config import load_config, ensure_meister_dir
@@ -274,25 +274,22 @@ def install_hooks(target, git, claude):
 
 
 @main.command("models")
-# TODO(PR B) BEGIN: legacy fixed price-table command.
-def models():
-    """Imprime a tabela de modelos, inteligência e preços."""
-    click.echo("\n📊 CATÁLOGO DE MODELOS MEISTERROUTER (Artificial Analysis Benchmark)")
-    click.echo("=" * 76)
-    click.echo(f"{'MODELO':<30} | {'PAPEL':<18} | {'ÍNDICE':<6} | {'CUSTO 1M':<10}")
-    click.echo("-" * 76)
-    for key, data in MODEL_PRICING.items():
-        if "/" not in key and key not in ["luna", "haiku-4.5", "gemini-3.8-flash", "sonnet-5"]:
-            continue
-        name = data.get("name", key)
-        role = data.get("role", "")
-        idx = str(data.get("intelligence_index", "-"))
-        cost = f"${data.get('input', 0.0):.2f}/${data.get('output', 0.0):.2f}"
-        click.echo(f"{name:<30} | {role:<18} | {idx:<6} | {cost:<10}")
-    click.echo("=" * 76)
-    click.echo("💡 GPT-6 Luna é o modelo recomendado para workers primários ($0.10 in / $0.50 out).")
-    click.echo("💡 Gemini 3.8 Flash é o campeão de automação para tarefas difíceis (Índice 40).\n")
-# TODO(PR B) END
+@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+def models(config_path):
+    """Imprime as vias e os custos definidos na configuração."""
+    cfg = load_config(config_path=config_path)
+    click.echo(f"Origem da configuração: {cfg.config_source}")
+    click.echo(f"{'#':>3}  {'NOME':<24} {'HARNESS':<16} {'MODELO':<28} {'CUSTO/1M':>10}  STATUS")
+    tiers = [
+        *((tier, True) for tier in cfg.workers.tier_order),
+        *((tier, False) for tier in cfg.workers.disabled),
+    ]
+    for position, (tier, enabled) in enumerate(tiers, 1):
+        status = "ligada" if enabled else "desligada"
+        click.echo(
+            f"{position:>3}  {tier.name:<24} {tier.harness:<16} {tier.model:<28} "
+            f"${tier.cost_per_m_tokens:.3f}  {status}"
+        )
 
 
 @main.command("test")

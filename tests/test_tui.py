@@ -50,6 +50,16 @@ def test_render_tui_dashboard_workers_table():
     assert "COMPLETED" in output
 
 
+def test_render_tui_dashboard_uses_placeholder_for_missing_model():
+    output = render_tui_dashboard(
+        {"workers": [{"id": "w1", "name": "worker-1", "status": "RUNNING"}]},
+        {},
+    )
+
+    worker_line = next(line for line in output.splitlines() if "worker-1" in line)
+    assert "worker-1       -" in worker_line
+
+
 def test_render_tui_dashboard_shortcuts():
     output = render_tui_dashboard({}, {})
     assert "MeisterRouter Live Telemetry" in output
