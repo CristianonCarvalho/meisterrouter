@@ -5,7 +5,12 @@ master:
   temperature: 0.0
   api_key_env: OPENROUTER_API_KEY
 router:
-  mode: first
+  # jev escolhe a via inicial; use first para sempre escolher a primeira via, sem rede.
+  # Estes valores limitam a espera pelo Jev e o tempo para evitá-lo após uma falha.
+  mode: jev
+  timeout_seconds: 10
+  max_attempts: 2
+  unavailable_cooldown_seconds: 300
 architect:
   harness: claude
   model: claude-sonnet-5-5

@@ -129,6 +129,11 @@ def test_call_decisions_malformed_pydantic_validation(monkeypatch):
         assert "Pydantic validation" in str(exc_info.value)
 
 
+def test_test_network_requests_are_blocked():
+    with pytest.raises(RuntimeError, match="rede bloqueada em testes"):
+        requests.post("https://example.invalid")
+
+
 # ─── Testes do classify_task (Cost, Deterministic ID, Fallback) ──────────────
 
 def test_classify_task_tier_alignment():
@@ -147,6 +152,44 @@ def test_classify_task_tier_alignment():
         assert res["fallback_chain"] == ["claude_sonnet"]
         assert res["cost"] == 0.00012
         assert res["fallback_rule_applied"] is False
+        assert res["api_unavailable"] is False
+
+
+def test_classify_task_passes_timeout_and_attempt_limit():
+    response = {
+        "answers": {
+            "complexity": {"choice": "medium"},
+            "recommended_implementer": {"choice": "copilot_luna"},
+        },
+        "usage": {},
+    }
+    with patch("meister.jev.call_decisions", return_value=response) as call:
+        classify_task("bounded Jev", timeout=4.5, max_attempts=2)
+    assert call.call_args.kwargs["timeout"] == 4.5
+    assert call.call_args.kwargs["max_retries"] == 2
+
+
+def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
+    valid = {
+        "answers": {
+            "complexity": {"choice": "medium"},
+            "recommended_implementer": {"choice": "copilot_luna"},
+        },
+        "usage": {},
+    }
+    invalid_choice = {
+        "answers": {
+            "complexity": {"choice": "impossible"},
+            "recommended_implementer": {"choice": "not-configured"},
+        },
+        "usage": {},
+    }
+    with patch("meister.jev.call_decisions", return_value=valid):
+        assert classify_task("valid Jev response")["api_unavailable"] is False
+    with patch("meister.jev.call_decisions", return_value=invalid_choice):
+        assert classify_task("invalid Jev choices")["api_unavailable"] is False
+    with patch("meister.jev.call_decisions", side_effect=RuntimeError("offline")):
+        assert classify_task("unavailable Jev")["api_unavailable"] is True
 
 
 def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
@@ -167,6 +210,7 @@ def test_classify_task_default_options_and_failure_fallback_use_configured_route
         fallback = classify_task("A critical authentication migration")
     assert fallback["recommended_implementer"] == configured_names[0]
     assert fallback["fallback_chain"] == configured_names[1:]
+    assert fallback["api_unavailable"] is True
 
 
 def test_classify_task_deterministic_task_id():

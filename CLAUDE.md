@@ -23,10 +23,13 @@ Para toda tarefa de engenharia:
 > 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`, `copilot`).
 > O catálogo efetivo vive em `meister/default_config.yaml` / `meister.config.yaml`.
 > `workers.tier_order[].max_parallel` limita quantas subtarefas começam por via; fallback posterior não transfere a reserva.
+> O roteador padrão é `jev`; use `router: {mode: first}` para sempre escolher a primeira via sem rede.
+> `router.timeout_seconds` (10), `router.max_attempts` (2) e `router.unavailable_cooldown_seconds` (300)
+> limitam a espera pelo Jev e o intervalo de resfriamento após uma falha.
 
 ## 03. Fluxo de Trabalho Obrigatório do Agente
 
-Com `router.mode: jev`, o `orchestrate` usa o Jev para escolher a via inicial de cada subtarefa.
+Com `router.mode: jev` (padrão), o `orchestrate` usa o Jev para escolher a via inicial de cada subtarefa.
 
 ### Passo 1: Classificação Inicial (`classify`)
 Antes de implementar ou criar subagentes, rodar:

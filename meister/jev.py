@@ -167,7 +167,7 @@ def call_decisions(
     questions: dict,
     model: Optional[str] = None,
     max_retries: int = 3,
-    timeout: int = 20,
+    timeout: float = 20,
     use_cache: bool = True,
 ) -> Dict[str, Any]:
     """Envia requisição tipada para a Decisions API da TypeSafe via OpenRouter.
@@ -238,6 +238,8 @@ def classify_task(
     run_id: Optional[str] = None,
     attempt: int = 1,
     implementers: Optional[Sequence[WorkerTier]] = None,
+    timeout: Optional[float] = None,
+    max_attempts: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Classifica a complexidade da tarefa e sugere o subagente ideal.
 
@@ -295,12 +297,23 @@ def classify_task(
     }
 
     fallback_applied = False
+    api_unavailable = False
     cost = 0.0
     cls_conf: Optional[float] = None
     impl_conf: Optional[float] = None
 
     try:
-        raw = call_decisions(state=state, questions=questions, model=decision_model, use_cache=use_cache)
+        decision_kwargs: Dict[str, Any] = {
+            "state": state,
+            "questions": questions,
+            "model": decision_model,
+            "use_cache": use_cache,
+        }
+        if timeout is not None:
+            decision_kwargs["timeout"] = timeout
+        if max_attempts is not None:
+            decision_kwargs["max_retries"] = max_attempts
+        raw = call_decisions(**decision_kwargs)
         answers = raw.get("answers", {})
 
         cls_ans = answers.get("complexity", {})
@@ -326,6 +339,7 @@ def classify_task(
     except Exception as e:
         logger.warning("Decisions API indisponível (%s). Aplicando tabela determinística de regras (Achado #24).", e)
         fallback_applied = True
+        api_unavailable = True
         cls_probs = {}
         cls_conf = None
         impl_conf = None
@@ -384,6 +398,7 @@ def classify_task(
         "fallback_chain": fallback_chain,
         "implementer_confidence": round(impl_conf, 2) if impl_conf is not None else None,
         "fallback_rule_applied": fallback_applied,
+        "api_unavailable": api_unavailable,
         "cost": round(cost, 6),
     }
 
