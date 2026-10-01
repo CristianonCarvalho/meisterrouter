@@ -8,6 +8,7 @@ import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 from meister.herdr.bridge import HerdrEventBridge
 from meister.config import load_config, MeisterConfig
+from meister.state import compute_subtask_id
 from meister.worker import write_atomic_json
 
 
@@ -32,6 +33,52 @@ def auto_write_result(search_dir, result_payload=None):
                     write_atomic_json(rf, result_payload)
             except Exception:
                 pass
+
+
+def _tier_limit_config(tmp_path, tiers, router_mode="first"):
+    tier_yaml = "\n".join(
+        f"    - name: {name}\n      harness: codex\n      model: {name}\n"
+        + (f"      max_parallel: {limit}\n" if limit is not None else "")
+        for name, limit in tiers
+    )
+    cfg_file = tmp_path / "tier_limits.yaml"
+    cfg_file.write_text(
+        f"router:\n  mode: {router_mode}\nworkers:\n  tier_order:\n{tier_yaml}"
+        "concurrency:\n  parallel_tasks: true\n  max_parallel_workers: 4\n  layout_strategy: tiled\n"
+    )
+    return load_config(str(cfg_file))
+
+
+def _mock_tier_worker(bridge, pause=0.08):
+    active_by_tier = {}
+    max_by_tier = {}
+    active_total = 0
+    max_total = 0
+    used_tiers = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        nonlocal active_total, max_total
+        used_tiers.append(tier_name)
+        active_by_tier[tier_name] = active_by_tier.get(tier_name, 0) + 1
+        max_by_tier[tier_name] = max(max_by_tier.get(tier_name, 0), active_by_tier[tier_name])
+        active_total += 1
+        max_total = max(max_total, active_total)
+        result_file = task_context["result_file"]
+
+        async def complete_worker():
+            nonlocal active_total
+            try:
+                await asyncio.sleep(pause)
+                write_atomic_json(result_file, {"status": "done", "modified_files": []})
+            finally:
+                active_by_tier[tier_name] -= 1
+                active_total -= 1
+
+        asyncio.create_task(complete_worker())
+        return f"pane-{len(used_tiers)}", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = fake_spawn
+    return used_tiers, max_by_tier, lambda: max_total
 
 
 @pytest.mark.asyncio
@@ -62,6 +109,181 @@ concurrency:
     success = await bridge.execute_parallel_batch(subtasks)
     assert success is True
     assert mock_client.split_pane.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_bridge_spreads_parallel_tasks_across_tier_limits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", 1), ("B", 1), ("C", None)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-spread"
+    used, max_by_tier, _ = _mock_tier_worker(bridge)
+
+    result = await asyncio.wait_for(
+        bridge.execute_parallel_batch(
+            [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(3)]
+        ),
+        timeout=5,
+    )
+
+    assert result is True
+    assert sorted(used) == ["A", "B", "C"]
+    assert max_by_tier["A"] <= 1
+    assert max_by_tier["B"] <= 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_waits_for_per_tier_slots_and_completes_all_tasks(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", 1), ("B", 1)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-wait"
+    used, max_by_tier, max_total = _mock_tier_worker(bridge, pause=0.1)
+
+    result = await asyncio.wait_for(
+        bridge.execute_parallel_batch(
+            [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(4)]
+        ),
+        timeout=5,
+    )
+
+    assert result is True
+    assert len(used) == 4
+    assert max_total() == 2
+    assert max_by_tier == {"A": 1, "B": 1}
+
+
+@pytest.mark.asyncio
+async def test_bridge_without_tier_limits_keeps_first_tier_and_skips_slot_logic(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", None), ("B", None)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-unlimited"
+    used, _, _ = _mock_tier_worker(bridge)
+
+    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+        bridge,
+        "_acquire_tier_slot",
+        new=AsyncMock(side_effect=AssertionError("slot acquisition should be skipped")),
+    ) as acquire_mock:
+        result = await asyncio.wait_for(
+            bridge.execute_parallel_batch(
+                [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(3)]
+            ),
+            timeout=5,
+        )
+
+    assert result is True
+    assert used == ["A", "A", "A"]
+    assert bridge._tier_active == {}
+    acquire_mock.assert_not_awaited()
+    assert not any(call.kwargs.get("event_type") == "tier_overflow" for call in log_event_mock.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_bridge_explicit_initial_tier_skips_per_tier_reservation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", 1), ("B", 1)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-explicit"
+    used, _, _ = _mock_tier_worker(bridge)
+
+    assert await asyncio.wait_for(
+        bridge.execute_subtask({"id": "explicit", "description": "explicit", "timeout": 3}, initial_tier="B"),
+        timeout=5,
+    )
+    assert used == ["B"]
+    assert bridge._tier_active == {}
+
+
+@pytest.mark.asyncio
+async def test_bridge_jev_overflow_moves_forward_and_logs_event(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", 1), ("B", 1), ("C", 1)], router_mode="jev")
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-jev"
+    bridge._tier_active["B"] = 1
+    used, _, _ = _mock_tier_worker(bridge)
+
+    with patch("meister.herdr.bridge.classify_task", return_value={"recommended_implementer": "B"}), patch(
+        "meister.herdr.bridge.log_event"
+    ) as log_event_mock:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask({"id": "jev", "description": "jev", "timeout": 3}),
+            timeout=5,
+        )
+
+    assert result is True
+    assert used == ["C"]
+    overflow = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "tier_overflow"
+    )
+    assert overflow["tier"] == "C"
+    assert overflow["skipped_tier"] == "B"
+    assert overflow["run_id"] == "tier-jev"
+
+
+@pytest.mark.asyncio
+async def test_bridge_open_breaker_tier_is_skipped_under_limit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _tier_limit_config(tmp_path, [("A", 1), ("B", 1)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    bridge.current_run_id = "tier-breaker"
+    state_manager = MagicMock()
+    state_manager.is_harness_available.side_effect = lambda name: name != "A"
+    bridge.state_manager = state_manager
+    used, max_by_tier, _ = _mock_tier_worker(bridge, pause=0.1)
+
+    result = await asyncio.wait_for(
+        bridge.execute_parallel_batch(
+            [
+                {"id": f"breaker-{index}", "description": "breaker", "timeout": 3}
+                for index in range(2)
+            ]
+        ),
+        timeout=5,
+    )
+
+    assert result is True
+    assert used == ["B", "B"]
+    assert max_by_tier["B"] == 1
+    assert bridge._tier_active["B"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [False, RuntimeError("worker failed")], ids=["false", "exception"])
+async def test_bridge_releases_tier_slot_after_false_or_exception(tmp_path, failure):
+    config = _tier_limit_config(tmp_path, [("A", 1)])
+    bridge = HerdrEventBridge(config=config, client=AsyncMock())
+    calls = 0
+
+    async def fake_core(subtask, initial_tier, run_id):
+        nonlocal calls
+        calls += 1
+        task_id = subtask["id"]
+        key = compute_subtask_id(run_id or "default", task_id, subtask.get("description", task_id))
+        await bridge._acquire_tier_slot("A", key, run_id)
+        if calls == 1:
+            if isinstance(failure, Exception):
+                raise failure
+            return failure
+        return True
+
+    bridge._execute_subtask_core = fake_core
+    first = {"id": "first", "description": "first"}
+    if isinstance(failure, Exception):
+        with pytest.raises(RuntimeError, match="worker failed"):
+            await asyncio.wait_for(bridge.execute_subtask(first), timeout=2)
+    else:
+        assert await asyncio.wait_for(bridge.execute_subtask(first), timeout=2) is False
+
+    assert await asyncio.wait_for(
+        bridge.execute_subtask({"id": "second", "description": "second"}),
+        timeout=2,
+    )
+    assert bridge._tier_active["A"] == 0
+    assert bridge._held_slots == {}
 
 
 @pytest.mark.asyncio

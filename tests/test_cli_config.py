@@ -76,10 +76,35 @@ def test_cli_config_show_json():
         "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
     ]
     assert data["workers"]["disabled"] == []
+    assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
 
     # Verifica que json tem chaves ordenadas (estável)
     keys = list(data.keys())
     assert keys == sorted(keys)
+
+def test_cli_config_show_includes_tier_parallel_limit_text_and_json(tmp_path):
+    runner = CliRunner()
+    cfg_file = tmp_path / "tier_limits.yaml"
+    cfg_file.write_text("""
+workers:
+  tier_order:
+    - name: limited
+      max_parallel: 2
+    - name: unlimited
+""")
+
+    text_result = runner.invoke(main, ["config", "show", "--config-path", str(cfg_file)])
+    assert text_result.exit_code == 0
+    assert "Max Parallel" in text_result.output
+    assert "limited" in text_result.output
+    assert "2" in text_result.output
+    assert "unlimited" in text_result.output
+    assert "-" in text_result.output
+
+    json_result = runner.invoke(main, ["config", "show", "--json", "--config-path", str(cfg_file)])
+    assert json_result.exit_code == 0
+    tiers = json.loads(json_result.output)["workers"]["tier_order"]
+    assert [tier["max_parallel"] for tier in tiers] == [2, None]
 
 
 def test_cli_config_show_json_reports_jev_router(tmp_path):

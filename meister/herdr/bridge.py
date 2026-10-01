@@ -142,6 +142,9 @@ class HerdrEventBridge:
         self.current_run_id: Optional[str] = None
         self._integration_pipeline: Optional[Any] = None
         self._merge_lock = asyncio.Lock()
+        self._tier_active: Dict[str, int] = {}
+        self._tier_cond = asyncio.Condition()
+        self._held_slots: Dict[str, str] = {}
 
         # Concurrency limit from config
         max_workers = 4
@@ -217,6 +220,80 @@ class HerdrEventBridge:
         subtask: Union[Dict[str, Any], SubtaskNode],
         initial_tier: Optional[str] = None,
         run_id: Optional[str] = None,
+    ) -> bool:
+        """Execute a subtask; per-tier limits count the tier where it starts.
+
+        A quota fallback later in execution does not transfer its reserved slot.
+        """
+        if not any(
+            tier.max_parallel is not None
+            for tier in (self.config.workers.tier_order + self.config.workers.disabled)
+        ):
+            return await self._execute_subtask_core(subtask, initial_tier, run_id)
+
+        task_dict = subtask.to_dict() if isinstance(subtask, SubtaskNode) else dict(subtask)
+        task_id = str(task_dict.get("id", "task"))
+        description = str(task_dict.get("description", task_id))
+        active_run_id = run_id or self.current_run_id
+        key = compute_subtask_id(active_run_id or "default", task_id, description)
+        try:
+            return await self._execute_subtask_core(subtask, initial_tier, run_id)
+        finally:
+            async with self._tier_cond:
+                tier_name = self._held_slots.pop(key, None)
+                if tier_name is not None:
+                    self._tier_active[tier_name] = max(0, self._tier_active.get(tier_name, 0) - 1)
+                self._tier_cond.notify_all()
+
+    async def _acquire_tier_slot(
+        self,
+        preferred: str,
+        key: str,
+        run_id: Optional[str] = None,
+    ) -> str:
+        tiers = self.config.workers.tier_order
+        preferred_index = next(
+            (index for index, tier in enumerate(tiers) if tier.name == preferred),
+            None,
+        )
+        if preferred_index is None:
+            return preferred
+
+        async with self._tier_cond:
+            while True:
+                available_tiers = []
+                for tier in tiers[preferred_index:]:
+                    if self.state_manager is not None:
+                        is_available = getattr(self.spawner, "_is_tier_available", None)
+                        if is_available is not None and not is_available(tier, self.state_manager):
+                            continue
+                    available_tiers.append(tier)
+
+                if not available_tiers:
+                    return preferred
+
+                for tier in available_tiers:
+                    limit = tier.max_parallel
+                    if limit is None or self._tier_active.get(tier.name, 0) < limit:
+                        self._tier_active[tier.name] = self._tier_active.get(tier.name, 0) + 1
+                        self._held_slots[key] = tier.name
+                        if tier.name != preferred:
+                            log_event(
+                                event_type="tier_overflow",
+                                run_id=run_id,
+                                task_id=key,
+                                tier=tier.name,
+                                skipped_tier=preferred,
+                            )
+                        return tier.name
+
+                await self._tier_cond.wait()
+
+    async def _execute_subtask_core(
+        self,
+        subtask: Union[Dict[str, Any], SubtaskNode],
+        initial_tier: Optional[str],
+        run_id: Optional[str],
     ) -> bool:
         """Execute a single subtask with automated quota failover and tier escalation.
 
@@ -332,6 +409,11 @@ class HerdrEventBridge:
                         skipped_tier=current_tier,
                     )
                     current_tier = first_tier_name
+
+        if initial_tier is None and any(
+            tier.max_parallel is not None for tier in self.config.workers.tier_order
+        ):
+            current_tier = await self._acquire_tier_slot(current_tier, subtask_id, active_run_id)
 
         direction = "right"
         split_ratio = 0.5

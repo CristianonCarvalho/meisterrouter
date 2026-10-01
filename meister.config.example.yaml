@@ -19,8 +19,9 @@ architect:
 workers:
   tier_order:
     # O adaptador Copilot ocupa a primeira posição por decisão do usuário.
-    - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
-    - {name: codex_luna, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.077, max_retries: 2, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
+    # max_parallel limita onde a tarefa começa; um fallback não troca essa vaga.
+    - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2, max_parallel: 2, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
+    - {name: codex_luna, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.077, max_retries: 2, max_parallel: 1, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
     - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 0.577, max_retries: 2, best_for: [deep_reasoning, complex_algorithms, hard_bugs]}
     # sonnet é o apelido aceito pelo CLI claude.
     - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 3.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions]}

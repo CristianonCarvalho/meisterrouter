@@ -80,6 +80,40 @@ workers:
     assert tier.harness == ""
     assert tier.model == ""
 
+def test_worker_max_parallel_parsing_and_validation(tmp_path):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "tier_limits.yaml"
+    config_yaml.write_text("""
+workers:
+  tier_order:
+    - name: limited
+      max_parallel: 2
+    - name: unlimited
+      max_parallel: null
+    - name: missing
+    - name: disabled
+      enabled: false
+      max_parallel: 1
+""")
+    config = load_config(str(config_yaml))
+
+    assert [tier.max_parallel for tier in config.workers.tier_order] == [2, None, None]
+    assert config.workers.disabled[0].max_parallel == 1
+    assert not [issue for issue in validate_config(config) if issue.level == "error"]
+
+
+@pytest.mark.parametrize("value", ["0", "-1", '"2"', "true", "1.5"])
+def test_worker_max_parallel_invalid_values_report_validation_error(tmp_path, value):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "invalid_tier_limit.yaml"
+    config_yaml.write_text(
+        f"workers:\n  tier_order:\n    - name: limited\n      max_parallel: {value}\n"
+    )
+    issues = validate_config(load_config(str(config_yaml)))
+    assert any(issue.level == "error" and "max_parallel" in issue.path for issue in issues)
+
 
 def test_load_config_nonexistent_file():
     with pytest.raises(FileNotFoundError):
