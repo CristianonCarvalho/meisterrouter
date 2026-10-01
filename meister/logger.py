@@ -195,7 +195,7 @@ def log_classify(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Registra uma decisão de classificação do Jev com envelope correlacionado e modelo configurável (Achado #32)."""
-    resolved_model: str = str(model or os.environ.get("MEISTER_JEV_MODEL") or "typesafe/jev-1.13")
+    resolved_model: str = str(model or "")
     cost_usd = cost if cost is not None else estimate_cost(resolved_model, tokens_in, tokens_out)
     return log_event(
         event_type="classify",
@@ -232,7 +232,7 @@ def log_control(
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Registra uma decisão de controle de ciclo do Jev com envelope correlacionado e modelo configurável (Achado #32)."""
-    resolved_model: str = str(model or os.environ.get("MEISTER_JEV_MODEL") or "typesafe/jev-1.13")
+    resolved_model: str = str(model or "")
     cost_usd = cost if cost is not None else estimate_cost(resolved_model, tokens_in, tokens_out)
     return log_event(
         event_type="control",

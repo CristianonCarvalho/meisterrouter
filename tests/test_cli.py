@@ -97,7 +97,7 @@ def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
             main,
             [
                 "worker",
-                "--model", "luna",
+                "--model", "codex_luna",
                 "--task", "Adicione a função mul e teste",
                 "--files", "calc.py,tests/test_calc.py",
                 "--cwd", cwd,
@@ -114,7 +114,7 @@ def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
 
     # Verifica que no repositório principal a branch main recebeu o commit e fast-forward
     log_res = subprocess.run(["git", "log", "--oneline", "--all"], cwd=cwd, capture_output=True, text=True)
-    assert "Merge subtask" in log_res.stdout or "worker(luna): Adicione a função mul e teste" in log_res.stdout
+    assert "Merge subtask" in log_res.stdout or "worker(codex_luna): Adicione a função mul e teste" in log_res.stdout
 
     # Verifica que o repositório principal está limpo (sem modificações unstaged)
     status_res = subprocess.run(["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True)
@@ -188,7 +188,7 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
             main,
             [
                 "worker",
-                "--model", "luna",
+                "--model", "codex_luna",
                 "--task", "Adicione a função mul",
                 "--files", "calc.py",
                 "--cwd", cwd,
@@ -225,8 +225,8 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
     # Worker_start e worker_end
     start_ev = events[1]
     end_ev = events[2]
-    assert start_ev["tier"] == "luna"
-    assert end_ev["tier"] == "luna"
+    assert start_ev["tier"] == "codex_luna"
+    assert end_ev["tier"] == "codex_luna"
     assert end_ev["exit_code"] == 0
     assert end_ev["cost"] == 0.00005
     assert end_ev["duration_ms"] >= 0.0
@@ -285,7 +285,7 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
          patch("meister.worker.run_worker_in_herdr_pane", return_value={"status": "done", "modified_files": []}) as mock_pane:
 
         # 1. Padrão: sem flags de pane/split -> deve abrir TAB
-        res_default = runner.invoke(main, ["worker", "--model", "luna", "--task", "task 1", "--cwd", str(tmp_path)])
+        res_default = runner.invoke(main, ["worker", "--model", "codex_luna", "--task", "task 1", "--cwd", str(tmp_path)])
         assert res_default.exit_code == 0
         assert "aba dedicada no Herdr" in res_default.output
         mock_tab.assert_called_once()
@@ -295,12 +295,10 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
         mock_pane.reset_mock()
 
         # 2. Com --split ou --pane -> deve abrir PANE lateral
-        res_split = runner.invoke(main, ["worker", "--model", "luna", "--task", "task 2", "--cwd", str(tmp_path), "--split"])
+        res_split = runner.invoke(main, ["worker", "--model", "codex_luna", "--task", "task 2", "--cwd", str(tmp_path), "--split"])
         assert res_split.exit_code == 0
         assert "terminal lateral no Herdr" in res_split.output
         mock_pane.assert_called_once()
         mock_tab.assert_not_called()
-
-
 
 

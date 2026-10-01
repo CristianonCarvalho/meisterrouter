@@ -13,15 +13,15 @@ Para toda tarefa de engenharia:
 
 | Modelo | Papel Principal | Harness / Executável | Custo / 1M tokens |
 |---|---|---|---|
-| **GPT-6 Luna (medium)** | **Implementador Primário (Worker)** | Codex CLI (`codex`) | **$0.077** (Líder Absoluto de Custo) |
-| **GitHub Copilot CLI** | **Implementador de Código (GitHub)** | Copilot CLI (`copilot`) | $0.20 |
+| **GitHub Copilot CLI** | **Primeira via padrão de implementação** | Copilot CLI (`copilot`) | $0.20 |
+| **GPT-6 Luna (medium)** | **Via Codex de baixo custo** | Codex CLI (`codex`) | **$0.077** |
 | **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $0.5775 (Líder em Código Difícil) |
-| **Claude 4.5 Haiku** | **Implementador Secundário** | Claude CLI (`claude`) | $0.77 |
 | **Claude Sonnet 5.5 (high)** | **Arquiteto / Planejador** | Claude CLI (`claude`) | $3.00 |
 | **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $15.00 |
 | **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.50 |
 
 > 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`, `copilot`).
+> O catálogo efetivo vive em `meister/default_config.yaml` / `meister.config.yaml`.
 
 ## 03. Fluxo de Trabalho Obrigatório do Agente
 
@@ -34,18 +34,16 @@ Antes de implementar ou criar subagentes, rodar:
 ```
 O Jev retornará em JSON:
 - `classification`: `SMALL` | `MEDIUM` | `HIGH` | `ESCALATE`
-- `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
+- `recommended_implementer`: um nome de via configurado em `workers.tier_order`
 
 ### Passo 2: Execução e Delegação Obrigatória
 Como orquestrador, invoque o implementador recomendado via CLI do MeisterRouter:
 ```bash
 # 1. Execução direta pelo worker recomendado:
-meister worker --model luna --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
+meister worker --model copilot_luna --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
 
 # 2. SE o modelo recomendado falhar ou estiver inativo, ESCALE IMEDIATAMENTE para o próximo:
-meister worker --model gemini_flash --task "<tarefa>" [--files "<arquivos>"]
-# ou
-meister worker --model haiku --task "<tarefa>" [--files "<arquivos>"]
+meister worker --model codex_luna --task "<tarefa>" [--files "<arquivos>"]
 
 # 3. Ou delegar o ciclo completo ao orquestrador autônomo:
 meister orchestrate --task "<tarefa>"
@@ -54,8 +52,8 @@ meister orchestrate --task "<tarefa>"
 > ⚠️ **REGRA CRÍTICA: ZERO IMPLEMENTAÇÃO DIRETA PELO ORQUESTRADOR!**
 > Se o modelo recomendado (ex: **Luna**) não estiver ativo, acessível ou falhar:
 > 1. **NÃO assuma a implementação como orquestrador (Sonnet 5).**
-> 2. **Repasse IMEDIATAMENTE para o próximo da cadeia:** delegue para **Gemini 3.8 Flash** (`gemini_flash`) ou **Claude 4.5 Haiku** (`haiku`).
-> 3. Se o Gemini falhar, delegue para o Haiku; se o Haiku falhar, escale para Sonnet.
+> 2. **Repasse IMEDIATAMENTE para o próximo da cadeia:** delegue para a próxima via de `tier_order`.
+> 3. Continue pela ordem de `tier_order`; ela é a única cadeia de fallback.
 > 4. O orquestrador só escreve código diretamente se TODOS os workers da cadeia estiverem comprovadamente inacessíveis.
 
 ### Passo 3: Verificação Determinística

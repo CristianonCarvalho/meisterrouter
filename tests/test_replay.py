@@ -80,10 +80,8 @@ def test_get_events_by_run_id_filtering(clean_log_env):
     assert events_none == []
 
 
-def test_classify_and_control_correlation_and_model_config(clean_log_env, monkeypatch):
-    """Verifica que classify e control respeitam o envelope correlacionado e o modelo configurável (não hardcoded)."""
-    monkeypatch.setenv("MEISTER_JEV_MODEL", "custom/jev-model-v2")
-
+def test_classify_and_control_correlation_and_model_config(clean_log_env):
+    """Verifica que classify e control respeitam o modelo explicitamente recebido."""
     ev_cls = log_classify(
         task_id="task_classify_1",
         context="Refactor database schema",
@@ -96,6 +94,7 @@ def test_classify_and_control_correlation_and_model_config(clean_log_env, monkey
         run_id="run_corr_99",
         attempt=1,
         duration_ms=450.0,
+        model="custom/jev-model-v2",
     )
     assert ev_cls["run_id"] == "run_corr_99"
     assert ev_cls["tier"] == "jev"
@@ -112,6 +111,7 @@ def test_classify_and_control_correlation_and_model_config(clean_log_env, monkey
         cost=0.0001,
         run_id="run_corr_99",
         attempt=1,
+        model="custom/jev-model-v2",
     )
     assert ev_ctl["run_id"] == "run_corr_99"
     assert ev_ctl["model"] == "custom/jev-model-v2"

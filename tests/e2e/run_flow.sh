@@ -36,9 +36,6 @@ echo "recomendado: $RECOMMENDED   cadeia: $CHAIN"
 step "2. worker com fallback deterministico"
 USED=""; ATTEMPTS=0
 for M in $CHAIN; do
-  [ "$M" = "sonnet" ] && { echo "parando antes de sonnet (economia de cota Claude)"; break; }
-  [ "$M" = "opus" ] && { echo "parando antes de opus (economia de cota Claude)"; break; }
-  [ "$M" = "haiku" ] && { echo "parando antes de haiku (economia de cota Claude)"; break; }
   ATTEMPTS=$((ATTEMPTS+1))
   step "2.$ATTEMPTS meister worker --model $M"
   if "$MR/bin/meister" worker --model "$M" --task "$TASK" --files "$FILES" --cwd "$REPO" --run-id "$RUN_ID" --task-id "$TASK_ID"; then
@@ -94,7 +91,7 @@ PYEOF'
 check "flow-g sem worktrees/branches/tabs restantes" '[ "$(git -C "$REPO" worktree list | wc -l | tr -d " ")" = 1 ] && [ -z "$(git -C "$REPO" branch --list "meister/worktree/*")" ] && [ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
 
 if [ -n "${E2E_LUNA_MODEL:-}" ] && [ "$E2E_LUNA_MODEL" != "gpt-6-luna" ]; then
-  check "flow-h worker usado NAO foi a luna (fallback executado)" '[ "$USED" != "luna" ]'
+  check "flow-h worker usado NAO foi codex_luna (fallback executado)" '[ "$USED" != "codex_luna" ]'
 fi
 
 print_summary_and_exit

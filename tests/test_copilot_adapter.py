@@ -16,24 +16,19 @@ from meister.herdr.workers import WorkerSpawner
 
 
 def test_copilot_harness_resolution():
-    """Verifica que aliases do Copilot resolvem para HARNESS_COPILOT e modelo configurado."""
-    harness, model = resolve_worker_harness_and_model("copilot")
+    """Verifica que a via configurada do Copilot resolve para o adaptador e modelo declarados."""
+    harness, model = resolve_worker_harness_and_model("copilot_luna")
     assert harness == HARNESS_COPILOT
-    assert model == "auto"
-
-    harness2, _ = resolve_worker_harness_and_model("github-copilot")
-    assert harness2 == HARNESS_COPILOT
-
-    harness3, _ = resolve_worker_harness_and_model("gh-copilot")
-    assert harness3 == HARNESS_COPILOT
+    assert model == "gpt-6-luna"
+    with pytest.raises(ValueError, match="copilot_luna"):
+        resolve_worker_harness_and_model("copilot")
 
 
-def test_copilot_configured_model(monkeypatch):
-    """Verifica que variável de ambiente MEISTER_COPILOT_MODEL é respeitada."""
+def test_copilot_model_environment_override_is_ignored(monkeypatch):
     monkeypatch.setenv("MEISTER_COPILOT_MODEL", "gpt-5.4")
-    harness, model = resolve_worker_harness_and_model("copilot")
+    harness, model = resolve_worker_harness_and_model("copilot_luna")
     assert harness == HARNESS_COPILOT
-    assert model == "gpt-5.4"
+    assert model == "gpt-6-luna"
 
 
 @pytest.fixture
@@ -76,8 +71,8 @@ def test_copilot_find_cli_binary_not_found(monkeypatch):
 
 def test_copilot_smoke_test(fake_copilot_cli):
     """Verifica o smoke test do tier copilot quando o binário está disponível."""
-    smoke = smoke_test_tier("copilot")
-    assert smoke["tier"] == "copilot"
+    smoke = smoke_test_tier("copilot_luna")
+    assert smoke["tier"] == "copilot_luna"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is True
     assert smoke["cli_binary"] == fake_copilot_cli
@@ -91,8 +86,8 @@ def test_copilot_smoke_test_when_not_available(monkeypatch):
         "os.path.exists",
         lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
     )
-    smoke = smoke_test_tier("copilot")
-    assert smoke["tier"] == "copilot"
+    smoke = smoke_test_tier("copilot_luna")
+    assert smoke["tier"] == "copilot_luna"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is False
     assert smoke["cli_binary"] is None
@@ -172,7 +167,7 @@ def test_copilot_safe_env_vars(monkeypatch):
 
 def test_copilot_harness_worker_run_task(tmp_path, fake_copilot_cli):
     """Verifica execução de tarefa no HarnessWorker com o harness copilot mockado."""
-    worker = HarnessWorker(model="copilot", cwd=str(tmp_path))
+    worker = HarnessWorker(model="copilot_luna", cwd=str(tmp_path))
     assert worker.harness == HARNESS_COPILOT
     assert worker.cli_binary == fake_copilot_cli
 
@@ -205,27 +200,25 @@ def test_copilot_harness_worker_fails_when_cli_not_found(tmp_path, monkeypatch):
         "os.path.exists",
         lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
     )
-    worker = HarnessWorker(model="copilot", cwd=str(tmp_path))
+    worker = HarnessWorker(model="copilot_luna", cwd=str(tmp_path))
     with pytest.raises(RuntimeError, match="não encontrado"):
         worker.run_task(task="Fix auth bug", target_files=["auth.py"])
 
 
 
-def test_copilot_excluded_from_default_tiers_and_opt_in(monkeypatch):
+def test_copilot_is_first_default_route_and_environment_cannot_change_it(monkeypatch):
     from meister.config import load_config
     from pathlib import Path
 
-    # Default configuration keeps copilot as complementary opt-in tier
     monkeypatch.delenv("MEISTER_ENABLE_COPILOT", raising=False)
     default_config = load_config()
     tier_names = [t.name for t in default_config.workers.tier_order]
-    assert "copilot" not in tier_names, "Copilot must be opt-in, not in default worker tiers"
+    assert tier_names[0] == "copilot_luna"
 
-    # Explicit opt-in via MEISTER_ENABLE_COPILOT=true includes copilot
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
     opt_in_config = load_config()
     opt_in_tier_names = [t.name for t in opt_in_config.workers.tier_order]
-    assert "copilot" in opt_in_tier_names, "Copilot must be included when MEISTER_ENABLE_COPILOT is set"
+    assert opt_in_tier_names == tier_names
 
     # Verify documentation and source confirm verified CLI status and flags
     repo_root = Path(__file__).resolve().parent.parent

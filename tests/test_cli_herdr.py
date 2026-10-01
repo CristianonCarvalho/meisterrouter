@@ -223,6 +223,6 @@ def test_cli_orchestrate_command_failure():
 
 def test_cli_worker_command():
     runner = CliRunner()
-    result = runner.invoke(main, ["worker", "--model", "luna"])
+    result = runner.invoke(main, ["worker", "--model", "codex_luna"])
     assert result.exit_code == 0
-    assert "MeisterRouter worker starting with tier/model: luna" in result.output
+    assert "MeisterRouter worker starting with tier/model: codex_luna" in result.output

@@ -21,7 +21,7 @@ def test_cli_config_show_default():
     runner = CliRunner()
     result = runner.invoke(main, ["config", "show"])
     assert result.exit_code == 0
-    assert "Origem: padrao" in result.output
+    assert "Origem: padrao (meister/default_config.yaml)" in result.output
     assert "Master:" in result.output
     assert "Router:" in result.output
     assert "Mode: first" in result.output
@@ -30,10 +30,10 @@ def test_cli_config_show_default():
     assert "high" in result.output
     assert "(declarado; ainda nao conectado a nenhum fluxo)" in result.output
     assert "Vias ativas (tier_order):" in result.output
-    assert "luna" in result.output
-    assert "gemini_flash" in result.output
-    assert "haiku" in result.output
-    assert "sonnet" in result.output
+    assert "copilot_luna" in result.output
+    assert "codex_luna" in result.output
+    assert "agy_gemini_flash" in result.output
+    assert "claude_sonnet" in result.output
     assert "Vias desabilitadas:\n  (nenhuma)" in result.output
 
 
@@ -67,12 +67,14 @@ def test_cli_config_show_json():
     data = json.loads(result.output)
 
     # Verifica chaves e integridade
-    assert data["source"] == "padrao"
+    assert data["source"] == "padrao (meister/default_config.yaml)"
     assert data["architect"]["model"] == "claude-sonnet-5-5"
     assert data["architect"]["effort"] == "high"
     assert data["architect"]["note"] == "(declarado; ainda nao conectado a nenhum fluxo)"
     assert data["router"] == {"mode": "first"}
-    assert len(data["workers"]["tier_order"]) == 4
+    assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
+        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+    ]
     assert data["workers"]["disabled"] == []
 
     # Verifica que json tem chaves ordenadas (estável)
@@ -124,7 +126,7 @@ def test_cli_config_validate_clean_file(tmp_path):
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "gpt-6-luna"
 """)
     result = runner.invoke(main, ["config", "validate", "--config-path", str(clean_file)])
@@ -139,7 +141,8 @@ def test_cli_config_validate_prints_info_with_success_exit_code(tmp_path):
 workers:
   tier_order:
     - name: luna
-      harness: native
+      harness: codex
+      model: configured
       best_for: [small_edits]
       cost_per_m_tokens: 0.077
 """)
@@ -161,7 +164,7 @@ def test_cli_orchestrate_does_not_print_info_issues(tmp_path):
 workers:
   tier_order:
     - name: luna
-      harness: native
+      harness: codex
       best_for: [small_edits]
       cost_per_m_tokens: 0.077
 """)
@@ -240,3 +243,58 @@ workers:
 
         # Spawner / Bridge nunca foi chamado
         mock_bridge.assert_not_called()
+
+
+def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
+    runner = CliRunner()
+    with patch("meister.worker.execute_worker_task", return_value={"status": "done", "cost": 0}) as execute, \
+         patch("meister.worker.is_herdr_available", return_value=False):
+        result = runner.invoke(
+            main,
+            ["worker", "--task", "do work", "--cwd", str(tmp_path), "--no-tab"],
+        )
+    assert result.exit_code == 0
+    assert execute.call_args.kwargs["model"] == "copilot_luna"
+
+    invalid = runner.invoke(
+        main,
+        ["worker", "--model", "gemini", "--task", "do work", "--cwd", str(tmp_path), "--no-tab"],
+    )
+    assert invalid.exit_code == 2
+    assert "Via desconhecida 'gemini'" in invalid.output
+    assert "copilot_luna, codex_luna, agy_gemini_flash, claude_sonnet" in invalid.output
+
+
+def test_native_harness_cli_validation_and_orchestrate_abort_without_run(tmp_path):
+    runner = CliRunner()
+    config_file = tmp_path / "native.yaml"
+    config_file.write_text("""
+workers:
+  tier_order:
+    - {name: legacy, harness: native, model: local}
+""")
+
+    validate = runner.invoke(
+        main, ["config", "validate", "--config-path", str(config_file)]
+    )
+    assert validate.exit_code == 2
+    assert "harness 'native' foi removido; declare codex, agy, claude ou copilot" in validate.output
+
+    sm = StateManager()
+    with sm._get_connection() as conn:
+        before = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    with patch("meister.herdr.bridge.HerdrEventBridge.run_orchestration_cycle") as bridge:
+        orchestrate = runner.invoke(
+            main,
+            [
+                "orchestrate",
+                "--config", str(config_file),
+                "--task", "invalid config",
+                "--allow-freeform",
+            ],
+        )
+    assert orchestrate.exit_code == 2
+    bridge.assert_not_called()
+    with sm._get_connection() as conn:
+        after = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    assert after == before

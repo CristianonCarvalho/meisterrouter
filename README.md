@@ -129,7 +129,7 @@ Isso criará automaticamente no projeto:
 ```bash
 meister classify --context "Adicionar filtro de busca por data no painel"
 ```
-Retorna JSON tipado com complexidade (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) e o implementador recomendado (`luna`, `haiku`, `gemini_flash`, `sonnet`).
+Retorna JSON tipado com complexidade (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) e o implementador recomendado entre as vias configuradas em `tier_order`.
 
 #### Avaliar e Controlar o Loop (`control`):
 ```bash
@@ -142,22 +142,20 @@ Retorna a ação autorizada:
 
 ### 3. Execução e Delegação de Workers (`worker`)
 
-O MeisterRouter inclui um runner nativo de execução que despacha tarefas diretamente para os modelos via OpenRouter, injeta o contexto dos arquivos do repositório e aplica edições atômicas no disco de forma determinística:
+O MeisterRouter executa workers por harnesses locais declarados em `meister/default_config.yaml` ou sobrescritos em `meister.config.yaml`:
 
 ```bash
-# Execução direta com modelo primário de baixo custo (GPT-6 Luna):
-meister worker --model luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+# Execução pela primeira via configurada:
+meister worker --model copilot_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 
 # Se o modelo falhar ou estiver inativo, escale imediatamente:
-meister worker --model gemini_flash --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
-# ou
-meister worker --model haiku --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model codex_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 ```
 
 > ⚠️ **DIRETIVA CRÍTICA: ZERO IMPLEMENTAÇÃO DIRETA PELO ORQUESTRADOR**
 > Modelos arquitetos (Claude Sonnet 5, OpenAI Codex, GPT-4o) **NUNCA** devem escrever código de implementação diretamente quando um worker estiver configurado.
 > Se o modelo primário recomendado falhar ou estiver inacessível, a regra estrita é a **decaída/escalonamento em cascata**:
-> $$\text{Luna (\$0.077/M)} \longrightarrow \text{Gemini 3.8 Flash (\$0.577/M)} \longrightarrow \text{Claude 4.5 Haiku (\$0.77/M)} \longrightarrow \text{Sonnet/Opus}$$
+> A sequência de fallback segue a ordem configurada em `workers.tier_order`; customize-a no arquivo do projeto.
 > O arquiteto só pode implementar diretamente se **todos** os modelos da cadeia estiverem comprovadamente inacessíveis.
 
 ---
@@ -229,8 +227,7 @@ meisterrouter/
 
 ---
 
-### Adaptador GitHub Copilot CLI (Tier Complementar Opt-In)
+### Adaptador GitHub Copilot CLI
 > ℹ️ **STATUS: VERIFICADO (GitHub Copilot CLI 1.0.88)**
 > O adaptador Copilot CLI (`copilot`) utiliza as flags oficiais `-p`, `--allow-all` e `--no-ask-user` para execução não-interativa autônoma.
-> Por padrão, atua como **tier complementar opt-in**, mantendo a hierarquia determinística principal focada em Luna/Gemini Flash/Haiku.
-> Pode ser ativado definindo `MEISTER_ENABLE_COPILOT=true` no ambiente ou configurado na lista `tier_order` em `meister.config.yaml`.
+> Sua presença e posição na cadeia são definidas por `meister/default_config.yaml` e podem ser alteradas em `meister.config.yaml`; variáveis de ambiente de seleção de modelos foram removidas.

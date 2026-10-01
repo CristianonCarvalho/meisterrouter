@@ -15,11 +15,11 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
       cost_per_m_tokens: 0.077
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
       cost_per_m_tokens: 0.577
 """)
@@ -58,7 +58,7 @@ def test_resolve_command():
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
+                WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna"),
                 WorkerTier(name="haiku", harness="claude", model="anthropic/claude-3-5-haiku-20241022"),
                 WorkerTier(name="codex_tier", harness="codex", model="openai/codex-1"),
                 WorkerTier(name="custom_cli", harness="custom_agent", model="custom/model"),
@@ -67,9 +67,9 @@ def test_resolve_command():
     )
     spawner = WorkerSpawner(config, herdr_client=None)
 
-    # Native tier resolves to meister worker --model <tier_name>
-    cmd_native = spawner.resolve_command("luna")
-    assert cmd_native == ["meister", "worker", "--model", "luna"]
+    # Codex tier runs its explicitly declared CLI adapter.
+    cmd_codex_route = spawner.resolve_command("luna")
+    assert cmd_codex_route == ["codex", "--model", "openai/gpt-6-luna"]
 
     # Claude harness resolves to claude --model <model>
     cmd_claude = spawner.resolve_command("haiku")
@@ -98,20 +98,13 @@ def test_resolve_command():
     assert "--dangerously-bypass-approvals-and-sandbox" in cmd_codex_task
     assert "write tests" in cmd_codex_task
 
-    # When task_file is provided, native harness resolves to sys.executable run-task
-    import sys
-    cmd_task_file = spawner.resolve_command("luna", task_context={"task_file": "/tmp/test_task.json"})
-    assert cmd_task_file == [sys.executable, "-m", "meister.cli", "run-task", "/tmp/test_task.json"]
-
-
-
 @pytest.mark.asyncio
 async def test_spawn_worker_pane_success():
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
-                WorkerTier(name="gemini_flash", harness="native", model="google/gemini-2.5-flash"),
+                WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna"),
+                WorkerTier(name="gemini_flash", harness="agy", model="google/gemini-2.5-flash"),
             ]
         )
     )
@@ -125,7 +118,7 @@ async def test_spawn_worker_pane_success():
     assert tier.name == "luna"
     mock_client.split_pane.assert_awaited_once_with(
         direction="right",
-        command=["meister", "worker", "--model", "luna"],
+        command=["codex", "--model", "openai/gpt-6-luna"],
         split_ratio=0.6,
     )
 
@@ -135,7 +128,7 @@ async def test_spawn_worker_pane_errors():
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
+                WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna"),
             ]
         )
     )
@@ -158,8 +151,8 @@ async def test_escalate_worker():
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
-                WorkerTier(name="gemini_flash", harness="native", model="google/gemini-2.5-flash"),
+                WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna"),
+                WorkerTier(name="gemini_flash", harness="agy", model="google/gemini-2.5-flash"),
             ]
         )
     )
@@ -188,10 +181,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 """)
     config = load_config(str(cfg_file))
@@ -208,7 +201,7 @@ def test_get_first_available_tier():
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native", model="openai/gpt-6-luna"),
+                WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna"),
                 WorkerTier(name="gemini_flash", harness="agy", model="google/gemini-2.5-flash"),
                 WorkerTier(name="haiku", harness="claude", model="anthropic/claude-3-5-haiku-20241022"),
             ]
@@ -232,7 +225,7 @@ def test_get_first_available_tier():
     sm.reset_circuit_breakers()
 
     # (c) breaker OPEN pelo HARNESS do tier de partida → o próximo
-    sm.record_harness_failure("native", is_quota=True)
+    sm.record_harness_failure("codex", is_quota=True)
     res_c = spawner.get_first_available_tier("luna", state_manager=sm)
     assert res_c is not None
     assert res_c.name == "gemini_flash"

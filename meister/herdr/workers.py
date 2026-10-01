@@ -1,13 +1,12 @@
 """Worker Spawner and Multi-Model Tier Hierarchy for Herdr.
 
 Manages worker model progression, pane spawning in Herdr, command
-resolution for native and third-party harnesses, and automated
+resolution for configured CLI harnesses, and automated
 quota / rate limit detection for rapid failover.
 """
 
 from __future__ import annotations
 
-import sys
 import logging
 import re
 import json
@@ -57,7 +56,7 @@ def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -
     """Detecta deterministicamente se a saída de terminal ou API contém exaustão de cota ou rate limit.
 
     Elimina falsos positivos em código/testes (Achado #22) através de:
-    1. Detecção de sinais estruturados JSON (ex: codex exec --json, respostas OpenAI/Anthropic/Google).
+    1. Detecção de sinais estruturados JSON (ex: codex exec --json e respostas de provedores).
     2. Ancoragem estrita de regex com descarte de linhas de código, middleware e fixtures de teste.
     """
     if not output:
@@ -202,8 +201,7 @@ class WorkerSpawner:
     ) -> List[str]:
         """Resolve command arguments to spawn a worker pane for a given tier.
 
-        Supports native MeisterRouter workers (`meister worker --model <tier>`)
-        and external CLI harnesses (`claude`, `codex`, etc.).
+        Supports configured CLI harnesses.
         """
         if task_context and "command" in task_context and task_context["command"]:
             return list(task_context["command"])
@@ -215,21 +213,9 @@ class WorkerSpawner:
         else:
             tier_obj = tier
 
-        harness = (tier_obj.harness or "native").strip().lower()
+        harness = (tier_obj.harness or "").strip().lower()
 
-        if harness == "native":
-            task_file = task_context.get("task_file") or task_context.get("task_json") if task_context else None
-            if task_file:
-                cmd = [sys.executable, "-m", "meister.cli", "run-task", str(task_file)]
-            else:
-                model_arg = tier_obj.name or tier_obj.model
-                cmd = ["meister", "worker", "--model", model_arg]
-                if task_context and "description" in task_context and task_context["description"]:
-                    cmd.extend(["--task", str(task_context["description"])])
-                    if "target_files" in task_context and task_context["target_files"]:
-                        files_str = ",".join(str(f) for f in task_context["target_files"])
-                        cmd.extend(["--files", files_str])
-        elif harness == "claude":
+        if harness == "claude":
             cmd = ["claude"]
             if task_context and "description" in task_context and task_context["description"]:
                 cmd.append("--dangerously-skip-permissions")

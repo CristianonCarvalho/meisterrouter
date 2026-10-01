@@ -35,7 +35,7 @@ except ImportError:
     pass
 
 from meister.logger import log_classify, log_control, get_current_run, save_current_run
-from meister.config import WorkerTier
+from meister.config import WorkerTier, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +43,6 @@ OPENROUTER_URL = os.environ.get(
     "OPENROUTER_DECISIONS_URL",
     "https://openrouter.ai/api/alpha/decisions"
 )
-DEFAULT_MODEL = os.environ.get("JEV_MODEL", "typesafe/jev-1.13")
-
 # Cache determinístico em memória por hash SHA-256 do payload (Achado #28)
 _DECISIONS_CACHE: Dict[str, Dict[str, Any]] = {}
 
@@ -66,13 +64,6 @@ class ComplexityLevel(str, Enum):
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
     ESCALATE = "ESCALATE"
-
-
-class ImplementerTier(str, Enum):
-    LUNA = "luna"
-    GEMINI_FLASH = "gemini_flash"
-    HAIKU = "haiku"
-    SONNET = "sonnet"
 
 
 class ControlAction(str, Enum):
@@ -187,7 +178,7 @@ def call_decisions(
     - Até 3 retries com backoff exponencial em caso de falha de conexão/5xx (Achado #24).
     - Validação de schema Pydantic da resposta (Achado #24).
     """
-    model_name = model or DEFAULT_MODEL
+    model_name = model or load_config().master.model
     payload: Dict[str, Any] = {
         "model": model_name,
         "temperature": 0.0,
@@ -266,27 +257,23 @@ def classify_task(
     )
     safe_task_id = task_id or hashlib.sha256(f"classify:{context}".encode("utf-8")).hexdigest()[:16]
     save_current_run(run_id=resolved_run_id, task_id=safe_task_id)
-    implementer_names = [tier.name for tier in implementers] if implementers is not None else []
-    if implementers is not None and not implementers:
+    decision_model = model or load_config().master.model
+    configured_implementers = list(
+        load_config().workers.tier_order if implementers is None else implementers
+    )
+    if not configured_implementers:
         raise ValueError("implementers não pode ser uma sequência vazia")
 
-    if implementers is None:
-        implementer_criteria = {
-            "luna": "GPT-6 Luna ($0.077/M): altíssima eficiência para tarefas small/medium.",
-            "gemini_flash": "Gemini 3.8 Flash ($0.577/M): líder de automação e raciocínio para código complexo ou falha.",
-            "haiku": "Claude 4.5 Haiku ($0.77/M): subagente lite rápido para features médias e refatorações.",
-            "sonnet": "Claude Sonnet 5 ($3.00/M): raciocínio máximo para recuperação arquitetural e regressões.",
-        }
-    else:
-        implementer_criteria = {}
-        for tier in implementers:
-            description_parts = [tier.model or tier.harness, f"via {tier.harness}" if tier.harness else ""]
-            if tier.cost_per_m_tokens:
-                description_parts.append(f"(${tier.cost_per_m_tokens}/M)")
-            description = " ".join(part for part in description_parts if part)
-            if tier.best_for:
-                description += f": {', '.join(tier.best_for)}"
-            implementer_criteria[tier.name] = description
+    implementer_names = [tier.name for tier in configured_implementers]
+    implementer_criteria = {}
+    for tier in configured_implementers:
+        description_parts = [tier.model or tier.harness, f"via {tier.harness}" if tier.harness else ""]
+        if tier.cost_per_m_tokens:
+            description_parts.append(f"(${tier.cost_per_m_tokens}/M)")
+        description = " ".join(part for part in description_parts if part)
+        if tier.best_for:
+            description += f": {', '.join(tier.best_for)}"
+        implementer_criteria[tier.name] = description
 
     state = {"task_description": context}
     questions = {
@@ -313,7 +300,7 @@ def classify_task(
     impl_conf: Optional[float] = None
 
     try:
-        raw = call_decisions(state=state, questions=questions, model=model, use_cache=use_cache)
+        raw = call_decisions(state=state, questions=questions, model=decision_model, use_cache=use_cache)
         answers = raw.get("answers", {})
 
         cls_ans = answers.get("complexity", {})
@@ -323,17 +310,12 @@ def classify_task(
         cls_conf = float(cls_ans.get("confidence", 0.8))
         cls_probs = dict(cls_ans.get("probabilities", {}))
 
-        if implementers is None:
-            impl_val = str(impl_ans.get("choice", "luna")).lower()
-            if impl_val == "gemini_antigravity":
-                impl_val = "gemini_flash"
+        raw_impl_val = impl_ans.get("choice")
+        if raw_impl_val is None:
+            impl_val = implementer_names[0]
+            fallback_applied = True
         else:
-            raw_impl_val = impl_ans.get("choice")
-            if raw_impl_val is None:
-                impl_val = implementer_names[0]
-                fallback_applied = True
-            else:
-                impl_val = str(raw_impl_val)
+            impl_val = str(raw_impl_val)
         impl_conf = float(impl_ans.get("confidence", 0.8))
 
         usage = raw.get("usage", {})
@@ -353,52 +335,27 @@ def classify_task(
         ctx_lower = context.lower()
         if any(w in ctx_lower for w in ["security", "auth", "crypto", "architect", "vulnerability", "refactor all", "migration"]):
             cls_val = "HIGH"
-            impl_val = implementer_names[0] if implementers is not None else "gemini_flash"
+            impl_val = implementer_names[0]
         elif any(w in ctx_lower for w in ["typo", "fix doc", "readme", "comment", "format", "rename", "tiny", "trivial"]):
             cls_val = "SMALL"
-            impl_val = implementer_names[0] if implementers is not None else "luna"
+            impl_val = implementer_names[0]
         else:
             cls_val = "MEDIUM"
-            impl_val = implementer_names[0] if implementers is not None else "luna"
+            impl_val = implementer_names[0]
 
     # Normalização de escolhas fora do enum padrão
     valid_complexities = {c.value for c in ComplexityLevel}
     if cls_val not in valid_complexities:
         cls_val = "MEDIUM"
 
-    valid_implementers = set(implementer_names) if implementers is not None else {i.value for i in ImplementerTier}
+    valid_implementers = set(implementer_names)
     if impl_val not in valid_implementers:
-        impl_val = implementer_names[0] if implementers is not None else "gemini_flash"
-        if implementers is not None:
-            fallback_applied = True
-
-    # Regras de override via variáveis de ambiente
-    disable_luna = os.environ.get("MEISTER_DISABLE_LUNA", "").lower() in ("true", "1", "yes")
-    primary_worker = os.environ.get("MEISTER_PRIMARY_WORKER", "").lower().strip()
-
-    if implementers is None:
-        if primary_worker:
-            impl_val = primary_worker
-        elif disable_luna and impl_val == "luna":
-            impl_val = "gemini_flash"
-        elif cls_val in ["SMALL", "MEDIUM"] and impl_val in ["haiku", "luna"]:
-            impl_val = "gemini_flash" if disable_luna else "luna"
-    elif primary_worker in valid_implementers:
-        impl_val = primary_worker
+        impl_val = implementer_names[0]
+        fallback_applied = True
 
     # Define a cadeia determinística de fallback se o modelo recomendado não estiver ativo
-    if implementers is not None:
-        selected_index = implementer_names.index(impl_val)
-        fallback_chain = implementer_names[selected_index + 1:]
-    else:
-        if impl_val == "luna":
-            fallback_chain = ["gemini_flash", "haiku", "sonnet"]
-        elif impl_val == "gemini_flash":
-            fallback_chain = ["haiku", "sonnet"]
-        elif impl_val == "haiku":
-            fallback_chain = ["gemini_flash", "sonnet"]
-        else:
-            fallback_chain = ["gemini_flash", "haiku"]
+    selected_index = implementer_names.index(impl_val)
+    fallback_chain = implementer_names[selected_index + 1:]
 
     duration_ms = round((time.monotonic() - start_time) * 1000.0, 2)
     # Registra no log de telemetria com custo real e duração (Achado #26, E2E-6)
@@ -414,7 +371,7 @@ def classify_task(
         run_id=resolved_run_id,
         attempt=attempt,
         duration_ms=duration_ms,
-        model=model,
+        model=decision_model,
     )
 
     result_dict = {
@@ -469,6 +426,7 @@ def control_cycle(
             f"control:{diff_summary}:{test_result}:{attempts}:{security_sensitive}".encode("utf-8")
         ).hexdigest()[:16]
     )
+    decision_model = model or load_config().master.model
 
     state = {
         "diff_summary": diff_summary,
@@ -498,7 +456,7 @@ def control_cycle(
         },
         "switch_implementer": {
             "type": "noul",
-            "instructions": "Deveria trocar o subagente de implementação (ex: de Luna/Haiku para Gemini 3.8 Flash) antes de escalar?",
+            "instructions": "Deveria trocar o subagente de implementação antes de escalar?",
             "criteria": {
                 "true": "O subagente atual falhou de forma consistente com evidência de que um mais potente ajudaria.",
                 "false": "Não há motivo para trocar de subagente ainda.",
@@ -511,7 +469,7 @@ def control_cycle(
     act_conf: Optional[float] = None
 
     try:
-        raw = call_decisions(state=state, questions=questions, model=model, use_cache=use_cache)
+        raw = call_decisions(state=state, questions=questions, model=decision_model, use_cache=use_cache)
         answers = raw.get("answers", {})
 
         act_ans = answers.get("next_action", {})
@@ -583,7 +541,7 @@ def control_cycle(
         run_id=resolved_run_id,
         attempt=attempts,
         duration_ms=duration_ms,
-        model=model,
+        model=decision_model,
     )
 
     result_dict = {
