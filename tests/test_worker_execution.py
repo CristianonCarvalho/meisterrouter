@@ -406,3 +406,21 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
         duration = time.monotonic() - t0
         assert duration < 5.0
         assert "erro de infraestrutura" in str(exc_info.value)
+
+
+def test_disabled_tier_is_used_only_by_explicit_name():
+    from meister.config import MeisterConfig
+    from meister.worker import HARNESS_CODEX, HARNESS_COPILOT, UnknownTierError, resolve_worker_harness_and_model
+
+    cfg = MeisterConfig()
+    # padrao: codex_luna vem desligada (fora da ordem ativa)
+    assert "codex_luna" not in [t.name for t in cfg.workers.tier_order]
+    assert [t.name for t in cfg.workers.disabled] == ["codex_luna"]
+
+    # sem nome: vale a primeira via ATIVA, nunca uma desligada
+    assert resolve_worker_harness_and_model(None, config=cfg) == (HARNESS_COPILOT, "gpt-6-luna")
+    # por nome explicito a via desligada funciona
+    assert resolve_worker_harness_and_model("codex_luna", config=cfg) == (HARNESS_CODEX, "gpt-6-luna")
+    # nome inexistente continua sendo erro e a mensagem cita as desligadas
+    with pytest.raises(UnknownTierError, match="desligadas.*codex_luna"):
+        resolve_worker_harness_and_model("nao_existe", config=cfg)

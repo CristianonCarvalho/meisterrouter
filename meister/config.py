@@ -99,7 +99,7 @@ class WorkerTier:
     max_parallel: Optional[int] = None
 
 
-def _default_worker_tiers() -> List[WorkerTier]:
+def _all_default_worker_tiers() -> List[WorkerTier]:
     return [
         WorkerTier(
             name=_as_str(item.get("name")),
@@ -115,10 +115,19 @@ def _default_worker_tiers() -> List[WorkerTier]:
     ]
 
 
+def _default_worker_tiers() -> List[WorkerTier]:
+    """Vias ligadas do arquivo padrao (as com enabled: false ficam em disabled)."""
+    return [tier for tier in _all_default_worker_tiers() if tier.enabled]
+
+
+def _default_disabled_worker_tiers() -> List[WorkerTier]:
+    return [tier for tier in _all_default_worker_tiers() if not tier.enabled]
+
+
 @dataclass
 class WorkersConfig:
     tier_order: List[WorkerTier] = field(default_factory=_default_worker_tiers)
-    disabled: List[WorkerTier] = field(default_factory=list)
+    disabled: List[WorkerTier] = field(default_factory=_default_disabled_worker_tiers)
 
 
 @dataclass

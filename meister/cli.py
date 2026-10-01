@@ -348,10 +348,11 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
         if not valid_tiers:
             raise click.UsageError("Nenhuma via configurada em workers.tier_order")
         model = valid_tiers[0]
-    elif model.casefold() not in {name.casefold() for name in valid_tiers}:
-        raise click.UsageError(
-            f"Via desconhecida '{model}'. Vias válidas: {', '.join(valid_tiers)}"
-        )
+    elif model.casefold() not in {name.casefold() for name in [*valid_tiers, *(t.name for t in cfg.workers.disabled)]}:
+        listing = ", ".join(valid_tiers)
+        if cfg.workers.disabled:
+            listing += " (desligadas, só por escolha explícita: " + ", ".join(t.name for t in cfg.workers.disabled) + ")"
+        raise click.UsageError(f"Via desconhecida '{model}'. Vias válidas: {listing}")
     ensure_meister_dir(resolved_cwd)
 
     if task:

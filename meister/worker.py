@@ -207,9 +207,17 @@ def resolve_worker_harness_and_model(
         tier = tiers[0]
     else:
         requested = model_name.strip().casefold()
-        tier = next((item for item in tiers if item.name.casefold() == requested), None)
+        # Vias desligadas ficam fora do roteamento automatico, mas valem por escolha explicita.
+        tier = next(
+            (item for item in [*tiers, *cfg.workers.disabled] if item.name.casefold() == requested),
+            None,
+        )
         if tier is None:
             valid_names = ", ".join(item.name for item in tiers)
+            if cfg.workers.disabled:
+                valid_names += " (desligadas, só por escolha explícita: " + ", ".join(
+                    item.name for item in cfg.workers.disabled
+                ) + ")"
             raise UnknownTierError(
                 f"Via desconhecida '{model_name}'. Vias válidas: {valid_names}"
             )

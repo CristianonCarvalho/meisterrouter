@@ -193,7 +193,8 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
 
 
 def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
-    configured_names = ["copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"]
+    # codex_luna vem desligada por padrao: o Jev so recebe as vias ativas
+    configured_names = ["copilot_luna", "agy_gemini_flash", "claude_sonnet"]
     response = {
         "answers": {
             "complexity": {"choice": "high"},
@@ -274,14 +275,14 @@ def test_classify_task_old_environment_switch_has_no_effect(monkeypatch):
     mock_raw = {
         "answers": {
             "complexity": {"choice": "small", "confidence": 0.99},
-            "recommended_implementer": {"choice": "codex_luna", "confidence": 0.95},
+            "recommended_implementer": {"choice": "copilot_luna", "confidence": 0.95},
         },
         "usage": {},
     }
 
     with patch("meister.jev.call_decisions", return_value=mock_raw):
         res = classify_task("Fix typo in readme")
-        assert res["recommended_implementer"] == "codex_luna"
+        assert res["recommended_implementer"] == "copilot_luna"
 
 
 def test_classify_task_configured_implementers_build_criteria_and_order():

@@ -34,10 +34,12 @@ def test_cli_config_show_default():
     assert "(declarado; ainda nao conectado a nenhum fluxo)" in result.output
     assert "Vias ativas (tier_order):" in result.output
     assert "copilot_luna" in result.output
-    assert "codex_luna" in result.output
     assert "agy_gemini_flash" in result.output
     assert "claude_sonnet" in result.output
-    assert "Vias desabilitadas:\n  (nenhuma)" in result.output
+    # codex_luna vem desligada por padrao (creditos do Codex limitados)
+    ativas, desligadas = result.output.split("Vias desabilitadas:")
+    assert "codex_luna" not in ativas
+    assert "codex_luna" in desligadas
 
 
 def test_cli_config_show_with_file(tmp_path):
@@ -81,9 +83,9 @@ def test_cli_config_show_json():
         "unavailable_cooldown_seconds": 300.0,
     }
     assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
-        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]
-    assert data["workers"]["disabled"] == []
+    assert [tier["name"] for tier in data["workers"]["disabled"]] == ["codex_luna"]
     assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
 
     # Verifica que json tem chaves ordenadas (estável)
@@ -304,7 +306,8 @@ def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
     )
     assert invalid.exit_code == 2
     assert "Via desconhecida 'gemini'" in invalid.output
-    assert "copilot_luna, codex_luna, agy_gemini_flash, claude_sonnet" in invalid.output
+    assert "copilot_luna, agy_gemini_flash, claude_sonnet" in invalid.output
+    assert "desligadas, só por escolha explícita: codex_luna" in invalid.output
 
 
 def test_native_harness_cli_validation_and_orchestrate_abort_without_run(tmp_path):

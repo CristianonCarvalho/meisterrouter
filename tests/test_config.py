@@ -322,8 +322,9 @@ def test_removed_copilot_and_primary_environment_overrides_are_ignored(monkeypat
     from meister.config import _default_worker_tiers
 
     baseline_tiers = _default_worker_tiers()
+    # codex_luna vem desligada por padrao: fora das vias ativas
     assert [t.name for t in baseline_tiers] == [
-        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
     monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "codex_luna")
@@ -488,9 +489,11 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
     default = load_config()
+    # codex_luna vem desligada por padrao (creditos do Codex limitados): fica fora da ordem ativa
     assert [tier.name for tier in default.workers.tier_order] == [
-        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]
+    assert [tier.name for tier in default.workers.disabled] == ["codex_luna"]
     assert default.master.model == "typesafe/jev-1.13"
     assert default.architect.effort == "high"
     assert not [issue for issue in validate_config(default) if issue.level == "error"]
@@ -500,8 +503,9 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     merged = load_config(str(partial))
     assert merged.router.mode == "jev"
     assert [tier.name for tier in merged.workers.tier_order] == [
-        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]
+    assert [tier.name for tier in merged.workers.disabled] == ["codex_luna"]
     assert merged.concurrency.max_parallel_workers == 2
     assert merged.concurrency.parallel_tasks is True
 
