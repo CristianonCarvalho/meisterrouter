@@ -157,7 +157,9 @@ def test_cli_config_validate_on_default():
     assert result.exit_code == 0
 
 
-def test_cli_config_validate_clean_file(tmp_path):
+def test_cli_config_validate_clean_file(tmp_path, monkeypatch):
+    # o modo jev (padrao) avisa quando falta a chave do OpenRouter; fixa a chave para nao depender da maquina
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     runner = CliRunner()
     clean_file = tmp_path / "clean.yaml"
     clean_file.write_text("""
