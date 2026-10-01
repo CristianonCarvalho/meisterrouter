@@ -19,9 +19,11 @@ def test_cli_models():
     assert "$0.077" in res.output
     assert "$0.577" in res.output
     assert "$3.000" in res.output
-    assert res.output.index("copilot_luna") < res.output.index("codex_luna")
-    assert res.output.index("codex_luna") < res.output.index("agy_gemini_flash")
+    # ativas primeiro, na ordem do fallback; a desligada (codex_luna) vem ao final
+    assert res.output.index("copilot_luna") < res.output.index("agy_gemini_flash")
     assert res.output.index("agy_gemini_flash") < res.output.index("claude_sonnet")
+    assert res.output.index("claude_sonnet") < res.output.index("codex_luna")
+    assert "desligada" in res.output
 
 
 def test_cli_models_shows_disabled_configured_via_only(tmp_path):
