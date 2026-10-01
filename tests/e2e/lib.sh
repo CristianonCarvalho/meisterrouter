@@ -44,10 +44,10 @@ preflight() {
     exit 1
   fi
   if ! command -v codex >/dev/null 2>&1; then
-    echo "AVISO: codex CLI não encontrado no PATH (necessário para workers luna)." >&2
+    echo "AVISO: codex CLI não encontrado no PATH (necessário para workers codex_luna)." >&2
   fi
   if ! command -v agy >/dev/null 2>&1; then
-    echo "AVISO: agy CLI não encontrado no PATH (necessário para workers gemini_flash)." >&2
+    echo "AVISO: agy CLI não encontrado no PATH (necessário para workers agy_gemini_flash)." >&2
   fi
   echo "meister resolvido: $(command -v meister)"
 }
@@ -167,8 +167,8 @@ make_disposable_repo() { # $1=target_dir
   cat <<CFG > meister.config.yaml
 workers:
   tier_order:
-    - {name: luna, harness: native, model: ${luna_m}, max_retries: 1}
-    - {name: gemini_flash, harness: native, model: gemini-3.8-flash-medium, max_retries: 1}
+    - {name: codex_luna, harness: codex, model: ${luna_m}, max_retries: 1}
+    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-medium, max_retries: 1}
 CFG
   git add -A && git commit -qm init
 }

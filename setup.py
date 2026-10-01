@@ -7,6 +7,7 @@ setup(
     author="Cristiano Carvalho",
     packages=find_packages(),
     include_package_data=True,
+    package_data={"meister": ["default_config.yaml"]},
     install_requires=[
         "requests>=2.31.0",
         "flask>=3.0.0",

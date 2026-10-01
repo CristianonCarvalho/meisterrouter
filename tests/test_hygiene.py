@@ -114,7 +114,7 @@ def test_mypy_floor_and_optional_narrowing():
     logger_src = (repo_root / "meister" / "logger.py").read_text(encoding="utf-8")
     bridge_src = (repo_root / "meister" / "herdr" / "bridge.py").read_text(encoding="utf-8")
 
-    assert 'resolved_model: str = str(model or os.environ.get("MEISTER_JEV_MODEL") or "typesafe/jev-1.13")' in logger_src
+    assert 'resolved_model: str = str(model or "")' in logger_src
     assert 'run_id: str = str(run_record["run_id"])' in bridge_src
     assert "sm.transition_run(run_id, to_state=RunState.RUNNING)" in bridge_src
 
@@ -145,4 +145,3 @@ def test_test_environment_isolation_guard():
     abs_wt_dir = os.path.abspath(wt_dir)
     assert not abs_wt_dir.startswith(repo_root), f"WT dir {abs_wt_dir} deve estar isolado fora do repo {repo_root}"
     assert not abs_wt_dir.startswith(home_meister), f"WT dir {abs_wt_dir} deve estar isolado fora de ~/.meister"
-

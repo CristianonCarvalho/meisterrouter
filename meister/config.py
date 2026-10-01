@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import os
 import shutil
+import copy
+from functools import lru_cache
+from importlib.resources import files
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, List, Set
@@ -16,7 +19,24 @@ import yaml
 
 
 VALID_ARCHITECT_EFFORTS: Set[str] = {"low", "medium", "high", "xhigh", "max"}
-KNOWN_HARNESSES: Set[str] = {"native", "claude", "copilot", "github-copilot"}
+KNOWN_HARNESSES: Set[str] = {
+    "codex", "agy", "antigravity", "claude", "copilot", "github-copilot"
+}
+
+
+@lru_cache(maxsize=1)
+def _cached_default_config() -> dict:
+    resource = files("meister").joinpath("default_config.yaml")
+    with resource.open("r", encoding="utf-8") as stream:
+        return yaml.safe_load(stream) or {}
+
+
+def _default_config_data() -> dict:
+    return copy.deepcopy(_cached_default_config())
+
+
+def _default_section(section: str) -> dict:
+    return _default_config_data().get(section, {})
 
 
 @dataclass
@@ -42,29 +62,29 @@ def ensure_meister_dir(root_or_cwd: str) -> str:
 
 @dataclass
 class MasterConfig:
-    provider: str = "openrouter"
-    model: str = "typesafe/jev-1.13"
-    temperature: float = 0.0
-    api_key_env: str = "OPENROUTER_API_KEY"
+    provider: str = field(default_factory=lambda: _default_section("master")["provider"])
+    model: str = field(default_factory=lambda: _default_section("master")["model"])
+    temperature: float = field(default_factory=lambda: _default_section("master")["temperature"])
+    api_key_env: str = field(default_factory=lambda: _default_section("master")["api_key_env"])
 
 
 @dataclass
 class RouterConfig:
-    mode: str = "first"
+    mode: str = field(default_factory=lambda: _default_section("router")["mode"])
 
 
 @dataclass
 class ArchitectConfig:
-    harness: str = "claude"
-    model: str = "claude-sonnet-5-5"
-    prompt_template: str = "templates/architect_prompt.md"
-    effort: str = "high"
+    harness: str = field(default_factory=lambda: _default_section("architect")["harness"])
+    model: str = field(default_factory=lambda: _default_section("architect")["model"])
+    prompt_template: str = field(default_factory=lambda: _default_section("architect")["prompt_template"])
+    effort: str = field(default_factory=lambda: _default_section("architect")["effort"])
 
 
 @dataclass
 class WorkerTier:
     name: str
-    harness: str = "native"
+    harness: str = field(default_factory=lambda: _default_worker_tiers()[0].harness)
     model: str = ""
     cost_per_m_tokens: float = 0.0
     max_retries: int = 2
@@ -73,66 +93,18 @@ class WorkerTier:
 
 
 def _default_worker_tiers() -> List[WorkerTier]:
-    disable_luna = os.environ.get("MEISTER_DISABLE_LUNA", "").lower() in ("true", "1", "yes")
-    primary = os.environ.get("MEISTER_PRIMARY_WORKER", "").lower().strip()
-
-    tiers = [
+    return [
         WorkerTier(
-            name="luna",
-            harness="native",
-            model=os.environ.get("MEISTER_LUNA_MODEL", "gpt-6-luna"),
-            cost_per_m_tokens=0.077,
-            max_retries=2,
-            best_for=["small_edits", "single_file", "css_fixes", "unit_test_additions"],
-        ),
-        WorkerTier(
-            name="gemini_flash",
-            harness="native",
-            model=os.environ.get("MEISTER_GEMINI_MODEL", "gemini-3.8-flash-high"),
-            cost_per_m_tokens=0.577,
-            max_retries=2,
-            best_for=["deep_reasoning", "complex_algorithms", "hard_bugs"],
-        ),
-        WorkerTier(
-            name="haiku",
-            harness="claude",
-            model=os.environ.get("MEISTER_HAIKU_MODEL", "haiku"),
-            cost_per_m_tokens=0.77,
-            max_retries=2,
-            best_for=["medium_features", "refactoring"],
-        ),
-        WorkerTier(
-            name="sonnet",
-            harness="claude",
-            model=os.environ.get("MEISTER_SONNET_MODEL", "sonnet"),
-            cost_per_m_tokens=3.00,
-            max_retries=1,
-            best_for=["architectural_recovery", "systemic_regressions"],
-        ),
-    ]
-
-    # NOTA: O adaptador Copilot é configurado como tier complementar opt-in.
-    # Pode ser habilitado explicitamente via MEISTER_ENABLE_COPILOT=true ou meister.config.yaml.
-    enable_copilot = os.environ.get("MEISTER_ENABLE_COPILOT", "").lower() in ("true", "1", "yes")
-    if enable_copilot:
-        copilot_tier = WorkerTier(
-            name="copilot",
-            harness="copilot",
-            model=os.environ.get("MEISTER_COPILOT_MODEL", "gpt-6-luna"),
-            cost_per_m_tokens=0.20,
-            max_retries=2,
-            best_for=["github_integration", "code_completion"],
-            enabled=True,
+            name=_as_str(item.get("name")),
+            harness=_as_str(item.get("harness")),
+            model=_as_str(item.get("model")),
+            cost_per_m_tokens=float(item.get("cost_per_m_tokens", 0.0)),
+            max_retries=int(item.get("max_retries", 2)),
+            best_for=list(item.get("best_for", [])),
+            enabled=bool(item.get("enabled", True)),
         )
-        tiers.insert(0, copilot_tier)
-
-    if disable_luna:
-        tiers = [t for t in tiers if t.name != "luna"]
-    elif primary and any(t.name == primary for t in tiers):
-        primary_tier = next(t for t in tiers if t.name == primary)
-        tiers = [primary_tier] + [t for t in tiers if t.name != primary]
-
-    return tiers
+        for item in _default_config_data()["workers"]["tier_order"]
+    ]
 
 
 @dataclass
@@ -143,21 +115,21 @@ class WorkersConfig:
 
 @dataclass
 class ConcurrencyConfig:
-    parallel_tasks: bool = True
-    max_parallel_workers: int = 4
-    layout_strategy: str = "tabs"
-    isolation_mode: str = "git_worktree"
+    parallel_tasks: bool = field(default_factory=lambda: _default_section("concurrency")["parallel_tasks"])
+    max_parallel_workers: int = field(default_factory=lambda: _default_section("concurrency")["max_parallel_workers"])
+    layout_strategy: str = field(default_factory=lambda: _default_section("concurrency")["layout_strategy"])
+    isolation_mode: str = field(default_factory=lambda: _default_section("concurrency")["isolation_mode"])
 
 
 @dataclass
 class MeisterConfig:
-    version: str = "1.0"
+    version: str = field(default_factory=lambda: _default_config_data()["version"])
     master: MasterConfig = field(default_factory=MasterConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
-    config_source: str = "padrao"
+    config_source: str = "padrao (meister/default_config.yaml)"
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
 
 
@@ -165,44 +137,53 @@ def _as_str(value: object, default: str = "") -> str:
     return default if value is None else str(value)
 
 
+def _merge_config(base: dict, override: dict) -> dict:
+    merged = copy.deepcopy(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_config(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
 def _parse_config_dict(data: dict) -> MeisterConfig:
-    if not isinstance(data, dict):
-        return MeisterConfig()
+    data = _merge_config(_default_config_data(), data if isinstance(data, dict) else {})
 
     version = str(data.get("version", "1.0"))
     parse_issues: List[ConfigIssue] = []
 
     # Master
-    master_data = data.get("master") or {}
+    master_data = data["master"]
     master = MasterConfig(
-        provider=master_data.get("provider", "openrouter"),
-        model=master_data.get("model", "typesafe/jev-1.13"),
-        temperature=float(master_data.get("temperature", 0.0)),
-        api_key_env=master_data.get("api_key_env", "OPENROUTER_API_KEY"),
+        provider=master_data["provider"],
+        model=master_data["model"],
+        temperature=float(master_data["temperature"]),
+        api_key_env=master_data["api_key_env"],
     )
 
     # Router
-    router_data = data.get("router") or {}
+    router_data = data["router"]
     if isinstance(router_data, dict):
-        router = RouterConfig(mode=_as_str(router_data.get("mode"), "first"))
+        router = RouterConfig(mode=_as_str(router_data.get("mode")))
     else:
         router = RouterConfig(mode=_as_str(router_data))
 
     # Architect
-    architect_data = data.get("architect") or {}
+    architect_data = data["architect"]
     raw_effort = architect_data.get("effort")
-    effort_val = "high" if raw_effort is None else str(raw_effort)
+    effort_val = str(raw_effort)
     architect = ArchitectConfig(
-        harness=architect_data.get("harness", "claude"),
-        model=architect_data.get("model", "claude-sonnet-5-5"),
-        prompt_template=architect_data.get("prompt_template", "templates/architect_prompt.md"),
+        harness=architect_data["harness"],
+        model=architect_data["model"],
+        prompt_template=architect_data["prompt_template"],
         effort=effort_val,
     )
 
     # Workers
-    workers_data = data.get("workers")
-    if workers_data is not None and isinstance(workers_data, dict) and "tier_order" in workers_data:
-        raw_tiers = workers_data.get("tier_order") or []
+    workers_data = data["workers"]
+    if isinstance(workers_data, dict) and "tier_order" in workers_data:
+        raw_tiers = workers_data["tier_order"] or []
         tier_list: List[WorkerTier] = []
         disabled_list: List[WorkerTier] = []
         for i, tier in enumerate(raw_tiers):
@@ -222,7 +203,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
                 tier_obj = WorkerTier(
                     name=_as_str(tier.get("name"), ""),
-                    harness=_as_str(tier.get("harness"), "native"),
+                    harness=_as_str(tier.get("harness"), ""),
                     model=_as_str(tier.get("model"), ""),
                     cost_per_m_tokens=float(tier.get("cost_per_m_tokens", 0.0)),
                     max_retries=int(tier.get("max_retries", 2)),
@@ -251,12 +232,12 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         workers = WorkersConfig()
 
     # Concurrency
-    concurrency_data = data.get("concurrency") or {}
+    concurrency_data = data["concurrency"]
     concurrency = ConcurrencyConfig(
-        parallel_tasks=concurrency_data.get("parallel_tasks", True),
-        max_parallel_workers=int(concurrency_data.get("max_parallel_workers", 4)),
-        layout_strategy=concurrency_data.get("layout_strategy", "tabs"),
-        isolation_mode=concurrency_data.get("isolation_mode", "git_worktree"),
+        parallel_tasks=concurrency_data["parallel_tasks"],
+        max_parallel_workers=int(concurrency_data["max_parallel_workers"]),
+        layout_strategy=concurrency_data["layout_strategy"],
+        isolation_mode=concurrency_data["isolation_mode"],
     )
 
     return MeisterConfig(
@@ -307,7 +288,7 @@ def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) ->
 
     if not target_path:
         cfg = MeisterConfig()
-        cfg.config_source = "padrao"
+        cfg.config_source = "padrao (meister/default_config.yaml)"
         return cfg
 
     with open(target_path, "r", encoding="utf-8") as f:
@@ -476,7 +457,16 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             )
 
     for i, tier in enumerate(config.workers.tier_order):
-        h = (tier.harness or "native").strip().lower()
+        h = (tier.harness or "").strip().lower()
+        if h == "native":
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.tier_order[{i}].harness",
+                    message="harness 'native' foi removido; declare codex, agy, claude ou copilot",
+                )
+            )
+            continue
         # 1. Harness desconhecido
         if h not in KNOWN_HARNESSES:
             is_abs_path = os.path.isabs(h) and os.path.exists(h)
@@ -510,13 +500,13 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     )
                 )
 
-        # 3. model vazio em via não native
-        if h != "native" and not tier.model:
+        # 3. model vazio
+        if not tier.model:
             issues.append(
                 ConfigIssue(
                     level="warning",
                     path=f"workers.tier_order[{i}].model",
-                    message=f"model vazio em via com harness não nativo ('{h}')",
+                    message=f"model vazio na via com harness '{h}'",
                 )
             )
 
@@ -535,6 +525,16 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     level="info",
                     path=f"workers.tier_order[{i}].cost_per_m_tokens",
                     message="Campo 'cost_per_m_tokens' preenchido nao influencia o roteamento",
+                )
+            )
+
+    for i, tier in enumerate(config.workers.disabled):
+        if (tier.harness or "").strip().lower() == "native":
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path=f"workers.disabled[{i}].harness",
+                    message="harness 'native' foi removido; declare codex, agy, claude ou copilot",
                 )
             )
 

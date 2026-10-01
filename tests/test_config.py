@@ -1,3 +1,5 @@
+from dataclasses import asdict
+
 import pytest
 from meister.config import (
     load_config,
@@ -18,7 +20,7 @@ architect:
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
       cost_per_m_tokens: 0.077
 concurrency:
@@ -75,7 +77,7 @@ workers:
     tier = config.workers.tier_order[0]
 
     assert tier.name == ""
-    assert tier.harness == "native"
+    assert tier.harness == ""
     assert tier.model == ""
 
 
@@ -84,19 +86,16 @@ def test_load_config_nonexistent_file():
         load_config("nonexistent_path_meister.yaml")
 
 
-def test_default_worker_tiers_overrides(monkeypatch):
+def test_removed_worker_environment_overrides_are_ignored(tmp_path, monkeypatch):
     from meister.config import _default_worker_tiers
 
+    monkeypatch.chdir(tmp_path)
+    baseline = _default_worker_tiers()
     monkeypatch.setenv("MEISTER_DISABLE_LUNA", "true")
-    tiers = _default_worker_tiers()
-    tier_names = [t.name for t in tiers]
-    assert "luna" not in tier_names
-    assert tier_names[0] == "gemini_flash"
-
-    monkeypatch.delenv("MEISTER_DISABLE_LUNA", raising=False)
-    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "haiku")
-    tiers_primary = _default_worker_tiers()
-    assert tiers_primary[0].name == "haiku"
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "agy_gemini_flash")
+    monkeypatch.setenv("MEISTER_LUNA_MODEL", "custom-model")
+    monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "false")
+    assert _default_worker_tiers() == baseline
 
 
 def test_enabled_removes_disabled_tier_and_preserves_order(tmp_path):
@@ -285,35 +284,17 @@ workers:
     assert len(default_errors) == 0
 
 
-def test_copilot_primary_tier_when_enabled(monkeypatch):
+def test_removed_copilot_and_primary_environment_overrides_are_ignored(monkeypatch):
     from meister.config import _default_worker_tiers
 
-    # Sem env: lista padrão idêntica à original
-    monkeypatch.delenv("MEISTER_ENABLE_COPILOT", raising=False)
-    monkeypatch.delenv("MEISTER_DISABLE_LUNA", raising=False)
-    monkeypatch.delenv("MEISTER_PRIMARY_WORKER", raising=False)
-    monkeypatch.delenv("MEISTER_COPILOT_MODEL", raising=False)
-
     baseline_tiers = _default_worker_tiers()
-    assert [t.name for t in baseline_tiers] == ["luna", "gemini_flash", "haiku", "sonnet"]
-
-    # Com MEISTER_ENABLE_COPILOT=true: copilot entra PRIMEIRO com gpt-6-luna
+    assert [t.name for t in baseline_tiers] == [
+        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+    ]
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
-    copilot_first_tiers = _default_worker_tiers()
-    assert [t.name for t in copilot_first_tiers] == ["copilot", "luna", "gemini_flash", "haiku", "sonnet"]
-    assert copilot_first_tiers[0].name == "copilot"
-    assert copilot_first_tiers[0].model == "gpt-6-luna"
-
-    # MEISTER_COPILOT_MODEL sobrescreve modelo padrão
-    monkeypatch.setenv("MEISTER_COPILOT_MODEL", "gpt-5.4-custom")
-    custom_model_tiers = _default_worker_tiers()
-    assert custom_model_tiers[0].model == "gpt-5.4-custom"
-
-    # MEISTER_PRIMARY_WORKER=luna recoloca luna em primeiro
-    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "luna")
-    primary_luna_tiers = _default_worker_tiers()
-    assert primary_luna_tiers[0].name == "luna"
-    assert [t.name for t in primary_luna_tiers] == ["luna", "copilot", "gemini_flash", "haiku", "sonnet"]
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "codex_luna")
+    monkeypatch.setenv("MEISTER_LUNA_MODEL", "custom-model")
+    assert _default_worker_tiers() == baseline_tiers
 
 
 def test_example_yaml_loads_and_validates():
@@ -325,11 +306,11 @@ def test_example_yaml_loads_and_validates():
     errors = [i for i in issues if i.level == "error"]
     assert len(errors) == 0
 
-    # Vias ativas e desabilitada
+    # As quatro vias padrão permanecem habilitadas.
     active_names = [t.name for t in cfg.workers.tier_order]
     disabled_names = [t.name for t in cfg.workers.disabled]
-    assert active_names == ["copilot", "luna", "gemini_flash", "haiku"]
-    assert disabled_names == ["sonnet"]
+    assert active_names == ["copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"]
+    assert disabled_names == []
 
 
 def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path, monkeypatch):
@@ -338,14 +319,6 @@ def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path,
     monkeypatch.chdir(tmp_path)
     for env_var in (
         "MEISTER_CONFIG_PATH",
-        "MEISTER_ENABLE_COPILOT",
-        "MEISTER_DISABLE_LUNA",
-        "MEISTER_PRIMARY_WORKER",
-        "MEISTER_LUNA_MODEL",
-        "MEISTER_GEMINI_MODEL",
-        "MEISTER_HAIKU_MODEL",
-        "MEISTER_SONNET_MODEL",
-        "MEISTER_COPILOT_MODEL",
     ):
         monkeypatch.delenv(env_var, raising=False)
 
@@ -430,10 +403,136 @@ router:
 workers:
   tier_order:
     - name: luna
-      harness: native
+      harness: codex
       model: gpt-6-luna
       best_for: [small_edits]
       cost_per_m_tokens: 0.077
 """)
     issues = validate_config(load_config(str(config_yaml)))
     assert not any(issue.level == "info" for issue in issues)
+
+
+def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
+    import importlib.resources
+    from meister.config import validate_config
+
+    resource = importlib.resources.files("meister").joinpath("default_config.yaml")
+    assert resource.is_file()
+    assert 'package_data={"meister": ["default_config.yaml"]}' in open(
+        "setup.py", encoding="utf-8"
+    ).read()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
+    default = load_config()
+    assert [tier.name for tier in default.workers.tier_order] == [
+        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+    ]
+    assert default.master.model == "typesafe/jev-1.13"
+    assert default.architect.effort == "high"
+    assert not [issue for issue in validate_config(default) if issue.level == "error"]
+
+    partial = tmp_path / "partial.yaml"
+    partial.write_text("router: {mode: jev}\nconcurrency: {max_parallel_workers: 2}\n")
+    merged = load_config(str(partial))
+    assert merged.router.mode == "jev"
+    assert [tier.name for tier in merged.workers.tier_order] == [
+        "copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"
+    ]
+    assert merged.concurrency.max_parallel_workers == 2
+    assert merged.concurrency.parallel_tasks is True
+
+    replacement = tmp_path / "replacement.yaml"
+    replacement.write_text("""
+workers:
+  tier_order:
+    - {name: custom, harness: codex, model: local-model}
+""")
+    replaced = load_config(str(replacement))
+    assert [tier.name for tier in replaced.workers.tier_order] == ["custom"]
+
+
+def test_removed_environment_variables_do_not_change_default_config(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
+    baseline = asdict(load_config())
+    for key, value in {
+        "MEISTER_LUNA_MODEL": "changed",
+        "MEISTER_PRIMARY_WORKER": "codex_luna",
+        "MEISTER_DISABLE_LUNA": "1",
+        "MEISTER_ENABLE_COPILOT": "0",
+    }.items():
+        monkeypatch.setenv(key, value)
+    assert asdict(load_config()) == baseline
+
+
+def test_removed_environment_variables_do_not_override_user_tier_models(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
+    for key, value in {
+        "MEISTER_LUNA_MODEL": "env-luna",
+        "MEISTER_GEMINI_MODEL": "env-gemini",
+        "MEISTER_GEMINI_FLASH_MODEL": "env-gemini-flash",
+        "MEISTER_HAIKU_MODEL": "env-haiku",
+        "MEISTER_SONNET_MODEL": "env-sonnet",
+        "MEISTER_COPILOT_MODEL": "env-copilot",
+        "MEISTER_PRIMARY_WORKER": "env-primary",
+        "MEISTER_DISABLE_LUNA": "true",
+        "MEISTER_ENABLE_COPILOT": "true",
+        "JEV_MODEL": "env-jev",
+    }.items():
+        monkeypatch.setenv(key, value)
+
+    config_yaml = tmp_path / "meister.config.yaml"
+    config_yaml.write_text("""
+workers:
+  tier_order:
+    - {name: a, harness: codex, model: m1}
+    - {name: b, harness: copilot, model: m2}
+""")
+
+    config = load_config()
+    tiers = config.workers.tier_order
+
+    assert [tier.model for tier in tiers] == ["m1", "m2"]
+    assert [tier.name for tier in tiers] == ["a", "b"]
+
+
+def test_native_harness_reports_migration_error_and_package_default_is_copied(tmp_path):
+    from meister.config import _default_config_data, validate_config
+
+    custom = tmp_path / "native.yaml"
+    custom.write_text("""
+workers:
+  tier_order:
+    - {name: legacy, harness: native, model: local}
+""")
+    errors = [
+        issue for issue in validate_config(load_config(str(custom)))
+        if issue.level == "error"
+    ]
+    assert any(
+        issue.path == "workers.tier_order[0].harness"
+        and issue.message == "harness 'native' foi removido; declare codex, agy, claude ou copilot"
+        for issue in errors
+    )
+
+    disabled = tmp_path / "disabled-native.yaml"
+    disabled.write_text("""
+workers:
+  tier_order:
+    - {name: legacy, harness: native, model: local, enabled: false}
+""")
+    disabled_errors = [
+        issue for issue in validate_config(load_config(str(disabled)))
+        if issue.level == "error"
+    ]
+    assert any(
+        issue.path == "workers.disabled[0].harness"
+        and issue.message == "harness 'native' foi removido; declare codex, agy, claude ou copilot"
+        for issue in disabled_errors
+    )
+
+    first_copy = _default_config_data()
+    first_copy["workers"]["tier_order"].clear()
+    assert len(_default_config_data()["workers"]["tier_order"]) == 4

@@ -4,7 +4,7 @@ from click.testing import CliRunner
 
 from meister.cli import main
 from meister.worker import (
-    resolve_worker_model,
+    UnknownTierError,
     resolve_worker_harness_and_model,
     build_harness_command,
     smoke_test_tier,
@@ -13,62 +13,48 @@ from meister.worker import (
     HARNESS_CODEX,
     HARNESS_ANTIGRAVITY,
     HARNESS_CLAUDE,
+    HARNESS_COPILOT,
 )
 
 
-def test_resolve_worker_model():
-    assert resolve_worker_model("luna") == "gpt-6-luna"
-    assert resolve_worker_model("gemini_flash") == "gemini-3.8-flash-high"
-    assert resolve_worker_model("haiku") == "haiku"
-    assert resolve_worker_model("sonnet") == "sonnet"
-    assert resolve_worker_model("custom/model:free") == "custom/model:free"
+def test_model_alias_resolver_was_removed():
+    assert not hasattr(__import__("meister.worker", fromlist=["worker"]), "resolve_worker_model")
 
 
-def test_resolve_worker_harness_and_model():
-    # Codex mappings
-    h, m = resolve_worker_harness_and_model("luna")
-    assert h == HARNESS_CODEX
-    assert m == "gpt-6-luna"
+def test_resolve_worker_harness_and_model_uses_configured_routes_only():
+    expected = [
+        ("copilot_luna", "copilot", "gpt-6-luna"),
+        ("codex_luna", HARNESS_CODEX, "gpt-6-luna"),
+        ("agy_gemini_flash", HARNESS_ANTIGRAVITY, "gemini-3.8-flash-high"),
+        ("claude_sonnet", HARNESS_CLAUDE, "sonnet"),
+    ]
+    for tier_name, expected_harness, expected_model in expected:
+        harness, model = resolve_worker_harness_and_model(tier_name)
+        assert (harness, model) == (expected_harness, expected_model)
 
-    h, m = resolve_worker_harness_and_model("codex")
-    assert h == HARNESS_CODEX
-
-    # Antigravity mappings
-    h, m = resolve_worker_harness_and_model("gemini_flash")
-    assert h == HARNESS_ANTIGRAVITY
-    assert m == "gemini-3.8-flash-high"
-
-    h, m = resolve_worker_harness_and_model("antigravity")
-    assert h == HARNESS_ANTIGRAVITY
-    assert m == "gemini-3.8-flash-high"
-
-    # Claude mappings
-    h, m = resolve_worker_harness_and_model("haiku")
-    assert h == HARNESS_CLAUDE
-    assert m == "haiku"
-
-    h, m = resolve_worker_harness_and_model("sonnet")
-    assert h == HARNESS_CLAUDE
-    assert m == "sonnet"
+    assert resolve_worker_harness_and_model(None) == ("copilot", "gpt-6-luna")
+    assert resolve_worker_harness_and_model("  ") == ("copilot", "gpt-6-luna")
+    assert resolve_worker_harness_and_model("CoDeX_LuNa") == (HARNESS_CODEX, "gpt-6-luna")
+    for unknown in ("luna", "gemini"):
+        with pytest.raises(UnknownTierError, match="copilot_luna.*claude_sonnet"):
+            resolve_worker_harness_and_model(unknown)
 
 
-def test_worker_external_model_override(monkeypatch):
-    monkeypatch.setenv("MEISTER_HAIKU_MODEL", "claude-haiku-v4")
-    monkeypatch.setenv("MEISTER_SONNET_MODEL", "claude-sonnet-v5")
-    assert resolve_worker_model("haiku") == "claude-haiku-v4"
-    h, m = resolve_worker_harness_and_model("haiku")
-    assert m == "claude-haiku-v4"
-
-    assert resolve_worker_model("sonnet") == "claude-sonnet-v5"
-    h, m = resolve_worker_harness_and_model("sonnet")
-    assert m == "claude-sonnet-v5"
+def test_worker_resolution_ignores_removed_model_environment_override(monkeypatch):
+    monkeypatch.setenv("MEISTER_LUNA_MODEL", "environment-model")
+    assert resolve_worker_harness_and_model("codex_luna") == (
+        HARNESS_CODEX,
+        "gpt-6-luna",
+    )
 
 
 def test_smoke_test_tier():
-    for tier in ["luna", "gemini_flash", "haiku", "sonnet"]:
+    for tier in ["copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"]:
         res = smoke_test_tier(tier)
         assert res["tier"] == tier
-        assert res["harness"] in (HARNESS_CODEX, HARNESS_ANTIGRAVITY, HARNESS_CLAUDE)
+        assert res["harness"] in (
+            HARNESS_CODEX, HARNESS_ANTIGRAVITY, HARNESS_CLAUDE, HARNESS_COPILOT
+        )
         assert res["resolved_model"] is not None
         assert isinstance(res["available"], bool)
 
@@ -111,7 +97,7 @@ def hello():
     with patch("subprocess.Popen", return_value=mock_process), \
          patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"), \
          patch("meister.worker.get_git_status_files", return_value=set()):
-        worker = HarnessWorker(model="luna", cwd=str(tmp_path))
+        worker = HarnessWorker(model="codex_luna", cwd=str(tmp_path))
         res = worker.run_task("do not write")
         assert res["modified_files"] == []
         assert not (tmp_path / "src" / "app.py").exists()
@@ -128,7 +114,7 @@ def test_native_worker_execute_task_success(tmp_path):
     with patch("subprocess.Popen", return_value=mock_process) as mock_popen, \
          patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"), \
          patch("meister.worker.get_git_status_files", side_effect=[set(), {"test.txt"}]):
-        worker = NativeWorker(model="luna", cwd=str(tmp_path))
+        worker = NativeWorker(model="codex_luna", cwd=str(tmp_path))
         result = worker.run_task("Update test.txt to say new content", target_files=["test.txt"])
 
         assert result["status"] == "done"
@@ -149,7 +135,7 @@ def test_native_worker_handles_failure(tmp_path):
 
     with patch("subprocess.Popen", return_value=mock_process), \
          patch("meister.worker.find_cli_binary", return_value="/mock/bin/codex"):
-        worker = NativeWorker(model="luna", cwd=str(tmp_path))
+        worker = NativeWorker(model="codex_luna", cwd=str(tmp_path))
         with pytest.raises(RuntimeError) as exc_info:
             worker.run_task("Do something")
         assert "failed with exit code 1" in str(exc_info.value)
@@ -166,7 +152,7 @@ def test_cli_worker_with_task_flag(tmp_path):
     with patch("meister.worker.execute_worker_task", return_value=mock_result) as mock_exec:
         result = runner.invoke(
             main,
-            ["worker", "--no-pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--no-pane", "--model", "codex_luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Status: done" in result.output
@@ -183,7 +169,7 @@ def test_cli_worker_with_pane_dispatch(tmp_path):
          patch("meister.worker.run_worker_in_herdr_pane", return_value=mock_result) as mock_pane:
         result = runner.invoke(
             main,
-            ["worker", "--pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--pane", "--model", "codex_luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Worker task finished in Herdr pane" in result.output
@@ -197,7 +183,7 @@ def test_cli_worker_pane_timeout_blocks_direct_reexecution(tmp_path):
          patch("meister.worker.execute_worker_task") as mock_direct_exec:
         result = runner.invoke(
             main,
-            ["worker", "--pane", "--model", "luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
+            ["worker", "--pane", "--model", "codex_luna", "--task", "Fix CSS tooltip", "--cwd", str(tmp_path)],
         )
         assert result.exit_code != 0
         assert "Timeout no worker do Herdr" in result.output
@@ -216,7 +202,7 @@ async def test_run_worker_in_herdr_pane_async_timeout_cleans_up_pane(tmp_path):
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client), \
          pytest.raises(TimeoutError):
         await run_worker_in_herdr_pane_async(
-            model="luna",
+            model="codex_luna",
             task="long task",
             cwd=str(tmp_path),
             timeout=0.01,
@@ -232,11 +218,11 @@ def test_worker_resolves_model_from_config_yaml_in_cwd(tmp_path):
     cfg_file.write_text(
         "workers:\n"
         "  tier_order:\n"
-        "    - {name: luna, harness: native, model: gpt-modelo-inexistente}\n"
-        "    - {name: gemini_flash, harness: native, model: gemini-3.8-flash-medium}\n"
+        "    - {name: codex_luna, harness: codex, model: gpt-modelo-inexistente}\n"
+        "    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-medium}\n"
     )
 
-    worker = HarnessWorker(model="luna", cwd=str(tmp_path))
+    worker = HarnessWorker(model="codex_luna", cwd=str(tmp_path))
     assert worker.resolved_model == "gpt-modelo-inexistente"
     cmd = build_harness_command(worker.harness, "/usr/bin/codex", worker.resolved_model, "test task", str(tmp_path))
     assert "-m" in cmd
@@ -251,7 +237,7 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
     cfg_file.write_text(
         "workers:\n"
         "  tier_order:\n"
-        "    - {name: luna, harness: native, model: gpt-override-model}\n"
+        "    - {name: codex_luna, harness: codex, model: gpt-override-model}\n"
     )
 
     worktree_dir = tmp_path / "wt"
@@ -262,7 +248,7 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
     import json
     task_file.write_text(json.dumps({
         "task_id": "t-e2e8",
-        "model": "luna",
+        "model": "codex_luna",
         "task": "Do something",
         "cwd": str(worktree_dir),
         "config_path": str(cfg_file),
@@ -296,7 +282,7 @@ async def test_run_worker_in_herdr_pane_fast_fail_on_pane_exited(tmp_path):
         t0 = time.monotonic()
         with pytest.raises(WorkerInfrastructureError) as exc_info:
             await run_worker_in_herdr_pane_async(
-                model="luna",
+                model="codex_luna",
                 task="any task",
                 cwd=str(tmp_path),
                 timeout=180.0,
@@ -320,7 +306,7 @@ def test_cli_worker_infrastructure_error_fast_exit(tmp_path):
             main,
             [
                 "worker",
-                "--model", "luna",
+                "--model", "codex_luna",
                 "--task", "some task",
                 "--cwd", str(tmp_path),
             ],
@@ -347,7 +333,7 @@ async def test_run_worker_in_herdr_pane_active_liveness_pane_missing(tmp_path, m
         t0 = time.monotonic()
         with pytest.raises(WorkerInfrastructureError) as exc_info:
             await run_worker_in_herdr_pane_async(
-                model="luna",
+                model="codex_luna",
                 task="any task",
                 cwd=str(tmp_path),
                 timeout=180.0,
@@ -378,7 +364,7 @@ async def test_run_worker_in_herdr_tab_active_liveness_pane_missing(tmp_path, mo
         t0 = time.monotonic()
         with pytest.raises(WorkerInfrastructureError) as exc_info:
             await run_worker_in_herdr_tab_async(
-                model="luna",
+                model="codex_luna",
                 task="any task",
                 cwd=str(tmp_path),
                 timeout=180.0,
@@ -412,7 +398,7 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
         t0 = time.monotonic()
         with pytest.raises(WorkerInfrastructureError) as exc_info:
             await run_worker_in_herdr_pane_async(
-                model="luna",
+                model="codex_luna",
                 task="any task",
                 cwd=str(tmp_path),
                 timeout=180.0,
@@ -420,7 +406,3 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
         duration = time.monotonic() - t0
         assert duration < 5.0
         assert "erro de infraestrutura" in str(exc_info.value)
-
-
-
-

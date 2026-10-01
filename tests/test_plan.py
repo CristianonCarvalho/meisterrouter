@@ -745,7 +745,7 @@ class TestSecurityCommandKey:
         spawner = WorkerSpawner(cfg)
         # Simulate a task_context that somehow has 'command' (would only happen
         # in the bridge itself after it sets task_dict["command"] = cmd_parts)
-        injected_cmd = ["meister", "worker", "--model", "luna"]
+        injected_cmd = ["meister", "worker", "--model", "codex_luna"]
         task_ctx = {
             "id": "t1",
             "description": "test",
@@ -897,4 +897,3 @@ class TestOrchestrateCliForwardsAllowFreeform:
 
     def test_flag_forwards_true(self):
         assert self._invoke(["--allow-freeform"])["allow_freeform"] is True
-

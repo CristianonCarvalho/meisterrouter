@@ -112,10 +112,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 concurrency:
   layout_strategy: tiled
@@ -319,7 +319,7 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
 """)
     config = load_config(str(cfg_file))
@@ -346,10 +346,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 concurrency:
   layout_strategy: tiled
@@ -612,7 +612,7 @@ async def test_bridge_subtask_uses_task_contract_without_prompt_agent(tmp_path, 
         task_file_seen = tfiles[0]
         data = json.loads(task_file_seen.read_text(encoding="utf-8"))
         assert data["task_id"] == "t1"
-        assert data["model"] == "luna"
+        assert data["model"] == "copilot_luna"
         # Worker writes result.json
         write_atomic_json(data["result_file"], {"status": "done", "modified_files": ["app.py"]})
         return "w1:p1"
@@ -635,6 +635,7 @@ async def test_bridge_subtask_uses_task_contract_without_prompt_agent(tmp_path, 
     assert success is True
     assert mock_client.prompt_agent.call_count == 0
     assert executed_command is not None
+    assert executed_command[1:4] == ["-m", "meister.cli", "run-task"]
     assert task_file_seen is not None
 
 
@@ -1314,10 +1315,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 concurrency:
   layout_strategy: tiled
@@ -1376,10 +1377,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 concurrency:
   layout_strategy: tiled
@@ -1434,10 +1435,10 @@ version: "1.0"
 workers:
   tier_order:
     - name: "luna"
-      harness: "native"
+      harness: "codex"
       model: "openai/gpt-6-luna"
     - name: "gemini_flash"
-      harness: "native"
+      harness: "agy"
       model: "google/gemini-2.5-flash"
 concurrency:
   layout_strategy: tiled
@@ -1780,8 +1781,8 @@ def _make_router_bridge(tmp_path, mode="jev", tier_count=2):
     from meister.state import StateManager
 
     tiers = [
-        {"name": "copilot", "harness": "native", "model": "model-copilot"},
-        {"name": "luna", "harness": "native", "model": "model-luna"},
+        {"name": "copilot", "harness": "copilot", "model": "model-copilot"},
+        {"name": "luna", "harness": "codex", "model": "model-luna"},
     ][:tier_count]
     config_file = tmp_path / f"{mode}_{tier_count}.yaml"
     config_file.write_text(

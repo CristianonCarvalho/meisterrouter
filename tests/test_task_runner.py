@@ -142,7 +142,7 @@ async def test_pane_dispatch_immune_to_shell_injection(tmp_path):
     malicious_prompt = 'evil"; rm -rf / ; echo "pwned'
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
         res = await run_worker_in_herdr_pane_async(
-            model="luna",
+            model="codex_luna",
             task=malicious_prompt,
             cwd=str(tmp_path),
             timeout=5.0,
@@ -178,7 +178,7 @@ def test_execute_task_file_with_fake_cli(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "test-run-1",
-        "model": "luna",
+        "model": "codex_luna",
         "task": "Modify target.txt",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -209,7 +209,7 @@ def test_execute_task_file_failure_writes_error_result(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "fail-task",
-        "model": "luna",
+        "model": "codex_luna",
         "task": "Failing task",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -237,7 +237,7 @@ def test_execute_task_file_timeout_kills_process(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "timeout-task",
-        "model": "luna",
+        "model": "codex_luna",
         "task": "Hanging task",
         "cwd": str(tmp_path),
         "timeout": 0.3,
@@ -261,7 +261,7 @@ def test_cli_run_task_command(tmp_path):
     result_file = tmp_path / "result.json"
     task_file.write_text(json.dumps({
         "task_id": "cli-1",
-        "model": "luna",
+        "model": "codex_luna",
         "task": "Test task",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -298,7 +298,7 @@ async def test_worker_pane_dispatch_uses_sys_executable_and_module(tmp_path, mon
 
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
         res = await run_worker_in_herdr_pane_async(
-            model="luna",
+            model="codex_luna",
             task="Test task",
             cwd=str(tmp_path),
             timeout=5.0,
@@ -309,4 +309,3 @@ async def test_worker_pane_dispatch_uses_sys_executable_and_module(tmp_path, mon
     assert shlex.quote(sys.executable) in called_command
     assert "-m meister.cli run-task" in called_command
     assert str(fake_meister) not in called_command
-

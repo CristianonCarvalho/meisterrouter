@@ -20,9 +20,14 @@ import shlex
 import signal
 from typing import Optional, List, Dict, Any, Tuple
 from meister.logger import log_event
-from meister.herdr.events import is_pane_gone
 
 logger = logging.getLogger(__name__)
+
+
+def _is_pane_gone(event: dict, pane_id: str) -> bool:
+    from meister.herdr.events import is_pane_gone
+
+    return is_pane_gone(event, pane_id)
 
 
 class WorkerInfrastructureError(RuntimeError):
@@ -74,11 +79,6 @@ DEFAULT_SAFE_ENV_VARS = {
     "GITHUB_TOKEN",
     "GH_TOKEN",
     # Configurações do MeisterRouter para os workers
-    "MEISTER_LUNA_MODEL",
-    "MEISTER_GEMINI_FLASH_MODEL",
-    "MEISTER_HAIKU_MODEL",
-    "MEISTER_SONNET_MODEL",
-    "MEISTER_COPILOT_MODEL",
     "MEISTER_IN_PANE",
     "MEISTER_CONFIG_PATH",
     "MEISTER_LOG_DIR",
@@ -186,127 +186,44 @@ def kill_process_tree(pgid_or_pid: int, is_pgid: bool = True) -> None:
         pass
 
 
-def get_configured_model(tier: str, default: str) -> str:
-    """Obtém o ID de modelo configurado externamente via variável de ambiente."""
-    env_key = f"MEISTER_{tier.upper()}_MODEL"
-    return os.environ.get(env_key, default)
-
-
-def get_model_aliases() -> Dict[str, str]:
-    """Retorna o mapeamento atualizado de aliases para identificadores de modelo."""
-    return {
-        "luna": get_configured_model("luna", "gpt-6-luna"),
-        "gpt-6-luna": "gpt-6-luna",
-        "codex": "gpt-4o",
-        "gemini_flash": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "gemini-flash": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "gemini-3.8-flash": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "gemini_antigravity": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "antigravity": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "agy": get_configured_model("gemini_flash", "gemini-3.8-flash-high"),
-        "haiku": get_configured_model("haiku", "haiku"),
-        "haiku-4.5": get_configured_model("haiku", "haiku"),
-        "sonnet": get_configured_model("sonnet", "sonnet"),
-        "sonnet-5": get_configured_model("sonnet", "sonnet"),
-        "claude": get_configured_model("sonnet", "sonnet"),
-        "copilot": get_configured_model("copilot", "auto"),
-        "github-copilot": get_configured_model("copilot", "auto"),
-    }
-
-
-def resolve_worker_model(model_name: str) -> str:
-    """Resolve aliases or tier names into the canonical harness model identifier."""
-    cleaned = (model_name or "luna").strip().lower()
-    return get_model_aliases().get(cleaned, model_name)
+class UnknownTierError(ValueError):
+    """Raised when a requested worker route is not configured."""
 
 
 def resolve_worker_harness_and_model(
-    model_name: str,
+    model_name: Optional[str] = None,
     config: Optional[Any] = None,
     cwd: Optional[str] = None,
     config_path: Optional[str] = None,
 ) -> Tuple[str, Optional[str]]:
-    """Resolve a model name or alias to (harness_name, resolved_model).
+    """Resolve a configured route to its canonical harness and declared model."""
+    from meister.config import load_config
 
-    Harnesses:
-      - 'codex': runs OpenAI Codex CLI (native default: gpt-6-luna)
-      - 'antigravity': runs Google Antigravity CLI ('agy', native: gemini-3.8-flash-high)
-      - 'claude': runs Anthropic Claude Code CLI ('claude')
-      - 'copilot': runs GitHub Copilot CLI ('copilot')
-    """
-    cleaned = (model_name or "luna").strip().lower()
+    cfg = config or load_config(config_path=config_path, cwd=cwd)
+    tiers = cfg.workers.tier_order
+    if model_name is None or not model_name.strip():
+        if not tiers:
+            raise UnknownTierError("Nenhuma via configurada em workers.tier_order")
+        tier = tiers[0]
+    else:
+        requested = model_name.strip().casefold()
+        tier = next((item for item in tiers if item.name.casefold() == requested), None)
+        if tier is None:
+            valid_names = ", ".join(item.name for item in tiers)
+            raise UnknownTierError(
+                f"Via desconhecida '{model_name}'. Vias válidas: {valid_names}"
+            )
 
-    if config is None and (config_path or cwd or os.environ.get("MEISTER_CONFIG_PATH")):
-        try:
-            from meister.config import load_config
-            config = load_config(config_path=config_path, cwd=cwd)
-        except Exception:
-            config = None
-
-    if config and getattr(config, "workers", None) and getattr(config.workers, "tier_order", None):
-        for tier in config.workers.tier_order:
-            if getattr(tier, "name", "").lower() == cleaned:
-                h = (getattr(tier, "harness", "native") or "native").lower().strip()
-                t_model = getattr(tier, "model", "") or ""
-                if h == "native":
-                    if cleaned in ("luna", "gpt-6-luna") or "gpt" in t_model.lower() or "luna" in t_model.lower():
-                        harness = HARNESS_CODEX
-                    elif "gemini" in cleaned or "gemini" in t_model.lower() or "antigravity" in cleaned or "agy" in cleaned:
-                        harness = HARNESS_ANTIGRAVITY
-                    elif "claude" in cleaned or "haiku" in cleaned or "sonnet" in cleaned or "opus" in cleaned:
-                        harness = HARNESS_CLAUDE
-                    elif "copilot" in cleaned:
-                        harness = HARNESS_COPILOT
-                    else:
-                        harness = HARNESS_CODEX
-                elif h in ("agy", "antigravity"):
-                    harness = HARNESS_ANTIGRAVITY
-                elif h == "claude":
-                    harness = HARNESS_CLAUDE
-                elif h == "codex":
-                    harness = HARNESS_CODEX
-                elif h in ("copilot", "github-copilot"):
-                    harness = HARNESS_COPILOT
-                else:
-                    harness = h
-
-                tier_model = t_model if t_model else None
-                return (harness, tier_model)
-
-    if cleaned in ("luna", "gpt-6-luna"):
-        return (HARNESS_CODEX, get_configured_model("luna", "gpt-6-luna"))
-    if cleaned in ("codex", "openai/gpt-4o", "gpt-4o"):
-        return (HARNESS_CODEX, "gpt-4o" if "4o" in cleaned else None)
-    if cleaned in (
-        "gemini_flash", "gemini-flash", "gemini-3.8-flash",
-        "gemini_antigravity", "antigravity", "agy", "google/gemini-2.5-flash",
-        "gemini-3.8-flash-high", "gemini-3.8-flash-medium",
-    ):
-        return (HARNESS_ANTIGRAVITY, get_configured_model("gemini_flash", "gemini-3.8-flash-high"))
-    if cleaned in (
-        "haiku", "haiku-4.5", "claude-3-5-haiku-20241022", "anthropic/claude-3-5-haiku-20241022"
-    ):
-        return (HARNESS_CLAUDE, get_configured_model("haiku", "haiku"))
-    if cleaned in (
-        "sonnet", "sonnet-5", "claude-sonnet-5", "anthropic/claude-sonnet-5", "claude-3-7-sonnet", "anthropic/claude-3-7-sonnet"
-    ):
-        return (HARNESS_CLAUDE, get_configured_model("sonnet", "sonnet"))
-    if cleaned == "claude":
-        return (HARNESS_CLAUDE, None)
-    if cleaned in ("copilot", "github-copilot", "gh-copilot"):
-        return (HARNESS_COPILOT, get_configured_model("copilot", "auto"))
-
-    # Heuristic matching
-    if "gemini" in cleaned or "antigravity" in cleaned or "agy" in cleaned:
-        return (HARNESS_ANTIGRAVITY, get_configured_model("gemini_flash", "gemini-3.8-flash-high"))
-    if "claude" in cleaned or "haiku" in cleaned or "sonnet" in cleaned or "opus" in cleaned:
-        return (HARNESS_CLAUDE, None)
-    if "copilot" in cleaned:
-        return (HARNESS_COPILOT, get_configured_model("copilot", "auto"))
-    if "gpt" in cleaned or "o1" in cleaned or "o3" in cleaned or "codex" in cleaned or "luna" in cleaned:
-        return (HARNESS_CODEX, None)
-
-    return (HARNESS_CODEX, None)
+    harness = (tier.harness or "").strip()
+    harness_aliases = {
+        "codex": HARNESS_CODEX,
+        "agy": HARNESS_ANTIGRAVITY,
+        "antigravity": HARNESS_ANTIGRAVITY,
+        "claude": HARNESS_CLAUDE,
+        "copilot": HARNESS_COPILOT,
+        "github-copilot": HARNESS_COPILOT,
+    }
+    return harness_aliases.get(harness.casefold(), harness), tier.model or None
 
 
 def smoke_test_tier(tier: str) -> Dict[str, Any]:
@@ -364,7 +281,7 @@ def build_harness_command(
     """Construct the command line invocation for the specified harness."""
     if harness == HARNESS_CODEX:
         cmd = [cli_bin, "exec", "--dangerously-bypass-approvals-and-sandbox"]
-        if model and model not in ("default", "luna", "codex"):
+        if model and model not in ("default", "codex"):
             cmd.extend(["-m", model])
         cmd.extend(["-C", cwd, prompt])
         return cmd
@@ -428,7 +345,7 @@ class HarnessWorker:
 
     def __init__(
         self,
-        model: str = "luna",
+        model: Optional[str] = None,
         cwd: Optional[str] = None,
         config_path: Optional[str] = None,
         config: Optional[Any] = None,
@@ -736,7 +653,7 @@ async def run_worker_in_herdr_pane_async(
     pane_exited_event = asyncio.Event()
 
     async def _on_pane_event(event: dict):
-        if is_pane_gone(event, pane_id):
+        if _is_pane_gone(event, pane_id):
             pane_exited_event.set()
 
     try:
@@ -946,7 +863,7 @@ async def run_worker_in_herdr_tab_async(
     pane_exited_event = asyncio.Event()
 
     async def _on_tab_event(event: dict):
-        if is_pane_gone(event, pane_id):
+        if _is_pane_gone(event, pane_id):
             pane_exited_event.set()
 
     try:
@@ -1082,7 +999,7 @@ def run_worker_in_herdr_tab(
 
 
 def execute_worker_task(
-    model: str = "luna",
+    model: Optional[str] = None,
     task: str = "",
     target_files: Optional[List[str]] = None,
     cwd: Optional[str] = None,
@@ -1108,7 +1025,7 @@ def execute_task_file(
     log_dir = task_data.get("log_dir")
     if log_dir:
         os.environ["MEISTER_LOG_DIR"] = log_dir
-    model = task_data.get("model", "luna")
+    model = task_data.get("model")
     task = task_data.get("task", "")
     target_files = task_data.get("target_files")
     cwd = task_data.get("cwd")
@@ -1172,7 +1089,7 @@ def execute_task_file(
 
 
 def run_worker_interactive_loop(
-    model: str = "luna",
+    model: Optional[str] = None,
     cwd: Optional[str] = None,
 ) -> None:
     """Run interactive worker loop reading tasks from terminal/pty stdin."""

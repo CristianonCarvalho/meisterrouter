@@ -154,7 +154,7 @@ def classify(context, model, run_id, task_id):
         cfg = load_config()
         result = classify_task(
             context=context,
-            model=model,
+            model=model or cfg.master.model,
             run_id=run_id,
             task_id=task_id,
             implementers=cfg.workers.tier_order,
@@ -193,12 +193,13 @@ def classify(context, model, run_id, task_id):
 def control(diff_summary, test_result, attempts, security_sensitive, model, run_id, task_id, close_worker):
     """Executa a decisão de controle do loop do agente."""
     try:
+        cfg = load_config()
         result = control_cycle(
             diff_summary=diff_summary,
             test_result=test_result,
             attempts=attempts,
             security_sensitive=security_sensitive,
-            model=model,
+            model=model or cfg.master.model,
             run_id=run_id,
             task_id=task_id,
         )
@@ -273,6 +274,7 @@ def install_hooks(target, git, claude):
 
 
 @main.command("models")
+# TODO(PR B) BEGIN: legacy fixed price-table command.
 def models():
     """Imprime a tabela de modelos, inteligência e preços."""
     click.echo("\n📊 CATÁLOGO DE MODELOS MEISTERROUTER (Artificial Analysis Benchmark)")
@@ -290,6 +292,7 @@ def models():
     click.echo("=" * 76)
     click.echo("💡 GPT-6 Luna é o modelo recomendado para workers primários ($0.10 in / $0.50 out).")
     click.echo("💡 Gemini 3.8 Flash é o campeão de automação para tarefas difíceis (Índice 40).\n")
+# TODO(PR B) END
 
 
 @main.command("test")
@@ -318,7 +321,7 @@ def test():
 
 
 @main.command("worker")
-@click.option("--model", "-m", default="luna", help="Nome do modelo ou tier do worker")
+@click.option("--model", "-m", default=None, help="Nome de uma via configurada")
 @click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
 @click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
 @click.option("--cwd", default=None, help="Diretório de trabalho")
@@ -342,6 +345,16 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
 
     target_files = [f.strip() for f in files.split(",")] if files else None
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
+    cfg = load_config(config_path=config_path, cwd=resolved_cwd)
+    valid_tiers = [tier.name for tier in cfg.workers.tier_order]
+    if model is None:
+        if not valid_tiers:
+            raise click.UsageError("Nenhuma via configurada em workers.tier_order")
+        model = valid_tiers[0]
+    elif model.casefold() not in {name.casefold() for name in valid_tiers}:
+        raise click.UsageError(
+            f"Via desconhecida '{model}'. Vias válidas: {', '.join(valid_tiers)}"
+        )
     ensure_meister_dir(resolved_cwd)
 
     if task:
@@ -1122,13 +1135,7 @@ def config_show(config_path, json_format):
     active_overrides = {
         k: os.environ[k]
         for k in sorted(os.environ.keys())
-        if k in (
-            "MEISTER_CONFIG_PATH",
-            "MEISTER_ENABLE_COPILOT",
-            "MEISTER_DISABLE_LUNA",
-            "MEISTER_PRIMARY_WORKER",
-        )
-        or (k.startswith("MEISTER_") and k.endswith("_MODEL"))
+        if k == "MEISTER_CONFIG_PATH"
     }
 
     if json_format:

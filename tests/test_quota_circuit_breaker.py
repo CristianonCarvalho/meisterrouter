@@ -224,8 +224,8 @@ def test_spawner_skips_in_cooldown_tiers(state_mgr):
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native"),
-                WorkerTier(name="gemini_flash", harness="native"),
+                WorkerTier(name="luna", harness="codex"),
+                WorkerTier(name="gemini_flash", harness="agy"),
                 WorkerTier(name="haiku", harness="claude"),
                 WorkerTier(name="sonnet", harness="claude"),
             ]
@@ -267,8 +267,8 @@ async def test_bridge_circuit_breaker_trips_and_records_usage(tmp_path):
     config = MeisterConfig(
         workers=WorkersConfig(
             tier_order=[
-                WorkerTier(name="luna", harness="native"),
-                WorkerTier(name="gemini_flash", harness="native"),
+                WorkerTier(name="luna", harness="codex"),
+                WorkerTier(name="gemini_flash", harness="agy"),
             ]
         ),
         concurrency=ConcurrencyConfig(layout_strategy="tiled"),
