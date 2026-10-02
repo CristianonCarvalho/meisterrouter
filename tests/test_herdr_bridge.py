@@ -2150,8 +2150,10 @@ async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
 
 @pytest.mark.asyncio
 async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
+    # cooldown longo: o teste nao pode depender do relogio (um runner lento fazia o cooldown de 50 ms expirar
+    # antes da 2a subtarefa). O fim do cooldown e simulado zerando o estado do bridge.
     bridge, _, _, first_subtask = _make_router_bridge(
-        tmp_path, unavailable_cooldown_seconds=0.05
+        tmp_path, unavailable_cooldown_seconds=300
     )
     spawned_tiers = _track_spawned_tiers(bridge)
     failed = {
@@ -2182,7 +2184,7 @@ async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
         assert len(skipped) == 1
         assert skipped[0]["tier"] == "copilot"
 
-        await asyncio.sleep(0.06)
+        bridge._jev_unavailable_until = 0.0  # fim do cooldown, sem depender do relogio
         assert await bridge.execute_subtask(third_subtask) is True
 
     assert mock_classify.call_count == 2
@@ -2200,7 +2202,7 @@ async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
 async def test_bridge_jev_timeout_activates_cooldown(tmp_path):
     bridge, _, _, subtask = _make_router_bridge(
         tmp_path,
-        unavailable_cooldown_seconds=1,
+        unavailable_cooldown_seconds=300,
         timeout_seconds=0.001,
         max_attempts=1,
     )
