@@ -80,6 +80,14 @@ class RouterConfig:
 
 
 @dataclass
+class RetryConfig:
+    pane_lost_attempts: int = field(default_factory=lambda: _default_section("retry")["pane_lost_attempts"])
+    pane_lost_backoff_seconds: float = field(
+        default_factory=lambda: float(_default_section("retry")["pane_lost_backoff_seconds"])
+    )
+
+
+@dataclass
 class ArchitectConfig:
     harness: str = field(default_factory=lambda: _default_section("architect")["harness"])
     model: str = field(default_factory=lambda: _default_section("architect")["model"])
@@ -175,6 +183,7 @@ class MeisterConfig:
     version: str = field(default_factory=lambda: _default_config_data()["version"])
     master: MasterConfig = field(default_factory=MasterConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
+    retry: RetryConfig = field(default_factory=RetryConfig)
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
@@ -250,6 +259,34 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         timeout_seconds=float(timeout_seconds),
         max_attempts=max_attempts,
         unavailable_cooldown_seconds=float(unavailable_cooldown_seconds),
+    )
+
+    retry_data = data.get("retry", {})
+    if not isinstance(retry_data, dict):
+        parse_issues.append(ConfigIssue("error", "retry", "retry deve ser um objeto"))
+        retry_data = {}
+    retry_defaults = _default_section("retry")
+    pane_lost_attempts = retry_data.get("pane_lost_attempts", retry_defaults["pane_lost_attempts"])
+    if isinstance(pane_lost_attempts, bool) or not isinstance(pane_lost_attempts, int):
+        parse_issues.append(
+            ConfigIssue("error", "retry.pane_lost_attempts", "deve ser um inteiro >= 0")
+        )
+        pane_lost_attempts = retry_defaults["pane_lost_attempts"]
+    pane_lost_backoff = retry_data.get(
+        "pane_lost_backoff_seconds", retry_defaults["pane_lost_backoff_seconds"]
+    )
+    if (
+        isinstance(pane_lost_backoff, bool)
+        or not isinstance(pane_lost_backoff, (int, float))
+        or not math.isfinite(pane_lost_backoff)
+    ):
+        parse_issues.append(
+            ConfigIssue("error", "retry.pane_lost_backoff_seconds", "deve ser número >= 0")
+        )
+        pane_lost_backoff = retry_defaults["pane_lost_backoff_seconds"]
+    retry = RetryConfig(
+        pane_lost_attempts=pane_lost_attempts,
+        pane_lost_backoff_seconds=float(pane_lost_backoff),
     )
 
     # Architect
@@ -450,6 +487,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         version=version,
         master=master,
         router=router,
+        retry=retry,
         architect=architect,
         workers=workers,
         concurrency=concurrency,
@@ -516,6 +554,42 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
 
     # Erros
+    if isinstance(config.retry.pane_lost_attempts, bool) or not isinstance(
+        config.retry.pane_lost_attempts, int
+    ):
+        if not any(issue.path == "retry.pane_lost_attempts" for issue in issues):
+            issues.append(
+                ConfigIssue("error", "retry.pane_lost_attempts", "deve ser um inteiro >= 0")
+            )
+    elif config.retry.pane_lost_attempts < 0:
+        issues.append(
+            ConfigIssue(
+                "error",
+                "retry.pane_lost_attempts",
+                f"deve ser >= 0 ({config.retry.pane_lost_attempts})",
+            )
+        )
+
+    if (
+        isinstance(config.retry.pane_lost_backoff_seconds, bool)
+        or not isinstance(config.retry.pane_lost_backoff_seconds, (int, float))
+        or not math.isfinite(config.retry.pane_lost_backoff_seconds)
+    ):
+        if not any(issue.path == "retry.pane_lost_backoff_seconds" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error", "retry.pane_lost_backoff_seconds", "deve ser número >= 0"
+                )
+            )
+    elif config.retry.pane_lost_backoff_seconds < 0:
+        issues.append(
+            ConfigIssue(
+                "error",
+                "retry.pane_lost_backoff_seconds",
+                f"deve ser >= 0 ({config.retry.pane_lost_backoff_seconds})",
+            )
+        )
+
     if config.router.mode not in {"first", "jev"}:
         issues.append(
             ConfigIssue(

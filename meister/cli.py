@@ -1252,6 +1252,10 @@ def config_show(config_path, json_format):
                 "max_attempts": cfg.router.max_attempts,
                 "unavailable_cooldown_seconds": cfg.router.unavailable_cooldown_seconds,
             },
+            "retry": {
+                "pane_lost_attempts": cfg.retry.pane_lost_attempts,
+                "pane_lost_backoff_seconds": cfg.retry.pane_lost_backoff_seconds,
+            },
             "source": cfg.config_source,
             "scope": {"tolerated_files": cfg.scope.tolerated_files},
             "version": cfg.version,
@@ -1307,6 +1311,10 @@ def config_show(config_path, json_format):
     click.echo(f"  Timeout Seconds: {cfg.router.timeout_seconds}")
     click.echo(f"  Max Attempts: {cfg.router.max_attempts}")
     click.echo(f"  Unavailable Cooldown Seconds: {cfg.router.unavailable_cooldown_seconds}")
+
+    click.echo("\nRetry:")
+    click.echo(f"  Pane Lost Attempts: {cfg.retry.pane_lost_attempts}")
+    click.echo(f"  Pane Lost Backoff Seconds: {cfg.retry.pane_lost_backoff_seconds}")
 
     click.echo("\nArquiteto / Planejador:")
     click.echo(f"  Harness: {cfg.architect.harness}")

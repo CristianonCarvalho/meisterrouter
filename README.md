@@ -137,6 +137,11 @@ fica em `meister.config.yaml`; para operação offline e determinística, defina
 `router.timeout_seconds` limita cada chamada, `router.max_attempts` define as tentativas
 e `router.unavailable_cooldown_seconds` define por quanto tempo novas chamadas são
 evitadas após uma falha. Os padrões são `10`, `2` e `300`, respectivamente.
+Na seção `retry`, `pane_lost_attempts` define retentativas extras na mesma via quando um
+pane desaparece ou encerra sem resultado (padrão `1`; use `0` para desativar). O
+`pane_lost_backoff_seconds` define a espera inicial antes do retry (padrão `5`); ela dobra
+a cada retry e é limitada a `60` segundos. Esses retries preservam o worktree e não
+consomem as tentativas `workers.tier_order[].max_retries` nem escalam de via.
 
 #### Classificar uma Tarefa (`classify`):
 ```bash

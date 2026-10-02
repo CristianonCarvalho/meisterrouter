@@ -128,6 +128,7 @@ def test_config_new_sections_parse_validate_and_show(tmp_path):
     config = tmp_path / "meister.config.yaml"
     config.write_text(
         """
+retry: {pane_lost_attempts: 2, pane_lost_backoff_seconds: 0}
 scope: {tolerated_files: [custom.lock]}
 environment: {install_dependencies: false, install_timeout_seconds: 12}
 gate:
@@ -146,6 +147,10 @@ gate:
     assert result.exit_code == 0, result.output
     shown = json.loads(result.output)
     assert shown["scope"]["tolerated_files"] == ["custom.lock"]
+    assert shown["retry"] == {
+        "pane_lost_attempts": 2,
+        "pane_lost_backoff_seconds": 0.0,
+    }
     assert shown["gate"]["commands"][0]["name"] == "unit"
     assert shown["environment"]["install_timeout_seconds"] == 12
 
