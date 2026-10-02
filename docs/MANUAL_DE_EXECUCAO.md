@@ -29,6 +29,9 @@ Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o
 6. No fim, o resultado é integrado na `main` do projeto por fast-forward; nada entra sem passar pelos gates.
 
 ## 4. Quando algo falha: o que você precisa fazer
+`meister orchestrate` mostra progresso por tarefa e o resumo final em stderr; a frase de sucesso/falha
+continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
+
 | Situação | O que fazer |
 |---|---|
 | Run falhou ou foi interrompido (notebook fechado, tab do worker fechada, queda) | **Rodar o MESMO comando de novo**: as tarefas concluídas são puladas. A tab de um worker fechada é detectada em ~5 s. |

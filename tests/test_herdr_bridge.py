@@ -1,5 +1,6 @@
 import os
 import json
+import io
 import threading
 import time
 from pathlib import Path
@@ -11,6 +12,8 @@ from meister.herdr.bridge import HerdrEventBridge
 from meister.config import load_config, MeisterConfig
 from meister.state import compute_subtask_id
 from meister.worker import write_atomic_json
+from meister.logger import add_event_observer, remove_event_observer
+from meister.progress import ProgressReporter
 
 
 def auto_write_result(search_dir, result_payload=None):
@@ -406,7 +409,8 @@ concurrency:
 
 
 @pytest.mark.asyncio
-async def test_bridge_execute_plan_with_dag_batches(tmp_path):
+async def test_bridge_execute_plan_with_dag_batches(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("""
 version: "1.0"
@@ -426,15 +430,27 @@ concurrency:
     mock_client.read_pane.return_value = "Done"
 
     bridge = HerdrEventBridge(config=config, client=mock_client)
+    bridge.current_run_id = "bridge-progress-run"
     steps = [
         {"id": "t1", "description": "Backend API", "target_files": ["api.py"], "depends_on": []},
         {"id": "t2", "description": "Frontend UI", "target_files": ["app.tsx"], "depends_on": []},
         {"id": "t3", "description": "Integration test", "target_files": ["test_integ.py"], "depends_on": ["t1", "t2"]},
     ]
 
-    success = await bridge.execute_plan(steps)
+    stream = io.StringIO()
+    reporter = ProgressReporter(stream=stream)
+    add_event_observer(reporter.on_event)
+    try:
+        success = await bridge.execute_plan(steps)
+    finally:
+        remove_event_observer(reporter.on_event)
     assert success is True
     assert mock_client.split_pane.call_count == 3
+    progress_lines = stream.getvalue().splitlines()
+    assert progress_lines[0] == "Plano: 3 tarefas em 2 lotes (run bridge-p)"
+    for index, task_id in enumerate(("t1", "t2", "t3"), 1):
+        assert any(line.startswith(f"[{index}/3] {task_id} iniciada em ") for line in progress_lines)
+        assert any(line.startswith(f"[{index}/3] {task_id} concluida em ") for line in progress_lines)
 
 
 @pytest.mark.asyncio
