@@ -19,6 +19,8 @@ import signal
 import sqlite3
 import subprocess
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -82,11 +84,16 @@ def make_env(
     crash_nth: Optional[str] = None,
 ) -> Dict[str, str]:
     """Build a clean environment for the driver subprocess."""
+    isolated_home = os.path.join(state_dir, "home")
+    os.makedirs(isolated_home, exist_ok=True)
     env = {
-        "HOME": os.environ.get("HOME", "/tmp"),
+        "HOME": isolated_home,
         "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
         "PYTHONPATH": PROJECT_ROOT,
         "PYTHONUNBUFFERED": "1",
+        "PYTHON_DOTENV_DISABLED": "1",
+        "OPENROUTER_API_KEY": "crash-matrix-sentinel",
+        "OPENROUTER_DECISIONS_URL": "http://127.0.0.1:9/",
         "MEISTER_DB_PATH": os.path.join(state_dir, "meister.db"),
         "MEISTER_LOG_DIR": os.path.join(state_dir, "logs"),
         "MEISTER_WORKTREES_DIR": os.path.join(state_dir, "wt"),
@@ -305,6 +312,77 @@ def assert_invariants(
 # ---------------------------------------------------------------------------
 # Test parametrization
 # ---------------------------------------------------------------------------
+
+def test_crash_driver_no_network(tmp_path):
+    """The driver completes without contacting a local Jev endpoint, even with dotenv files."""
+    requests: List[str] = []
+    requests_lock = threading.Lock()
+    driver_pid: List[Optional[int]] = [None]
+
+    class RequestCounter(BaseHTTPRequestHandler):
+        def do_POST(self):
+            with requests_lock:
+                requests.append(self.path)
+                pid = driver_pid[0]
+            if pid is not None:
+                os.kill(pid, signal.SIGKILL)
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, _format, *_args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), RequestCounter)
+    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server_thread.start()
+    try:
+        repo_dir, state_dir = setup_repo(tmp_path)
+        home_dir = Path(state_dir) / "home"
+        meister_home = home_dir / ".meister"
+        meister_home.mkdir(parents=True)
+        dotenv_content = (
+            "OPENROUTER_API_KEY=dotenv-sentinel\n"
+            f"OPENROUTER_DECISIONS_URL=http://127.0.0.1:{server.server_port}/decisions\n"
+        )
+        (Path(repo_dir) / ".env").write_text(dotenv_content)
+        (meister_home / ".env").write_text(dotenv_content)
+
+        env = make_env(repo_dir, state_dir)
+        env["OPENROUTER_DECISIONS_URL"] = (
+            f"http://127.0.0.1:{server.server_port}/decisions"
+        )
+        assert env["OPENROUTER_API_KEY"] == "crash-matrix-sentinel"
+        assert env["PYTHON_DOTENV_DISABLED"] == "1"
+        assert env["HOME"] == str(home_dir)
+
+        driver = subprocess.Popen(
+            [sys.executable, DRIVER_PATH, repo_dir, state_dir],
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        with requests_lock:
+            driver_pid[0] = driver.pid
+        try:
+            stdout, stderr = driver.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            driver.kill()
+            stdout, stderr = driver.communicate()
+            pytest.fail(f"Driver timed out. stdout: {stdout[-500:]}; stderr: {stderr[-500:]}")
+        assert driver.returncode == 0, (
+            f"Driver did not complete (rc={driver.returncode}). "
+            f"stdout: {stdout[-500:]}; stderr: {stderr[-500:]}"
+        )
+        with requests_lock:
+            assert requests == [], f"Driver contacted the Jev endpoint: {requests}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        server_thread.join(timeout=5)
+
 
 @pytest.mark.parametrize("crash_point", CRASH_POINTS, ids=CRASH_POINTS)
 def test_crash_matrix_basic(tmp_path, crash_point):
