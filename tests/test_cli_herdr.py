@@ -4,6 +4,7 @@ import signal
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
+from click import echo
 from meister.cli import main
 
 
@@ -205,6 +206,7 @@ def test_cli_orchestrate_command_success():
             architect_pane_id="pane-arch",
             task=None,
             allow_freeform=False,
+            resume_hint_callback=echo,
         )
 
 

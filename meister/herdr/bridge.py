@@ -16,7 +16,8 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional, Sequence, Union
+import subprocess
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, load_config
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
@@ -26,7 +27,14 @@ from meister.herdr.workers import (
     WorkerSpawner,
     detect_quota_or_rate_limit,
 )
-from meister.state import StateManager, RunState, SubtaskState, compute_subtask_id
+from meister.state import (
+    StateManager,
+    RunState,
+    SubtaskState,
+    compute_run_id,
+    compute_subtask_id,
+    task_fingerprint,
+)
 from meister.faults import crash_point
 from meister.logger import log_event
 from meister.plan import PlanError, load_plan
@@ -39,6 +47,10 @@ from meister.worker import (
 from meister.jev import classify_task
 
 logger = logging.getLogger(__name__)
+
+
+class ResumeRequestError(ValueError):
+    """Erro de validação de uma origem explicitamente solicitada para retomada."""
 
 
 def parse_architect_plan(output: str) -> List[Dict[str, Any]]:
@@ -170,6 +182,177 @@ class HerdrEventBridge:
         if self.state_manager is None:
             self.state_manager = StateManager()
         return self.state_manager
+
+    def _reuse_completed_subtasks(
+        self,
+        state_manager: StateManager,
+        source_run_id: str,
+        run_id: str,
+        steps: List[Dict[str, Any]],
+        repo_root: str,
+    ) -> None:
+        """Adota subtasks concluídas da origem somente após validar conteúdo, commit e escopo."""
+        from meister.worktree import scope_violations
+
+        current_by_id = {str(step.get("id") or step.get("step_id")): step for step in steps}
+        current_subtasks = {str(row["step_id"]): row for row in state_manager.get_subtasks(run_id)}
+        source_rows = state_manager.get_subtasks(source_run_id)
+        source_by_id = {str(row["step_id"]): row for row in source_rows}
+        source_steps: Dict[str, Dict[str, Any]] = {}
+        for row in source_rows:
+            try:
+                dependencies = json.loads(row.get("depends_on_json") or "[]")
+            except (TypeError, json.JSONDecodeError):
+                dependencies = None
+            source_steps[str(row["step_id"])] = {
+                "id": str(row["step_id"]),
+                "description": row.get("description") or "",
+                "depends_on": dependencies,
+            }
+
+        tolerated_files = (
+            self.config.scope.tolerated_files
+            if self.config and self.config.scope
+            else load_config(cwd=repo_root).scope.tolerated_files
+        )
+        decisions: Dict[str, bool] = {}
+        evaluated: set[str] = set()
+        evaluating: set[str] = set()
+
+        def log_not_reused(step_id: str, reason: str, source: Optional[Dict[str, Any]]) -> None:
+            log_event(
+                event_type="subtask_not_reused",
+                run_id=run_id,
+                task_id=step_id,
+                source_run_id=source_run_id,
+                source_subtask_id=source.get("subtask_id") if source else None,
+                reason=reason,
+            )
+
+        def attempt(step_id: str) -> bool:
+            if step_id in evaluated:
+                return decisions.get(step_id, False)
+            if step_id in evaluating:
+                return False
+            step = current_by_id.get(step_id)
+            new_row = current_subtasks.get(step_id)
+            if step is None or new_row is None:
+                evaluated.add(step_id)
+                decisions[step_id] = False
+                return False
+
+            if new_row["status"] == SubtaskState.COMPLETED.value:
+                evaluated.add(step_id)
+                decisions[step_id] = True
+                return True
+            if new_row["status"] != SubtaskState.PENDING.value:
+                evaluated.add(step_id)
+                decisions[step_id] = False
+                return False
+
+            dependencies = step.get("depends_on") or []
+            if not isinstance(dependencies, list):
+                dependencies = []
+            evaluating.add(step_id)
+            for dependency in dependencies:
+                if not isinstance(dependency, str) or not attempt(dependency):
+                    evaluating.remove(step_id)
+                    source = source_by_id.get(step_id)
+                    log_not_reused(step_id, "dependency_not_reused", source)
+                    evaluated.add(step_id)
+                    decisions[step_id] = False
+                    return False
+            evaluating.remove(step_id)
+
+            source = source_by_id.get(step_id)
+            reason: Optional[str] = None
+            sha: Optional[str] = None
+            if source is None or source.get("status") != SubtaskState.COMPLETED.value or not source.get("integrated_sha"):
+                reason = "changed"
+            else:
+                try:
+                    current_fingerprint = task_fingerprint(step, current_by_id)
+                    source_fingerprint = task_fingerprint(source_steps[step_id], source_steps)
+                    if current_fingerprint != source_fingerprint:
+                        reason = "changed"
+                except (KeyError, TypeError, ValueError):
+                    reason = "changed"
+
+            if reason is None and source is not None:
+                sha = str(source["integrated_sha"])
+                commit_exists = subprocess.run(
+                    ["git", "-C", repo_root, "cat-file", "-e", f"{sha}^{{commit}}"],
+                    capture_output=True,
+                    text=True,
+                )
+                if commit_exists.returncode != 0:
+                    reason = "missing_commit"
+
+            if reason is None and sha is not None:
+                touched = subprocess.run(
+                    [
+                        "git", "-C", repo_root, "diff-tree", "--root", "--no-commit-id",
+                        "--name-only", "--no-renames", "-r", sha,
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if touched.returncode != 0:
+                    reason = "scope"
+                else:
+                    touched_files = [path for path in touched.stdout.splitlines() if path]
+                    ignored_result = subprocess.run(
+                        ["git", "-C", repo_root, "check-ignore", "--no-index", "-z", "--stdin"],
+                        input="".join(f"{path}\0" for path in touched_files),
+                        capture_output=True,
+                        text=True,
+                    )
+                    ignored = {path for path in ignored_result.stdout.split("\0") if path}
+                    out_of_scope = scope_violations(
+                        touched_files,
+                        step.get("target_files") or [],
+                        tolerated_files,
+                        ignored,
+                    )
+                    if out_of_scope:
+                        reason = "scope"
+
+            if reason is not None or source is None or sha is None:
+                log_not_reused(step_id, reason or "changed", source)
+                evaluated.add(step_id)
+                decisions[step_id] = False
+                return False
+
+            ref = f"refs/meister/resume/{run_id}/{step_id}"
+            pin = subprocess.run(
+                ["git", "-C", repo_root, "update-ref", ref, sha],
+                capture_output=True,
+                text=True,
+            )
+            if pin.returncode != 0:
+                raise RuntimeError(f"Não foi possível fixar o commit retomado {sha}: {pin.stderr.strip()}")
+
+            state_manager.adopt_subtask(
+                new_row["subtask_id"],
+                source_run_id,
+                source["subtask_id"],
+                sha,
+                source.get("assigned_tier") or "",
+            )
+            log_event(
+                event_type="subtask_reused",
+                run_id=run_id,
+                task_id=step_id,
+                source_run_id=source_run_id,
+                source_subtask_id=source["subtask_id"],
+                integrated_sha=sha,
+            )
+            evaluated.add(step_id)
+            decisions[step_id] = True
+            return True
+
+        for step_id in current_by_id:
+            attempt(step_id)
 
     async def handle_herdr_event(self, event: Dict[str, Any]) -> None:
         """Process incoming Herdr socket notifications (e.g. quota errors, outputs)."""
@@ -1223,6 +1406,8 @@ class HerdrEventBridge:
         architect_pane_id: Optional[str] = None,
         task: Optional[str] = None,
         allow_freeform: bool = True,
+        resume_run_id: Optional[str] = None,
+        resume_hint_callback: Optional[Callable[[str], None]] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
         if self.client is None:
@@ -1281,10 +1466,50 @@ class HerdrEventBridge:
                 return False
 
         sm = self.get_state_manager()
-        run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=os.getcwd())
+        cwd = os.path.abspath(os.getcwd())
+        new_run_id = compute_run_id(raw_plan, cwd)
+        source_run: Optional[Dict[str, Any]] = None
+        if resume_run_id is None and resume_hint_callback is not None:
+            candidate = sm.find_resumable_run(cwd, exclude_run_id=new_run_id)
+            if candidate is not None:
+                completed_count = sum(
+                    1
+                    for subtask in sm.get_subtasks(candidate["run_id"])
+                    if subtask["status"] == SubtaskState.COMPLETED.value and subtask.get("integrated_sha")
+                )
+                resume_hint_callback(
+                    f"Run {candidate['run_id']} ({candidate['state']}) tem {completed_count} "
+                    "tarefas concluidas reaproveitaveis; use --resume"
+                )
+        if resume_run_id == "auto":
+            source_run = sm.find_resumable_run(cwd, exclude_run_id=new_run_id)
+            if source_run is None:
+                warning = "Nenhum run FAILED/RUNNING elegível encontrado para --resume."
+                logger.warning(warning)
+                await self.client.show_notification(warning, title="MeisterRouter")
+        elif resume_run_id is not None:
+            source_run = sm.get_run(resume_run_id)
+            if source_run is None:
+                raise ResumeRequestError(f"Run de origem '{resume_run_id}' não existe")
+            if source_run["state"] not in {RunState.FAILED.value, RunState.RUNNING.value}:
+                raise ResumeRequestError(
+                    f"Run de origem '{resume_run_id}' está {source_run['state']}; --resume aceita FAILED ou RUNNING"
+                )
+            if os.path.abspath(source_run["cwd"]) != cwd:
+                raise ResumeRequestError(f"Run de origem '{resume_run_id}' pertence a outro cwd")
+            if resume_run_id == new_run_id:
+                raise ResumeRequestError("--resume requer um run de origem diferente do run atual")
+
+        run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=cwd)
         run_id: str = str(run_record["run_id"])
         self.current_run_id = run_id
-        sm.transition_run(run_id, to_state=RunState.RUNNING)
+        run_metadata = {"resumed_from": source_run["run_id"]} if source_run is not None else None
+        if run_metadata is not None:
+            sm.transition_run(run_id, to_state=RunState.RUNNING, metadata=run_metadata)
+        else:
+            sm.transition_run(run_id, to_state=RunState.RUNNING)
+        if source_run is not None:
+            sm.mark_superseded(source_run["run_id"], run_id)
         log_event(
             event_type="orchestration_start",
             run_id=run_id,
@@ -1292,6 +1517,8 @@ class HerdrEventBridge:
             task=task or raw_plan[:200],
         )
         sm.add_subtasks(run_id, steps)
+        if source_run is not None:
+            self._reuse_completed_subtasks(sm, source_run["run_id"], run_id, steps, cwd)
         sm.recover_stranded_tasks(run_id)
         crash_point("after_run_created", run_id=run_id)
 
@@ -1314,13 +1541,32 @@ class HerdrEventBridge:
         if isolation_mode == "git_worktree":
             try:
                 from meister.worktree import WorktreeManager, IntegrationPipeline
-                wt_mgr = WorktreeManager(repo_root=os.getcwd())
+                wt_mgr = WorktreeManager(repo_root=cwd)
                 wt_mgr.cleanup_orphans(exclude_run_id=run_id)
                 pipeline = IntegrationPipeline(wt_mgr, gate=self.gate, state_manager=sm)
-                pipeline.start_integration(run_id, state_manager=sm)
+                pipeline.start_integration(
+                    run_id,
+                    state_manager=sm,
+                    strict_replay=source_run is not None,
+                )
                 self._integration_pipeline = pipeline
                 crash_point("after_integration_started", run_id=run_id)
             except Exception as e:
+                if source_run is not None and str(e).startswith("falha ao reaplicar "):
+                    failure = f"{e}; rode sem --resume"
+                    logger.error(failure)
+                    sm.transition_run(run_id, to_state=RunState.FAILED)
+                    await self.client.show_notification(f"MeisterRouter: {failure}", title="MeisterRouter")
+                    log_event(
+                        event_type="orchestration_end",
+                        run_id=run_id,
+                        task_id="orchestrator",
+                        exit_code=1,
+                        status="failed",
+                        reason=failure,
+                        error=failure,
+                    )
+                    return False
                 logger.warning("Não foi possível inicializar pipeline de integração: %s", e)
 
         try:

@@ -182,6 +182,16 @@ Execute um ciclo de orquestração autônoma com decomposição em DAG e verific
 ```bash
 meister orchestrate --task "Refatorar camada de cache e cobrir com testes"
 ```
+Para reaproveitar tarefas concluídas de um run anterior após editar o plano, use `--resume`
+para selecionar automaticamente o run FAILED/RUNNING elegível mais recente do mesmo diretório,
+ou informe seu identificador após a opção:
+```bash
+meister orchestrate --task '[{"id":"step-2","description":"...","target_files":["src/"],"depends_on":[]}]' --resume
+meister orchestrate --task '[{"id":"step-2","description":"...","target_files":["src/"],"depends_on":[]}]' --resume 0123456789abcdef
+```
+Somente tarefas com descrição e dependências inalteradas, commit existente e escopo compatível
+são retomadas. Sem `--resume`, a orquestração mantém o comportamento de executar o plano inteiro
+e avisa quando há um run anterior que pode ser reaproveitado.
 
 ---
 

@@ -92,6 +92,26 @@ def _scope_matches(pattern: str, path: str, basename_glob: bool = False) -> bool
     return re.fullmatch("".join(regex_parts), path) is not None
 
 
+def scope_violations(
+    files: List[str],
+    target_files: Optional[List[str]],
+    tolerated_files: Optional[List[str]] = None,
+    ignored_files: Optional[Set[str]] = None,
+) -> List[str]:
+    """Retorna arquivos fora do escopo usando as mesmas regras do portão de worktrees."""
+    if not target_files:
+        return []
+    targets = [_normalize_scope_pattern(path) for path in target_files]
+    tolerated = [_normalize_scope_pattern(path) for path in tolerated_files or []]
+    ignored = ignored_files or set()
+    return [
+        path for path in files
+        if path not in ignored
+        and not any(_scope_matches(pattern, path) for pattern in targets)
+        and not any(_scope_matches(pattern, path, basename_glob=True) for pattern in tolerated)
+    ]
+
+
 def compute_repo_hash(repo_root: str) -> str:
     """Calcula um hash determinístico curto para isolar worktrees de diferentes repositórios."""
     real_path = os.path.realpath(os.path.abspath(repo_root))
@@ -464,9 +484,7 @@ class WorktreeManager:
             return True, []
 
         modified = self.get_modified_files(worktree_path, base_ref=base_ref)
-        targets = [_normalize_scope_pattern(f) for f in target_files]
         tolerated_patterns = tolerated if tolerated is not None else load_config(cwd=self.repo_root).scope.tolerated_files
-        tolerated_patterns = [_normalize_scope_pattern(f) for f in tolerated_patterns]
         ignored: Set[str] = set()
         if modified:
             try:
@@ -481,12 +499,7 @@ class WorktreeManager:
             except OSError as exc:
                 logger.warning("Não foi possível consultar git check-ignore: %s", exc)
 
-        out_of_scope = [
-            f for f in modified
-            if f not in ignored
-            and not any(_scope_matches(pattern, f) for pattern in targets)
-            and not any(_scope_matches(pattern, f, basename_glob=True) for pattern in tolerated_patterns)
-        ]
+        out_of_scope = scope_violations(modified, target_files, tolerated_patterns, ignored)
         return len(out_of_scope) == 0, out_of_scope
 
     def _archive_branch_if_unmerged(
@@ -911,6 +924,7 @@ class IntegrationPipeline:
         run_id: str,
         base_ref: str = "HEAD",
         state_manager: Optional[Any] = None,
+        strict_replay: bool = False,
     ) -> WorktreeInfo:
         """Inicializa ou recupera de forma idempotente o worktree e branch de integração para o run."""
         self.run_id = run_id
@@ -1052,6 +1066,8 @@ class IntegrationPipeline:
                                 sha,
                                 err_msg,
                             )
+                            if strict_replay:
+                                raise RuntimeError(f"falha ao reaplicar {label}: {err_msg}")
                     except Exception as e:
                         try:
                             subprocess.run(
@@ -1063,6 +1079,10 @@ class IntegrationPipeline:
                         except Exception:
                             pass
                         logger.warning("Falha ao reaplicar commit %s na reconstrução: %s", sha, e)
+                        if strict_replay:
+                            if isinstance(e, RuntimeError) and str(e).startswith("falha ao reaplicar "):
+                                raise
+                            raise RuntimeError(f"falha ao reaplicar {label}: {e}") from e
 
         logger.info("Pipeline de integração iniciado no branch %s (worktree: %s)", branch_name, info.worktree_path)
         return info
