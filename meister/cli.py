@@ -35,7 +35,7 @@ from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import get_events_by_run_id, log_event, get_current_run
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
-from meister.herdr.bridge import HerdrEventBridge
+from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
@@ -886,16 +886,23 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
 
 
 @main.command("orchestrate")
+@click.argument("resume_id", required=False)
 @click.option("--workspace-id", default=None, help="ID do workspace no Herdr (auto-detectado se omitido)")
 @click.option("--architect-pane-id", default=None, help="ID do pane do arquiteto (auto-detectado se omitido)")
 @click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
 @click.option("--plan-file", default=None, help="Caminho para arquivo JSON de plano canônico (.json)")
 @click.option("--allow-freeform", is_flag=True, default=False, help="Aceitar formatos legados (pipe, markdown, texto livre) — sem validação de esquema")
+@click.option("--resume", "resume_enabled", is_flag=True, default=False, help="Retomar tarefas concluídas de um run anterior; opcionalmente informe RUN_ID")
 @click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-def orchestrate(workspace_id, architect_pane_id, task, plan_file, allow_freeform, socket_path, config_path):
+def orchestrate(resume_id, workspace_id, architect_pane_id, task, plan_file, allow_freeform, resume_enabled, socket_path, config_path):
     """Inicia o ciclo de orquestração autônoma multi-agente."""
     from meister.plan import load_plan, PlanError, canonical_json
+
+    if resume_id and not resume_enabled:
+        click.echo("Erro: informe RUN_ID somente junto com --resume.", err=True)
+        sys.exit(2)
+    resume_source = resume_id if resume_id else ("auto" if resume_enabled else None)
 
     # If --plan-file provided, load and validate before creating any run
     if plan_file:
@@ -946,19 +953,44 @@ def orchestrate(workspace_id, architect_pane_id, task, plan_file, allow_freeform
             click.echo(f"  • [{err.path}] {err.message}", err=True)
         sys.exit(2)
 
+    if resume_source is None and task:
+        from meister.state import StateManager, compute_run_id
+
+        state_manager = StateManager()
+        current_run_id = compute_run_id(task, os.getcwd())
+        candidate = state_manager.find_resumable_run(os.getcwd(), exclude_run_id=current_run_id)
+        if candidate is not None:
+            completed_count = sum(
+                1
+                for subtask in state_manager.get_subtasks(candidate["run_id"])
+                if subtask["status"] == "COMPLETED" and subtask.get("integrated_sha")
+            )
+            click.echo(
+                f"Run {candidate['run_id']} ({candidate['state']}) tem {completed_count} "
+                "tarefas concluidas reaproveitaveis; use --resume"
+            )
+
     client = get_herdr_client(socket_path=socket_path)
     bridge = HerdrEventBridge(config=cfg, client=client)
 
     async def _run():
-        return await bridge.run_orchestration_cycle(
+        cycle_options = dict(
             workspace_id=workspace_id,
             architect_pane_id=architect_pane_id,
             task=task,
             allow_freeform=allow_freeform,
         )
+        if resume_source is not None:
+            cycle_options["resume_run_id"] = resume_source
+        elif task is None:
+            cycle_options["resume_hint_callback"] = click.echo
+        return await bridge.run_orchestration_cycle(**cycle_options)
 
     try:
         success = asyncio.run(_run())
+    except ResumeRequestError as e:
+        click.echo(f"Erro: {e}", err=True)
+        sys.exit(2)
     except Exception as e:
         click.echo(f"Orchestration cycle encountered error: {e}", err=True)
         sys.exit(1)

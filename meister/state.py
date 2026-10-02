@@ -85,6 +85,44 @@ def compute_subtask_id(run_id: str, step_id: str, description: str = "") -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
+def task_fingerprint(step: Dict[str, Any], steps_by_id: Dict[str, Dict[str, Any]]) -> str:
+    """Calcula fingerprint recursivo do conteúdo e dependências da tarefa, sem incluir escopo."""
+    cache: Dict[str, str] = {}
+    visiting: Set[str] = set()
+
+    def fingerprint(step_id: str) -> str:
+        if step_id in cache:
+            return cache[step_id]
+        if step_id in visiting:
+            raise ValueError(f"Ciclo detectado nas dependências de {step_id!r}")
+        current = steps_by_id.get(step_id)
+        if current is None:
+            raise ValueError(f"Dependência desconhecida: {step_id!r}")
+
+        visiting.add(step_id)
+        dependencies = current.get("depends_on") or []
+        if not isinstance(dependencies, list) or not all(isinstance(dep, str) for dep in dependencies):
+            raise ValueError(f"Dependências inválidas para {step_id!r}")
+        dependency_fingerprints = [fingerprint(dep) for dep in sorted(dependencies)]
+        visiting.remove(step_id)
+
+        payload = json.dumps(
+            {
+                "description": str(current.get("description") or "").strip(),
+                "dependencies": dependency_fingerprints,
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        cache[step_id] = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        return cache[step_id]
+
+    requested_id = str(step.get("id") or step.get("step_id") or "")
+    if requested_id not in steps_by_id:
+        raise ValueError(f"Tarefa desconhecida: {requested_id!r}")
+    return fingerprint(requested_id)
+
+
 class StateManager:
     """Gerenciador central de persistência e máquina de estados do MeisterRouter."""
 
@@ -275,6 +313,47 @@ class StateManager:
             row = cursor.fetchone()
             return dict(row) if row else None
 
+    def find_resumable_run(self, cwd: str, exclude_run_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Retorna o run FAILED/RUNNING mais recente do diretório ainda não substituído."""
+        resolved_cwd = os.path.abspath(cwd)
+        with self._get_connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM runs
+                WHERE cwd = ? AND state IN (?, ?)
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                (resolved_cwd, RunState.FAILED.value, RunState.RUNNING.value),
+            ).fetchall()
+        for row in rows:
+            run = dict(row)
+            if run["run_id"] == exclude_run_id:
+                continue
+            try:
+                metadata = json.loads(run.get("metadata_json") or "{}")
+            except (TypeError, json.JSONDecodeError):
+                metadata = {}
+            if not metadata.get("superseded_by"):
+                return run
+        return None
+
+    def mark_superseded(self, source_run_id: str, replacement_run_id: str) -> Dict[str, Any]:
+        """Marca a origem histórica como substituída sem alterar seu estado."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM runs WHERE run_id = ?", (source_run_id,))
+            row = cursor.fetchone()
+            if row is None:
+                raise StateError(f"Run '{source_run_id}' não encontrado")
+            metadata = json.loads(row["metadata_json"] or "{}")
+            metadata["superseded_by"] = replacement_run_id
+            cursor.execute(
+                "UPDATE runs SET metadata_json = ?, updated_at = ? WHERE run_id = ?",
+                (json.dumps(metadata, ensure_ascii=False), utc_now_iso(), source_run_id),
+            )
+            cursor.execute("SELECT * FROM runs WHERE run_id = ?", (source_run_id,))
+            return dict(cursor.fetchone())
+
     def transition_run(
         self,
         run_id: str,
@@ -458,6 +537,47 @@ class StateManager:
                     final_tier,
                     final_sha,
                     now,
+                    subtask_id,
+                ),
+            )
+            cursor.execute("SELECT * FROM subtasks WHERE subtask_id = ?", (subtask_id,))
+            return dict(cursor.fetchone())
+
+    def adopt_subtask(
+        self,
+        subtask_id: str,
+        source_run_id: str,
+        source_subtask_id: str,
+        integrated_sha: str,
+        assigned_tier: str,
+    ) -> Dict[str, Any]:
+        """Adota uma tarefa concluída de outro run após a validação integral no bridge."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM subtasks WHERE subtask_id = ?", (subtask_id,))
+            row = cursor.fetchone()
+            if row is None:
+                raise StateError(f"Subtask '{subtask_id}' não encontrada")
+            if row["status"] != SubtaskState.PENDING.value:
+                raise InvalidStateTransitionError(
+                    f"Somente subtasks PENDING podem ser adotadas: '{subtask_id}' está {row['status']}"
+                )
+            result_json = json.dumps(
+                {"resumed_from": {"run_id": source_run_id, "subtask_id": source_subtask_id}},
+                ensure_ascii=False,
+            )
+            cursor.execute(
+                """
+                UPDATE subtasks
+                SET status = ?, result_json = ?, assigned_tier = ?, integrated_sha = ?, updated_at = ?
+                WHERE subtask_id = ?
+                """,
+                (
+                    SubtaskState.COMPLETED.value,
+                    result_json,
+                    assigned_tier,
+                    integrated_sha,
+                    utc_now_iso(),
                     subtask_id,
                 ),
             )
