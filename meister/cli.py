@@ -87,60 +87,89 @@ def main():
     default="all",
     help="Quais regras gerar",
 )
-@click.option("--no-hooks", is_flag=True, default=False, help="Não instalar hooks de Git ou Claude")
-def init(target, type_, no_hooks):
+@click.option(
+    "--hooks",
+    "install_hooks",
+    is_flag=True,
+    default=False,
+    help=(
+        "Instala hooks do Git e do Claude. O pre-commit resume alterações em stage e "
+        "executa automaticamente os testes disponíveis (npm test, pytest ou cargo test)."
+    ),
+)
+@click.option(
+    "--no-hooks",
+    is_flag=True,
+    default=False,
+    help="Opção legada sem efeito; hooks não são instalados por padrão.",
+)
+@click.option("--force", is_flag=True, default=False, help="Sobrescreve arquivos e hooks existentes.")
+def init(target, type_, install_hooks, no_hooks, force):
     """Inicializa as regras do MeisterRouter em um projeto existente."""
     target_dir = os.path.abspath(target or ".")
     click.echo(f"🔮 [MeisterRouter] Inicializando regras em: {target_dir}")
+    os.makedirs(target_dir, exist_ok=True)
+    created = []
+    skipped = []
 
-    # 1. Copia CLAUDE.md
+    rule_files = []
     if type_ in ["all", "claude"]:
-        claude_tpl = os.path.join(TEMPLATES_DIR, "CLAUDE.md.template")
-        claude_dst = os.path.join(target_dir, "CLAUDE.md")
-        with open(claude_tpl, "r", encoding="utf-8") as f:
-            content = f.read()
-        with open(claude_dst, "w", encoding="utf-8") as f:
-            f.write(content)
-        click.echo("  ✅ Criado CLAUDE.md (para Claude Code)")
-
-    # 2. Copia CODEX.md
+        rule_files.append(("CLAUDE.md.template", "CLAUDE.md", "para Claude Code"))
     if type_ in ["all", "codex"]:
-        codex_tpl = os.path.join(TEMPLATES_DIR, "CODEX.md.template")
-        codex_dst = os.path.join(target_dir, "CODEX.md")
-        with open(codex_tpl, "r", encoding="utf-8") as f:
-            content = f.read()
-        with open(codex_dst, "w", encoding="utf-8") as f:
-            f.write(content)
-        click.echo("  ✅ Criado CODEX.md (para OpenAI Codex / Canvas / Agents)")
-
-    # 3. Copia AGENTS.md
-    agents_tpl = os.path.join(TEMPLATES_DIR, "AGENTS.md.template")
-    agents_dst = os.path.join(target_dir, "AGENTS.md")
-    with open(agents_tpl, "r", encoding="utf-8") as f:
-        content = f.read()
-    with open(agents_dst, "w", encoding="utf-8") as f:
-        f.write(content)
-    click.echo("  ✅ Criado AGENTS.md (Diretivas universais para agentes)")
+        rule_files.append(("CODEX.md.template", "CODEX.md", "para Codex"))
+    rule_files.append(("AGENTS.md.template", "AGENTS.md", "diretivas universais para agentes"))
+    for template_name, filename, description in rule_files:
+        destination = os.path.join(target_dir, filename)
+        existed = os.path.exists(destination)
+        if existed and not force:
+            click.echo(f"  ⏭️ {filename} já existe (não sobrescrito; use --force)")
+            skipped.append(filename)
+            continue
+        template_path = os.path.join(TEMPLATES_DIR, template_name)
+        with open(template_path, "r", encoding="utf-8") as template_file:
+            content = template_file.read()
+        with open(destination, "w", encoding="utf-8") as destination_file:
+            destination_file.write(content)
+        action = "Sobrescrito" if existed else "Criado"
+        click.echo(f"  ✅ {action} {filename} ({description})")
+        created.append(filename)
 
     # 4. Cria diretório local .meister com .gitignore para logs
     ensure_meister_dir(target_dir)
     local_meister = os.path.join(target_dir, ".meister", "logs")
+    logs_existed = os.path.isdir(local_meister)
     os.makedirs(local_meister, exist_ok=True)
-    click.echo("  ✅ Criado diretório de telemetria local (.meister/logs/)")
+    if not logs_existed:
+        created.append(".meister/logs/")
+        click.echo("  ✅ Criado diretório de telemetria local (.meister/logs/)")
 
     # 5. Instala hooks se solicitado
-    if not no_hooks:
-        ok_git, msg_git = install_git_hook(target_dir)
+    if install_hooks:
+        ok_git, msg_git = install_git_hook(target_dir, force=force)
         if ok_git:
             click.echo(f"  ✅ {msg_git}")
+            created.append("hook Git pre-commit")
         else:
-            click.echo(f"  ⚠️ {msg_git}")
+            click.echo(f"  ⏭️ {msg_git}")
+            skipped.append("hook Git pre-commit")
 
-        ok_claude, msg_claude = install_claude_hook(target_dir)
+        ok_claude, msg_claude = install_claude_hook(target_dir, force=force)
         if ok_claude:
             click.echo(f"  ✅ {msg_claude}")
+            created.append("hooks Claude Code")
+        else:
+            click.echo(f"  ⏭️ {msg_claude}")
+            skipped.append("hooks Claude Code")
 
-    click.echo("\n🎉 Projeto configurado com sucesso para Claude Code e Codex!")
+    summary_created = ", ".join(created) if created else "nenhum item"
+    summary_skipped = ", ".join(skipped) if skipped else "nenhum item"
+    click.echo(f"\nResumo: criados/instalados: {summary_created}; pulados: {summary_skipped}.")
+    if skipped:
+        click.echo("Use --force para sobrescrever arquivos de regras e hooks existentes.")
+    if not install_hooks:
+        click.echo("Hooks não foram instalados; use --hooks para solicitá-los.")
+    if no_hooks:
+        click.echo("--no-hooks foi aceito por compatibilidade e não altera a opção --hooks.")
 
 
 @main.command("classify")

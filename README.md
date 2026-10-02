@@ -114,12 +114,18 @@ Para equipar qualquer projeto (ex: ChronoAstro, LicitAI, etc.) com as regras par
 ```bash
 meister init --target /caminho/do/seu/projeto
 ```
-Isso criará automaticamente no projeto:
+Isso cria no projeto, sem sobrescrever arquivos de regras existentes:
 - `CLAUDE.md` (instruções completas para Claude Code)
 - `CODEX.md` (instruções completas para OpenAI Codex)
 - `AGENTS.md` (diretivas unificadas para Cursor, Copilot e subagentes)
-- Hook Git `pre-commit` com verificação determinística e portão do Jev
 - Diretório de telemetria `.meister/logs/`
+
+Hooks são opcionais e só são instalados com `--hooks`. O hook Git `pre-commit` resume
+as alterações em stage e executa automaticamente os testes disponíveis (`npm test`,
+`pytest` ou `cargo test`); ele pode bloquear o commit se os testes falharem. Hooks
+existentes que não pertençam ao MeisterRouter são preservados. Use `--force` para
+sobrescrever arquivos ou hooks existentes. `--no-hooks` continua aceito por
+compatibilidade; sem `--hooks`, nenhum hook é instalado.
 
 ---
 

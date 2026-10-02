@@ -1,3 +1,7 @@
+> Se você é um worker do MeisterRouter (`MEISTER_IN_PANE=1`) ou está implementando uma
+> tarefa que lhe foi passada: ignore as regras de delegação abaixo e implemente diretamente;
+> não rode `meister classify`, `meister worker`, `meister orchestrate` nem `meister control`.
+
 # MeisterRouter Unified Agent Directives (AGENTS.md)
 
 This project uses **MeisterRouter** for deterministic, cost-optimized multi-model software engineering.

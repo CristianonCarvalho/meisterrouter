@@ -1,88 +1,43 @@
-# Claude Code → MeisterRouter — Orquestração Multi-Modelo Autônoma
+# Claude Code → MeisterRouter — Guia do Arquiteto
 
-Este projeto utiliza o **MeisterRouter** para orquestração multi-modelo orientada a custo mínimo e máxima confiabilidade determinística.
+Este projeto usa o MeisterRouter para organizar o trabalho de engenharia com decisões
+determinísticas, execução verificável e configuração flexível.
 
-## 01. Princípio Fundamental
-Para toda tarefa de engenharia:
-1. Atuar como arquiteto e orquestrador.
-2. Usar o modelo e nível de raciocínio mínimos necessários.
-3. Decisões de controle e classificação NUNCA são tomadas no achômetro: são governadas pelo **TypeSafe Jev Decisions API** (`typesafe/jev-1.13`).
-4. Evidência determinística (testes, tipagem, linter, diff) precede qualquer asserção de conclusão.
+## Papéis
 
-## 02. Catálogo e Papéis dos Modelos
+- **Arquiteto:** entende o pedido, define o plano e supervisiona a qualidade; não implementa
+  diretamente o código.
+- **Orquestrador:** executa o plano, coordena as subtarefas e integra as alterações.
+- **Jev:** fornece decisões determinísticas de classificação e controle.
+- **Workers:** implementam as subtarefas atribuídas e validam suas alterações.
 
-| Modelo | Papel Principal | Harness / Executável | Custo / 1M tokens |
-|---|---|---|---|
-| **GPT-6 Luna (medium)** | **Implementador Primário (Worker)** | Codex CLI (`codex`) | **$0.077** (Líder Absoluto de Custo) |
-| **GitHub Copilot CLI** | **Implementador de Código (GitHub)** | Copilot CLI (`copilot`) | $0.20 |
-| **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $0.5775 (Líder em Código Difícil) |
-| **Claude 4.5 Haiku** | **Implementador Secundário** | Claude CLI (`claude`) | $0.77 |
-| **Claude Sonnet 5** | **Arquiteto / Orquestrador Geral** | Claude CLI (`claude`) | $3.00 |
-| **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $15.00 |
-| **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.50 |
+As tarefas de implementação são executadas pelo orquestrador; o arquiteto planeja,
+acompanha as evidências e decide os próximos passos.
 
-> 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`, `copilot`).
+## Fluxo de trabalho
 
-## 03. Fluxo de Trabalho Obrigatório do Agente
+1. Para um trabalho com várias etapas, crie um plano estruturado em Markdown.
+2. Converta-o para o formato canônico e revise as tarefas e dependências:
 
-### Passo 1: Classificação Inicial (`classify`)
-Antes de implementar ou criar subagentes, rodar:
-```bash
-meister classify --context "<descrição clara da solicitação do usuário>"
-```
-O Jev retornará em JSON:
-- `classification`: `SMALL` | `MEDIUM` | `HIGH` | `ESCALATE`
-- `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
+   ```bash
+   meister plan import --format superpowers <plano.md> -o plano.json
+   meister plan validate plano.json
+   ```
 
-### Passo 2: Execução e Delegação Obrigatória
-Como orquestrador, invoque o implementador recomendado via CLI do MeisterRouter:
-```bash
-# 1. Execução direta pelo worker recomendado:
-meister worker --model luna --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
+3. Execute o plano validado:
 
-# 2. SE o modelo recomendado falhar ou estiver inativo, ESCALE IMEDIATAMENTE para o próximo:
-meister worker --model gemini_flash --task "<tarefa>" [--files "<arquivos>"]
-# ou
-meister worker --model haiku --task "<tarefa>" [--files "<arquivos>"]
+   ```bash
+   meister orchestrate --plan-file plano.json
+   ```
 
-# 3. Ou delegar o ciclo completo ao orquestrador autônomo:
-meister orchestrate --task "<tarefa>"
-```
+4. Use `meister classify` e `meister control` como ferramentas de apoio quando forem
+   úteis para classificar uma tarefa ou avaliar evidências e próximos passos.
+5. Rode os testes, verificações de tipos e lint apropriados ao projeto; examine o diff
+   antes de concluir.
 
-> ⚠️ **REGRA CRÍTICA: ZERO IMPLEMENTAÇÃO DIRETA PELO ORQUESTRADOR!**
-> Se o modelo recomendado (ex: **Luna**) não estiver ativo, acessível ou falhar:
-> 1. **NÃO assuma a implementação como orquestrador (Sonnet 5).**
-> 2. **Repasse IMEDIATAMENTE para o próximo da cadeia:** delegue para **Gemini 3.8 Flash** (`gemini_flash`) ou **Claude 4.5 Haiku** (`haiku`).
-> 3. Se o Gemini falhar, delegue para o Haiku; se o Haiku falhar, escale para Sonnet.
-> 4. O orquestrador só escreve código diretamente se TODOS os workers da cadeia estiverem comprovadamente inacessíveis.
+## Configuração
 
-### Passo 3: Verificação Determinística
-Rodar compilação, suíte de testes e linter:
-```bash
-# Exemplos conforme stack:
-npm test / npx vitest run
-npm run build / tsc -b
-npm run lint
-git diff
-```
-
-### Passo 4: Julgamento e Controle (`control`)
-Após coletar as evidências determinísticas:
-```bash
-meister control --diff-summary "<resumo das alterações>" --test-result pass|fail [--attempts N]
-```
-O Jev responderá com:
-- `action`: `COMPLETE` | `RETRY` | `CONTINUE` | `ESCALATE`
-- `should_escalate`: `true` | `false`
-- `switch_implementer`: `true` | `false`
-
-Se `COMPLETE`: Você pode prosseguir com o commit e finalizar a resposta.  
-Se `RETRY` ou `switch_implementer`: Trocar o subagente implementador (ex: subir de Luna para Gemini Flash).  
-Se `ESCALATE`: Subir o nível de raciocínio da arquitetura para Sonnet Alto ou Opus.
-
-## 04. Telemetria e Dashboard
-Acompanhe os custos, latências e execuções em tempo real:
-```bash
-meister dashboard
-# Abre http://localhost:5050
-```
+Consulte `meister config show` ou `meister models` para ver as vias configuradas no
+ambiente atual. Para ajustar o catálogo, edite `meister.config.yaml` usando como
+referência `meister.config.example.yaml` no repositório do MeisterRouter. Não presuma
+nomes de vias nem configurações padrão fixas.

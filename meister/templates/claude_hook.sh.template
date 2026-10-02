@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # MeisterRouter — Claude Code Hook
+# Managed by MeisterRouter
 # Intercepta eventos e injeta telemetria ou regras do Jev Router
 # ==============================================================================
 

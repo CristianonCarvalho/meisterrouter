@@ -3,7 +3,7 @@ meister.hooks — Gerenciador de instalação e desinstalação de hooks.
 
 Instala:
 1. Git Pre-Commit Hook (.git/hooks/pre-commit)
-2. Claude Code Lifecycle Hooks (.claude/hooks/ ou ~/.claude/hooks/)
+2. Claude Code Lifecycle Hooks (.claude/hooks/)
 """
 
 import json
@@ -12,102 +12,108 @@ import stat
 from typing import Tuple
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+MANAGED_MARKER = "Managed by MeisterRouter"
 
 
-def install_git_hook(repo_path: str = ".") -> Tuple[bool, str]:
-    """Instala o hook de pre-commit do MeisterRouter em um repositório git."""
+def _template_content(filename: str) -> str:
+    with open(os.path.join(TEMPLATES_DIR, filename), "r", encoding="utf-8") as template_file:
+        return template_file.read()
+
+
+def _is_managed_hook(path: str, template: str) -> bool:
+    if not os.path.lexists(path):
+        return True
+    if os.path.islink(path):
+        return False
+    with open(path, "r", encoding="utf-8") as hook_file:
+        content = hook_file.read()
+    return MANAGED_MARKER in content or content == template
+
+
+def _write_executable(path: str, content: str) -> None:
+    with open(path, "w", encoding="utf-8") as hook_file:
+        hook_file.write(content)
+    mode = os.stat(path).st_mode
+    os.chmod(path, mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+
+
+def install_git_hook(repo_path: str = ".", force: bool = False) -> Tuple[bool, str]:
+    """Instala o hook do MeisterRouter sem substituir hooks alheios por padrão."""
     git_dir = os.path.join(repo_path, ".git")
     if not os.path.isdir(git_dir):
         return False, f"O diretório '{repo_path}' não é um repositório Git (.git ausente)."
 
     hooks_dir = os.path.join(git_dir, "hooks")
-    os.makedirs(hooks_dir, exist_ok=True)
     target_hook = os.path.join(hooks_dir, "pre-commit")
+    content = _template_content("git_pre_commit.sh.template")
+    if not force and not _is_managed_hook(target_hook, content):
+        return False, f"Hook pre-commit existente preservado (não pertence ao MeisterRouter): {target_hook}"
 
-    template_path = os.path.join(TEMPLATES_DIR, "git_pre_commit.sh.template")
-    with open(template_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    with open(target_hook, "w", encoding="utf-8") as f:
-        f.write(content)
-
-    # Torna o script executável
-    st = os.stat(target_hook)
-    os.chmod(target_hook, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-    return True, f"Hook Git pre-commit instalado com sucesso em: {target_hook}"
+    os.makedirs(hooks_dir, exist_ok=True)
+    _write_executable(target_hook, content)
+    return True, f"Hook Git pre-commit instalado em: {target_hook}"
 
 
-def install_claude_hook(target_dir: str = ".") -> Tuple[bool, str]:
-    """Instala hooks de ciclo de vida e guardiões determinísticos para o Claude Code."""
+def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[bool, str]:
+    """Instala hooks do Claude Code sem substituir hooks alheios por padrão."""
     claude_dir = os.path.join(target_dir, ".claude")
     claude_hooks_dir = os.path.join(claude_dir, "hooks")
-    os.makedirs(claude_hooks_dir, exist_ok=True)
+    hook_templates = (
+        ("meister-prompt-hook.sh", "claude_prompt_hook.sh.template"),
+        ("meister-guard-hook.sh", "claude_guard_hook.sh.template"),
+        ("meister-agent-hook.sh", "claude_hook.sh.template"),
+    )
+    hook_contents = []
+    for target_name, template_name in hook_templates:
+        content = _template_content(template_name)
+        hook_path = os.path.join(claude_hooks_dir, target_name)
+        if not force and not _is_managed_hook(hook_path, content):
+            return False, f"Hook existente preservado (não pertence ao MeisterRouter): {hook_path}"
+        hook_contents.append((hook_path, content))
 
-    # 1. Hook de Prompt (UserPromptSubmit): Injeta diretivas determinísticas no contexto
-    prompt_hook_path = os.path.join(claude_hooks_dir, "meister-prompt-hook.sh")
-    prompt_template = os.path.join(TEMPLATES_DIR, "claude_prompt_hook.sh.template")
-    if os.path.exists(prompt_template):
-        with open(prompt_template, "r", encoding="utf-8") as f:
-            content = f.read()
-        with open(prompt_hook_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        st = os.stat(prompt_hook_path)
-        os.chmod(prompt_hook_path, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-    # 2. Hook Guardião (PreToolUse): Bloqueia chamadas de Edit/Write com Exit Code 2
-    guard_hook_path = os.path.join(claude_hooks_dir, "meister-guard-hook.sh")
-    guard_template = os.path.join(TEMPLATES_DIR, "claude_guard_hook.sh.template")
-    if os.path.exists(guard_template):
-        with open(guard_template, "r", encoding="utf-8") as f:
-            content = f.read()
-        with open(guard_hook_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        st = os.stat(guard_hook_path)
-        os.chmod(guard_hook_path, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-    # 3. Hook legado de telemetria
-    legacy_hook_path = os.path.join(claude_hooks_dir, "meister-agent-hook.sh")
-    legacy_template = os.path.join(TEMPLATES_DIR, "claude_hook.sh.template")
-    if os.path.exists(legacy_template):
-        with open(legacy_template, "r", encoding="utf-8") as f:
-            content = f.read()
-        with open(legacy_hook_path, "w", encoding="utf-8") as f:
-            f.write(content)
-        st = os.stat(legacy_hook_path)
-        os.chmod(legacy_hook_path, st.st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-
-    # 4. Configurar .claude/settings.json
     settings_file = os.path.join(claude_dir, "settings.json")
     settings = {}
     if os.path.exists(settings_file):
         try:
-            with open(settings_file, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-        except Exception:
-            settings = {}
+            with open(settings_file, "r", encoding="utf-8") as settings_handle:
+                settings = json.load(settings_handle)
+        except (OSError, json.JSONDecodeError) as error:
+            return False, f"Configuração existente não foi alterada ({settings_file}): {error}"
+        if not isinstance(settings, dict):
+            return False, f"Configuração existente inválida; hooks não instalados: {settings_file}"
 
     hooks_cfg = settings.setdefault("hooks", {})
-    hooks_cfg["UserPromptSubmit"] = [
-        {
-            "type": "command",
-            "command": "bash .claude/hooks/meister-prompt-hook.sh"
-        }
-    ]
-    hooks_cfg["PreToolUse"] = [
-        {
-            "matcher": "Edit|Write|MultiEdit|NotebookEdit",
-            "hooks": [
-                {
-                    "type": "command",
-                    "command": "bash .claude/hooks/meister-guard-hook.sh"
-                }
-            ]
-        }
-    ]
+    if not isinstance(hooks_cfg, dict):
+        return False, f"Seção de hooks existente inválida; hooks não instalados: {settings_file}"
+    for event_name in ("UserPromptSubmit", "PreToolUse"):
+        if event_name in hooks_cfg and not isinstance(hooks_cfg[event_name], list):
+            return False, f"Configuração existente de {event_name} inválida; hooks não instalados."
 
-    with open(settings_file, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    prompt_config = {
+        "type": "command",
+        "command": "bash .claude/hooks/meister-prompt-hook.sh",
+    }
+    guard_config = {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+            {
+                "type": "command",
+                "command": "bash .claude/hooks/meister-guard-hook.sh",
+            }
+        ],
+    }
+    hooks_cfg.setdefault("UserPromptSubmit", [])
+    hooks_cfg.setdefault("PreToolUse", [])
+    if prompt_config not in hooks_cfg["UserPromptSubmit"]:
+        hooks_cfg["UserPromptSubmit"].append(prompt_config)
+    if guard_config not in hooks_cfg["PreToolUse"]:
+        hooks_cfg["PreToolUse"].append(guard_config)
 
-    return True, f"Hooks Claude Code (Prompt + PreToolUse Guard) instalados em: {claude_hooks_dir} e {settings_file}"
+    os.makedirs(claude_hooks_dir, exist_ok=True)
+    for hook_path, content in hook_contents:
+        _write_executable(hook_path, content)
+    with open(settings_file, "w", encoding="utf-8") as settings_handle:
+        json.dump(settings, settings_handle, indent=2, ensure_ascii=False)
+        settings_handle.write("\n")
+
+    return True, f"Hooks Claude Code instalados em: {claude_hooks_dir} e {settings_file}"
