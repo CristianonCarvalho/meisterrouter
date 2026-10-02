@@ -32,7 +32,13 @@ import click
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.models import estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
-from meister.logger import get_events_by_run_id, log_event, get_current_run
+from meister.logger import (
+    add_event_observer,
+    get_events_by_run_id,
+    get_current_run,
+    log_event,
+    remove_event_observer,
+)
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
@@ -895,7 +901,19 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
 @click.option("--resume", "resume_enabled", is_flag=True, default=False, help="Retomar tarefas concluídas de um run anterior; opcionalmente informe RUN_ID")
 @click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-def orchestrate(resume_id, workspace_id, architect_pane_id, task, plan_file, allow_freeform, resume_enabled, socket_path, config_path):
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Desliga o progresso e o resumo do run")
+def orchestrate(
+    resume_id,
+    workspace_id,
+    architect_pane_id,
+    task,
+    plan_file,
+    allow_freeform,
+    resume_enabled,
+    socket_path,
+    config_path,
+    quiet,
+):
     """Inicia o ciclo de orquestração autônoma multi-agente."""
     from meister.plan import load_plan, PlanError, canonical_json
 
@@ -972,6 +990,12 @@ def orchestrate(resume_id, workspace_id, architect_pane_id, task, plan_file, all
 
     client = get_herdr_client(socket_path=socket_path)
     bridge = HerdrEventBridge(config=cfg, client=client)
+    from meister.progress import ProgressReporter, render_summary
+    from meister.state import StateManager
+
+    reporter = None if quiet else ProgressReporter(retry_max=int(cfg.retry.pane_lost_attempts))
+    if reporter is not None:
+        add_event_observer(reporter.on_event)
 
     async def _run():
         cycle_options = dict(
@@ -986,19 +1010,44 @@ def orchestrate(resume_id, workspace_id, architect_pane_id, task, plan_file, all
             cycle_options["resume_hint_callback"] = click.echo
         return await bridge.run_orchestration_cycle(**cycle_options)
 
+    cycle_error: Optional[Exception] = None
+    error_exit_code = 1
+    started_at = time.monotonic()
     try:
         success = asyncio.run(_run())
     except ResumeRequestError as e:
-        click.echo(f"Erro: {e}", err=True)
-        sys.exit(2)
+        cycle_error = e
+        error_exit_code = 2
     except Exception as e:
-        click.echo(f"Orchestration cycle encountered error: {e}", err=True)
-        sys.exit(1)
+        cycle_error = e
+    finally:
+        if reporter is not None:
+            remove_event_observer(reporter.on_event)
 
-    if success:
+    if cycle_error is not None:
+        if isinstance(cycle_error, ResumeRequestError):
+            click.echo(f"Erro: {cycle_error}", err=True)
+        else:
+            click.echo(f"Orchestration cycle encountered error: {cycle_error}", err=True)
+    elif success:
         click.echo("Orchestration cycle completed successfully.")
     else:
         click.echo("Orchestration cycle failed or incomplete.", err=True)
+
+    if reporter is not None and reporter.run_id:
+        click.echo(
+            render_summary(
+                StateManager(),
+                reporter.run_id,
+                reporter.durations,
+                time.monotonic() - started_at,
+            ),
+            err=True,
+        )
+
+    if cycle_error is not None:
+        sys.exit(error_exit_code)
+    if not success:
         sys.exit(1)
 
 

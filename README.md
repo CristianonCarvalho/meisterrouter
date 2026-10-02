@@ -187,6 +187,8 @@ Execute um ciclo de orquestração autônoma com decomposição em DAG e verific
 ```bash
 meister orchestrate --task "Refatorar camada de cache e cobrir com testes"
 ```
+O comando mostra o progresso de cada tarefa e um resumo final em stderr; a frase de resultado
+continua em stdout. Use `--quiet` (ou `-q`) para suprimir essas linhas de progresso e o resumo.
 Para reaproveitar tarefas concluídas de um run anterior após editar o plano, use `--resume`
 para selecionar automaticamente o run FAILED/RUNNING elegível mais recente do mesmo diretório,
 ou informe seu identificador após a opção:

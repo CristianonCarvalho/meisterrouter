@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
 from click import echo
 from meister.cli import main
+from meister.logger import log_event
+from meister.state import RunState, StateManager, SubtaskState
 
 
 def test_cli_has_herdr_commands():
@@ -221,6 +223,161 @@ def test_cli_orchestrate_command_failure():
         result = runner.invoke(main, ["orchestrate"])
         assert result.exit_code != 0
         assert "Orchestration cycle failed or incomplete." in result.output
+
+
+def _seed_cli_run(run_state=RunState.COMPLETED, subtask_state=SubtaskState.COMPLETED):
+    state = StateManager()
+    run_id = "cli-progress-run"
+    state.create_or_get_run("CLI progress test", force_run_id=run_id)
+    state.transition_run(run_id, RunState.RUNNING)
+    state.add_subtasks(run_id, [{"id": "step-a", "description": "A task"}])
+    subtask = state.get_subtasks(run_id)[0]
+    if subtask_state == SubtaskState.COMPLETED:
+        state.transition_subtask(subtask["subtask_id"], SubtaskState.RUNNING, assigned_tier="copilot_luna")
+    state.transition_subtask(subtask["subtask_id"], subtask_state, assigned_tier="copilot_luna")
+    if run_state != RunState.RUNNING:
+        state.transition_run(run_id, run_state)
+    return run_id
+
+
+def _emit_cli_progress(run_id):
+    from datetime import datetime, timedelta, timezone
+
+    started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    log_event("orchestration_start", run_id=run_id, task_id="orchestrator")
+    log_event(
+        "plan_parsed",
+        run_id=run_id,
+        task_id="orchestrator",
+        total=1,
+        batches=1,
+        task_ids=["step-a"],
+    )
+    log_event("worker_spawn", run_id=run_id, task_id="step-a", tier="copilot_luna", ts=started.isoformat())
+    log_event(
+        "subtask_completed",
+        run_id=run_id,
+        task_id="step-a",
+        tier="copilot_luna",
+        ts=(started + timedelta(seconds=28)).isoformat(),
+    )
+
+
+def test_cli_orchestrate_progress_stderr_and_stdout_contract(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    run_id = _seed_cli_run()
+
+    async def execute(**_kwargs):
+        _emit_cli_progress(run_id)
+        return True
+
+    with patch("meister.cli.HerdrEventBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.run_orchestration_cycle = AsyncMock(side_effect=execute)
+        result = CliRunner().invoke(main, ["orchestrate", "--workspace-id", "ws-main"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "Orchestration cycle completed successfully."
+    assert "Plano: 1 tarefas em 1 lotes (run cli-prog)" in result.stderr
+    assert "[1/1] step-a iniciada em copilot_luna" in result.stderr
+    assert "[1/1] step-a concluida em copilot_luna (28 s)" in result.stderr
+    assert "Resumo do run cli-prog: 1 tarefas | 1 concluidas | 0 falhou | 0 reaproveitadas" in result.stderr
+    assert "Concluido: a main foi atualizada." in result.stderr
+
+
+def test_cli_orchestrate_quiet_suppresses_progress_and_summary(tmp_path, monkeypatch):
+    # sem chave do OpenRouter o orchestrate avisa em stderr; fixa a chave para nao depender da maquina
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    run_id = _seed_cli_run()
+
+    async def execute(**_kwargs):
+        _emit_cli_progress(run_id)
+        return True
+
+    with patch("meister.cli.HerdrEventBridge") as bridge_cls:
+        bridge_cls.return_value.run_orchestration_cycle = AsyncMock(side_effect=execute)
+        result = CliRunner().invoke(main, ["orchestrate", "-q"])
+
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "Orchestration cycle completed successfully."
+    assert result.stderr == ""
+
+    help_result = CliRunner().invoke(main, ["orchestrate", "--help"])
+    assert help_result.exit_code == 0
+    assert "-q, --quiet" in help_result.output
+
+
+def test_cli_orchestrate_failure_status_and_observer_cleanup(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    run_id = _seed_cli_run(run_state=RunState.FAILED, subtask_state=SubtaskState.FAILED)
+    remove_observer = __import__("meister.cli", fromlist=["remove_event_observer"]).remove_event_observer
+    removed = []
+
+    def tracked_remove(callback):
+        removed.append(callback)
+        remove_observer(callback)
+
+    monkeypatch.setattr("meister.cli.remove_event_observer", tracked_remove)
+
+    async def execute(**_kwargs):
+        log_event("orchestration_start", run_id=run_id, task_id="orchestrator")
+        log_event(
+            "plan_parsed",
+            run_id=run_id,
+            task_id="orchestrator",
+            total=1,
+            batches=1,
+            task_ids=["step-a"],
+        )
+        log_event(
+            "subtask_rejected",
+            run_id=run_id,
+            task_id="step-a",
+            error="violacao de escopo",
+        )
+        return False
+
+    with patch("meister.cli.HerdrEventBridge") as bridge_cls:
+        bridge_cls.return_value.run_orchestration_cycle = AsyncMock(side_effect=execute)
+        result = CliRunner().invoke(main, ["orchestrate"])
+
+    assert result.exit_code != 0
+    assert result.stdout == ""
+    assert "Orchestration cycle failed or incomplete." in result.stderr
+    assert "[1/1] step-a FALHOU: violacao de escopo" in result.stderr
+    assert "1 tarefas | 0 concluidas | 1 falhou | 0 reaproveitadas" in result.stderr
+    assert len(removed) == 1
+
+
+def test_cli_orchestrate_removes_observer_after_exception(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    run_id = _seed_cli_run(run_state=RunState.RUNNING, subtask_state=SubtaskState.PENDING)
+    remove_observer = __import__("meister.cli", fromlist=["remove_event_observer"]).remove_event_observer
+    removed = []
+
+    def tracked_remove(callback):
+        removed.append(callback)
+        remove_observer(callback)
+
+    monkeypatch.setattr("meister.cli.remove_event_observer", tracked_remove)
+
+    async def execute(**_kwargs):
+        log_event("orchestration_start", run_id=run_id, task_id="orchestrator")
+        raise RuntimeError("bridge failed")
+
+    with patch("meister.cli.HerdrEventBridge") as bridge_cls:
+        bridge_cls.return_value.run_orchestration_cycle = AsyncMock(side_effect=execute)
+        result = CliRunner().invoke(main, ["orchestrate"])
+
+    assert result.exit_code != 0
+    assert "Orchestration cycle encountered error: bridge failed" in result.stderr
+    assert "Resumo do run cli-prog" in result.stderr
+    assert len(removed) == 1
 
 
 def test_cli_worker_command():

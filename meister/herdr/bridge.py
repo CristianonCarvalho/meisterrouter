@@ -1381,11 +1381,23 @@ class HerdrEventBridge:
         steps: Sequence[Union[Dict[str, Any], SubtaskNode]],
     ) -> bool:
         """Decompose steps into a TaskDAG and execute batches in topological dependency order."""
-        if not steps:
-            return True
-
         dag = build_subtask_dag(steps)
         batches = dag.get_execution_batches()
+        log_event(
+            event_type="plan_parsed",
+            run_id=self.current_run_id,
+            task_id="orchestrator",
+            total=len(steps),
+            batches=len(batches),
+            task_ids=[
+                str(
+                    (step.get("id") or step.get("step_id") or "")
+                    if isinstance(step, dict)
+                    else getattr(step, "id", "")
+                )
+                for step in steps
+            ],
+        )
 
         for idx, batch in enumerate(batches):
             logger.info("Executing parallel batch %d/%d (%d subtasks)", idx + 1, len(batches), len(batch))

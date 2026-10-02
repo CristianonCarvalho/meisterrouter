@@ -11,12 +11,31 @@ import os
 import json
 import time
 import uuid
+import threading
 from datetime import datetime, timezone
 from contextlib import contextmanager
-from typing import Dict, Any, List, Optional
+from typing import Callable, Dict, Any, List, Optional
 from meister.models import estimate_cost
 
 DEFAULT_LOG_DIR = os.path.expanduser("~/.meister/logs")
+_event_observers: List[Callable[[Dict[str, Any]], None]] = []
+_event_observers_lock = threading.RLock()
+
+
+def add_event_observer(callback: Callable[[Dict[str, Any]], None]) -> None:
+    """Registra um observador de eventos em memória."""
+    with _event_observers_lock:
+        if callback not in _event_observers:
+            _event_observers.append(callback)
+
+
+def remove_event_observer(callback: Callable[[Dict[str, Any]], None]) -> None:
+    """Remove um observador previamente registrado."""
+    with _event_observers_lock:
+        try:
+            _event_observers.remove(callback)
+        except ValueError:
+            pass
 
 
 def find_project_root() -> Optional[str]:
@@ -175,8 +194,14 @@ def log_event(
     }
 
     log_path = get_log_file()
-    with open(log_path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    with _event_observers_lock:
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        for callback in tuple(_event_observers):
+            try:
+                callback(record)
+            except Exception:
+                continue
     return record
 
 
