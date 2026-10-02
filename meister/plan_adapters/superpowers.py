@@ -25,7 +25,7 @@ from meister.plan import PlanError, register_adapter
 
 _TASK_HEADER_RE = re.compile(r"^### Task (\d+): (.+)$", re.MULTILINE)
 _GLOBAL_CONSTRAINTS_RE = re.compile(
-    r"## Global Constraints\s*\n(.*?)(?=\n## |\Z)", re.DOTALL
+    r"## Global Constraints\s*\n(.*?)(?=\n##\s|\n###\s+Task\s+\d+:|\Z)", re.DOTALL
 )
 _REVIEW_FOCUS_RE = re.compile(r"## Review Focus", re.IGNORECASE)
 _FILES_BLOCK_RE = re.compile(r"\*\*Files:\*\*\s*\n((?:\s*-[^\n]*\n?)+)", re.MULTILINE)
