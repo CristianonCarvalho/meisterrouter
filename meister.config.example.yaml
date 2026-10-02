@@ -37,3 +37,27 @@ concurrency:
   max_parallel_workers: 4
   layout_strategy: tabs
   isolation_mode: git_worktree
+scope:
+  tolerated_files:
+    - pnpm-lock.yaml
+    - package-lock.json
+    - yarn.lock
+    - poetry.lock
+    - uv.lock
+    - "*.tsbuildinfo"
+    - .vitest/**
+environment:
+  install_dependencies: true
+  install_timeout_seconds: 300
+gate:
+  install: null
+  # Lista vazia mantém a detecção automática. Comandos são executados sem shell.
+  # Exemplo Go:
+  # commands:
+  #   - {name: unit, run: "go test ./...", timeout_seconds: 300, required: true}
+  #   - {name: lint, run: "golangci-lint run", timeout_seconds: 120, required: false}
+  # Exemplo Node/pnpm:
+  # commands:
+  #   - {name: unit, run: "pnpm exec vitest run", timeout_seconds: 300, required: true}
+  commands: []
+  allow_unverified: false

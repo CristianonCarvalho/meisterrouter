@@ -931,6 +931,29 @@ class HerdrEventBridge:
                                 target_files=target_files,
                                 commit_message=f"subtask({task_id}): {description}",
                             )
+                            from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
+
+                            if not ok_int and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX):
+                                logger.error(
+                                    "Infrastructure error in deterministic gate for subtask %s: %s",
+                                    task_id,
+                                    int_err,
+                                )
+                                log_event(
+                                    event_type="worker_error",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    attempt=attempt_count,
+                                    tier=current_tier,
+                                    exit_code=2,
+                                    status="infrastructure_error",
+                                    error=int_err,
+                                )
+                                self.last_failure_reason = int_err
+                                subtask_wt = None
+                                if active_run_id:
+                                    sm.unregister_pane(pane_id)
+                                return False
                             await asyncio.to_thread(
                                 self._integration_pipeline.wt_mgr.cleanup_worktree,
                                 subtask_wt.task_id,

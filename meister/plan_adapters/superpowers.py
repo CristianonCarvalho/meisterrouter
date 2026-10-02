@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 import sys
+import fnmatch
 from typing import Any
 
 from meister.plan import PlanError, register_adapter
@@ -69,7 +70,55 @@ def _validate_path_chars(path: str, loc: str) -> str | None:
         return f"{loc}: '..' component forbidden: {path!r}"
     if re.search(r"[\x00-\x1f\\]", path):
         return f"{loc}: control character or backslash in path: {path!r}"
+    if path.count("[") != path.count("]"):
+        return f"{loc}: invalid glob pattern (unclosed character class): {path!r}"
+    for match in re.finditer(r"\[([^\]]*)\]", path):
+        if not match.group(1) or match.group(1) in ("!", "^", "!!"):
+            return f"{loc}: invalid glob pattern (empty character class): {path!r}"
     return None
+
+
+_GENERATED_FILE_COMMANDS: tuple[tuple[re.Pattern[str], str, str], ...] = (
+    (re.compile(r"\bpnpm\s+(?:add|install)\b"), "pnpm add/install", "pnpm-lock.yaml"),
+    (re.compile(r"\bnpm\s+install\b"), "npm install", "package-lock.json"),
+    (re.compile(r"\byarn\s+add\b"), "yarn add", "yarn.lock"),
+    (re.compile(r"\bdrizzle-kit\s+generate\b"), "drizzle-kit generate", "drizzle/*"),
+    (re.compile(r"\bprisma\s+generate\b"), "prisma generate", "prisma/*"),
+)
+
+
+def _pattern_covers(generated: str, declared: list[str]) -> bool:
+    candidates = [generated]
+    if "*" in generated or "?" in generated or "[" in generated:
+        base = generated.rsplit("/", 1)[0] if "/" in generated else ""
+        candidates = [
+            f"{base}/schema.ts" if base else "generated.ts",
+            f"{base}/migrations/0000_init.sql" if base else "generated/migrations/0000_init.sql",
+        ]
+    for path in candidates:
+        for pattern in declared:
+            normalized = pattern.replace("\\", "/")
+            if normalized.endswith("/"):
+                normalized += "**"
+            if fnmatch.fnmatchcase(path, normalized) or (
+                "/" not in normalized and fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], normalized)
+            ):
+                if "*" not in generated and "?" not in generated and "[" not in generated:
+                    return True
+                if fnmatch.fnmatchcase(path, generated):
+                    return True
+    return False
+
+
+def _warn_generated_files(name: str, body: str, files: list[str], tolerated: list[str]) -> None:
+    declared = [*files, *tolerated]
+    for matcher, command, generated in _GENERATED_FILE_COMMANDS:
+        if matcher.search(body) and not _pattern_covers(generated, declared):
+            print(
+                f"warning: task {name!r}: o comando {command!r} pode gerar {generated!r}, "
+                "não coberto por Files: ou scope.tolerated_files",
+                file=sys.stderr,
+            )
 
 
 def _extract_files_block(task_body: str, loc: str) -> tuple[list[str], list[str]]:
@@ -158,6 +207,7 @@ def convert(
     *,
     deps: str = "sequential",
     allow_unscoped: bool = False,
+    tolerated_files: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Convert a superpowers plan to canonical task dicts.
 
@@ -235,6 +285,7 @@ def convert(
         has_files_keyword = bool(_FILES_BLOCK_RE.search(body))
         file_paths, file_errors = _extract_files_block(body, loc)
         errors.extend(file_errors)
+        _warn_generated_files(name, body, file_paths, tolerated_files or [])
 
         if not has_files_keyword or (has_files_keyword and not file_paths and not file_errors):
             # No **Files:** section at all, or **Files:** block is empty

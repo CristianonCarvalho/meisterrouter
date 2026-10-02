@@ -1080,7 +1080,16 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
 
     try:
         adapter_fn = ADAPTERS[fmt]
-        tasks = adapter_fn(text, deps=deps, allow_unscoped=allow_unscoped)
+        if fmt == "superpowers":
+            cfg = load_config(cwd=os.getcwd())
+            tasks = adapter_fn(
+                text,
+                deps=deps,
+                allow_unscoped=allow_unscoped,
+                tolerated_files=cfg.scope.tolerated_files,
+            )
+        else:
+            tasks = adapter_fn(text, deps=deps, allow_unscoped=allow_unscoped)
         validate_tasks(tasks)
     except PlanError as exc:
         click.echo(f"Erro ao converter plano ({fmt}):", err=True)
@@ -1152,7 +1161,24 @@ def config_show(config_path, json_format):
                 "max_parallel_workers": cfg.concurrency.max_parallel_workers,
                 "parallel_tasks": cfg.concurrency.parallel_tasks,
             },
+            "environment": {
+                "install_dependencies": cfg.environment.install_dependencies,
+                "install_timeout_seconds": cfg.environment.install_timeout_seconds,
+            },
             "env_overrides": active_overrides,
+            "gate": {
+                "allow_unverified": cfg.gate.allow_unverified,
+                "commands": [
+                    {
+                        "name": command.name,
+                        "required": command.required,
+                        "run": command.run,
+                        "timeout_seconds": command.timeout_seconds,
+                    }
+                    for command in cfg.gate.commands
+                ],
+                "install": cfg.gate.install,
+            },
             "master": {
                 "api_key_env": cfg.master.api_key_env,
                 "model": cfg.master.model,
@@ -1166,6 +1192,7 @@ def config_show(config_path, json_format):
                 "unavailable_cooldown_seconds": cfg.router.unavailable_cooldown_seconds,
             },
             "source": cfg.config_source,
+            "scope": {"tolerated_files": cfg.scope.tolerated_files},
             "version": cfg.version,
             "workers": {
                 "disabled": [
@@ -1253,6 +1280,19 @@ def config_show(config_path, json_format):
     click.echo(f"  Max Parallel Workers: {cfg.concurrency.max_parallel_workers}")
     click.echo(f"  Layout Strategy: {cfg.concurrency.layout_strategy}")
     click.echo(f"  Isolation Mode: {cfg.concurrency.isolation_mode}\n")
+    click.echo("Escopo:")
+    click.echo(f"  Tolerated Files: {', '.join(cfg.scope.tolerated_files)}")
+    click.echo("\nAmbiente:")
+    click.echo(f"  Install Dependencies: {cfg.environment.install_dependencies}")
+    click.echo(f"  Install Timeout Seconds: {cfg.environment.install_timeout_seconds}")
+    click.echo("\nGate:")
+    click.echo(f"  Install: {cfg.gate.install}")
+    click.echo(f"  Allow Unverified: {cfg.gate.allow_unverified}")
+    for command in cfg.gate.commands:
+        click.echo(
+            f"  Command {command.name}: {command.run} "
+            f"(timeout={command.timeout_seconds}, required={command.required})"
+        )
 
 
 @config_group.command("validate")

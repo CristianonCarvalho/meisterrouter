@@ -15,7 +15,7 @@ from functools import lru_cache
 from importlib.resources import files
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, List, Set
+from typing import Any, Optional, List, Set, Union
 import yaml
 
 
@@ -139,6 +139,38 @@ class ConcurrencyConfig:
 
 
 @dataclass
+class ScopeConfig:
+    tolerated_files: List[str] = field(
+        default_factory=lambda: list(_default_section("scope")["tolerated_files"])
+    )
+
+
+@dataclass
+class EnvironmentConfig:
+    install_dependencies: bool = field(
+        default_factory=lambda: _default_section("environment")["install_dependencies"]
+    )
+    install_timeout_seconds: float = field(
+        default_factory=lambda: float(_default_section("environment")["install_timeout_seconds"])
+    )
+
+
+@dataclass
+class GateCommand:
+    name: str
+    run: Union[str, List[str]]
+    timeout_seconds: float
+    required: bool
+
+
+@dataclass
+class GateConfig:
+    install: Optional[str] = field(default_factory=lambda: _default_section("gate")["install"])
+    commands: List[GateCommand] = field(default_factory=list)
+    allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
+
+
+@dataclass
 class MeisterConfig:
     version: str = field(default_factory=lambda: _default_config_data()["version"])
     master: MasterConfig = field(default_factory=MasterConfig)
@@ -146,6 +178,9 @@ class MeisterConfig:
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
+    scope: ScopeConfig = field(default_factory=ScopeConfig)
+    environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    gate: GateConfig = field(default_factory=GateConfig)
     config_source: str = "padrao (meister/default_config.yaml)"
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
 
@@ -303,6 +338,114 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         isolation_mode=concurrency_data["isolation_mode"],
     )
 
+    scope_data = data.get("scope", {})
+    if not isinstance(scope_data, dict):
+        parse_issues.append(ConfigIssue("error", "scope", "scope deve ser um objeto"))
+        scope_data = {}
+    tolerated_files = scope_data.get("tolerated_files", _default_section("scope")["tolerated_files"])
+    if not isinstance(tolerated_files, list) or any(not isinstance(item, str) for item in tolerated_files):
+        parse_issues.append(ConfigIssue("error", "scope.tolerated_files", "deve ser uma lista de strings"))
+        tolerated_files = _default_section("scope")["tolerated_files"]
+    scope = ScopeConfig(tolerated_files=list(tolerated_files))
+
+    environment_data = data.get("environment", {})
+    if not isinstance(environment_data, dict):
+        parse_issues.append(ConfigIssue("error", "environment", "environment deve ser um objeto"))
+        environment_data = {}
+    install_dependencies = environment_data.get(
+        "install_dependencies", _default_section("environment")["install_dependencies"]
+    )
+    if not isinstance(install_dependencies, bool):
+        parse_issues.append(
+            ConfigIssue("error", "environment.install_dependencies", "deve ser booleano")
+        )
+        install_dependencies = _default_section("environment")["install_dependencies"]
+    install_timeout = environment_data.get(
+        "install_timeout_seconds", _default_section("environment")["install_timeout_seconds"]
+    )
+    if (
+        isinstance(install_timeout, bool)
+        or not isinstance(install_timeout, (int, float))
+        or not math.isfinite(install_timeout)
+        or install_timeout <= 0
+    ):
+        parse_issues.append(
+            ConfigIssue("error", "environment.install_timeout_seconds", "deve ser número > 0")
+        )
+        install_timeout = _default_section("environment")["install_timeout_seconds"]
+    environment = EnvironmentConfig(
+        install_dependencies=install_dependencies,
+        install_timeout_seconds=float(install_timeout),
+    )
+
+    gate_data = data.get("gate", {})
+    if not isinstance(gate_data, dict):
+        parse_issues.append(ConfigIssue("error", "gate", "gate deve ser um objeto"))
+        gate_data = {}
+    gate_defaults = _default_section("gate")
+    install = gate_data.get("install", gate_defaults["install"])
+    if install is not None and (not isinstance(install, str) or not install.strip()):
+        parse_issues.append(ConfigIssue("error", "gate.install", "deve ser string não vazia ou nulo"))
+        install = gate_defaults["install"]
+    allow_unverified = gate_data.get("allow_unverified", gate_defaults["allow_unverified"])
+    if not isinstance(allow_unverified, bool):
+        parse_issues.append(ConfigIssue("error", "gate.allow_unverified", "deve ser booleano"))
+        allow_unverified = gate_defaults["allow_unverified"]
+    raw_commands = gate_data.get("commands", gate_defaults["commands"])
+    commands: List[GateCommand] = []
+    if not isinstance(raw_commands, list):
+        parse_issues.append(ConfigIssue("error", "gate.commands", "deve ser uma lista"))
+        raw_commands = []
+    for index, item in enumerate(raw_commands):
+        prefix = f"gate.commands[{index}]"
+        if not isinstance(item, dict):
+            parse_issues.append(ConfigIssue("error", prefix, "deve ser um objeto"))
+            continue
+        name = item.get("name")
+        run = item.get("run")
+        timeout = item.get("timeout_seconds", 300)
+        required = item.get("required", True)
+        valid = True
+        if not isinstance(name, str) or not name.strip():
+            parse_issues.append(ConfigIssue("error", f"{prefix}.name", "nome não pode ser vazio"))
+            valid = False
+        if not (
+            isinstance(run, str) and bool(run.strip())
+            or isinstance(run, list) and bool(run) and all(isinstance(arg, str) and bool(arg) for arg in run)
+        ):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.run", "deve ser string ou lista de strings não vazia"))
+            valid = False
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.timeout_seconds", "deve ser número > 0"))
+            timeout = 300
+            valid = False
+        if not isinstance(required, bool):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.required", "deve ser booleano"))
+            required = True
+            valid = False
+        if valid:
+            command_name = name if isinstance(name, str) else ""
+            command_run: Union[str, List[str]] = (
+                run
+                if isinstance(run, str)
+                else [arg for arg in run if isinstance(arg, str)]
+                if isinstance(run, list)
+                else []
+            )
+            commands.append(GateCommand(command_name, command_run, float(timeout), required))
+    command_names = [command.name for command in commands]
+    for index, name in enumerate(command_names):
+        if name in command_names[:index]:
+            parse_issues.append(
+                ConfigIssue("error", f"gate.commands[{index}].name", f"nome repetido: {name!r}")
+            )
+    gate = GateConfig(install=install, commands=commands, allow_unverified=allow_unverified)
+
     return MeisterConfig(
         version=version,
         master=master,
@@ -310,6 +453,9 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         architect=architect,
         workers=workers,
         concurrency=concurrency,
+        scope=scope,
+        environment=environment,
+        gate=gate,
         _parse_issues=parse_issues,
     )
 
