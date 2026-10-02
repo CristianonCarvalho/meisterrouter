@@ -1,6 +1,7 @@
 import os
 import json
 import io
+import threading
 import time
 from pathlib import Path
 import pytest
@@ -2647,9 +2648,25 @@ async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(t
     bridge, _, _, _ = _make_router_bridge(tmp_path)
     spawned_tiers = _track_spawned_tiers(bridge)
     subtask_count = 3
+    # Prova o paralelismo sem depender do relogio: as 3 chamadas so passam da barreira
+    # se estiverem em andamento ao mesmo tempo (em serie, a barreira expira e o maximo fica 1).
+    barrier = threading.Barrier(subtask_count, timeout=5)
+    lock = threading.Lock()
+    active = 0
+    max_active = 0
 
     def slow_classify(**_kwargs):
-        time.sleep(0.2)
+        nonlocal active, max_active
+        with lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            barrier.wait()
+        except threading.BrokenBarrierError:
+            pass
+        finally:
+            with lock:
+                active -= 1
         return {
             "classification": "MEDIUM",
             "recommended_implementer": "copilot",
@@ -2668,11 +2685,9 @@ async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(t
     ]
 
     with patch("meister.herdr.bridge.classify_task", side_effect=slow_classify) as mock_classify:
-        started = time.monotonic()
         results = await asyncio.gather(*(bridge.execute_subtask(task) for task in subtasks))
-        elapsed = time.monotonic() - started
 
     assert results == [True, True, True]
     assert mock_classify.call_count == subtask_count
-    assert elapsed < subtask_count * 0.2
+    assert max_active == subtask_count
     assert spawned_tiers == ["copilot"] * subtask_count
