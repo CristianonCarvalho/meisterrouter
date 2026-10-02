@@ -46,6 +46,33 @@ def test_load_config_defaults_when_no_file(tmp_path, monkeypatch):
     assert config.architect.effort == "high"
     assert len(config.workers.tier_order) >= 1
     assert config.concurrency.max_parallel_workers == 4
+    assert config.retry.pane_lost_attempts == 1
+    assert config.retry.pane_lost_backoff_seconds == 5
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("pane_lost_attempts", "-1"),
+        ("pane_lost_attempts", "1.5"),
+        ("pane_lost_attempts", '"one"'),
+        ("pane_lost_backoff_seconds", "-0.1"),
+        ("pane_lost_backoff_seconds", '"five"'),
+        ("pane_lost_backoff_seconds", "true"),
+    ],
+)
+def test_invalid_pane_lost_retry_config_reports_validation_error(tmp_path, field, value):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "invalid_retry.yaml"
+    config_file.write_text(f"retry:\n  {field}: {value}\n")
+
+    errors = [
+        issue for issue in validate_config(load_config(str(config_file)))
+        if issue.level == "error"
+    ]
+
+    assert any(issue.path == f"retry.{field}" for issue in errors)
 
 
 def test_load_config_partial_yaml(tmp_path):

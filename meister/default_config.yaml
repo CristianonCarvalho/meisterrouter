@@ -11,6 +11,9 @@ router:
   timeout_seconds: 10
   max_attempts: 2
   unavailable_cooldown_seconds: 300
+retry:
+  pane_lost_attempts: 1
+  pane_lost_backoff_seconds: 5
 architect:
   harness: claude
   model: claude-sonnet-5-5

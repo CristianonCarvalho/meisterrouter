@@ -892,10 +892,340 @@ async def test_bridge_infrastructure_error_fast_fails_without_escalation(tmp_pat
         "cwd": str(repo_dir),
     }
 
-    success = await bridge.execute_subtask(subtask)
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        success = await bridge.execute_subtask(subtask)
     assert success is False
     # Must have failed fast on the very first attempt without cascading through luna->gemini->haiku->sonnet
     assert mock_client.split_pane.call_count == 1
+    assert not any(
+        call.kwargs.get("event_type") == "worker_retry"
+        for call in log_event_mock.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("trigger", ["liveness", "pane_exit"])
+async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
+    tmp_path, monkeypatch, trigger
+):
+    from types import SimpleNamespace
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.001")
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.read_pane.return_value = ""
+    config = MeisterConfig()
+    config.concurrency.layout_strategy = "tiled"
+    config.concurrency.isolation_mode = "none"
+    config.workers.tier_order[0].max_parallel = 1
+    config.retry.pane_lost_backoff_seconds = 0
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    worktree_path = tmp_path / "worker-worktree"
+    worktree_path.mkdir()
+    worktree = SimpleNamespace(task_id="lost-pane-worktree", worktree_path=str(worktree_path))
+    worktree_manager = MagicMock()
+    worktree_manager.create_worktree.return_value = worktree
+    pipeline = SimpleNamespace(
+        integration_info=SimpleNamespace(branch_name="main"),
+        wt_mgr=worktree_manager,
+        integrate_subtask=MagicMock(return_value=(True, "")),
+        last_integrated_sha=None,
+    )
+    bridge._integration_pipeline = pipeline
+    spawn_calls = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        spawn_calls.append((tier_name, kwargs.get("cwd")))
+        pane_id = f"w1:p{len(spawn_calls)}"
+        if len(spawn_calls) == 2:
+            assert (worktree_path / "partial.txt").exists()
+            write_atomic_json(
+                task_context["result_file"],
+                {"status": "done", "modified_files": []},
+            )
+        else:
+            (worktree_path / "partial.txt").write_text("partial worker output")
+            if trigger == "pane_exit":
+                asyncio.create_task(
+                    bridge.handle_herdr_event(
+                        {
+                            "method": "pane.exited",
+                            "params": {"pane_id": pane_id, "exit_code": 1},
+                        }
+                    )
+                )
+        return pane_id, bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = fake_spawn
+    if trigger == "liveness":
+        mock_client.pane_exists.return_value = False
+
+    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+        bridge.get_state_manager(), "record_harness_failure"
+    ) as record_failure:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask(
+                {
+                    "id": "lost-pane",
+                    "description": "Recover after pane loss",
+                    "target_files": ["app.py"],
+                    "cwd": str(repo_dir),
+                    "timeout": 3,
+                }
+            ),
+            timeout=5,
+        )
+
+    assert result is True
+    assert spawn_calls == [
+        ("copilot_luna", str(worktree_path)),
+        ("copilot_luna", str(worktree_path)),
+    ]
+    worktree_manager.create_worktree.assert_called_once()
+    pipeline.integrate_subtask.assert_called_once()
+    retry_event = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_retry"
+    )
+    assert retry_event["reason"] == "pane_lost"
+    assert retry_event["retry"] == 1
+    assert retry_event["backoff_seconds"] == 0
+    assert retry_event["attempt"] == 1
+    record_failure.assert_not_called()
+    assert bridge._quota_events == {}
+    assert bridge._exit_events == {}
+    assert bridge.active_workers == {}
+    assert bridge._tier_active["copilot_luna"] == 0
+    assert bridge._held_slots == {}
+
+
+@pytest.mark.asyncio
+async def test_bridge_fails_after_pane_lost_retries_without_escalation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.001")
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("print('hello')\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.read_pane.return_value = ""
+    mock_client.pane_exists.return_value = False
+    config = MeisterConfig()
+    config.concurrency.layout_strategy = "tiled"
+    config.concurrency.isolation_mode = "none"
+    config.retry.pane_lost_backoff_seconds = 0
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    spawns = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        spawns.append(tier_name)
+        return f"w1:p{len(spawns)}", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = fake_spawn
+    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+        bridge.get_state_manager(), "record_harness_failure"
+    ) as record_failure:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask(
+                {
+                    "id": "lost-pane-exhausted",
+                    "description": "Fail after pane loss retries",
+                    "target_files": ["app.py"],
+                    "cwd": str(repo_dir),
+                    "timeout": 3,
+                }
+            ),
+            timeout=5,
+        )
+
+    assert result is False
+    assert spawns == ["copilot_luna", "copilot_luna"]
+    retry_events = [
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_retry"
+    ]
+    assert len(retry_events) == 1
+    errors = [
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_error"
+    ]
+    assert len(errors) == 1
+    assert "retentativas esgotadas: 1" in errors[0]["error"]
+    record_failure.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_bridge_tracks_pane_lost_retry_limit_per_subtask(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.001")
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    mock_client.read_pane.return_value = ""
+    mock_client.pane_exists.return_value = False
+    config = MeisterConfig()
+    config.concurrency.layout_strategy = "tiled"
+    config.concurrency.isolation_mode = "none"
+    config.retry.pane_lost_backoff_seconds = 0
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    spawns = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        spawns.append(tier_name)
+        if len(spawns) % 2 == 0:
+            write_atomic_json(
+                task_context["result_file"],
+                {"status": "done", "modified_files": []},
+            )
+        return f"w1:p{len(spawns)}", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = fake_spawn
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        for task_id in ("first", "second"):
+            assert await asyncio.wait_for(
+                bridge.execute_subtask(
+                    {
+                        "id": task_id,
+                        "description": f"Task {task_id}",
+                        "cwd": str(tmp_path),
+                        "timeout": 3,
+                    }
+                ),
+                timeout=5,
+            )
+
+    assert spawns == ["copilot_luna"] * 4
+    retry_events = [
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_retry"
+    ]
+    assert [(event["task_id"], event["retry"]) for event in retry_events] == [
+        ("first", 1),
+        ("second", 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_bridge_pane_lost_retry_budget_survives_tier_escalation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.001")
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    # p1 (via A) e p3 (via B) somem; p2 (via A, apos a retentativa) termina com erro de cota.
+    mock_client.pane_exists.side_effect = lambda pane_id: pane_id == "w1:p2"
+    mock_client.read_pane.side_effect = (
+        lambda pane_id: "Error 429: Rate limit exceeded" if pane_id == "w1:p2" else ""
+    )
+    config = MeisterConfig()
+    config.concurrency.layout_strategy = "tiled"
+    config.concurrency.isolation_mode = "none"
+    config.retry.pane_lost_attempts = 1
+    config.retry.pane_lost_backoff_seconds = 0
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    spawns = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        spawns.append(tier_name)
+        pane_id = f"w1:p{len(spawns)}"
+        if pane_id == "w1:p2":
+            write_atomic_json(
+                task_context["result_file"],
+                {"status": "done", "modified_files": []},
+            )
+        return pane_id, bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = fake_spawn
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask(
+                {
+                    "id": "budget",
+                    "description": "Retry budget is per subtask",
+                    "cwd": str(tmp_path),
+                    "timeout": 3,
+                }
+            ),
+            timeout=8,
+        )
+
+    # A retentativa ja foi gasta na via A: a via B nao ganha outra.
+    assert result is False
+    assert len(spawns) == 3
+    assert spawns[0] == spawns[1] != spawns[2]
+    retry_events = [
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_retry"
+    ]
+    assert len(retry_events) == 1
+
+
+@pytest.mark.asyncio
+async def test_bridge_does_not_retry_gate_infrastructure_error(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    monkeypatch.chdir(tmp_path)
+    worktree_path = tmp_path / "worker-worktree"
+    worktree_path.mkdir()
+    worktree = SimpleNamespace(task_id="gate-error-worktree", worktree_path=str(worktree_path))
+    worktree_manager = MagicMock()
+    worktree_manager.create_worktree.return_value = worktree
+    pipeline = SimpleNamespace(
+        integration_info=SimpleNamespace(branch_name="main"),
+        wt_mgr=worktree_manager,
+        integrate_subtask=MagicMock(
+            return_value=(False, "ERRO DE INFRAESTRUTURA no portão: gate runner indisponível")
+        ),
+        last_integrated_sha=None,
+    )
+    mock_client = AsyncMock()
+    mock_client.is_connected = True
+    config = MeisterConfig()
+    config.retry.pane_lost_backoff_seconds = 0
+    bridge = HerdrEventBridge(config=config, client=mock_client)
+    bridge._integration_pipeline = pipeline
+    spawns = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        spawns.append(tier_name)
+        write_atomic_json(
+            task_context["result_file"],
+            {"status": "done", "modified_files": []},
+        )
+        return ("w1:t1", "w1:p1", None)
+
+    bridge.spawner.spawn_worker_tab = fake_spawn
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        result = await bridge.execute_subtask(
+            {
+                "id": "gate-infrastructure-error",
+                "description": "Do not retry deterministic gate infrastructure failures",
+                "target_files": ["app.py"],
+                "cwd": str(tmp_path),
+            }
+        )
+
+    assert result is False
+    assert spawns == ["copilot_luna"]
+    assert not any(
+        call.kwargs.get("event_type") == "worker_retry"
+        for call in log_event_mock.call_args_list
+    )
+    assert pipeline.integrate_subtask.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -918,6 +1248,7 @@ async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, mon
     cfg = MeisterConfig()
     cfg.concurrency.layout_strategy = "tiled"
     cfg.concurrency.isolation_mode = "none"
+    cfg.retry.pane_lost_attempts = 0
     bridge = HerdrEventBridge(config=cfg, client=mock_client)
 
     async def simulate_exit_event():
@@ -1844,6 +2175,7 @@ async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypa
     cfg = MeisterConfig()
     cfg.concurrency.layout_strategy = "tiled"
     cfg.concurrency.isolation_mode = "none"
+    cfg.retry.pane_lost_attempts = 0
     bridge = HerdrEventBridge(config=cfg, client=mock_client)
 
     subtask = {
@@ -1868,6 +2200,10 @@ async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypa
         ]
         assert len(err_calls) >= 1
         assert "Pane w1:p1 do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in err_calls[0].get("error", "")
+        assert not any(
+            kwargs.get("event_type") == "worker_retry"
+            for _, kwargs in mock_log_event.call_args_list
+        )
 
 
 @pytest.mark.asyncio

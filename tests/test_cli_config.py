@@ -82,6 +82,10 @@ def test_cli_config_show_json():
         "max_attempts": 2,
         "unavailable_cooldown_seconds": 300.0,
     }
+    assert data["retry"] == {
+        "pane_lost_attempts": 1,
+        "pane_lost_backoff_seconds": 5.0,
+    }
     assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
         "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]

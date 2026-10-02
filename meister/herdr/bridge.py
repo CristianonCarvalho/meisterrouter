@@ -15,6 +15,7 @@ import shlex
 import asyncio
 import json
 import logging
+import math
 import re
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
@@ -685,6 +686,7 @@ class HerdrEventBridge:
                     return False
 
             attempt_count = 0
+            pane_lost_retries_used = 0
 
             while current_tier:
                 attempt_count += 1
@@ -995,8 +997,74 @@ class HerdrEventBridge:
                             current_tier = next_tier.name
                             continue
 
-                        # Falha rápida sem escalar tier em caso de erro de infraestrutura (Achados E2E-2 / P-2)
+                        # Pane perdido/encerrado: retenta na mesma via antes de falhar sem escalar.
                         err_msg = infra_error or f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                        if (
+                            infra_error is not None
+                            and pane_lost_retries_used < self.config.retry.pane_lost_attempts
+                        ):
+                            pane_lost_retries_used += 1
+                            base_backoff = self.config.retry.pane_lost_backoff_seconds
+                            backoff_exponent = pane_lost_retries_used - 1
+                            backoff_cap_exponent = max(
+                                0,
+                                math.ceil(math.log2(60.0) - math.log2(base_backoff))
+                                if base_backoff > 0
+                                else backoff_exponent,
+                            )
+                            backoff_seconds = (
+                                0.0
+                                if base_backoff == 0
+                                else min(
+                                    60.0,
+                                    math.ldexp(
+                                        base_backoff,
+                                        min(backoff_exponent, backoff_cap_exponent),
+                                    ),
+                                )
+                            )
+                            logger.warning(
+                                "Retrying worker pane for subtask %s on tier %s after pane loss "
+                                "(retry %s/%s)",
+                                task_id,
+                                current_tier,
+                                pane_lost_retries_used,
+                                self.config.retry.pane_lost_attempts,
+                            )
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                            log_event(
+                                event_type="worker_retry",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                tier=current_tier,
+                                attempt=attempt_count,
+                                reason="pane_lost",
+                                retry=pane_lost_retries_used,
+                                backoff_seconds=backoff_seconds,
+                            )
+                            if tab_id and hasattr(self.client, "close_tab"):
+                                try:
+                                    await self.client.close_tab(tab_id)
+                                except Exception as e:
+                                    logger.debug("Failed closing worker tab %s: %s", tab_id, e)
+                            elif pane_id and hasattr(self.client, "close_pane"):
+                                try:
+                                    await self.client.close_pane(pane_id)
+                                except Exception as e:
+                                    logger.debug("Failed closing worker pane %s: %s", pane_id, e)
+                            self._quota_events.pop(pane_id, None)
+                            self._exit_events.pop(pane_id, None)
+                            self.active_workers.pop(pane_id, None)
+                            tab_id = None
+                            pane_id = None
+                            await asyncio.sleep(backoff_seconds)
+                            continue
+
+                        if pane_lost_retries_used:
+                            err_msg = (
+                                f"{err_msg} (retentativas esgotadas: {pane_lost_retries_used})"
+                            )
                         logger.error("Infrastructure error in worker pane %s (%s): %s. Aborting without tier escalation.", pane_id, current_tier, err_msg)
                         log_event(
                             event_type="worker_error",
