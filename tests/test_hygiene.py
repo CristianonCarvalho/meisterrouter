@@ -61,11 +61,13 @@ def test_documentation_pricing_and_catalog_alignment():
     codex_md = (repo_root / "CODEX.md").read_text(encoding="utf-8")
     agents_md = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
 
-    # Sonnet pricing must be aligned to $3.00, not stale $1.54
+    # Repository guidance retains its current catalog; distributable templates stay generic.
     assert "$3.00" in claude_md
     assert "$1.54" not in claude_md
-    assert "$3.00" in claude_template
-    assert "$1.54" not in claude_template
+    assert "meister config show" in claude_template
+    assert "meister models" in claude_template
+    assert "meister.config.yaml" in claude_template
+    assert "$" not in claude_template
 
     # Copilot harness presence in documentation
     assert "copilot" in claude_md

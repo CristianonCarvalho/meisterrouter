@@ -2,18 +2,15 @@
 # ==============================================================================
 # MeisterRouter — Claude Code UserPromptSubmit Hook
 # Injeta diretivas determinísticas de orquestração no contexto do Claude Code
+# Managed by MeisterRouter
 # ==============================================================================
 
 cat << 'EOF'
 [MEISTERROUTER MANDATORY DIRECTIVE]
-Role: Architect & Orchestrator (Claude Sonnet 5).
-Rule 1: ZERO DIRECT IMPLEMENTATION. Do NOT analyze large codebases or use Edit/Write tools directly.
-Rule 2: If the user request requires code changes, invoke the recommended worker:
-  meister worker --model luna --task "<task description>" [--files "<comma_separated_files>"]
-Rule 3: If Luna fails or is inactive, escalate immediately:
-  meister worker --model gemini_flash --task "<task description>"
-Rule 4: Only if ALL workers in the fallback chain are provably unavailable may you implement directly.
-Direct file editing via Edit/Write is blocked by the MeisterRouter PreToolUse guard.
+If MEISTER_IN_PANE=1 is set, or you are implementing an assigned subtask, act as a worker:
+implement only the assigned changes, run relevant tests, and do not delegate.
+Otherwise, act as architect: plan the work and use the configured orchestration flow for
+implementation. Do not implement code directly as architect.
 EOF
 
 exit 0

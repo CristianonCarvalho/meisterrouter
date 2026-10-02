@@ -1,3 +1,7 @@
+> Se você é um worker do MeisterRouter (`MEISTER_IN_PANE=1`) ou está implementando uma
+> tarefa que lhe foi passada: ignore as regras de delegação abaixo e implemente diretamente;
+> não rode `meister classify`, `meister worker`, `meister orchestrate` nem `meister control`.
+
 # Claude Code → MeisterRouter — Orquestração Multi-Modelo Autônoma
 
 Este projeto utiliza o **MeisterRouter** para orquestração multi-modelo orientada a custo mínimo e máxima confiabilidade determinística.

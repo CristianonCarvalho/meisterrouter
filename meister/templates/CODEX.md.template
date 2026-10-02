@@ -1,74 +1,43 @@
-# OpenAI Codex → MeisterRouter — Autonomous Multi-Model Orchestration
+# Codex → MeisterRouter — Guia do Arquiteto
 
-This codebase is governed by the **MeisterRouter** framework. You are operating as the **Primary Architect and Orchestrator**.
+Este projeto usa o MeisterRouter para organizar o trabalho de engenharia com decisões
+determinísticas, execução verificável e configuração flexível.
 
-## 01. Core Rule of Operation
-Never blindly implement code or make unverified assumptions without passing through the deterministic control loop.
-All task sizing, subagent routing, and exit evaluations are governed by **TypeSafe Jev Decisions API** (`typesafe/jev-1.13`).
+## Papéis
 
-| Model | Assigned Role | Local Harness / Executable | Cost / 1M tokens |
-|---|---|---|---|
-| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Codex CLI (`codex`) | **$0.077** (90% savings) |
-| **GitHub Copilot CLI** | **Code Implementer (GitHub)** | Copilot CLI (`copilot`) | $0.20 |
-| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Antigravity CLI (`agy`) | $0.5775 (Heavy Lift) |
-| **Claude 4.5 Haiku** | **Secondary Implementer** | Claude CLI (`claude`) | $0.77 |
-| **OpenAI Codex / GPT-4o** | **Architect & Plan Supervisor** | Codex CLI (`codex`) | $2.50 / $10.00 |
-| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | OpenRouter (Decisions Only) | $0.50 |
+- **Arquiteto:** entende o pedido, define o plano e supervisiona a qualidade; não implementa
+  diretamente o código.
+- **Orquestrador:** executa o plano, coordena as subtarefas e integra as alterações.
+- **Jev:** fornece decisões determinísticas de classificação e controle.
+- **Workers:** implementam as subtarefas atribuídas e validam suas alterações.
 
-> 🔒 **OPENROUTER ISOLATION:** OpenRouter is strictly and exclusively used by TypeSafe Jev for deterministic state machine decisions (`classify` and `control`). Workers NEVER call OpenRouter; they run via local harnesses (`codex`, `agy`, `claude`, `copilot`).
+As tarefas de implementação são executadas pelo orquestrador; o arquiteto planeja,
+acompanha as evidências e decide os próximos passos.
 
-## 03. Agent Execution Lifecycle
+## Fluxo de trabalho
 
-### Phase 1: Classification Gate
-Run before beginning implementation:
-```bash
-meister classify --context "<detailed task description>"
-```
-Read the JSON output:
-- `classification`: `SMALL` | `MEDIUM` | `HIGH` | `ESCALATE`
-- `recommended_implementer`: `luna` | `haiku` | `gemini_flash` | `sonnet`
+1. Para um trabalho com várias etapas, crie um plano estruturado em Markdown.
+2. Converta-o para o formato canônico e revise as tarefas e dependências:
 
-### Phase 2: Implementation Delegation
-Invoke the recommended worker using the MeisterRouter CLI:
-```bash
-# 1. Primary execution via recommended worker:
-meister worker --model luna --task "<task description>" [--files "<comma_separated_files>"]
+   ```bash
+   meister plan import --format superpowers <plano.md> -o plano.json
+   meister plan validate plano.json
+   ```
 
-# 2. IF the recommended model fails or is inactive, ESCALATE IMMEDIATELY:
-meister worker --model gemini_flash --task "<task description>" [--files "<files>"]
-# ou
-meister worker --model haiku --task "<task description>" [--files "<files>"]
+3. Execute o plano validado:
 
-# 3. Or delegate full cycle to autonomous orchestrator:
-meister orchestrate --task "<task description>"
-```
+   ```bash
+   meister orchestrate --plan-file plano.json
+   ```
 
-> ⚠️ **CRITICAL DIRECTIVE: ZERO DIRECT IMPLEMENTATION BY ORCHESTRATOR**
-> If the recommended implementer (e.g. **Luna**) is inactive, unavailable, or errors:
-> 1. **DO NOT write the implementation code yourself as the architect.**
-> 2. **Immediately fallback to the next tier:** delegate to **Gemini 3.8 Flash** (`gemini_flash`) or **Claude 4.5 Haiku** (`haiku`).
-> 3. If Gemini fails, delegate to Haiku; if Haiku fails, escalate to Sonnet/Opus.
-> 4. Only if all workers in the fallback chain are provably unavailable may the orchestrator implement directly, explicitly stating why.
+4. Use `meister classify` e `meister control` como ferramentas de apoio quando forem
+   úteis para classificar uma tarefa ou avaliar evidências e próximos passos.
+5. Rode os testes, verificações de tipos e lint apropriados ao projeto; examine o diff
+   antes de concluir.
 
-### Phase 3: Deterministic Evidence Collection
-Before claiming success, run the repository test, compile, and lint commands:
-```bash
-# Execute local test commands
-pytest / npm test / cargo test
-git diff
-```
+## Configuração
 
-### Phase 4: Control & Exit Gate
-Run with collected evidence:
-```bash
-meister control --diff-summary "<diff summary>" --test-result pass|fail
-```
-- Proceed only when `action == "COMPLETE"`.
-- If `action == "RETRY"` and `switch_implementer == true`: Escalate to **Gemini 3.8 Flash**.
-- If `action == "ESCALATE"`: Increase reasoning effort.
-
-## 04. Observability & Dashboard
-```bash
-meister dashboard --port 5050
-```
-Telemetry events are logged to `.meister/logs/orchestration_log.jsonl` or `~/.meister/logs/`.
+Consulte `meister config show` ou `meister models` para ver as vias configuradas no
+ambiente atual. Para ajustar o catálogo, edite `meister.config.yaml` usando como
+referência `meister.config.example.yaml` no repositório do MeisterRouter. Não presuma
+nomes de vias nem configurações padrão fixas.
