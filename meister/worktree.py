@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -32,8 +33,63 @@ from dataclasses import dataclass, asdict
 from typing import Any, List, Optional, Set, Tuple
 
 from meister.faults import crash_point
+from meister.config import load_config
+from meister.env_setup import prepare_environment
 
 logger = logging.getLogger(__name__)
+GATE_INFRASTRUCTURE_PREFIX = "ERRO DE INFRAESTRUTURA no portão:"
+
+
+def _normalize_scope_pattern(value: str) -> str:
+    raw = value.replace("\\", "/")
+    trailing_slash = raw.endswith("/")
+    normalized = os.path.normpath(raw).replace("\\", "/")
+    if trailing_slash and normalized != ".":
+        normalized += "/"
+    return normalized
+
+
+def _scope_matches(pattern: str, path: str, basename_glob: bool = False) -> bool:
+    if not any(char in pattern for char in "*?["):
+        return (
+            path == pattern
+            or (basename_glob and "/" not in pattern and path.rsplit("/", 1)[-1] == pattern)
+            or (pattern.endswith("/") and path.startswith(pattern))
+        )
+    if basename_glob and "/" not in pattern:
+        pattern = f"**/{pattern}"
+    if pattern.endswith("/"):
+        pattern += "**"
+
+    regex_parts: List[str] = []
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "*" and index + 1 < len(pattern) and pattern[index + 1] == "*":
+            index += 2
+            if index < len(pattern) and pattern[index] == "/":
+                regex_parts.append("(?:.*/)?")
+                index += 1
+            else:
+                regex_parts.append(".*")
+            continue
+        if char == "*":
+            regex_parts.append("[^/]*")
+        elif char == "?":
+            regex_parts.append("[^/]")
+        elif char == "[":
+            closing = pattern.find("]", index + 1)
+            if closing == -1:
+                return False
+            content = pattern[index + 1 : closing]
+            if content.startswith("!"):
+                content = "^" + content[1:]
+            regex_parts.append("[" + content + "]")
+            index = closing
+        else:
+            regex_parts.append(re.escape(char))
+        index += 1
+    return re.fullmatch("".join(regex_parts), path) is not None
 
 
 def compute_repo_hash(repo_root: str) -> str:
@@ -84,6 +140,36 @@ class WorktreeManager:
                     f.write("*\n")
             except Exception:
                 pass
+
+    def _prepare_node_worktree(self, info: WorktreeInfo) -> None:
+        config = load_config(cwd=self.repo_root)
+        if (
+            not config.gate.install
+            and not os.path.isfile(os.path.join(info.worktree_path, "package.json"))
+        ):
+            return
+        if not config.environment.install_dependencies:
+            return
+        started = time.monotonic()
+        ok, message = prepare_environment(info.worktree_path, config)
+        duration_ms = (time.monotonic() - started) * 1000
+        from meister.logger import log_event
+
+        if ok:
+            log_event(
+                event_type="worktree_setup_ok",
+                task_id=info.task_id,
+                duration_ms=duration_ms,
+                message=message,
+            )
+        else:
+            logger.warning("Falha ao preparar ambiente do worktree %s: %s", info.task_id, message)
+            log_event(
+                event_type="worktree_setup_failed",
+                task_id=info.task_id,
+                duration_ms=duration_ms,
+                error=message,
+            )
 
     def _find_repo_root(self) -> str:
         """Localiza a raiz do repositório Git atual."""
@@ -195,6 +281,7 @@ class WorktreeManager:
                 json.dump(asdict(info), f, indent=2)
 
         logger.info("Criado worktree para task %s em %s (branch: %s)", task_id, worktree_path, target_branch)
+        self._prepare_node_worktree(info)
         return info
 
     def commit_worktree(
@@ -367,6 +454,7 @@ class WorktreeManager:
         worktree_path: str,
         target_files: Optional[List[str]],
         base_ref: Optional[str] = None,
+        tolerated: Optional[List[str]] = None,
     ) -> Tuple[bool, List[str]]:
         """Verifica se as modificações no worktree respeitaram target_files (Achado #2).
 
@@ -376,11 +464,28 @@ class WorktreeManager:
             return True, []
 
         modified = self.get_modified_files(worktree_path, base_ref=base_ref)
-        allowed = set(os.path.normpath(f) for f in target_files)
+        targets = [_normalize_scope_pattern(f) for f in target_files]
+        tolerated_patterns = tolerated if tolerated is not None else load_config(cwd=self.repo_root).scope.tolerated_files
+        tolerated_patterns = [_normalize_scope_pattern(f) for f in tolerated_patterns]
+        ignored: Set[str] = set()
+        if modified:
+            try:
+                result = subprocess.run(
+                    ["git", "check-ignore", "--no-index", "-z", "--stdin"],
+                    cwd=worktree_path,
+                    input="\0".join(modified) + "\0",
+                    capture_output=True,
+                    text=True,
+                )
+                ignored = {name for name in result.stdout.split("\0") if name}
+            except OSError as exc:
+                logger.warning("Não foi possível consultar git check-ignore: %s", exc)
 
         out_of_scope = [
             f for f in modified
-            if os.path.normpath(f) not in allowed
+            if f not in ignored
+            and not any(_scope_matches(pattern, f) for pattern in targets)
+            and not any(_scope_matches(pattern, f, basename_glob=True) for pattern in tolerated_patterns)
         ]
         return len(out_of_scope) == 0, out_of_scope
 
@@ -794,6 +899,7 @@ class IntegrationPipeline:
             from meister.gate import DeterministicGate
             gate = DeterministicGate(self.wt_mgr.repo_root)
         self.gate = gate
+        self.config = load_config(cwd=self.wt_mgr.repo_root)
         self.state_manager = state_manager
         self.integration_info: Optional[WorktreeInfo] = None
         self.base_ref: str = "HEAD"
@@ -882,6 +988,7 @@ class IntegrationPipeline:
 
             self.integration_info = info
             logger.info("Pipeline de integração reutilizou branch %s (worktree: %s)", branch_name, info.worktree_path)
+            self.wt_mgr._prepare_node_worktree(info)
             return info
 
         # Se a branch não existe ou não tem histórico, mas o SQLite possui subtarefas COMPLETED com SHAs:
@@ -984,14 +1091,26 @@ class IntegrationPipeline:
             subtask_wt.worktree_path,
             target_files=target_files,
             base_ref=subtask_wt.base_commit,
+            tolerated=self.config.scope.tolerated_files,
         )
         if not valid_scope:
-            return False, f"Violação de escopo detectada no worktree: {out_of_scope}"
+            return False, (
+                f"Violação de escopo no worktree: {out_of_scope}. Declare o arquivo em **Files:** "
+                "(aceita glob, ex.: drizzle/*) ou adicione-o a scope.tolerated_files no meister.config.yaml."
+            )
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
-        passed, out = self.gate.run_verification(repo_path=subtask_wt.worktree_path)
-        if not passed:
+        worker_result = self._run_gate(subtask_wt.worktree_path)
+        if worker_result.infrastructure_error:
+            preserve_message = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
+            preserved_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, preserve_message)
+            if preserved_sha:
+                self.last_integrated_sha = preserved_sha
+            self._log_gate_infrastructure_error(subtask_wt.task_id, worker_result.output)
+            return False, self._gate_infrastructure_message(worker_result.output)
+        if not worker_result.passed:
+            out = worker_result.output
             return False, f"Portão determinístico falhou no worktree do worker:\n{out}"
 
         # 3. Commit das alterações no worktree do worker
@@ -1083,8 +1202,12 @@ class IntegrationPipeline:
         crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
 
         # 5. Gate determinístico no worktree de integração após o merge
-        int_passed, int_out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)
-        if not int_passed:
+        integration_result = self._run_gate(self.integration_info.worktree_path)
+        if integration_result.infrastructure_error:
+            self._log_gate_infrastructure_error(subtask_wt.task_id, integration_result.output)
+            return False, self._gate_infrastructure_message(integration_result.output)
+        if not integration_result.passed:
+            int_out = integration_result.output
             logger.warning("Portão falhou na integração após merge de %s. Executando rollback para %s...", subtask_wt.task_id, rollback_sha)
             # 6. Rollback atômico
             self.wt_mgr.rollback_merge(self.integration_info.worktree_path, rollback_sha)
@@ -1096,8 +1219,36 @@ class IntegrationPipeline:
         """Valida o portão de qualidade determinístico na branch de integração antes de qualquer alteração na main."""
         if self.integration_info is None:
             return False, "Nenhuma integração ativa."
-        passed, out = self.gate.run_verification(repo_path=self.integration_info.worktree_path)
-        return passed, out
+        result = self._run_gate(self.integration_info.worktree_path)
+        if result.infrastructure_error:
+            self._log_gate_infrastructure_error("final-integration", result.output)
+            return False, self._gate_infrastructure_message(result.output)
+        return result.passed, result.output
+
+    @staticmethod
+    def _gate_infrastructure_message(detail: str) -> str:
+        return (
+            f"{GATE_INFRASTRUCTURE_PREFIX} {detail}. O código do worker não foi reprovado; "
+            "corrija o ambiente e rode o mesmo comando para retomar."
+        )
+
+    def _log_gate_infrastructure_error(self, task_id: str, detail: str) -> None:
+        from meister.logger import log_event
+
+        log_event(event_type="gate_infrastructure_error", run_id=self.run_id, task_id=task_id, error=detail)
+
+    def _run_gate(self, repo_path: str):
+        from meister.gate import VerificationResult
+
+        run_ex = getattr(self.gate, "run_verification_ex", None)
+        if callable(run_ex):
+            result = run_ex(repo_path=repo_path)
+            if isinstance(result, VerificationResult):
+                return result
+        legacy = self.gate.run_verification(repo_path=repo_path)
+        if isinstance(legacy, tuple) and len(legacy) == 2 and isinstance(legacy[0], bool):
+            return VerificationResult(legacy[0], str(legacy[1]))
+        raise TypeError("gate must return VerificationResult or a (bool, str) tuple")
 
     def get_integration_diff_summary(self) -> str:
         """Obtém resumo de diff entre a branch de integração e a base para julgamento de conclusão."""
@@ -1211,4 +1362,3 @@ class IntegrationPipeline:
         if self.integration_info is not None:
             self.wt_mgr.cleanup_worktree(self.integration_info.task_id, delete_branch=True, force=True)
             self.integration_info = None
-

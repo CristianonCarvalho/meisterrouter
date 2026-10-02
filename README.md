@@ -142,7 +142,11 @@ evitadas após uma falha. Os padrões são `10`, `2` e `300`, respectivamente.
 ```bash
 meister classify --context "Adicionar filtro de busca por data no painel"
 ```
+
 Retorna JSON tipado com complexidade (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) e o implementador recomendado entre as vias configuradas em `tier_order`.
+
+O portão aceita verificações `gate.commands` próprias e `scope.tolerated_files` para artefatos gerados;
+veja `meister.config.example.yaml` para exemplos Go e Node/pnpm.
 
 #### Avaliar e Controlar o Loop (`control`):
 ```bash

@@ -69,7 +69,7 @@ def test_run_verification_no_runner(tmp_path):
     gate = DeterministicGate(str(tmp_path))
     passed, output = gate.run_verification()
     assert passed is False
-    assert "No test runner detected" in output
+    assert "Configure gate.commands" in output
 
 
 def test_run_verification_pytest_success(tmp_path):
