@@ -1,6 +1,6 @@
 # Manual de execução do MeisterRouter
 
-Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o PR #24). Itens marcados **AÇÃO** exigem algo seu; os marcados **(temporário)** deixam de ser necessários quando a correção indicada for mesclada, e então a linha é removida. O diagrama do fluxo está em [FLUXO_MEISTERROUTER.md](FLUXO_MEISTERROUTER.md).
+Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o PR #28). Itens marcados **AÇÃO** exigem algo seu; os marcados **(temporário)** deixam de ser necessários quando a correção indicada for mesclada, e então a linha é removida. O diagrama do fluxo está em [FLUXO_MEISTERROUTER.md](FLUXO_MEISTERROUTER.md).
 
 ## 1. Uma vez por máquina
 - **Instalação:** o `meister` já está instalado (modo editável a partir do repositório). Em outra máquina: `git clone`, `python3 -m venv .venv && .venv/bin/pip install -e .`, `herdr plugin link <pasta do repo>`.
@@ -38,7 +38,9 @@ continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
 | Você **editou o plano** (ex.: acrescentou um arquivo em `Files:`) depois de tarefas concluídas | Rode `meister orchestrate --plan-file plano.json --resume` (ou `--resume <run_id>`). Tarefas concluídas, integradas e inalteradas (descrição e dependências iguais, commit existente, dentro do escopo novo) são reaproveitadas; as demais rodam de novo. Sem `--resume` o run é novo e refaz tudo (o comando avisa quando há run aproveitável). |
 | `Violação de escopo` | A mensagem indica o arquivo. Declare-o em `**Files:**` (aceita glob) ou em `scope.tolerated_files`, edite o plano e rode com `--resume`. |
 | `ERRO DE INFRAESTRUTURA no portão` (instalação, binário local ausente, timeout) | O código do worker **não** foi reprovado e o trabalho dele foi preservado em commit. Corrija o ambiente (ex.: rodar `pnpm install` no projeto, conferir o `pnpm`/`node` no PATH) e rode o mesmo comando. |
-| `Erro de infraestrutura` do pane | Reexecute o mesmo comando. **(temporário)** Fim da necessidade de reexecutar à mão: retry automático (backlog A4). |
+| Você **fechou a janela** do Herdr (ou desanexou com `ctrl+b q`) | Nada. O Herdr mantém um servidor em segundo plano: os panes, os workers e o `meister orchestrate` continuam rodando. Reabra com `herdr`. |
+| Você **desligou o computador** ou parou o servidor (`herdr server stop`) | O run morre junto (o `orchestrate` é um processo comum e o Herdr não preserva processos, só o layout). Rode o mesmo comando (ou `--resume` se editou o plano). Suspender o notebook (tampa fechada) em geral não derruba os processos, mas uma queda de rede pode afetar os workers. |
+| A **tab/pane de um worker sumiu** (fechada à mão ou o agente caiu) | Automático: o MeisterRouter tenta de novo **uma vez**, na mesma via e no mesmo worktree (`retry.pane_lost_attempts`, `retry.pane_lost_backoff_seconds`; `0` desliga). Se a retentativa também falhar, o run falha com "retentativas esgotadas"; rode o mesmo comando. |
 | Cota do worker esgotada | Automático: abre o disjuntor da via (60 s) e usa a próxima via. Se todas esgotarem, o run falha; reexecute depois. |
 | Jev indisponível (OpenRouter fora do ar ou sem chave) | Automático: usa a primeira via por 5 min sem esperar de novo. Sem chave, `meister config validate` avisa. |
 
