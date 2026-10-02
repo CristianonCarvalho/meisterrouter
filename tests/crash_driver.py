@@ -60,6 +60,9 @@ def setup_temp_repo(repo_dir: str) -> str:
     (Path(repo_dir) / "pyproject.toml").write_text(
         '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
     )
+    (Path(repo_dir) / "meister.config.yaml").write_text(
+        "router: {mode: first}\n"
+    )
 
     subprocess.run(
         ["git", "add", "-A"],
@@ -361,10 +364,26 @@ async def run_orchestration(repo_dir: str, state_dir: str) -> int:
     # Import bridge and set up
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from meister.herdr.bridge import HerdrEventBridge
-    from meister.config import MeisterConfig
+    from meister.config import load_config
     from meister.state import StateManager
 
-    config = MeisterConfig()
+    config = load_config(cwd=repo_dir)
+    if config.router.mode != "first":
+        raise RuntimeError(
+            f"Crash driver requires router.mode=first, got {config.router.mode!r}"
+        )
+    from meister.herdr import bridge as bridge_module
+
+    def deterministic_classify_task(*, implementers, **_kwargs):
+        """Keep unexpected classification calls local and deterministic."""
+        return {
+            "classification": "SMALL",
+            "classification_confidence": 1.0,
+            "recommended_implementer": implementers[0].name,
+        }
+
+    bridge_module.classify_task = deterministic_classify_task
+
     sm = StateManager()
 
     bridge = HerdrEventBridge(
