@@ -177,8 +177,9 @@
     const day = `${pad(parsed.getDate())}/${pad(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
     return `${day} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
   };
+  const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
   const runLabel = (run) => {
-    const parts = [formatTime(run.started_at), run.title || shortId(run.run_id), `${run.tasks} tarefas`, run.status || "em andamento"];
+    const parts = [formatTime(run.started_at), run.title || shortId(run.run_id), plural(run.tasks, "tarefa"), run.status || "em andamento"];
     return parts.filter(Boolean).join(" · ");
   };
   const taskTitles = {};
@@ -326,7 +327,7 @@
     byId("run-title").textContent = run.title || `Run ${shortId(run.run_id)}`;
     byId("run-details").textContent = [
       `id ${run.run_id}`, run.started_at ? `início ${formatTime(run.started_at)}` : "",
-      run.status || "em andamento", `${run.tasks} tarefas`
+      run.status || "em andamento", plural(run.tasks, "tarefa")
     ].filter(Boolean).join(" · ");
   }
 

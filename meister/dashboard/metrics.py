@@ -1,6 +1,7 @@
 """Pure event aggregation helpers for the web telemetry dashboard."""
 
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
@@ -53,9 +54,23 @@ def _event_sort_key(event: Dict[str, Any]) -> datetime:
     return _timestamp(_event_time(event)) or datetime.min.replace(tzinfo=timezone.utc)
 
 
+_JSON_DESCRIPTION = re.compile(r'"description"\s*:\s*"((?:[^"\\]|\\.)*)')
+
+
 def clip_title(value: Any, size: int = 100) -> str:
     """Primeira linha com texto de um plano/descrição, cortada em `size` caracteres."""
-    for line in str(value or "").splitlines():
+    text = str(value or "")
+    if text.lstrip().startswith(("[", "{")):
+        # plano JSON (cortado em 200 caracteres no log): usa a primeira "description" em vez do JSON cru
+        match = _JSON_DESCRIPTION.search(text)
+        if match:
+            try:
+                text = json.loads(f'"{match.group(1)}"')
+            except ValueError:
+                text = match.group(1)
+        else:
+            return ""
+    for line in text.splitlines():
         line = line.strip()
         if not any(char.isalnum() for char in line) or line.rstrip(":").lower() in {"plan", "plano"}:
             continue
