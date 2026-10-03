@@ -556,7 +556,8 @@ class HerdrEventBridge:
                     log_event(
                         event_type="route_decision",
                         run_id=active_run_id,
-                        task_id=subtask_id,
+                        task_id=task_id,
+                        subtask_id=subtask_id,
                         tier=current_tier,
                         classification=None,
                         confidence=None,
@@ -569,7 +570,8 @@ class HerdrEventBridge:
                         log_event(
                             event_type="route_decision",
                             run_id=active_run_id,
-                            task_id=subtask_id,
+                            task_id=task_id,
+                            subtask_id=subtask_id,
                             tier=current_tier,
                             classification=None,
                             confidence=None,
@@ -589,7 +591,7 @@ class HerdrEventBridge:
                                     classify_task,
                                     context=context,
                                     model=self.config.master.model,
-                                    task_id=subtask_id,
+                                    task_id=task_id,
                                     run_id=active_run_id,
                                     implementers=tier_order,
                                     timeout=timeout_seconds,
@@ -612,7 +614,8 @@ class HerdrEventBridge:
                                 log_event(
                                     event_type="route_decision",
                                     run_id=active_run_id,
-                                    task_id=subtask_id,
+                                    task_id=task_id,
+                                    subtask_id=subtask_id,
                                     tier=current_tier,
                                     classification=result.get("classification"),
                                     confidence=result.get("classification_confidence"),
@@ -626,7 +629,8 @@ class HerdrEventBridge:
                                 log_event(
                                     event_type="route_decision",
                                     run_id=active_run_id,
-                                    task_id=subtask_id,
+                                    task_id=task_id,
+                                    subtask_id=subtask_id,
                                     tier=current_tier,
                                     classification=result.get("classification"),
                                     confidence=result.get("classification_confidence"),
@@ -642,7 +646,8 @@ class HerdrEventBridge:
                             log_event(
                                 event_type="route_decision",
                                 run_id=active_run_id,
-                                task_id=subtask_id,
+                                task_id=task_id,
+                                subtask_id=subtask_id,
                                 tier=current_tier,
                                 classification=None,
                                 confidence=None,

@@ -38,6 +38,18 @@
   .panel { margin-bottom: 16px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 14px; }
   .table-wrap { max-width: 100%; overflow-x: auto; }
+/* Tabela de eventos: colunas curtas fixas e em uma linha; so a coluna do evento quebra linha. */
+.events-table { table-layout: fixed; min-width: 760px; }
+.events-table th:nth-child(1) { width: 84px; }
+.events-table th:nth-child(2) { width: 150px; }
+.events-table th:nth-child(3) { width: 138px; }
+.events-table th:nth-child(4) { width: 132px; }
+.events-table td.nowrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+.events-table td.event-cell { overflow-wrap: anywhere; }
+.event-summary { color: var(--text, inherit); line-height: 1.5; }
+.event-details { margin-top: 6px; }
+.event-details summary { cursor: pointer; color: var(--muted); font: 11px -apple-system, sans-serif; }
+.event-json { margin: 8px 0 0; padding: 10px; max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: rgba(127,127,127,.10); border-radius: 6px; }
   table { width: 100%; border-collapse: collapse; font: 12px "SFMono-Regular", Consolas, monospace; }
   th, td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
   th { color: var(--muted); text-transform: uppercase; font: 600 10px -apple-system, sans-serif; }
@@ -108,7 +120,7 @@
         <button id="sort-button" type="button">Ordenar: mais recentes</button>
       </form>
       <div class="table-wrap" style="margin-top: 14px">
-        <table>
+        <table class="events-table">
           <thead><tr><th>Horário</th><th>Tipo</th><th>Tarefa</th><th>Via</th><th>Evento</th></tr></thead>
           <tbody id="events-body"></tbody>
         </table>
@@ -145,6 +157,58 @@
   };
   const formatMoney = (value) => value === null || value === undefined ? "não medido" : `$${Number(value).toFixed(6)}`;
   const formatDuration = (value) => value === null || value === undefined ? "—" : `${Number(value).toFixed(2)} s`;
+  const shortId = (value) => {
+    const text = String(value || "");
+    return text.length > 14 ? `${text.slice(0, 12)}…` : text;
+  };
+  const formatTime = (value) => {
+    const parsed = value ? new Date(value) : null;
+    if (!parsed || Number.isNaN(parsed.getTime())) return String(value || "");
+    return parsed.toLocaleTimeString("pt-BR", {hour12: false});
+  };
+  const SUMMARY_FIELDS = ["status", "action", "classification", "confidence", "kind", "retry", "reason", "error", "message", "exit_code"];
+  const clip = (value, size = 140) => {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    return text.length > size ? `${text.slice(0, size)}…` : text;
+  };
+  const summarizeEvent = (event) => {
+    const parts = [];
+    SUMMARY_FIELDS.forEach((key) => {
+      const value = event[key];
+      if (value !== undefined && value !== null && value !== "" && !(key === "exit_code" && Number(value) === 0)) {
+        parts.push(`${key}=${clip(value)}`);
+      }
+    });
+    if (event.pane_id) parts.push(`pane=${event.pane_id}`);
+    if (Number(event.attempt) > 1) parts.push(`tentativa=${event.attempt}`);
+    if (Number(event.cost_usd) > 0) parts.push(`custo=$${Number(event.cost_usd).toFixed(6)}`);
+    if (Number(event.duration_ms) > 0) parts.push(`duração=${Number(event.duration_ms).toFixed(0)} ms`);
+    if (Number(event.tokens_in) > 0 || Number(event.tokens_out) > 0) parts.push(`tokens=${event.tokens_in || 0}/${event.tokens_out || 0}`);
+    const size = JSON.stringify(event).length;
+    if (size > 4000) parts.push(`tamanho=${(size / 1024).toFixed(1)} KB`);
+    return parts.length ? parts.join(" · ") : (event.event_type || event.event || "");
+  };
+  function eventRow(event) {
+    const row = document.createElement("tr");
+    const cell = (text, title) => {
+      const td = make("td", text, "nowrap");
+      if (title) td.title = String(title);
+      return td;
+    };
+    const stamp = event.ts || event.timestamp || "";
+    row.append(cell(formatTime(stamp), stamp));
+    row.append(cell(event.event_type || event.event || "", event.event_type || event.event || ""));
+    row.append(cell(shortId(event.task_id), event.task_id || ""));
+    row.append(cell(event.tier || "", event.tier || ""));
+    const detail = make("td", undefined, "event-cell");
+    detail.append(make("div", summarizeEvent(event), "event-summary"));
+    const details = make("details", undefined, "event-details");
+    details.append(make("summary", "JSON completo"));
+    details.append(make("pre", JSON.stringify(event, null, 2), "event-json"));
+    detail.append(details);
+    row.append(detail);
+    return row;
+  }
   const summaryUrl = () => state.run_id ? `/api/summary?${new URLSearchParams({run_id: state.run_id})}` : "/api/summary";
 
   function updateUrl() {
@@ -243,7 +307,11 @@
     addCard(container, "Custo do Jev", formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
     addCard(container, "Custo dos workers", formatMoney(summary.workers.cost_usd), "não medido quando não há custos registrados");
     renderTasks(summary.tasks);
-    renderDistribution("jev-calls", {classify: summary.jev.classify_calls, control: summary.jev.control_calls});
+    const jevCalls = {classify: summary.jev.classify_calls, control: summary.jev.control_calls};
+    if (summary.jev.unlinked_classify_calls) {
+      jevCalls["classify sem tarefa associada (logs antigos)"] = summary.jev.unlinked_classify_calls;
+    }
+    renderDistribution("jev-calls", jevCalls);
     renderDistribution("route-results", summary.jev.route_by_status);
     renderDistribution("classification-task", summary.jev.classification_by_task);
     renderDistribution("classification-call", summary.jev.classification_by_call);
@@ -287,12 +355,7 @@
     const result = await getJson(`/api/events?${query.toString()}`);
     const body = byId("events-body");
     body.replaceChildren();
-    result.events.forEach((event) => {
-      const row = document.createElement("tr");
-      [event.ts || event.timestamp || "", event.event_type || event.event || "", event.task_id || "", event.tier || "", JSON.stringify(event)]
-        .forEach((value) => row.append(make("td", value)));
-      body.append(row);
-    });
+    result.events.forEach((event) => body.append(eventRow(event)));
     if (!result.total) {
       const row = document.createElement("tr");
       const cell = make("td", "Nenhum evento corresponde aos filtros.");
