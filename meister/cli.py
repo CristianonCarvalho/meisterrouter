@@ -1006,6 +1006,7 @@ def orchestrate(
         )
         if resume_source is not None:
             cycle_options["resume_run_id"] = resume_source
+            cycle_options["resume_hint_callback"] = click.echo
         elif task is None:
             cycle_options["resume_hint_callback"] = click.echo
         return await bridge.run_orchestration_cycle(**cycle_options)

@@ -9,7 +9,7 @@ from click.testing import CliRunner
 from meister.cli import main
 from meister.config import load_config
 from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
-from meister.state import RunState, StateManager, SubtaskState, task_fingerprint
+from meister.state import RunState, StateManager, SubtaskState, compute_run_id, task_fingerprint
 from meister.worktree import IntegrationPipeline
 
 
@@ -75,6 +75,22 @@ def _seed_source(sm, repo, tasks, commits, failed=True, run_id="source-run"):
     if failed:
         sm.transition_run(run_id, RunState.FAILED)
     return run
+
+
+def _seed_same_run(sm, repo, task):
+    run_id = compute_run_id(task, os.path.realpath(repo))
+    sm.create_or_get_run(task, cwd=os.path.realpath(repo), force_run_id=run_id)
+    sm.transition_run(run_id, RunState.RUNNING)
+    rows = sm.add_subtasks(run_id, _tasks())
+    for row in rows[:2]:
+        sm.transition_subtask(row["subtask_id"], SubtaskState.RUNNING)
+        sm.transition_subtask(
+            row["subtask_id"],
+            SubtaskState.COMPLETED,
+            integrated_sha="a" * 40,
+        )
+    sm.transition_run(run_id, RunState.FAILED)
+    return run_id
 
 
 def _bridge(sm, repo, monkeypatch):
@@ -273,6 +289,116 @@ async def test_explicit_resume_source_validation(
             task=task,
             allow_freeform=False,
             resume_run_id=source_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_of_same_run_keeps_completed_tasks(tmp_path, monkeypatch):
+    repo, _ = _git_repo(tmp_path)
+    task = json.dumps(_tasks())
+    sm = StateManager(str(tmp_path / "same-run.db"))
+    run_id = _seed_same_run(sm, repo, task)
+    bridge = _bridge(sm, repo, monkeypatch)
+    bridge.config.concurrency.isolation_mode = "none"
+    events = []
+    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: events.append(event))
+    dispatched = []
+    bridge.gate = MagicMock()
+    bridge.gate.run_verification.return_value = (True, "ok")
+    bridge.gate.get_diff_summary.return_value = ""
+    bridge.gate.evaluate_completion.return_value = {"action": "COMPLETE"}
+    execute_subtask = bridge.execute_subtask
+
+    async def dispatch_only_pending(step):
+        step_id = step["id"] if isinstance(step, dict) else step.id
+        row = next(row for row in sm.get_subtasks(run_id) if row["step_id"] == step_id)
+        if row["status"] == SubtaskState.COMPLETED.value:
+            return await execute_subtask(step)
+        dispatched.append(step_id)
+        sm.transition_subtask(row["subtask_id"], SubtaskState.RUNNING)
+        sm.transition_subtask(row["subtask_id"], SubtaskState.COMPLETED)
+        return True
+
+    bridge.execute_subtask = dispatch_only_pending
+    assert await bridge.run_orchestration_cycle(
+        task=task,
+        allow_freeform=False,
+        resume_run_id=run_id,
+    ) is True
+
+    assert dispatched == ["t3"]
+    run = sm.get_run(run_id)
+    assert run["state"] == RunState.COMPLETED.value
+    metadata = json.loads(run["metadata_json"] or "{}")
+    assert "superseded_by" not in metadata
+    assert "resumed_from" not in metadata
+    assert any(event["event_type"] == "resume_same_run" for event in events)
+    notifications = [call.args[0] for call in bridge.client.show_notification.await_args_list]
+    assert any(run_id[:8] in message and "tarefas concluidas sao puladas" in message for message in notifications)
+
+
+@pytest.mark.asyncio
+async def test_auto_resume_uses_same_run_when_no_other_run_is_eligible(tmp_path, monkeypatch):
+    repo, _ = _git_repo(tmp_path)
+    task = json.dumps(_tasks())
+    sm = StateManager(str(tmp_path / "auto-same-run.db"))
+    run_id = _seed_same_run(sm, repo, task)
+    bridge = _bridge(sm, repo, monkeypatch)
+    bridge.config.concurrency.isolation_mode = "none"
+    messages = []
+    events = []
+    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: events.append(event))
+    bridge.execute_plan = AsyncMock(return_value=False)
+
+    assert await bridge.run_orchestration_cycle(
+        task=task,
+        allow_freeform=False,
+        resume_run_id="auto",
+        resume_hint_callback=messages.append,
+    ) is False
+
+    assert messages == [
+        f"Plano identico ao run {run_id[:8]} (FAILED): retomando o mesmo run; tarefas concluidas sao puladas."
+    ]
+    assert any(event["event_type"] == "resume_same_run" for event in events)
+    assert messages[0] in [call.args[0] for call in bridge.client.show_notification.await_args_list]
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_rejects_completed_same_run(tmp_path, monkeypatch):
+    repo, _ = _git_repo(tmp_path)
+    task = json.dumps(_tasks())
+    sm = StateManager(str(tmp_path / "completed-same-run.db"))
+    run_id = _seed_same_run(sm, repo, task)
+    sm.transition_run(run_id, RunState.RUNNING)
+    sm.transition_run(run_id, RunState.COMPLETED)
+    bridge = _bridge(sm, repo, monkeypatch)
+
+    with pytest.raises(ResumeRequestError, match="está COMPLETED"):
+        await bridge.run_orchestration_cycle(
+            task=task,
+            allow_freeform=False,
+            resume_run_id=run_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_rejected_resume_names_automatic_source_candidate(tmp_path, monkeypatch):
+    repo, _ = _git_repo(tmp_path)
+    sm = StateManager(str(tmp_path / "candidate.db"))
+    _seed_source(sm, repo, _tasks(), {}, run_id="automatic-candidate")
+    other_repo = tmp_path / "other"
+    other_repo.mkdir()
+    sm.create_or_get_run("other cwd", cwd=os.path.realpath(other_repo), force_run_id="wrong-cwd")
+    sm.transition_run("wrong-cwd", RunState.RUNNING)
+    sm.transition_run("wrong-cwd", RunState.FAILED)
+    bridge = _bridge(sm, repo, monkeypatch)
+
+    with pytest.raises(ResumeRequestError, match="Use --resume sem id para usar o run automati"):
+        await bridge.run_orchestration_cycle(
+            task=json.dumps(_tasks()),
+            allow_freeform=False,
+            resume_run_id="wrong-cwd",
         )
 
 

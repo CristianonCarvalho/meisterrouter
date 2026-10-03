@@ -286,6 +286,26 @@ def test_cli_orchestrate_progress_stderr_and_stdout_contract(tmp_path, monkeypat
     assert "Concluido: a main foi atualizada." in result.stderr
 
 
+def test_cli_orchestrate_resume_passes_hint_callback_so_the_message_is_printed(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    seen = {}
+
+    async def execute(**kwargs):
+        seen.update(kwargs)
+        kwargs["resume_hint_callback"]("Plano identico ao run abc12345 (FAILED): retomando o mesmo run")
+        return True
+
+    for args, expected in ((["orchestrate", "--resume", "-q"], "auto"), (["orchestrate", "--resume", "-q", "run-x"], "run-x")):
+        seen.clear()
+        with patch("meister.cli.HerdrEventBridge") as bridge_cls:
+            bridge_cls.return_value.run_orchestration_cycle = AsyncMock(side_effect=execute)
+            result = CliRunner().invoke(main, args)
+        assert result.exit_code == 0, result.output
+        assert seen["resume_run_id"] == expected
+        assert "Plano identico ao run abc12345 (FAILED): retomando o mesmo run" in result.stdout
+
+
 def test_cli_orchestrate_quiet_suppresses_progress_and_summary(tmp_path, monkeypatch):
     monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "state.db"))
     monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
