@@ -406,3 +406,16 @@ def test_project_from_log_uses_the_log_owner_not_the_cwd(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
     home_log = tmp_path / ".meister" / "logs" / "orchestration_log.jsonl"
     assert project_from_log(str(home_log))["name"] == "global (~/.meister)"
+
+
+def test_clip_title_reads_description_from_truncated_json_plan():
+    raw = (
+        '[{"depends_on":[],"description":"Task fix_13: Parse \\"real\\" headers (bio, followers) '
+        'and more text that keeps going and going and going and going and going'
+    )
+    title = clip_title(raw)
+    assert title.startswith('Task fix_13: Parse "real" headers')
+    assert title.endswith("…") and len(title) == 100
+    # JSON sem description legível: sem título (o dashboard cai para o id), nunca o JSON cru
+    assert clip_title('[{"depends_on":[],"desc') == ""
+    assert clip_title('{"a": 1}') == ""
