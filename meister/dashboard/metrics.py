@@ -53,6 +53,31 @@ def _event_sort_key(event: Dict[str, Any]) -> datetime:
     return _timestamp(_event_time(event)) or datetime.min.replace(tzinfo=timezone.utc)
 
 
+def clip_title(value: Any, size: int = 100) -> str:
+    """Primeira linha com texto de um plano/descrição, cortada em `size` caracteres."""
+    for line in str(value or "").splitlines():
+        line = line.strip()
+        if not any(char.isalnum() for char in line) or line.rstrip(":").lower() in {"plan", "plano"}:
+            continue
+        return line if len(line) <= size else line[: size - 1] + "…"
+    return ""
+
+
+def _plan_titles(events: Iterable[Dict[str, Any]]) -> Dict[tuple, str]:
+    """Títulos por (run_id, task_id), gravados pelo evento `plan_parsed` (runs novos)."""
+    titles: Dict[tuple, str] = {}
+    for event in events:
+        if event_type(event) != "plan_parsed":
+            continue
+        run_id = str(event.get("run_id") or "")
+        raw = event.get("task_titles")
+        if run_id and isinstance(raw, dict):
+            for task_id, title in raw.items():
+                if title:
+                    titles[(run_id, str(task_id))] = str(title)
+    return titles
+
+
 def _number(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -115,6 +140,7 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             run_id,
             {
                 "run_id": run_id,
+                "title": "",
                 "started_at": None,
                 "ended_at": None,
                 "status": None,
@@ -132,6 +158,7 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         kind = event_type(event)
         if kind == "orchestration_start":
             row["started_at"] = timestamp or row["started_at"]
+            row["title"] = clip_title(event.get("task")) or row["title"]
         elif kind == "orchestration_end":
             row["ended_at"] = timestamp or row["ended_at"]
             row["status"] = event.get("status") or row["status"]
@@ -159,7 +186,12 @@ def _failure_reason(event: Dict[str, Any]) -> str:
     return str(reason).replace("\n", " ").strip()[:180]
 
 
-def _build_task(run_id: str, task_id: str, events: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _build_task(
+    run_id: str,
+    task_id: str,
+    events: List[Dict[str, Any]],
+    title: str = "",
+) -> Dict[str, Any]:
     spawns = [event for event in events if event_type(event) == "worker_spawn"]
     retries = [event for event in events if event_type(event) == "worker_retry"]
     completions = [event for event in events if event_type(event) == "subtask_completed"]
@@ -210,6 +242,7 @@ def _build_task(run_id: str, task_id: str, events: List[Dict[str, Any]]) -> Dict
     return {
         "run_id": run_id,
         "task_id": task_id,
+        "title": title,
         "status": status,
         "tier": latest_tier,
         "attempts": len(spawns),
@@ -242,8 +275,9 @@ def compute_summary(
         selected_events = event_list
 
     grouped = _task_events(selected_events)
+    titles = _plan_titles(selected_events)
     tasks = [
-        _build_task(task_run_id, task_id, task_events)
+        _build_task(task_run_id, task_id, task_events, titles.get((task_run_id, task_id), ""))
         for (task_run_id, task_id), task_events in grouped.items()
     ]
     tasks.sort(key=lambda task: (task["run_id"], task["task_id"]))
@@ -311,6 +345,7 @@ def compute_summary(
         "meta": {
             "log_file": log_file,
             "run_id": selected_run,
+            "run": next((row for row in runs if row["run_id"] == selected_run), None),
             "runs_available": len(runs),
             "events_total": len(selected_events),
         },
@@ -397,4 +432,8 @@ def query_events(
         "limit": limit,
         "offset": offset,
         "events": matching[offset:offset + limit],
+        "task_titles": {
+            task: title for (title_run, task), title in _plan_titles(event_list).items()
+            if run_id == "all" or title_run == run_id
+        },
     }

@@ -5,8 +5,8 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from meister.dashboard.metrics import compute_summary, iter_events, list_runs, query_events
-from meister.dashboard.server import app, start_server
+from meister.dashboard.metrics import clip_title, compute_summary, iter_events, list_runs, query_events
+from meister.dashboard.server import app, project_from_log, start_server
 from meister.logger import find_project_root, get_log_dir
 
 
@@ -355,3 +355,54 @@ def test_query_events_breaks_timestamp_ties_by_log_position():
 
     assert [e["event"] for e in newest_first] == ["second", "first", "older", "no_ts"]
     assert [e["event"] for e in oldest_first] == ["no_ts", "older", "first", "second"]
+
+
+def test_clip_title_skips_plan_header_and_punctuation_lines():
+    assert clip_title("\nPlan:\n{\n  Migrar auth para OAuth2\n") == "Migrar auth para OAuth2"
+    assert clip_title("a" * 150, 20) == "a" * 19 + "…"
+    assert clip_title("") == ""
+    assert clip_title(None) == ""
+
+
+def test_runs_and_tasks_expose_human_titles_from_the_log():
+    events = [
+        {**event("orchestration_start", task="orchestrator", ts="2026-01-01T00:00:00+00:00"),
+         "task": "\nPlan:\nMigrar auth"},
+        event("plan_parsed", task="orchestrator", ts="2026-01-01T00:00:01+00:00",
+              task_ids=["t1", "t2"], task_titles={"t1": "Criar rota", "t2": ""}),
+        event("worker_spawn", task="t1", ts="2026-01-01T00:00:02+00:00"),
+        event("worker_spawn", task="t2", ts="2026-01-01T00:00:03+00:00"),
+        event("worker_spawn", task="t1", run="outro", ts="2026-01-01T00:00:04+00:00"),
+    ]
+
+    runs = {row["run_id"]: row for row in list_runs(events)}
+    assert runs["run-a"]["title"] == "Migrar auth"
+    assert runs["outro"]["title"] == ""
+
+    summary = compute_summary(events, "run-a")
+    titles = {task["task_id"]: task["title"] for task in summary["tasks"]}
+    assert titles == {"t1": "Criar rota", "t2": ""}
+    assert summary["meta"]["run"]["title"] == "Migrar auth"
+
+    # o título é por run: o mesmo id em outro run não herda
+    other = compute_summary(events, "outro")
+    assert [task["title"] for task in other["tasks"]] == [""]
+
+    assert query_events(events, "run-a")["task_titles"] == {"t1": "Criar rota"}
+    assert query_events(events, "outro")["task_titles"] == {}
+    assert query_events(events, "all")["task_titles"] == {"t1": "Criar rota"}
+
+
+def test_project_from_log_uses_the_log_owner_not_the_cwd(tmp_path, monkeypatch):
+    log = tmp_path / "CRM_Base" / ".meister" / "logs" / "orchestration_log.jsonl"
+    assert project_from_log(str(log), "/outro/projeto") == {
+        "name": "CRM_Base", "path": str(tmp_path / "CRM_Base"),
+    }
+    # layout fora do padrão: cai para o projeto do cwd, e sem ele para a pasta do log
+    odd = tmp_path / "logs-soltos" / "orchestration_log.jsonl"
+    assert project_from_log(str(odd), "/x/meu_projeto") == {"name": "meu_projeto", "path": "/x/meu_projeto"}
+    assert project_from_log(str(odd))["name"] == "logs-soltos"
+    # log global em ~/.meister
+    monkeypatch.setenv("HOME", str(tmp_path))
+    home_log = tmp_path / ".meister" / "logs" / "orchestration_log.jsonl"
+    assert project_from_log(str(home_log))["name"] == "global (~/.meister)"

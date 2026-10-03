@@ -36,13 +36,17 @@
   .card-value { margin: 7px 0 4px; font-size: 25px; font-weight: 700; overflow-wrap: anywhere; }
   .card-sub { color: var(--muted); font-size: 12px; }
   .panel { margin-bottom: 16px; }
+  .run-banner { border-left: 4px solid var(--purple); }
+  .run-title { margin: 6px 0 4px; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+  .task-title { font-weight: 600; overflow-wrap: anywhere; }
+  .task-id { color: var(--muted); font-size: 11px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 14px; }
   .table-wrap { max-width: 100%; overflow-x: auto; }
 /* Tabela de eventos: colunas curtas fixas e em uma linha; so a coluna do evento quebra linha. */
 .events-table { table-layout: fixed; min-width: 760px; }
 .events-table th:nth-child(1) { width: 190px; }
-.events-table th:nth-child(2) { width: 150px; }
-.events-table th:nth-child(3) { width: 138px; }
+.events-table th:nth-child(2) { width: 180px; }
+.events-table th:nth-child(3) { width: 210px; }
 .events-table th:nth-child(4) { width: 132px; }
 .events-table td.nowrap { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
 .events-table td.event-cell { overflow-wrap: anywhere; }
@@ -70,8 +74,8 @@
 <body>
 <header class="header">
   <div>
-    <h1><span class="logo">MEISTER</span> Telemetria de Orquestração</h1>
-    <div class="subtitle">Métricas agrupadas por tarefa e análise de eventos</div>
+    <h1><span class="logo">MEISTER</span> <span id="project-name">Projeto</span></h1>
+    <div class="subtitle">Telemetria de orquestração · <span id="project-path"></span></div>
   </div>
   <div class="header-controls">
     <label for="run-select">Run</label>
@@ -82,6 +86,11 @@
     </div>
   </div>
 </header>
+<section id="run-banner" class="panel run-banner" aria-live="polite">
+  <div class="card-label">Run selecionado</div>
+  <div id="run-title" class="run-title">—</div>
+  <div id="run-details" class="muted"></div>
+</section>
 <div id="log-meta" class="meta" aria-live="polite"></div>
 <div id="other-logs" class="warning" hidden></div>
 <div id="error" class="error" role="alert" hidden></div>
@@ -168,6 +177,11 @@
     const day = `${pad(parsed.getDate())}/${pad(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
     return `${day} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
   };
+  const runLabel = (run) => {
+    const parts = [formatTime(run.started_at), run.title || shortId(run.run_id), `${run.tasks} tarefas`, run.status || "em andamento"];
+    return parts.filter(Boolean).join(" · ");
+  };
+  const taskTitles = {};
   const SUMMARY_FIELDS = ["status", "action", "classification", "confidence", "kind", "retry", "reason", "error", "message", "exit_code"];
   const clip = (value, size = 140) => {
     const text = typeof value === "string" ? value : JSON.stringify(value);
@@ -200,7 +214,8 @@
     const stamp = event.ts || event.timestamp || "";
     row.append(cell(formatTime(stamp), stamp));
     row.append(cell(event.event_type || event.event || "", event.event_type || event.event || ""));
-    row.append(cell(shortId(event.task_id), event.task_id || ""));
+    const title = taskTitles[event.task_id] || "";
+    row.append(cell(title || shortId(event.task_id), title ? `${title}\n${event.task_id}` : (event.task_id || "")));
     row.append(cell(event.tier || "", event.tier || ""));
     const detail = make("td", undefined, "event-cell");
     detail.append(make("div", summarizeEvent(event), "event-summary"));
@@ -274,8 +289,11 @@
     tasks.forEach((task) => {
       const row = document.createElement("tr");
       const status = make("span", task.status, `badge ${task.status}`);
+      const taskCell = make("div");
+      taskCell.append(make("div", task.title || task.task_id, "task-title"));
+      if (task.title) taskCell.append(make("div", task.task_id, "task-id"));
       const cells = [
-        task.task_id, status, task.tier || "—", task.attempts, formatDuration(task.duration_s),
+        taskCell, status, task.tier || "—", task.attempts, formatDuration(task.duration_s),
         task.failure || "—", task.classification || "—", task.jev_calls
       ];
       cells.forEach((value) => {
@@ -298,7 +316,22 @@
     }
   }
 
+  function renderRunBanner(summary) {
+    const run = summary.meta.run;
+    if (!run) {
+      byId("run-title").textContent = summary.meta.run_id === "all" ? "Todos os runs" : "Nenhum run encontrado";
+      byId("run-details").textContent = "";
+      return;
+    }
+    byId("run-title").textContent = run.title || `Run ${shortId(run.run_id)}`;
+    byId("run-details").textContent = [
+      `id ${run.run_id}`, run.started_at ? `início ${formatTime(run.started_at)}` : "",
+      run.status || "em andamento", `${run.tasks} tarefas`
+    ].filter(Boolean).join(" · ");
+  }
+
   function renderSummary(summary) {
+    renderRunBanner(summary);
     const totals = summary.totals;
     const container = byId("summary-cards");
     container.replaceChildren();
@@ -332,12 +365,12 @@
     updateUrl();
   }
 
-  function setOptions(select, values, label) {
+  function setOptions(select, values, label, labels) {
     const first = make("option", label);
     first.value = "";
     select.replaceChildren(first);
     values.forEach((value) => {
-      const option = make("option", value);
+      const option = make("option", labels && labels[value] ? `${labels[value]} (${shortId(value)})` : value);
       option.value = value;
       select.append(option);
     });
@@ -355,6 +388,7 @@
     if (state.tier) query.set("tier", state.tier);
     if (state.q) query.set("q", state.q);
     const result = await getJson(`/api/events?${query.toString()}`);
+    Object.assign(taskTitles, result.task_titles || {});
     const body = byId("events-body");
     body.replaceChildren();
     result.events.forEach((event) => body.append(eventRow(event)));
@@ -376,8 +410,11 @@
     const [meta, runData, summary] = await Promise.all([
       getJson("/api/meta"), getJson("/api/runs"), getJson(summaryUrl())
     ]);
+    byId("project-name").textContent = meta.project.name;
+    byId("project-path").textContent = meta.project.path;
+    document.title = `${meta.project.name} — MeisterRouter`;
     const metaLine = `Log lido: ${meta.log_file} · ${meta.lines} linhas${meta.exists ? ` · ${meta.size_bytes} bytes` : " · ainda não existe"}`;
-    byId("log-meta").textContent = meta.project_root ? `${metaLine} · Projeto: ${meta.project_root}` : metaLine;
+    byId("log-meta").textContent = metaLine;
     const warning = byId("other-logs");
     warning.replaceChildren();
     if (meta.other_logs.length) {
@@ -392,7 +429,7 @@
     allOption.value = "all";
     select.replaceChildren(allOption);
     runData.runs.forEach((run) => {
-      const option = make("option", `${run.run_id} · ${run.status || "em andamento"} · ${run.tasks} tarefas`);
+      const option = make("option", runLabel(run));
       option.value = run.run_id;
       select.append(option);
     });
@@ -403,7 +440,10 @@
       state.run_id = currentRun;
     }
     if (!state.run_id) state.run_id = currentRun;
-    setOptions(byId("task-filter"), Array.from(new Set(summary.tasks.map((task) => task.task_id))).sort(), "Todas");
+    const titleById = {};
+    summary.tasks.forEach((task) => { if (task.title) titleById[task.task_id] = task.title; });
+    Object.assign(taskTitles, titleById);
+    setOptions(byId("task-filter"), Array.from(new Set(summary.tasks.map((task) => task.task_id))).sort(), "Todas", titleById);
     const eventData = await getJson(`/api/events?${new URLSearchParams({run_id: state.run_id || "all", limit: "500", offset: "0"})}`);
     setOptions(byId("type-filter"), Array.from(new Set(eventData.events.map((event) => event.event_type || event.event).filter(Boolean))).sort(), "Todos");
     setOptions(byId("tier-filter"), Array.from(new Set(eventData.events.map((event) => event.tier).filter(Boolean))).sort(), "Todas");
@@ -411,6 +451,7 @@
     byId("type-filter").value = state.event_type;
     byId("tier-filter").value = state.tier;
     byId("q-filter").value = state.q;
+    renderRunBanner(summary);
     if (state.view === "grouped") renderSummary(summary);
     else await loadEvents();
   }

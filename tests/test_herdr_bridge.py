@@ -438,6 +438,33 @@ concurrency:
 
 
 @pytest.mark.asyncio
+async def test_bridge_plan_parsed_logs_task_titles(tmp_path, monkeypatch):
+    from meister.herdr.dag import SubtaskNode
+
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    bridge = HerdrEventBridge(config=load_config(None), client=AsyncMock())
+    bridge.current_run_id = "titles-run"
+    steps = [
+        {"id": "t1", "description": "\n  Criar rota /oauth/callback\nDetalhes longos", "depends_on": []},
+        SubtaskNode(id="t2", description="x" * 300),
+        {"id": "t3", "description": "", "depends_on": []},
+    ]
+
+    with patch("meister.herdr.bridge.log_event") as mock_log_event, \
+         patch.object(bridge, "execute_parallel_batch", new=AsyncMock(return_value=True)):
+        assert await bridge.execute_plan(steps) is True
+
+    plan = next(
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "plan_parsed"
+    )
+    assert plan["task_ids"] == ["t1", "t2", "t3"]
+    assert plan["task_titles"]["t1"] == "Criar rota /oauth/callback"
+    assert plan["task_titles"]["t2"] == "x" * 119 + "…"
+    assert plan["task_titles"]["t3"] == ""
+
+
+@pytest.mark.asyncio
 async def test_bridge_execute_plan_with_dag_batches(tmp_path, monkeypatch):
     monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
     cfg_file = tmp_path / "config.yaml"
