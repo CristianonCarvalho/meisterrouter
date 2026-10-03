@@ -50,10 +50,11 @@ def _normalize_scope_pattern(value: str) -> str:
 
 
 def _scope_matches(pattern: str, path: str, basename_glob: bool = False) -> bool:
+    if path == pattern:
+        return True
     if not any(char in pattern for char in "*?["):
         return (
-            path == pattern
-            or (basename_glob and "/" not in pattern and path.rsplit("/", 1)[-1] == pattern)
+            (basename_glob and "/" not in pattern and path.rsplit("/", 1)[-1] == pattern)
             or (pattern.endswith("/") and path.startswith(pattern))
         )
     if basename_glob and "/" not in pattern:
@@ -78,18 +79,37 @@ def _scope_matches(pattern: str, path: str, basename_glob: bool = False) -> bool
         elif char == "?":
             regex_parts.append("[^/]")
         elif char == "[":
-            closing = pattern.find("]", index + 1)
+            depth = 0
+            closing = -1
+            for candidate in range(index + 1, len(pattern)):
+                if pattern[candidate] == "[":
+                    depth += 1
+                elif pattern[candidate] == "]":
+                    if depth:
+                        depth -= 1
+                    else:
+                        closing = candidate
+                        break
             if closing == -1:
                 return False
             content = pattern[index + 1 : closing]
-            if content.startswith("!"):
-                content = "^" + content[1:]
-            regex_parts.append("[" + content + "]")
+            if not content or content in ("!", "^"):
+                return False
+            literal = re.escape(pattern[index : closing + 1])
+            if "[" in content or "]" in content:
+                regex_parts.append(f"(?:{literal}|(?!)")
+                regex_parts.append(")")
+            else:
+                character_class = "^" + content[1:] if content.startswith("!") else content
+                regex_parts.append(f"(?:[{character_class}]|{literal})")
             index = closing
         else:
             regex_parts.append(re.escape(char))
         index += 1
-    return re.fullmatch("".join(regex_parts), path) is not None
+    try:
+        return re.fullmatch("".join(regex_parts), path) is not None
+    except re.error:
+        return False
 
 
 def scope_violations(

@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from meister.cli import main
 from meister.config import load_config, validate_config
 from meister.gate import DeterministicGate
-from meister.worktree import IntegrationPipeline, WorktreeManager
+from meister.worktree import IntegrationPipeline, WorktreeManager, scope_violations
 
 
 def _git(cwd, *args):
@@ -109,6 +109,54 @@ def test_scope_globs_generated_files_and_gitignored_paths(tmp_path):
     )
     assert "pnpm-lock.yaml" not in invalid and "nested/cache.tsbuildinfo" not in invalid
     assert manager.verify_scope(wt.worktree_path, [], base_ref=wt.base_commit) == (True, [])
+
+
+def test_scope_patterns_match_next_dynamic_routes_and_character_classes(tmp_path):
+    routes = [
+        ("src/app/leads/[id]/page.tsx", "src/app/leads/[id]/page.tsx"),
+        ("src/app/leads/[id]/**", "src/app/leads/[id]/page.tsx"),
+        ("src/app/[slug]/*.tsx", "src/app/[slug]/page.tsx"),
+        ("src/app/[...rest]/**", "src/app/[...rest]/page.tsx"),
+        ("src/app/[[...opt]]/**", "src/app/[[...opt]]/page.tsx"),
+        ("src/[ab]*.py", "src/a_file.py"),
+    ]
+    for pattern, path in routes:
+        assert scope_violations([path], [pattern]) == []
+    assert scope_violations(
+        ["src/app/leads/[other]/page.tsx"],
+        ["src/app/leads/[id]/page.tsx"],
+    ) == ["src/app/leads/[other]/page.tsx"]
+    # colchetes aninhados valem so como texto literal (nao como classe de caracteres)
+    assert scope_violations(
+        ["src/app/o]/page.tsx"],
+        ["src/app/[[...opt]]/**"],
+    ) == ["src/app/o]/page.tsx"]
+    assert scope_violations(
+        ["src/app/leads/[id]/page.tsx"],
+        ["src/app/leads/[other]/page.tsx"],
+    ) == ["src/app/leads/[id]/page.tsx"]
+    assert scope_violations(
+        ["src/app/[slug]/page.tsx"],
+        ["unrelated/**"],
+        tolerated_files=["src/app/[slug]/*.tsx"],
+    ) == []
+
+    repo = _repo(tmp_path / "route-repo", {"src/app/leads/[id]/page.tsx": "old\n"})
+    manager = WorktreeManager(repo_root=str(repo), worktrees_dir=str(tmp_path / "route-worktrees"))
+    worktree = manager.create_worktree("route-scope")
+    route_file = os.path.join(worktree.worktree_path, "src/app/leads/[id]/page.tsx")
+    with open(route_file, "w") as output:
+        output.write("updated\n")
+    assert manager.verify_scope(
+        worktree.worktree_path,
+        ["src/app/leads/[id]/page.tsx"],
+        base_ref=worktree.base_commit,
+    ) == (True, [])
+    assert manager.verify_scope(
+        worktree.worktree_path,
+        ["src/app/leads/[other]/page.tsx"],
+        base_ref=worktree.base_commit,
+    ) == (False, ["src/app/leads/[id]/page.tsx"])
 
 
 def test_scope_directory_pattern_and_user_tolerance_replaces_defaults(tmp_path):
@@ -355,6 +403,18 @@ Run `pnpm add drizzle-orm` and `drizzle-kit generate`.
     result = CliRunner().invoke(main, ["plan", "import", str(plan)])
     assert result.exit_code != 0
     assert "invalid glob" in result.stderr
+
+    plan.write_text(
+        """### Task 1: Dynamic routes
+**Files:**
+- Modify: `src/app/leads/[id]/page.tsx`
+- Modify: `src/app/[...rest]/page.tsx`
+- Modify: `src/app/[[...opt]]/page.tsx`
+"""
+    )
+    result = CliRunner().invoke(main, ["plan", "import", str(plan)])
+    assert result.exit_code == 0, result.output
+    assert "invalid glob" not in result.stderr
 
 
 def test_node_installer_uses_yarn_and_unlocked_package_manager(tmp_path, monkeypatch):

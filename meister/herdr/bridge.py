@@ -1549,8 +1549,33 @@ class HerdrEventBridge:
         cwd = os.path.abspath(os.getcwd())
         new_run_id = compute_run_id(raw_plan, cwd)
         source_run: Optional[Dict[str, Any]] = None
+        same_run = sm.get_run(new_run_id)
+        resumable_candidate = sm.find_resumable_run(cwd, exclude_run_id=new_run_id)
+
+        def automatic_source_hint() -> str:
+            if resumable_candidate is None:
+                return ""
+            return f". Use --resume sem id para usar o run {resumable_candidate['run_id'][:8]}"
+
+        async def resume_same_run(run: Dict[str, Any]) -> None:
+            message = (
+                f"Plano identico ao run {run['run_id'][:8]} ({run['state']}): "
+                "retomando o mesmo run; tarefas concluidas sao puladas."
+            )
+            logger.info(message)
+            log_event(
+                event_type="resume_same_run",
+                run_id=run["run_id"],
+                task_id="orchestrator",
+                state=run["state"],
+            )
+            if resume_hint_callback is not None:
+                resume_hint_callback(message)
+            if self.client is not None:
+                await self.client.show_notification(message, title="MeisterRouter")
+
         if resume_run_id is None and resume_hint_callback is not None:
-            candidate = sm.find_resumable_run(cwd, exclude_run_id=new_run_id)
+            candidate = resumable_candidate
             if candidate is not None:
                 completed_count = sum(
                     1
@@ -1562,23 +1587,35 @@ class HerdrEventBridge:
                     "tarefas concluidas reaproveitaveis; use --resume"
                 )
         if resume_run_id == "auto":
-            source_run = sm.find_resumable_run(cwd, exclude_run_id=new_run_id)
+            source_run = resumable_candidate
             if source_run is None:
-                warning = "Nenhum run FAILED/RUNNING elegível encontrado para --resume."
-                logger.warning(warning)
-                await self.client.show_notification(warning, title="MeisterRouter")
+                if (
+                    same_run is not None
+                    and same_run["state"] in {RunState.FAILED.value, RunState.RUNNING.value}
+                    and os.path.abspath(same_run["cwd"]) == cwd
+                ):
+                    await resume_same_run(same_run)
+                else:
+                    warning = "Nenhum run FAILED/RUNNING elegível encontrado para --resume."
+                    logger.warning(warning)
+                    await self.client.show_notification(warning, title="MeisterRouter")
         elif resume_run_id is not None:
             source_run = sm.get_run(resume_run_id)
             if source_run is None:
-                raise ResumeRequestError(f"Run de origem '{resume_run_id}' não existe")
+                raise ResumeRequestError(f"Run de origem '{resume_run_id}' não existe{automatic_source_hint()}")
             if source_run["state"] not in {RunState.FAILED.value, RunState.RUNNING.value}:
                 raise ResumeRequestError(
-                    f"Run de origem '{resume_run_id}' está {source_run['state']}; --resume aceita FAILED ou RUNNING"
+                    f"Run de origem '{resume_run_id}' está {source_run['state']}; "
+                    f"--resume aceita FAILED ou RUNNING{automatic_source_hint()}"
                 )
             if os.path.abspath(source_run["cwd"]) != cwd:
-                raise ResumeRequestError(f"Run de origem '{resume_run_id}' pertence a outro cwd")
+                raise ResumeRequestError(
+                    f"Run de origem '{resume_run_id}' pertence a outro cwd{automatic_source_hint()}"
+                )
             if resume_run_id == new_run_id:
-                raise ResumeRequestError("--resume requer um run de origem diferente do run atual")
+                same_run = source_run
+                source_run = None
+                await resume_same_run(same_run)
 
         run_record = sm.create_or_get_run(task_prompt=raw_plan, cwd=cwd)
         run_id: str = str(run_record["run_id"])
