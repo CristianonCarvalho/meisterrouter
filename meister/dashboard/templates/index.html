@@ -40,7 +40,7 @@
   .table-wrap { max-width: 100%; overflow-x: auto; }
 /* Tabela de eventos: colunas curtas fixas e em uma linha; so a coluna do evento quebra linha. */
 .events-table { table-layout: fixed; min-width: 760px; }
-.events-table th:nth-child(1) { width: 84px; }
+.events-table th:nth-child(1) { width: 190px; }
 .events-table th:nth-child(2) { width: 150px; }
 .events-table th:nth-child(3) { width: 138px; }
 .events-table th:nth-child(4) { width: 132px; }
@@ -121,7 +121,7 @@
       </form>
       <div class="table-wrap" style="margin-top: 14px">
         <table class="events-table">
-          <thead><tr><th>Horário</th><th>Tipo</th><th>Tarefa</th><th>Via</th><th>Evento</th></tr></thead>
+          <thead><tr><th>Data e hora</th><th>Tipo</th><th>Tarefa</th><th>Via</th><th>Evento</th></tr></thead>
           <tbody id="events-body"></tbody>
         </table>
       </div>
@@ -164,7 +164,9 @@
   const formatTime = (value) => {
     const parsed = value ? new Date(value) : null;
     if (!parsed || Number.isNaN(parsed.getTime())) return String(value || "");
-    return parsed.toLocaleTimeString("pt-BR", {hour12: false});
+    const pad = (number) => String(number).padStart(2, "0");
+    const day = `${pad(parsed.getDate())}/${pad(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
+    return `${day} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
   };
   const SUMMARY_FIELDS = ["status", "action", "classification", "confidence", "kind", "retry", "reason", "error", "message", "exit_code"];
   const clip = (value, size = 140) => {
