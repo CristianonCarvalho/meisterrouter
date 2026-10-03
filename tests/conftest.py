@@ -1,7 +1,171 @@
+import math
 import os
 import pathlib
+import signal
+import subprocess
 import tempfile
+import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+
 import pytest
+
+
+@dataclass(frozen=True)
+class RepoSnapshot:
+    refs: frozenset
+    worktrees: frozenset
+    # pares (caminho do worktree, ref da branch aberta nele), para atribuir branches a worktrees
+    worktree_branches: frozenset = frozenset()
+
+
+@dataclass(frozen=True)
+class RepoLeaks:
+    refs: frozenset
+    worktrees: frozenset
+
+
+def snapshot_project_repo(repo_root):
+    """Return the MeisterRouter refs and worktree paths, or None if Git is unavailable."""
+    try:
+        refs_result = subprocess.run(
+            [
+                "git", "-C", str(repo_root), "for-each-ref",
+                "--format=%(refname)", "refs/heads/meister", "refs/meister",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        worktrees_result = subprocess.run(
+            ["git", "-C", str(repo_root), "worktree", "list", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+    refs = frozenset(line for line in refs_result.stdout.splitlines() if line)
+    worktrees = set()
+    pairs = set()
+    current_path = None
+    for line in worktrees_result.stdout.splitlines():
+        if line.startswith("worktree "):
+            current_path = str(pathlib.Path(line.removeprefix("worktree ")).resolve())
+            worktrees.add(current_path)
+        elif line.startswith("branch ") and current_path:
+            pairs.add((current_path, line.removeprefix("branch ")))
+    return RepoSnapshot(
+        refs=refs,
+        worktrees=frozenset(worktrees),
+        worktree_branches=frozenset(pairs),
+    )
+
+
+def find_repo_leaks(before, after):
+    """Compare two snapshots without consulting or mutating repository state."""
+    if before is None or after is None:
+        return RepoLeaks(refs=frozenset(), worktrees=frozenset())
+    return RepoLeaks(
+        refs=after.refs - before.refs,
+        worktrees=after.worktrees - before.worktrees,
+    )
+
+
+def split_owned_leaks(leaks, after, owned_dir):
+    """Separate leaks attributable to the test from those that are not.
+
+    Owned = worktrees living inside the test's own isolated directory, plus the branches checked out in
+    them. Everything else that appeared (e.g. archive refs or worktrees from a real MeisterRouter run in
+    the same checkout) is "foreign": it is reported but NEVER deleted.
+    """
+    if after is None or owned_dir is None:
+        return RepoLeaks(frozenset(), frozenset()), leaks
+    base = pathlib.Path(owned_dir).resolve()
+    owned_worktrees = frozenset(
+        worktree for worktree in leaks.worktrees
+        if pathlib.Path(worktree).is_relative_to(base)
+    )
+    owned_refs = frozenset(
+        ref for worktree, ref in after.worktree_branches
+        if worktree in owned_worktrees and ref in leaks.refs
+    )
+    owned = RepoLeaks(refs=owned_refs, worktrees=owned_worktrees)
+    foreign = RepoLeaks(
+        refs=leaks.refs - owned.refs,
+        worktrees=leaks.worktrees - owned.worktrees,
+    )
+    return owned, foreign
+
+
+def cleanup_repo_leaks(repo_root, leaks):
+    """Remove the given refs and worktrees (callers pass only leaks attributable to the test)."""
+    failures = []
+    for worktree in sorted(leaks.worktrees):
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "worktree", "remove", "--force", worktree],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode:
+            failures.append(f"{worktree}: {result.stderr.strip()}")
+
+    for ref in sorted(leaks.refs):
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "update-ref", "-d", ref],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode:
+            failures.append(f"{ref}: {result.stderr.strip()}")
+    return failures
+
+
+@contextmanager
+def test_watchdog(timeout_seconds, nodeid):
+    """Interrupt a hung test with SIGALRM where interval timers are supported."""
+    alarm_signal = getattr(signal, "SIGALRM", None)
+    setitimer = getattr(signal, "setitimer", None)
+    if timeout_seconds == 0 or alarm_signal is None or setitimer is None:
+        yield
+        return
+
+    old_handler = signal.getsignal(alarm_signal)
+    old_timer = signal.getitimer(signal.ITIMER_REAL)
+    started_at = time.monotonic()
+
+    def timeout_handler(_signum, _frame):
+        raise TimeoutError(
+            f"teste excedeu {timeout_seconds:g} s (provavel travamento): {nodeid}"
+        )
+
+    signal.signal(alarm_signal, timeout_handler)
+    setitimer(signal.ITIMER_REAL, timeout_seconds)
+    try:
+        yield
+    finally:
+        setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(alarm_signal, old_handler)
+        old_delay, old_interval = old_timer
+        if old_delay:
+            remaining = max(0.001, old_delay - (time.monotonic() - started_at))
+            setitimer(signal.ITIMER_REAL, remaining, old_interval)
+
+
+def configured_test_timeout():
+    """Parse and validate the per-test watchdog setting."""
+    try:
+        timeout_seconds = float(os.environ.get("MEISTER_TEST_TIMEOUT", "180"))
+    except ValueError as exc:
+        raise pytest.UsageError("MEISTER_TEST_TIMEOUT deve ser um numero >= 0") from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds < 0:
+        raise pytest.UsageError("MEISTER_TEST_TIMEOUT deve ser um numero >= 0")
+    return timeout_seconds
 
 
 @pytest.fixture
@@ -29,6 +193,52 @@ def isolate_test_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Meister CI")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "ci@meisterrouter.local")
     yield
+
+
+@pytest.fixture(autouse=True)
+def prevent_project_repo_leaks(request, tmp_path):
+    """Fail if a test pollutes the real checkout's refs or worktrees; clean only what is provably the test's.
+
+    Refs/worktrees that appear but cannot be attributed to the test (not inside its own isolated directory)
+    are reported and left untouched: they may come from a legitimate concurrent MeisterRouter run.
+    """
+    repo_root = pathlib.Path(__file__).resolve().parents[1]
+    before = snapshot_project_repo(repo_root)
+    yield
+    after = snapshot_project_repo(repo_root)
+    leaks = find_repo_leaks(before, after)
+    if not leaks.refs and not leaks.worktrees:
+        return
+
+    owned, foreign = split_owned_leaks(leaks, after, tmp_path)
+    failures = cleanup_repo_leaks(repo_root, owned)
+
+    def describe(group):
+        return [
+            *(f"branch/ref {ref}" for ref in sorted(group.refs)),
+            *(f"worktree {worktree}" for worktree in sorted(group.worktrees)),
+        ]
+
+    message = (
+        f"o teste {request.node.nodeid} deixou {', '.join(describe(leaks))} "
+        "no repositorio real: rode-o num repo temporario"
+    )
+    if owned.refs or owned.worktrees:
+        message += f"; removido (era do proprio teste): {', '.join(describe(owned))}"
+    if foreign.refs or foreign.worktrees:
+        message += (
+            f"; NAO removido (nao atribuivel ao teste, pode ser de outra execucao): {', '.join(describe(foreign))}"
+        )
+    if failures:
+        message += f"; falha na limpeza: {'; '.join(failures)}"
+    pytest.fail(message, pytrace=False)
+
+
+@pytest.fixture(autouse=True)
+def timeout_each_test(request):
+    """Interrupt a stuck test after MEISTER_TEST_TIMEOUT seconds (default 180)."""
+    with test_watchdog(configured_test_timeout(), request.node.nodeid):
+        yield
 
 
 @pytest.fixture(autouse=True)

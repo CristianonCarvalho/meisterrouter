@@ -14,6 +14,7 @@ Covers spec §6:
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -823,7 +824,17 @@ _COMMAND_PANE = json.dumps(
 )
 
 
-def _run_pane_cycle(tmp_path, pane_text, **kwargs):
+def _run_pane_cycle(tmp_path, monkeypatch, pane_text, **kwargs):
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "app.py").write_text("APP = True\n")
+    subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True, capture_output=True)
+    monkeypatch.chdir(repo_dir)
+
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text('version: "1.0"\nconcurrency:\n  isolation_mode: "none"\n')
     client = AsyncMock()
@@ -855,26 +866,26 @@ def _run_count() -> int:
 
 
 class TestPanePlanContract:
-    def test_freeform_pane_strict_rejected_no_run_no_worker(self, tmp_path):
-        ok, executed = _run_pane_cycle(tmp_path, _FREEFORM_PANE, allow_freeform=False)
+    def test_freeform_pane_strict_rejected_no_run_no_worker(self, tmp_path, monkeypatch):
+        ok, executed = _run_pane_cycle(tmp_path, monkeypatch, _FREEFORM_PANE, allow_freeform=False)
         assert ok is False
         assert executed == []
         assert _run_count() == 0
 
-    def test_canonical_pane_strict_proceeds(self, tmp_path):
-        ok, executed = _run_pane_cycle(tmp_path, _CANONICAL_PANE, allow_freeform=False)
+    def test_canonical_pane_strict_proceeds(self, tmp_path, monkeypatch):
+        ok, executed = _run_pane_cycle(tmp_path, monkeypatch, _CANONICAL_PANE, allow_freeform=False)
         assert ok is True
         assert [s["id"] for s in executed[0]] == ["t1"]
         assert _run_count() == 1
 
-    def test_freeform_pane_default_keeps_legacy_behavior(self, tmp_path):
-        ok, executed = _run_pane_cycle(tmp_path, _FREEFORM_PANE)
+    def test_freeform_pane_default_keeps_legacy_behavior(self, tmp_path, monkeypatch):
+        ok, executed = _run_pane_cycle(tmp_path, monkeypatch, _FREEFORM_PANE)
         assert ok is True
         assert executed[0][0]["id"] == "task_1"
         assert _run_count() == 1
 
-    def test_command_key_pane_strict_rejected(self, tmp_path):
-        ok, executed = _run_pane_cycle(tmp_path, _COMMAND_PANE, allow_freeform=False)
+    def test_command_key_pane_strict_rejected(self, tmp_path, monkeypatch):
+        ok, executed = _run_pane_cycle(tmp_path, monkeypatch, _COMMAND_PANE, allow_freeform=False)
         assert ok is False
         assert executed == []
         assert _run_count() == 0

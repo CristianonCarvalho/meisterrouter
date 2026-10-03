@@ -92,6 +92,15 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+### Executar os testes
+
+`pytest -v --durations=15` lista os 15 testes mais lentos. A suíte interrompe cada
+teste após 180 segundos por padrão; ajuste com `MEISTER_TEST_TIMEOUT` ou use `0`
+para desativar o watchdog (em plataformas com `SIGALRM`). Uma proteção autouse
+detecta e remove refs de branches e worktrees criados acidentalmente no checkout real;
+testes que executam o orquestrador devem usar um repositório Git temporário. O job
+de testes do CI também tem limite total de 20 minutos.
+
 ---
 
 ### 🔑 Configurar a Chave da API

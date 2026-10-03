@@ -483,7 +483,10 @@ concurrency:
 
 
 @pytest.mark.asyncio
-async def test_bridge_run_orchestration_cycle(tmp_path):
+async def test_bridge_run_orchestration_cycle(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "repo"
+    _init_test_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("""
 version: "1.0"
@@ -516,7 +519,10 @@ Plan:
 
 
 @pytest.mark.asyncio
-async def test_bridge_run_orchestration_cycle_gate_failure(tmp_path):
+async def test_bridge_run_orchestration_cycle_gate_failure(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "repo"
+    _init_test_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("""
 version: "1.0"
@@ -641,7 +647,10 @@ concurrency:
 
 
 @pytest.mark.asyncio
-async def test_bridge_run_orchestration_cycle_with_direct_task():
+async def test_bridge_run_orchestration_cycle_with_direct_task(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "repo"
+    _init_test_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
     mock_client = AsyncMock()
     mock_client.is_connected = True
 
@@ -673,7 +682,10 @@ async def test_bridge_run_orchestration_cycle_with_direct_task():
 
 
 @pytest.mark.asyncio
-async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace():
+async def test_bridge_run_orchestration_cycle_autodetects_pane_and_workspace(tmp_path, monkeypatch):
+    repo_dir = tmp_path / "repo"
+    _init_test_git_repo(repo_dir)
+    monkeypatch.chdir(repo_dir)
     mock_client = AsyncMock()
     mock_client.is_connected = True
     mock_client.get_current_pane.return_value = {"pane_id": "auto_pane", "workspace_id": "auto_ws"}
@@ -2038,6 +2050,7 @@ async def test_resumed_orchestration_closes_registered_panes_before_cleanup(tmp_
     (repo_dir / "app.py").write_text("print('hello')\n")
     subprocess.run(["git", "add", "app.py"], cwd=repo_dir, check=True)
     subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True)
+    monkeypatch.chdir(repo_dir)
 
     from tests.mocks.mock_herdr_server import run_mock_herdr_server
     from meister.herdr.client import HerdrSocketClient
@@ -2116,6 +2129,7 @@ async def test_subtask_rejected_logged_when_gate_fails(tmp_path, monkeypatch):
     (tests_dir / "test_app.py").write_text("def test_app(): assert 1 == 1\n")
     subprocess.run(["git", "add", "."], cwd=repo_dir, check=True)
     subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True)
+    monkeypatch.chdir(repo_dir)
 
     from meister.worktree import WorktreeManager, IntegrationPipeline
     from meister.gate import DeterministicGate
