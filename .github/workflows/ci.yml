@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -39,4 +40,4 @@ jobs:
 
       - name: Run Pytest
         run: |
-          pytest -v
+          pytest -v --durations=15
