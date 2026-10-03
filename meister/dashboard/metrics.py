@@ -6,6 +6,21 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 
+# Eventos do ciclo de vida de um worker/tarefa. So ids que tem pelo menos um deles contam como TAREFA:
+# ids so de `classify`/`route_decision`/`control` (hash de logs antigos, julgamento final) nao sao tarefas.
+LIFECYCLE_EVENTS = {
+    "worker_spawn",
+    "worker_retry",
+    "worker_timeout",
+    "worker_error",
+    "worker_task_start",
+    "worker_task_end",
+    "worker_task_error",
+    "subtask_completed",
+    "subtask_reused",
+    "subtask_rejected",
+    "gate_infrastructure_error",
+}
 FAILURE_EVENTS = {
     "subtask_rejected",
     "worker_error",
@@ -58,12 +73,16 @@ def _task_key(event: Dict[str, Any]) -> Optional[tuple]:
 
 
 def _task_events(events: Iterable[Dict[str, Any]]) -> Dict[tuple, List[Dict[str, Any]]]:
+    """Eventos agrupados por tarefa (run_id, task_id); so ids com ciclo de vida de worker sao tarefas."""
     grouped: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
     for event in events:
         key = _task_key(event)
         if key:
             grouped[key].append(event)
-    return grouped
+    return {
+        key: task_events for key, task_events in grouped.items()
+        if any(event_type(event) in LIFECYCLE_EVENTS for event in task_events)
+    }
 
 
 def iter_events(log_file: str, run_id: Optional[str] = None) -> Iterator[Dict[str, Any]]:
@@ -117,7 +136,7 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             row["ended_at"] = timestamp or row["ended_at"]
             row["status"] = event.get("status") or row["status"]
         task_key = _task_key(event)
-        if task_key:
+        if task_key and kind in LIFECYCLE_EVENTS:
             tasks[run_id].add(task_key[1])
     for run_id, row in runs.items():
         row["tasks"] = len(tasks[run_id])
@@ -268,6 +287,11 @@ def compute_summary(
         else:
             route_status["decided"] += 1
 
+    linked_keys = set(grouped)
+    unlinked_calls = sum(
+        1 for event in classify_events
+        if _task_key(event) not in linked_keys
+    )
     by_tier: Dict[str, Dict[str, Any]] = {}
     for task in tasks:
         tier = str(task["tier"] or "unknown")
@@ -302,6 +326,7 @@ def compute_summary(
         },
         "jev": {
             "classify_calls": len(classify_events),
+            "unlinked_classify_calls": unlinked_calls,
             "control_calls": len(control_events),
             "classify_by_result": dict(classifications_by_call),
             "route_by_status": dict(route_status),

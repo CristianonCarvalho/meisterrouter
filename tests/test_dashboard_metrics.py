@@ -287,3 +287,55 @@ def test_route_decisions_use_the_statuses_the_bridge_really_emits():
     assert compute_summary(events, "run-r")["jev"]["route_by_status"] == {
         "decided": 2, "resumed": 2, "fallback": 1, "cooldown": 1,
     }
+
+
+def _real_style_run(classify_ids):
+    """Run no formato REAL de um log: workers com id logico (task_N); `classify_ids` define o id dos eventos do Jev."""
+    events = [event("orchestration_start", task="orchestrator")]
+    for number in (1, 2, 3):
+        logical = f"task_{number}"
+        jev_id = classify_ids(number)
+        events.append(event("classify", task=jev_id, classification="MEDIUM", duration_ms=10, cost_usd=0.001))
+        events.append(event("route_decision", task=jev_id, tier="copilot_luna", fallback_rule_applied=False))
+        events.append(event("worker_spawn", task=logical, tier="copilot_luna", ts="2026-01-01T00:00:00+00:00"))
+        events.append(event("subtask_completed", task=logical, tier="copilot_luna", ts="2026-01-01T00:00:10+00:00"))
+    # julgamento final do Jev: `control` com id em hash (nao e uma tarefa do plano)
+    events.append(event("control", task="8e871068ba4faee4", action="COMPLETE", duration_ms=5, cost_usd=0.002))
+    events.append(event("orchestration_end", task="orchestrator", status="completed"))
+    return events
+
+
+def test_jev_events_with_hash_ids_do_not_create_phantom_tasks():
+    """Logs antigos: classify/route com o HASH da subtarefa. Nao viram tarefas 'unknown'; sao contados como chamadas sem tarefa."""
+    events = _real_style_run(lambda n: f"{n:016x}")
+    summary = compute_summary(events, "run-a")
+    assert summary["totals"]["tasks_total"] == 3
+    assert summary["totals"]["completed"] == 3
+    assert {task["task_id"] for task in summary["tasks"]} == {"task_1", "task_2", "task_3"}
+    assert all(task["status"] == "completed" and task["jev_calls"] == 0 for task in summary["tasks"])
+    assert summary["jev"]["classify_calls"] == 3
+    assert summary["jev"]["unlinked_classify_calls"] == 3
+    assert summary["jev"]["control_calls"] == 1
+    assert list_runs(events)[0]["tasks"] == 3
+
+
+def test_jev_events_with_logical_ids_link_to_their_task():
+    """Logs novos: classify/route com o id logico: ligam-se a tarefa (chamadas por tarefa e classificacao por tarefa)."""
+    events = _real_style_run(lambda n: f"task_{n}")
+    summary = compute_summary(events, "run-a")
+    assert summary["totals"]["tasks_total"] == 3
+    assert all(task["jev_calls"] == 1 and task["classification"] == "MEDIUM" for task in summary["tasks"])
+    assert summary["jev"]["unlinked_classify_calls"] == 0
+    assert summary["jev"]["classification_by_task"] == {"MEDIUM": 3}
+    assert list_runs(events)[0]["tasks"] == 3
+
+
+def test_dashboard_template_keeps_the_events_table_readable_and_safe():
+    """Regressao visual: colunas curtas fixas e em uma linha (o `overflow-wrap: anywhere` global as reduzia a 1 caractere)."""
+    html = (Path(__file__).resolve().parents[1] / "meister" / "dashboard" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert 'class="events-table"' in html
+    assert "table-layout: fixed" in html
+    assert "white-space: nowrap" in html
+    assert "event-details" in html and "JSON completo" in html
+    assert "innerHTML" not in html and "outerHTML" not in html
+    assert "classify sem tarefa associada" in html

@@ -2932,6 +2932,32 @@ async def test_bridge_does_not_cut_the_structured_context_at_the_old_2000_chars(
 
 
 @pytest.mark.asyncio
+async def test_bridge_logs_jev_events_with_the_logical_task_id(tmp_path):
+    """classify e route_decision usam o id LOGICO (como worker_spawn/subtask_completed); o hash vai em `subtask_id`."""
+    from meister.state import compute_subtask_id
+
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    run_id = "logical-id-run"
+    result = {"classification": "MEDIUM", "recommended_implementer": "luna", "fallback_rule_applied": False}
+
+    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify, \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
+        assert await bridge.execute_subtask(subtask, run_id=run_id) is True
+
+    logical_id = str(subtask["id"])
+    assert mock_classify.call_args.kwargs["task_id"] == logical_id
+    routes = [
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    ]
+    assert routes
+    expected_hash = compute_subtask_id(run_id, logical_id, subtask.get("description", logical_id))
+    for route in routes:
+        assert route["task_id"] == logical_id
+        assert route["subtask_id"] == expected_hash
+
+
+@pytest.mark.asyncio
 async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
     bridge, _, _, subtask = _make_router_bridge(tmp_path)
     spawned_tiers = _track_spawned_tiers(bridge)
@@ -2947,6 +2973,8 @@ async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
     )
     assert route_event["fallback_rule_applied"] is True
     assert route_event["status"] == "fallback"
+    assert route_event["task_id"] == subtask["id"]
+    assert route_event["subtask_id"] and route_event["subtask_id"] != route_event["task_id"]
     assert route_event["error"] == "routing unavailable"
     assert bridge._jev_unavailable_until > time.monotonic()
 
@@ -2986,6 +3014,16 @@ async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
         ]
         assert len(skipped) == 1
         assert skipped[0]["tier"] == "copilot"
+        # ids dos eventos de rota: o logico (como os eventos do worker) e o hash em `subtask_id`
+        fallback_routes = [
+            call.kwargs for call in mock_log_event.call_args_list
+            if call.kwargs.get("event_type") == "route_decision"
+            and call.kwargs.get("status") == "fallback"
+        ]
+        assert fallback_routes and fallback_routes[0]["task_id"] == first_subtask["id"]
+        assert fallback_routes[0]["subtask_id"] and fallback_routes[0]["subtask_id"] != first_subtask["id"]
+        assert skipped[0]["task_id"] == second_subtask["id"]
+        assert skipped[0]["subtask_id"] and skipped[0]["subtask_id"] != second_subtask["id"]
 
         bridge._jev_unavailable_until = 0.0  # fim do cooldown, sem depender do relogio
         assert await bridge.execute_subtask(third_subtask) is True
@@ -3040,6 +3078,9 @@ async def test_bridge_jev_timeout_activates_cooldown(tmp_path):
     assert route_events[0]["status"] == "fallback"
     assert "timed out" in route_events[0]["error"].lower()
     assert route_events[1]["status"] == "skipped_unavailable"
+    assert route_events[0]["task_id"] == subtask["id"]
+    assert route_events[1]["task_id"] == "after-timeout"
+    assert all(event["subtask_id"] and event["subtask_id"] != event["task_id"] for event in route_events[:2])
 
 
 @pytest.mark.asyncio
@@ -3063,10 +3104,18 @@ async def test_bridge_explicit_tier_and_running_assigned_tier_skip_jev(tmp_path)
         assigned_tier="luna",
     )
     spawned_tiers.clear()
-    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must reuse assignment")) as mock_classify:
+    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must reuse assignment")) as mock_classify, \
+         patch("meister.herdr.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask, run_id=run_id) is True
     mock_classify.assert_not_called()
     assert spawned_tiers == ["luna"]
+    resumed = [
+        call.kwargs for call in mock_log_event.call_args_list
+        if call.kwargs.get("event_type") == "route_decision"
+    ]
+    assert resumed and resumed[0]["status"] == "resumed"
+    assert resumed[0]["task_id"] == subtask["id"]
+    assert resumed[0]["subtask_id"] == subtask_id
 
 
 @pytest.mark.asyncio
