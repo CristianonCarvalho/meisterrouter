@@ -41,7 +41,10 @@ def remove_event_observer(callback: Callable[[Dict[str, Any]], None]) -> None:
 
 def find_project_root() -> Optional[str]:
     """Localiza a raiz do projeto MeisterRouter buscando por .meister ou raiz git de forma determinística."""
-    curr = os.path.abspath(os.getcwd())
+    try:
+        curr = os.path.abspath(os.getcwd())
+    except OSError:
+        return None
     while curr != os.path.dirname(curr):
         if os.path.exists(os.path.join(curr, ".meister")):
             return curr

@@ -104,9 +104,15 @@ def render_tui_dashboard(session_state: Optional[Dict[str, Any]] = None,
     lines.append(f"{CYAN}║{RESET} {tok_line:<{inner_width}} {CYAN}║{RESET}")
     cst_line = f"  Meister Cost     : ${cost:.4f}"
     lines.append(f"{CYAN}║{RESET} {cst_line:<{inner_width}} {CYAN}║{RESET}")
-    trad_line = f"  Traditional Cost : ${traditional_cost:.4f} (Single-Model Baseline)"
+    if metrics.get("savings") is None and "savings" in metrics:
+        trad_line = f"  Traditional Cost : {DIM}not measured (no baseline){RESET}"
+    else:
+        trad_line = f"  Traditional Cost : ${traditional_cost:.4f} (Single-Model Baseline)"
     lines.append(f"{CYAN}║{RESET} {trad_line:<{inner_width}} {CYAN}║{RESET}")
-    sav_line = f"  Estimated Savings: {BOLD}{GREEN}{savings_pct:.1f}% (${savings_usd:.4f}){RESET}"
+    if metrics.get("savings") is None and "savings" in metrics:
+        sav_line = f"  Estimated Savings: {BOLD}{DIM}not measured{RESET}"
+    else:
+        sav_line = f"  Estimated Savings: {BOLD}{GREEN}{savings_pct:.1f}% (${savings_usd:.4f}){RESET}"
     lines.append(f"{CYAN}║{RESET} {sav_line:<{inner_width + 12}} {CYAN}║{RESET}")
 
     lines.append(f"{CYAN}╠{'═' * (width - 2)}╣{RESET}")
@@ -158,11 +164,6 @@ def get_live_metrics_and_state() -> Tuple[Dict[str, Any], Dict[str, Any]]:
             if sub in workers_map:
                 workers_map[sub]["status"] = "COMPLETED"
 
-    # Baseline cost calculation
-    traditional_cost = max(summary.get("total_cost", 0.0) + summary.get("savings_usd", 0.0), summary.get("total_cost", 0.0) * 2.5)
-    if traditional_cost == 0 and summary.get("total_cost", 0.0) > 0:
-        traditional_cost = summary.get("total_cost", 0.0) * 3.0
-
     state: Dict[str, Any] = {
         "workspace": os.path.basename(os.getcwd()) or "default",
         "status": status,
@@ -174,9 +175,7 @@ def get_live_metrics_and_state() -> Tuple[Dict[str, Any], Dict[str, Any]]:
     metrics: Dict[str, Any] = {
         "tokens": total_tokens,
         "cost": summary.get("total_cost", 0.0),
-        "traditional_cost": round(traditional_cost, 4),
-        "savings_usd": summary.get("savings_usd", 0.0),
-        "savings_pct": summary.get("savings_pct", 0.0),
+        "savings": None,
     }
 
     return state, metrics

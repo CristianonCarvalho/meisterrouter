@@ -45,7 +45,7 @@ continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
 | Jev indisponível (OpenRouter fora do ar ou sem chave) | Automático: usa a primeira via por 5 min sem esperar de novo. Sem chave, `meister config validate` avisa. |
 
 ## 5. Onde olhar
-- **Eventos:** JSONL em `~/.meister/logs` (ou `MEISTER_LOG_DIR`); `meister replay` reconstrói a linha do tempo; `meister dashboard` abre o painel. Eventos úteis: `subtask_reused`/`subtask_not_reused` (retomada), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
+- **Eventos:** JSONL em `~/.meister/logs` (ou `MEISTER_LOG_DIR`); `meister replay` reconstrói a linha do tempo. `meister dashboard` abre o painel agrupado por tarefa, com seleção de run, análise filtrável/paginada de eventos e indicação explícita do arquivo lido. Use `meister dashboard --log-dir CAMINHO` para apontar outro diretório. O painel não estima economia sem baseline medido, e custos de workers não registrados aparecem como “não medido”. Eventos úteis: `subtask_reused`/`subtask_not_reused` (retomada), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Estado:** `.meister/meister.db` no projeto (runs, subtarefas, disjuntores). Um run retomado guarda `resumed_from`; o de origem recebe `superseded_by`.
 - **Trabalho rejeitado nunca é perdido:** fica em `refs/meister/archive/*`; commits reaproveitados numa retomada ficam fixados em `refs/meister/resume/*`.
 ### Sobras

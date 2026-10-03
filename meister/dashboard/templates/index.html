@@ -3,397 +3,414 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MeisterRouter — Telemetria de Orquestração Multi-Modelo</title>
+<title>MeisterRouter — Telemetria</title>
 <style>
   :root {
-    --bg: #090b10;
-    --surface: #10141e;
-    --surface-hover: #161c2b;
-    --border: #21283b;
-    --text: #f0f3fa;
-    --muted: #8b95a5;
-    --purple: #c084fc;
-    --orange: #fb923c;
-    --green: #4ade80;
-    --yellow: #facc15;
-    --red: #f87171;
-    --blue: #38bdf8;
-    --cyan: #22d3ee;
+    --bg: #090b10; --surface: #10141e; --hover: #161c2b; --border: #21283b;
+    --text: #f0f3fa; --muted: #8b95a5; --purple: #c084fc; --green: #4ade80;
+    --yellow: #facc15; --red: #f87171; --blue: #38bdf8; --cyan: #22d3ee;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    padding: 24px;
-    font-size: 14px;
-  }
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  .header-title h1 {
-    font-size: 22px;
-    font-weight: 700;
-    color: #fff;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .header-title h1 span.logo {
-    background: linear-gradient(135deg, #a855f7, #3b82f6);
-    color: #fff;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 14px;
-  }
-  .header-subtitle {
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 4px;
-  }
-  .live-badge {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    background: rgba(74, 222, 128, 0.1);
-    color: var(--green);
-    border: 1px solid rgba(74, 222, 128, 0.3);
-    padding: 4px 10px;
-    border-radius: 9999px;
-    font-size: 12px;
-    font-weight: 600;
-  }
-  .live-dot {
-    width: 8px;
-    height: 8px;
-    background: var(--green);
-    border-radius: 50%;
-    box-shadow: 0 0 8px var(--green);
-    animation: pulse 1.8s infinite;
-  }
-  @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.9); }
-  }
-
-  .grid-cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
-  }
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 18px;
-  }
-  .card-label {
-    font-size: 11px;
-    text-transform: uppercase;
-    color: var(--muted);
-    letter-spacing: 0.05em;
-    font-weight: 600;
-  }
-  .card-value {
-    font-size: 26px;
-    font-weight: 700;
-    margin-top: 6px;
-    font-family: "SFMono-Regular", Consolas, monospace;
-  }
-  .card-subtext {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 4px;
-  }
-
-  .panels-row {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    gap: 16px;
-    margin-bottom: 24px;
-  }
-  @media (max-width: 900px) {
-    .panels-row { grid-template-columns: 1fr; }
-  }
-
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 18px;
-  }
-  .panel-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: #fff;
-    margin-bottom: 14px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    font-family: "SFMono-Regular", Consolas, monospace;
-  }
-  th, td {
-    padding: 8px 10px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-  th {
-    color: var(--muted);
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-  }
-  tr:hover td {
-    background: var(--surface-hover);
-  }
-
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-  }
-  .badge-luna { background: rgba(192, 132, 252, 0.15); color: var(--purple); border: 1px solid rgba(192, 132, 252, 0.3); }
-  .badge-gemini { background: rgba(74, 222, 128, 0.15); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
-  .badge-haiku { background: rgba(56, 189, 248, 0.15); color: var(--blue); border: 1px solid rgba(56, 189, 248, 0.3); }
-  .badge-sonnet { background: rgba(251, 146, 60, 0.15); color: var(--orange); border: 1px solid rgba(251, 146, 60, 0.3); }
-  .badge-jev { background: rgba(250, 204, 21, 0.15); color: var(--yellow); border: 1px solid rgba(250, 204, 21, 0.3); }
-  
-  .badge-complete { background: rgba(74, 222, 128, 0.2); color: var(--green); }
-  .badge-retry { background: rgba(250, 204, 21, 0.2); color: var(--yellow); }
-  .badge-escalate { background: rgba(248, 113, 113, 0.2); color: var(--red); }
-
-  .bar-container {
-    margin-bottom: 12px;
-  }
-  .bar-header {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    margin-bottom: 4px;
-  }
-  .bar-track {
-    height: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .bar-fill {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.4s ease;
-  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: var(--bg); color: var(--text); font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  button, input, select { font: inherit; }
+  button, select, input { color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+  button { cursor: pointer; }
+  button:hover, a:hover { background: var(--hover); }
+  a { color: var(--cyan); }
+  .header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  h1 { margin: 0; font-size: 22px; }
+  h2 { margin: 0 0 14px; font-size: 16px; }
+  h3 { margin: 0 0 10px; font-size: 14px; }
+  .logo { display: inline-block; padding: 3px 8px; border-radius: 6px; background: linear-gradient(135deg, #a855f7, #3b82f6); font-size: 13px; }
+  .subtitle, .muted, .meta { color: var(--muted); }
+  .subtitle { margin-top: 5px; }
+  .header-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .meta { overflow-wrap: anywhere; margin: 10px 0 16px; }
+  .warning, .error { padding: 10px 12px; border: 1px solid var(--yellow); border-radius: 8px; color: var(--yellow); margin-bottom: 16px; }
+  .error { border-color: var(--red); color: var(--red); }
+  .tabs { display: flex; gap: 8px; margin: 16px 0; }
+  .tabs button[aria-pressed="true"] { border-color: var(--purple); color: var(--purple); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .card, .panel { padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .card-label { color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-size: 11px; font-weight: 600; }
+  .card-value { margin: 7px 0 4px; font-size: 25px; font-weight: 700; overflow-wrap: anywhere; }
+  .card-sub { color: var(--muted); font-size: 12px; }
+  .panel { margin-bottom: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 14px; }
+  .table-wrap { max-width: 100%; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font: 12px "SFMono-Regular", Consolas, monospace; }
+  th, td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+  th { color: var(--muted); text-transform: uppercase; font: 600 10px -apple-system, sans-serif; }
+  tbody tr:hover { background: var(--hover); }
+  .badge { display: inline-block; padding: 3px 7px; border-radius: 6px; background: #252c3e; }
+  .completed { color: var(--green); } .failed { color: var(--red); } .reused { color: var(--cyan); }
+  .running { color: var(--yellow); } .unknown { color: var(--muted); }
+  .filters, .pager { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  .filters label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+  .filters input { min-width: 180px; }
+  .pager { justify-content: space-between; margin-top: 14px; }
+  .distribution { display: grid; gap: 8px; }
+  .distribution-row { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 6px 0; overflow-wrap: anywhere; }
+  [hidden] { display: none !important; }
+  @media (max-width: 600px) { body { padding: 14px; } .header { align-items: flex-start; } .header-controls { width: 100%; } }
 </style>
 </head>
 <body>
-
-<div class="header">
-  <div class="header-title">
-    <h1><span class="logo">MEISTER</span> MeisterRouter Telemetry</h1>
-    <div class="header-subtitle">Orquestração Multi-Modelo: Claude Code • OpenAI Codex • Jev Decisions</div>
+<header class="header">
+  <div>
+    <h1><span class="logo">MEISTER</span> Telemetria de Orquestração</h1>
+    <div class="subtitle">Métricas agrupadas por tarefa e análise de eventos</div>
   </div>
-  <div class="live-badge">
-    <div class="live-dot"></div>
-    <span>LIVE STREAM</span>
-  </div>
-</div>
-
-<div class="grid-cards">
-  <div class="card">
-    <div class="card-label">Custo Real Acumulado</div>
-    <div class="card-value" style="color: var(--green);" id="val-total-cost">$0.0000</div>
-    <div class="card-subtext" id="val-cost-tokens">0 eventos gravados</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Economia vs Single-Model</div>
-    <div class="card-value" style="color: var(--cyan);" id="val-savings">$0.00</div>
-    <div class="card-subtext" style="color: var(--green);" id="val-savings-pct">0% economizado</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Tarefas Classificadas</div>
-    <div class="card-value" id="val-tasks-count">0</div>
-    <div class="card-subtext" id="val-completed-count">0 concluídas</div>
-  </div>
-  <div class="card">
-    <div class="card-label">Duração Média de Subagente</div>
-    <div class="card-value" style="color: var(--purple);" id="val-avg-dur">0.00s</div>
-    <div class="card-subtext">Tempo de execução líquida</div>
-  </div>
-</div>
-
-<div class="panels-row">
-  <div class="panel">
-    <div class="panel-title">
-      <span>Eventos Recentes de Orquestração</span>
-      <span style="font-size: 11px; color: var(--muted);" id="events-count">Mostrando últimos 20</span>
-    </div>
-    <div style="overflow-x: auto; max-height: 420px;">
-      <table>
-        <thead>
-          <tr>
-            <th>Horário</th>
-            <th>Tipo</th>
-            <th>Modelo / Subagente</th>
-            <th>Detalhes / Decisão</th>
-            <th>Duração</th>
-            <th>Custo</th>
-          </tr>
-        </thead>
-        <tbody id="table-events-body">
-          <tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Aguardando eventos...</td></tr>
-        </tbody>
-      </table>
+  <div class="header-controls">
+    <label for="run-select">Run</label>
+    <select id="run-select" aria-label="Selecionar run"></select>
+    <div class="tabs" role="group" aria-label="Modo de visualização">
+      <button id="grouped-tab" type="button" aria-pressed="true">Agrupado</button>
+      <button id="events-tab" type="button" aria-pressed="false">Analítico</button>
     </div>
   </div>
+</header>
+<div id="log-meta" class="meta" aria-live="polite"></div>
+<div id="other-logs" class="warning" hidden></div>
+<div id="error" class="error" role="alert" hidden></div>
 
-  <div class="panel">
-    <div class="panel-title">Distribuição por Modelo</div>
-    <div id="models-distribution" style="margin-top: 14px;">
-      <!-- Preenchido via JS -->
+<main>
+  <section id="grouped-view">
+    <div id="summary-cards" class="cards"></div>
+    <section class="panel">
+      <h2>Tarefas</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Tarefa</th><th>Status</th><th>Via</th><th>Tentativas</th><th>Duração</th><th>Falha</th><th>Classificação</th><th>Chamadas Jev</th><th>Eventos</th></tr></thead>
+          <tbody id="tasks-body"></tbody>
+        </table>
+      </div>
+    </section>
+    <div class="grid">
+      <section class="panel"><h2>Chamadas ao Jev</h2><div id="jev-calls" class="distribution"></div></section>
+      <section class="panel"><h2>Resultados de rota</h2><div id="route-results" class="distribution"></div></section>
+      <section class="panel"><h2>Classificação por tarefa</h2><div id="classification-task" class="distribution"></div></section>
+      <section class="panel"><h2>Classificação por chamada</h2><div id="classification-call" class="distribution"></div></section>
+      <section class="panel"><h2>Latência e custo do Jev</h2><div id="jev-cost" class="distribution"></div></section>
+      <section class="panel"><h2>Por via</h2><div id="tiers" class="distribution"></div></section>
     </div>
+  </section>
 
-    <div class="panel-title" style="margin-top: 24px;">Matriz de Complexidade Jev</div>
-    <div id="complexity-distribution" style="margin-top: 14px;">
-      <!-- Preenchido via JS -->
-    </div>
-  </div>
-</div>
+  <section id="events-view" hidden>
+    <section class="panel">
+      <h2>Eventos</h2>
+      <form id="event-filters" class="filters">
+        <label>Tarefa<select id="task-filter"><option value="">Todas</option></select></label>
+        <label>Tipo de evento<select id="type-filter"><option value="">Todos</option></select></label>
+        <label>Via<select id="tier-filter"><option value="">Todas</option></select></label>
+        <label>Busca<input id="q-filter" type="search" autocomplete="off"></label>
+        <button type="submit">Filtrar</button>
+        <button id="sort-button" type="button">Ordenar: mais recentes</button>
+      </form>
+      <div class="table-wrap" style="margin-top: 14px">
+        <table>
+          <thead><tr><th>Horário</th><th>Tipo</th><th>Tarefa</th><th>Via</th><th>Evento</th></tr></thead>
+          <tbody id="events-body"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="previous-page" type="button">Anterior</button>
+        <span id="page-status" aria-live="polite"></span>
+        <button id="next-page" type="button">Próxima</button>
+      </div>
+    </section>
+  </section>
+</main>
 
 <script>
-  function formatTime(isoStr) {
-    if (!isoStr) return "";
-    const d = new Date(isoStr);
-    return d.toLocaleTimeString();
+(() => {
+  const pageSize = 50;
+  const params = new URLSearchParams(window.location.search);
+  const state = {
+    view: params.get("view") === "events" ? "events" : "grouped",
+    run_id: params.get("run_id") || "",
+    task_id: params.get("task_id") || "",
+    event_type: params.get("event_type") || "",
+    tier: params.get("tier") || "",
+    q: params.get("q") || "",
+    page: Math.max(1, Number.parseInt(params.get("page") || "1", 10) || 1),
+    order: params.get("order") === "asc" ? "asc" : "desc"
+  };
+  const byId = (id) => document.getElementById(id);
+  const make = (tag, text, className) => {
+    const node = document.createElement(tag);
+    if (text !== undefined && text !== null) node.textContent = String(text);
+    if (className) node.className = className;
+    return node;
+  };
+  const formatMoney = (value) => value === null || value === undefined ? "não medido" : `$${Number(value).toFixed(6)}`;
+  const formatDuration = (value) => value === null || value === undefined ? "—" : `${Number(value).toFixed(2)} s`;
+  const summaryUrl = () => state.run_id ? `/api/summary?${new URLSearchParams({run_id: state.run_id})}` : "/api/summary";
+
+  function updateUrl() {
+    const next = new URLSearchParams();
+    next.set("view", state.view);
+    if (state.run_id) next.set("run_id", state.run_id);
+    if (state.task_id) next.set("task_id", state.task_id);
+    if (state.event_type) next.set("event_type", state.event_type);
+    if (state.tier) next.set("tier", state.tier);
+    if (state.q) next.set("q", state.q);
+    if (state.page > 1) next.set("page", String(state.page));
+    if (state.order !== "desc") next.set("order", state.order);
+    window.history.replaceState(null, "", `${window.location.pathname}?${next.toString()}`);
   }
 
-  function getModelBadge(model) {
-    if (!model) return '<span class="badge badge-jev">jev</span>';
-    const m = model.toLowerCase();
-    if (m.includes("luna")) return `<span class="badge badge-luna">🌙 GPT-6 Luna</span>`;
-    if (m.includes("gemini")) return `<span class="badge badge-gemini">✨ Gemini 3.8</span>`;
-    if (m.includes("haiku")) return `<span class="badge badge-haiku">⚡ Haiku 4.5</span>`;
-    if (m.includes("sonnet")) return `<span class="badge badge-sonnet">🏛️ Sonnet 5</span>`;
-    if (m.includes("jev")) return `<span class="badge badge-jev">⚖️ Jev Decisions</span>`;
-    return `<span class="badge">${model}</span>`;
+  async function getJson(path) {
+    const response = await fetch(path);
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+    return body;
   }
 
-  async function updateDashboard() {
-    try {
-      const [sumRes, evRes] = await Promise.all([
-        fetch('/api/summary'),
-        fetch('/api/events?limit=30')
-      ]);
+  function setError(message) {
+    const box = byId("error");
+    box.textContent = message || "";
+    box.hidden = !message;
+  }
 
-      const summary = await sumRes.json();
-      const eventsData = await evRes.json();
+  function renderDistribution(id, values) {
+    const target = byId(id);
+    target.replaceChildren();
+    const keys = Object.keys(values || {}).sort();
+    if (!keys.length) {
+      target.append(make("span", "Sem dados"));
+      target.lastChild.className = "muted";
+      return;
+    }
+    keys.forEach((key) => {
+      const row = make("div", undefined, "distribution-row");
+      row.append(make("span", key), make("strong", values[key]));
+      target.append(row);
+    });
+  }
 
-      document.getElementById('val-total-cost').textContent = `$${summary.total_cost.toFixed(4)}`;
-      document.getElementById('val-cost-tokens').textContent = `${eventsData.events.length} eventos registrados`;
+  function addCard(container, label, value, subtext) {
+    const card = make("article", undefined, "card");
+    card.append(make("div", label, "card-label"), make("div", value, "card-value"), make("div", subtext, "card-sub"));
+    container.append(card);
+  }
 
-      document.getElementById('val-savings').textContent = `$${summary.savings_usd.toFixed(2)}`;
-      document.getElementById('val-savings-pct').textContent = `📉 ${summary.savings_pct}% de economia`;
+  function eventLink(task) {
+    const link = make("a", "ver eventos");
+    const query = new URLSearchParams({view: "events", run_id: task.run_id, task_id: task.task_id});
+    link.href = `${window.location.pathname}?${query.toString()}`;
+    return link;
+  }
 
-      document.getElementById('val-tasks-count').textContent = summary.tasks_count;
-      document.getElementById('val-completed-count').textContent = `${summary.completed_tasks} execuções finalizadas`;
-
-      document.getElementById('val-avg-dur').textContent = `${summary.avg_duration_sec}s`;
-
-      // Preenche a tabela
-      const tbody = document.getElementById('table-events-body');
-      if (eventsData.events.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--muted); padding: 20px;">Nenhum evento registrado ainda. Execute uma tarefa para ver telemetria ao vivo.</td></tr>';
-      } else {
-        tbody.innerHTML = eventsData.events.map(ev => {
-          let typeBadge = `<span class="badge">${ev.event_type}</span>`;
-          let details = "";
-          let model = ev.subagent || ev.model || "";
-
-          if (ev.event_type === "classify") {
-            typeBadge = `<span class="badge badge-jev">CLASSIFY</span>`;
-            details = `<strong>${ev.classification}</strong> (Sugerido: ${ev.recommended_implementer})`;
-          } else if (ev.event_type === "control") {
-            const cls = ev.action === "COMPLETE" ? "badge-complete" : ev.action === "ESCALATE" ? "badge-escalate" : "badge-retry";
-            typeBadge = `<span class="badge ${cls}">${ev.action}</span>`;
-            details = `Escalar: ${ev.should_escalate ? 'SIM' : 'NÃO'} | Trocar: ${ev.switch_implementer ? 'SIM' : 'NÃO'}`;
-          } else if (ev.event_type === "task_start") {
-            typeBadge = `<span class="badge" style="color: var(--blue);">TASK_START</span>`;
-            details = `${ev.instance_label || ev.task_id.slice(0, 8)}`;
-          } else if (ev.event_type === "task_end") {
-            typeBadge = `<span class="badge badge-complete">TASK_END</span>`;
-            details = `${ev.instance_label || ev.task_id.slice(0, 8)} (${ev.status})`;
-          }
-
-          const dur = ev.duration_seconds ? `${ev.duration_seconds}s` : "-";
-          const cost = ev.cost_usd ? `$${ev.cost_usd.toFixed(4)}` : "$0.0000";
-
-          return `<tr>
-            <td style="color: var(--muted);">${formatTime(ev.timestamp)}</td>
-            <td>${typeBadge}</td>
-            <td>${getModelBadge(model)}</td>
-            <td>${details}</td>
-            <td>${dur}</td>
-            <td style="color: var(--green);">${cost}</td>
-          </tr>`;
-        }).join('');
-      }
-
-      // Distribuição de Modelos
-      const distContainer = document.getElementById('models-distribution');
-      const models = summary.by_model_count || {};
-      const totalExecs = Object.values(models).reduce((a, b) => a + b, 0) || 1;
-
-      distContainer.innerHTML = Object.entries(models).map(([mod, count]) => {
-        const pct = Math.round((count / totalExecs) * 100);
-        return `<div class="bar-container">
-          <div class="bar-header">
-            <span>${mod}</span>
-            <span style="color: var(--muted);">${count} execs (${pct}%)</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width: ${pct}%; background: linear-gradient(90deg, #a855f7, #3b82f6);"></div>
-          </div>
-        </div>`;
-      }).join('') || '<div style="color: var(--muted); font-size: 12px;">Sem dados de execução ainda</div>';
-
-      // Distribuição de Complexidade
-      const compContainer = document.getElementById('complexity-distribution');
-      const comp = summary.by_classification || {};
-      const totalClass = Object.values(comp).reduce((a, b) => a + b, 0) || 1;
-
-      compContainer.innerHTML = Object.entries(comp).map(([lvl, count]) => {
-        const pct = Math.round((count / totalClass) * 100);
-        return `<div class="bar-container">
-          <div class="bar-header">
-            <span>${lvl}</span>
-            <span style="color: var(--muted);">${count} (${pct}%)</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width: ${pct}%; background: linear-gradient(90deg, #4ade80, #22d3ee);"></div>
-          </div>
-        </div>`;
-      }).join('') || '<div style="color: var(--muted); font-size: 12px;">Sem dados de classificação ainda</div>';
-
-    } catch (e) {
-      console.error("Erro ao atualizar telemetria:", e);
+  function renderTasks(tasks) {
+    const body = byId("tasks-body");
+    body.replaceChildren();
+    tasks.forEach((task) => {
+      const row = document.createElement("tr");
+      const status = make("span", task.status, `badge ${task.status}`);
+      const cells = [
+        task.task_id, status, task.tier || "—", task.attempts, formatDuration(task.duration_s),
+        task.failure || "—", task.classification || "—", task.jev_calls
+      ];
+      cells.forEach((value) => {
+        const cell = document.createElement("td");
+        if (value instanceof Node) cell.append(value);
+        else cell.textContent = String(value);
+        row.append(cell);
+      });
+      const eventsCell = document.createElement("td");
+      eventsCell.append(eventLink(task));
+      row.append(eventsCell);
+      body.append(row);
+    });
+    if (!tasks.length) {
+      const row = document.createElement("tr");
+      const cell = make("td", "Nenhuma tarefa neste run.");
+      cell.colSpan = 9;
+      row.append(cell);
+      body.append(row);
     }
   }
 
-  updateDashboard();
-  setInterval(updateDashboard, 2500);
-</script>
+  function renderSummary(summary) {
+    const totals = summary.totals;
+    const container = byId("summary-cards");
+    container.replaceChildren();
+    addCard(container, "Tarefas", totals.tasks_total, `${summary.jev.classify_calls} classificações`);
+    addCard(container, "Concluídas", totals.completed, `${totals.failed} falhas`);
+    addCard(container, "Reaproveitadas", totals.reused, `${totals.running} em execução`);
+    addCard(container, "Duração média", formatDuration(totals.avg_duration_s), "somente tarefas concluídas");
+    addCard(container, "Custo do Jev", formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
+    addCard(container, "Custo dos workers", formatMoney(summary.workers.cost_usd), "não medido quando não há custos registrados");
+    renderTasks(summary.tasks);
+    renderDistribution("jev-calls", {classify: summary.jev.classify_calls, control: summary.jev.control_calls});
+    renderDistribution("route-results", summary.jev.route_by_status);
+    renderDistribution("classification-task", summary.jev.classification_by_task);
+    renderDistribution("classification-call", summary.jev.classification_by_call);
+    renderDistribution("jev-cost", {
+      "Latência média (ms)": summary.jev.avg_latency_ms === null ? "—" : summary.jev.avg_latency_ms,
+      "Custo (USD)": formatMoney(summary.jev.cost_usd)
+    });
+    const tierValues = {};
+    Object.entries(summary.workers.by_tier).forEach(([tier, row]) => {
+      tierValues[tier] = `${row.tasks} tarefas · ${row.completed} concluídas · média ${formatDuration(row.avg_duration_s)}`;
+    });
+    renderDistribution("tiers", tierValues);
+    const currentRun = summary.meta.run_id || "all";
+    byId("run-select").value = currentRun;
+    state.run_id = currentRun === "all" ? "all" : currentRun;
+    updateUrl();
+  }
 
+  function setOptions(select, values, label) {
+    const first = make("option", label);
+    first.value = "";
+    select.replaceChildren(first);
+    values.forEach((value) => {
+      const option = make("option", value);
+      option.value = value;
+      select.append(option);
+    });
+  }
+
+  async function loadEvents() {
+    const query = new URLSearchParams({
+      run_id: state.run_id || "all",
+      limit: String(pageSize),
+      offset: String((state.page - 1) * pageSize),
+      order: state.order
+    });
+    if (state.task_id) query.set("task_id", state.task_id);
+    if (state.event_type) query.set("event_type", state.event_type);
+    if (state.tier) query.set("tier", state.tier);
+    if (state.q) query.set("q", state.q);
+    const result = await getJson(`/api/events?${query.toString()}`);
+    const body = byId("events-body");
+    body.replaceChildren();
+    result.events.forEach((event) => {
+      const row = document.createElement("tr");
+      [event.ts || event.timestamp || "", event.event_type || event.event || "", event.task_id || "", event.tier || "", JSON.stringify(event)]
+        .forEach((value) => row.append(make("td", value)));
+      body.append(row);
+    });
+    if (!result.total) {
+      const row = document.createElement("tr");
+      const cell = make("td", "Nenhum evento corresponde aos filtros.");
+      cell.colSpan = 5;
+      row.append(cell);
+      body.append(row);
+    }
+    const pages = Math.max(1, Math.ceil(result.total / pageSize));
+    byId("page-status").textContent = `Página ${state.page} de ${pages} · ${result.total} eventos`;
+    byId("previous-page").disabled = state.page <= 1;
+    byId("next-page").disabled = state.page >= pages;
+    updateUrl();
+  }
+
+  async function loadMeta() {
+    const [meta, runData, summary] = await Promise.all([
+      getJson("/api/meta"), getJson("/api/runs"), getJson(summaryUrl())
+    ]);
+    const metaLine = `Log lido: ${meta.log_file} · ${meta.lines} linhas${meta.exists ? ` · ${meta.size_bytes} bytes` : " · ainda não existe"}`;
+    byId("log-meta").textContent = meta.project_root ? `${metaLine} · Projeto: ${meta.project_root}` : metaLine;
+    const warning = byId("other-logs");
+    warning.replaceChildren();
+    if (meta.other_logs.length) {
+      warning.append(make("strong", "Outros logs conhecidos (não estão sendo lidos): "));
+      warning.append(document.createTextNode(meta.other_logs.join(" · ")));
+      warning.hidden = false;
+    } else {
+      warning.hidden = true;
+    }
+    const select = byId("run-select");
+    const allOption = make("option", "Todos os runs");
+    allOption.value = "all";
+    select.replaceChildren(allOption);
+    runData.runs.forEach((run) => {
+      const option = make("option", `${run.run_id} · ${run.status || "em andamento"} · ${run.tasks} tarefas`);
+      option.value = run.run_id;
+      select.append(option);
+    });
+    const currentRun = summary.meta.run_id || "all";
+    select.value = state.run_id || currentRun;
+    if (select.value !== "all" && !runData.runs.some((run) => run.run_id === select.value)) {
+      select.value = currentRun;
+      state.run_id = currentRun;
+    }
+    if (!state.run_id) state.run_id = currentRun;
+    setOptions(byId("task-filter"), Array.from(new Set(summary.tasks.map((task) => task.task_id))).sort(), "Todas");
+    const eventData = await getJson(`/api/events?${new URLSearchParams({run_id: state.run_id || "all", limit: "500", offset: "0"})}`);
+    setOptions(byId("type-filter"), Array.from(new Set(eventData.events.map((event) => event.event_type || event.event).filter(Boolean))).sort(), "Todos");
+    setOptions(byId("tier-filter"), Array.from(new Set(eventData.events.map((event) => event.tier).filter(Boolean))).sort(), "Todas");
+    byId("task-filter").value = state.task_id;
+    byId("type-filter").value = state.event_type;
+    byId("tier-filter").value = state.tier;
+    byId("q-filter").value = state.q;
+    if (state.view === "grouped") renderSummary(summary);
+    else await loadEvents();
+  }
+
+  async function refreshGrouped() {
+    try {
+      const summary = await getJson(summaryUrl());
+      renderSummary(summary);
+      setError("");
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
+  function showView(view) {
+    state.view = view;
+    byId("grouped-view").hidden = view !== "grouped";
+    byId("events-view").hidden = view !== "events";
+    byId("grouped-tab").setAttribute("aria-pressed", String(view === "grouped"));
+    byId("events-tab").setAttribute("aria-pressed", String(view === "events"));
+    updateUrl();
+    if (view === "events") loadEvents().catch((error) => setError(error.message));
+    else refreshGrouped();
+  }
+
+  byId("grouped-tab").addEventListener("click", () => showView("grouped"));
+  byId("events-tab").addEventListener("click", () => showView("events"));
+  byId("run-select").addEventListener("change", (event) => {
+    state.run_id = event.target.value;
+    state.page = 1;
+    updateUrl();
+    loadMeta().catch((error) => setError(error.message));
+  });
+  byId("event-filters").addEventListener("submit", (event) => {
+    event.preventDefault();
+    state.task_id = byId("task-filter").value;
+    state.event_type = byId("type-filter").value;
+    state.tier = byId("tier-filter").value;
+    state.q = byId("q-filter").value;
+    state.page = 1;
+    loadEvents().catch((error) => setError(error.message));
+  });
+  byId("sort-button").addEventListener("click", () => {
+    state.order = state.order === "desc" ? "asc" : "desc";
+    byId("sort-button").textContent = state.order === "desc" ? "Ordenar: mais recentes" : "Ordenar: mais antigos";
+    loadEvents().catch((error) => setError(error.message));
+  });
+  byId("previous-page").addEventListener("click", () => {
+    state.page = Math.max(1, state.page - 1);
+    loadEvents().catch((error) => setError(error.message));
+  });
+  byId("next-page").addEventListener("click", () => {
+    state.page += 1;
+    loadEvents().catch((error) => setError(error.message));
+  });
+  window.addEventListener("popstate", () => window.location.reload());
+
+  showView(state.view);
+  loadMeta().catch((error) => setError(error.message));
+  window.setInterval(() => {
+    if (state.view === "grouped") {
+      loadMeta().catch((error) => setError(error.message));
+    }
+  }, 5000);
+})();
+</script>
 </body>
 </html>

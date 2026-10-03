@@ -283,15 +283,16 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
 @main.command("dashboard")
 @click.option("--port", "-p", type=int, default=5050, help="Porta do dashboard (default: 5050)")
 @click.option("--host", default="127.0.0.1", help="Host do dashboard (default: 127.0.0.1)")
+@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help="Diretório dos logs de telemetria")
 @click.option("--tui", is_flag=True, default=False, help="Inicia overlay TUI no Herdr")
-def dashboard(port, host, tui):
+def dashboard(port, host, log_dir, tui):
     """Inicia o servidor de telemetria local ou TUI overlay."""
     if tui:
         from meister.herdr.tui import run_tui_loop
         run_tui_loop()
     else:
         from meister.dashboard.server import start_server
-        start_server(host=host, port=port)
+        start_server(host=host, port=port, log_dir=log_dir)
 
 
 @main.command("install-hooks")

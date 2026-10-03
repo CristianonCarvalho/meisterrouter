@@ -236,11 +236,19 @@ execução; `--force-busy` ignora essa trava. Use `--base BRANCH` para escolher 
 ### 5. Painel de Telemetria ao Vivo (Dashboard)
 
 #### Interface Web:
-Acompanhe os custos, economia gerada e distribuição de modelos no seu navegador:
+Acompanhe métricas agrupadas por tarefa/run ou filtre e pagine os eventos no modo analítico:
 ```bash
 meister dashboard
 ```
 Acesse em: **`http://localhost:5050`**
+
+O painel seleciona o run mais recente por padrão e informa o arquivo JSONL lido. Para
+apontar a interface a outro diretório de logs sem alterar `MEISTER_LOG_DIR`:
+```bash
+meister dashboard --log-dir /caminho/para/logs
+```
+Custos dos workers só são exibidos quando registrados; economia percentual não é
+estimada sem um baseline medido.
 
 #### Interface Terminal (TUI Overlay):
 Ideal para uso dentro do terminal ou integrado ao Herdr:
