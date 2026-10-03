@@ -161,6 +161,22 @@ def parse_architect_plan(output: str) -> List[Dict[str, Any]]:
     }]
 
 
+def _step_id(step: Union[Dict[str, Any], SubtaskNode]) -> str:
+    if isinstance(step, dict):
+        return str(step.get("id") or step.get("step_id") or "")
+    return str(getattr(step, "id", ""))
+
+
+def _step_title(step: Union[Dict[str, Any], SubtaskNode], size: int = 120) -> str:
+    """Primeira linha não vazia da descrição, para identificar a tarefa no dashboard."""
+    raw = step.get("description") if isinstance(step, dict) else getattr(step, "description", "")
+    for line in str(raw or "").splitlines():
+        line = line.strip()
+        if line:
+            return line if len(line) <= size else line[: size - 1] + "…"
+    return ""
+
+
 class HerdrEventBridge:
     """Central orchestration supervisor bridging Herdr socket events and task execution."""
 
@@ -1682,14 +1698,8 @@ class HerdrEventBridge:
             task_id="orchestrator",
             total=len(steps),
             batches=len(batches),
-            task_ids=[
-                str(
-                    (step.get("id") or step.get("step_id") or "")
-                    if isinstance(step, dict)
-                    else getattr(step, "id", "")
-                )
-                for step in steps
-            ],
+            task_ids=[_step_id(step) for step in steps],
+            task_titles={_step_id(step): _step_title(step) for step in steps},
         )
 
         for idx, batch in enumerate(batches):

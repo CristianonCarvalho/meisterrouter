@@ -22,6 +22,23 @@ app = Flask(
 )
 
 
+def project_from_log(log_file: str, project_root: Optional[str] = None) -> Dict[str, str]:
+    """Projeto dono do log: `<projeto>/.meister/logs/orchestration_log.jsonl` -> nome e pasta de `<projeto>`.
+
+    Sem esse layout, cai para a pasta do projeto onde o comando rodou.
+    """
+    logs_dir = os.path.dirname(os.path.abspath(log_file))
+    meister_dir = os.path.dirname(logs_dir)
+    if os.path.basename(logs_dir) == "logs" and os.path.basename(meister_dir) == ".meister":
+        owner = os.path.dirname(meister_dir)
+        if owner == os.path.expanduser("~"):
+            return {"name": "global (~/.meister)", "path": meister_dir}
+        return {"name": os.path.basename(owner) or owner, "path": owner}
+    if project_root:
+        return {"name": os.path.basename(project_root.rstrip(os.sep)) or project_root, "path": project_root}
+    return {"name": os.path.basename(logs_dir) or logs_dir, "path": logs_dir}
+
+
 def _read_events() -> List[Dict[str, Any]]:
     return list(iter_events(get_log_file()))
 
@@ -80,6 +97,7 @@ def api_meta():
         if os.path.abspath(path) != current and os.path.isfile(path)
     })
     return jsonify({
+        "project": project_from_log(log_file, project_root),
         "log_file": log_file,
         "exists": exists,
         "size_bytes": size_bytes,
