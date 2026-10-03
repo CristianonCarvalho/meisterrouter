@@ -48,6 +48,8 @@ def test_load_config_defaults_when_no_file(tmp_path, monkeypatch):
     assert config.concurrency.max_parallel_workers == 4
     assert config.retry.pane_lost_attempts == 1
     assert config.retry.pane_lost_backoff_seconds == 5
+    assert config.workers.idle_timeout_seconds == 600
+    assert config.workers.max_runtime_seconds == 3600
 
 
 @pytest.mark.parametrize(
@@ -197,6 +199,96 @@ workers:
     errors = [i for i in issues if i.level == "error"]
     assert any("enabled" in e.path for e in errors)
     assert any("booleano" in e.message.lower() for e in errors)
+
+
+def test_effective_worker_timeouts_resolve_workers_tier_and_task_overrides(tmp_path):
+    from meister.config import effective_worker_timeouts
+
+    config_file = tmp_path / "worker_timeouts.yaml"
+    config_file.write_text("""
+workers:
+  idle_timeout_seconds: 25
+  max_runtime_seconds: 100
+  tier_order:
+    - name: inherited
+    - name: override
+      idle_timeout_seconds: 12.5
+      max_runtime_seconds: 50
+""")
+    cfg = load_config(str(config_file))
+
+    assert effective_worker_timeouts(cfg, "inherited") == {
+        "idle_timeout_seconds": 25.0,
+        "max_runtime_seconds": 100.0,
+    }
+    assert effective_worker_timeouts(cfg, "override") == {
+        "idle_timeout_seconds": 12.5,
+        "max_runtime_seconds": 50.0,
+    }
+    assert effective_worker_timeouts(
+        cfg,
+        "override",
+        {"idle_timeout_seconds": 2, "max_runtime_seconds": 3},
+    ) == {"idle_timeout_seconds": 2.0, "max_runtime_seconds": 3.0}
+    assert effective_worker_timeouts(cfg, "override", {"timeout": 4}) == {
+        "idle_timeout_seconds": 12.5,
+        "max_runtime_seconds": 4.0,
+    }
+    assert effective_worker_timeouts(
+        cfg, "override", {"timeout": 4, "max_runtime_seconds": 6}
+    )["max_runtime_seconds"] == 6
+
+
+@pytest.mark.parametrize("value", ["-1", "true", '"2"', ".nan", ".inf"])
+@pytest.mark.parametrize("field", ["idle_timeout_seconds", "max_runtime_seconds"])
+def test_worker_timeout_invalid_config_is_error(tmp_path, field, value):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "invalid_worker_timeout.yaml"
+    config_file.write_text(f"workers:\n  {field}: {value}\n")
+
+    issues = validate_config(load_config(str(config_file)))
+    assert any(
+        issue.level == "error" and issue.path == f"workers.{field}"
+        for issue in issues
+    )
+
+
+def test_invalid_tier_timeout_is_validation_error(tmp_path):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "invalid_tier_timeout.yaml"
+    config_file.write_text("""
+workers:
+  tier_order:
+    - name: custom
+      idle_timeout_seconds: true
+      max_runtime_seconds: -1
+""")
+
+    errors = [
+        issue for issue in validate_config(load_config(str(config_file)))
+        if issue.level == "error"
+    ]
+    assert any("tier_order[0].idle_timeout_seconds" in issue.path for issue in errors)
+    assert any("tier_order[0].max_runtime_seconds" in issue.path for issue in errors)
+
+
+def test_worker_timeout_both_disabled_warns(tmp_path):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "timeouts_disabled.yaml"
+    config_file.write_text("""
+workers:
+  idle_timeout_seconds: 0
+  max_runtime_seconds: 0
+""")
+
+    issues = validate_config(load_config(str(config_file)))
+    assert any(
+        issue.level == "warning" and "sem proteção contra worker travado" in issue.message
+        for issue in issues
+    )
 
 
 def test_architect_effort_parsing_and_validation(tmp_path):

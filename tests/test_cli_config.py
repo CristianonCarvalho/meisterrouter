@@ -91,6 +91,9 @@ def test_cli_config_show_json():
     ]
     assert [tier["name"] for tier in data["workers"]["disabled"]] == ["codex_luna"]
     assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
+    assert data["workers"]["idle_timeout_seconds"] == 600
+    assert data["workers"]["max_runtime_seconds"] == 3600
+    assert all("idle_timeout_seconds" in tier for tier in data["workers"]["tier_order"])
 
     # Verifica que json tem chaves ordenadas (estável)
     keys = list(data.keys())
@@ -119,6 +122,45 @@ workers:
     assert json_result.exit_code == 0
     tiers = json.loads(json_result.output)["workers"]["tier_order"]
     assert [tier["max_parallel"] for tier in tiers] == [2, None]
+
+
+def test_cli_config_show_exposes_worker_timeouts_in_text_and_json(tmp_path):
+    runner = CliRunner()
+    cfg_file = tmp_path / "worker_timeouts.yaml"
+    cfg_file.write_text("""
+workers:
+  idle_timeout_seconds: 12
+  max_runtime_seconds: 90
+  tier_order:
+    - name: custom
+      idle_timeout_seconds: 3
+      max_runtime_seconds: 20
+""")
+
+    text = runner.invoke(main, ["config", "show", "--config-path", str(cfg_file)])
+    assert text.exit_code == 0
+    assert "Timeout por inatividade (segundos): 12.0" in text.output
+    assert "Runtime máximo (segundos): 90.0" in text.output
+    assert "3.0" in text.output
+    assert "20.0" in text.output
+
+    json_result = runner.invoke(main, ["config", "show", "--json", "--config-path", str(cfg_file)])
+    assert json_result.exit_code == 0
+    data = json.loads(json_result.output)["workers"]
+    assert data["idle_timeout_seconds"] == 12
+    assert data["max_runtime_seconds"] == 90
+    assert data["tier_order"][0]["idle_timeout_seconds"] == 3
+    assert data["tier_order"][0]["max_runtime_seconds"] == 20
+
+
+def test_cli_config_validate_rejects_invalid_worker_timeout(tmp_path):
+    runner = CliRunner()
+    cfg_file = tmp_path / "invalid_timeout.yaml"
+    cfg_file.write_text("workers:\n  idle_timeout_seconds: -1\n")
+
+    result = runner.invoke(main, ["config", "validate", "--config-path", str(cfg_file)])
+    assert result.exit_code == 2
+    assert "workers.idle_timeout_seconds" in result.output
 
 
 def test_cli_config_show_json_reports_jev_router(tmp_path):

@@ -53,6 +53,35 @@ def _tier_limit_config(tmp_path, tiers, router_mode="first"):
     return load_config(str(cfg_file))
 
 
+def _timeout_test_config(tmp_path, tier_names=("A",), idle=0.05, maximum=0, retries=0):
+    tiers = "\n".join(
+        f"    - name: {name}\n      harness: codex\n      model: {name}\n"
+        for name in tier_names
+    )
+    cfg_file = tmp_path / "timeout_config.yaml"
+    cfg_file.write_text(
+        f"router:\n  mode: first\n"
+        f"retry:\n  pane_lost_attempts: {retries}\n  pane_lost_backoff_seconds: 0\n"
+        f"workers:\n  idle_timeout_seconds: {idle}\n  max_runtime_seconds: {maximum}\n"
+        f"  tier_order:\n{tiers}"
+        "concurrency:\n  parallel_tasks: false\n  max_parallel_workers: 1\n  layout_strategy: tiled\n  isolation_mode: none\n"
+    )
+    return load_config(str(cfg_file))
+
+
+def _init_test_git_repo(repo_dir):
+    repo_dir.mkdir(exist_ok=True)
+    subprocess.run(["git", "init", "-b", "main"], cwd=repo_dir, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, check=True)
+    (repo_dir / "base.txt").write_text("base\n")
+    subprocess.run(["git", "add", "base.txt"], cwd=repo_dir, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=repo_dir, check=True, capture_output=True)
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=repo_dir, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 def _mock_tier_worker(bridge, pause=0.08):
     active_by_tier = {}
     max_by_tier = {}
@@ -918,6 +947,328 @@ async def test_bridge_infrastructure_error_fast_fails_without_escalation(tmp_pat
         call.kwargs.get("event_type") == "worker_retry"
         for call in log_event_mock.call_args_list
     )
+
+
+@pytest.mark.asyncio
+async def test_bridge_idle_timeout_is_not_reported_as_pane_loss(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    config = _timeout_test_config(tmp_path, idle=0.02, retries=0)
+    client = AsyncMock()
+    client.read_pane.return_value = "unchanged"
+    bridge = HerdrEventBridge(config=config, client=client)
+
+    async def never_finishes(tier_name, task_context=None, **kwargs):
+        return "pane-timeout", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = never_finishes
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask({"id": "idle", "description": "idle worker", "cwd": str(tmp_path)}),
+            timeout=3,
+        )
+
+    assert result is False
+    events = [call.kwargs for call in log_event_mock.call_args_list]
+    timeout_event = next(event for event in events if event.get("event_type") == "worker_timeout")
+    assert timeout_event["kind"] == "idle"
+    assert timeout_event["seconds"] == 0.02
+    assert timeout_event["action"] == "falhando sem trabalho aproveitavel"
+    assert "timeout por inatividade" in timeout_event["message"]
+    assert not any(
+        event.get("event_type") == "worker_error"
+        and "encerrou prematuramente" in event.get("error", "")
+        for event in events
+    )
+    client.send_interrupt.assert_awaited_once_with("pane-timeout")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("activity", ["worktree", "pane"])
+async def test_bridge_worktree_or_pane_activity_resets_idle_timeout(
+    tmp_path, monkeypatch, activity
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    repo_dir = tmp_path / "repo"
+    _init_test_git_repo(repo_dir)
+    config = _timeout_test_config(tmp_path, idle=0.12, retries=0)
+    client = AsyncMock()
+    start = time.monotonic()
+    activity_at = []
+    timeout_observed = []
+    client.send_interrupt.side_effect = lambda _pane: timeout_observed.append(time.monotonic())
+    if activity == "pane":
+        client.read_pane.side_effect = lambda _pane: (
+            "initial" if time.monotonic() - start < 0.08 else "changed"
+        )
+    else:
+        client.read_pane.return_value = "unchanged"
+    bridge = HerdrEventBridge(config=config, client=client)
+
+    async def create_activity():
+        await asyncio.sleep(0.08)
+        activity_at.append(time.monotonic())
+        if activity == "worktree":
+            (repo_dir / "worker-output.txt").write_text("activity\n")
+
+    async def never_finishes(tier_name, task_context=None, **kwargs):
+        asyncio.create_task(create_activity())
+        return "pane-activity", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = never_finishes
+    with patch("meister.herdr.bridge.log_event"):
+        result = await asyncio.wait_for(
+            bridge.execute_subtask(
+                {"id": f"activity-{activity}", "description": "activity", "cwd": str(repo_dir)}
+            ),
+            timeout=3,
+        )
+
+    assert result is False
+    assert timeout_observed
+    assert activity_at
+    assert timeout_observed[0] - activity_at[0] >= 0.25
+
+
+@pytest.mark.asyncio
+async def test_bridge_max_runtime_timeout_fires_despite_activity_and_idle_can_be_disabled(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    config = _timeout_test_config(tmp_path, idle=0.02, maximum=0.12, retries=0)
+    client = AsyncMock()
+    client.read_pane.side_effect = lambda _pane: str(time.monotonic())
+    bridge = HerdrEventBridge(config=config, client=client)
+
+    async def never_finishes(tier_name, task_context=None, **kwargs):
+        return "pane-runtime", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = never_finishes
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask(
+                {"id": "runtime", "description": "continuous activity", "cwd": str(tmp_path)}
+            ),
+            timeout=3,
+        )
+
+    assert result is False
+    timeout_event = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_timeout"
+    )
+    assert timeout_event["kind"] == "max_runtime"
+    assert timeout_event["seconds"] == 0.12
+
+
+@pytest.mark.asyncio
+async def test_bridge_zero_idle_timeout_disables_idle_protection(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    config = _timeout_test_config(tmp_path, idle=0, maximum=0.12, retries=0)
+    client = AsyncMock()
+    client.read_pane.return_value = "unchanged"
+    bridge = HerdrEventBridge(config=config, client=client)
+
+    async def never_finishes(tier_name, task_context=None, **kwargs):
+        return "pane-idle-disabled", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = never_finishes
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        assert not await asyncio.wait_for(
+            bridge.execute_subtask({"id": "idle-disabled", "description": "runtime remains capped"}),
+            timeout=3,
+        )
+
+    timeout_event = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_timeout"
+    )
+    assert timeout_event["kind"] == "max_runtime"
+
+
+@pytest.mark.asyncio
+async def test_bridge_zero_max_runtime_disables_runtime_ceiling(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    config = _timeout_test_config(tmp_path, idle=0.03, maximum=0, retries=0)
+    client = AsyncMock()
+    client.read_pane.side_effect = lambda _pane: str(time.monotonic())
+    bridge = HerdrEventBridge(config=config, client=client)
+
+    async def finish_worker(tier_name, task_context=None, **kwargs):
+        asyncio.get_running_loop().call_later(
+            0.45,
+            write_atomic_json,
+            task_context["result_file"],
+            {"status": "done", "modified_files": []},
+        )
+        return "pane-no-runtime-limit", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = finish_worker
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        assert await asyncio.wait_for(
+            bridge.execute_subtask({"id": "no-runtime-limit", "description": "finish", "cwd": str(tmp_path)}),
+            timeout=3,
+        )
+    assert not any(
+        call.kwargs.get("event_type") == "worker_timeout"
+        for call in log_event_mock.call_args_list
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("integration_result, expected", [((True, ""), True), ((False, "Portão determinístico falhou"), False)])
+@pytest.mark.parametrize("worker_commits", [False, True], ids=["dirty-worktree", "new-commit"])
+async def test_bridge_timeout_salvages_dirty_or_committed_work_through_integration(
+    tmp_path, monkeypatch, integration_result, expected, worker_commits
+):
+    from types import SimpleNamespace
+    from meister.state import RunState, StateManager, SubtaskState
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    repo_dir = tmp_path / "repo"
+    base_commit = _init_test_git_repo(repo_dir)
+    worktree = SimpleNamespace(
+        task_id="salvage-worktree",
+        worktree_path=str(repo_dir),
+        base_commit=base_commit,
+    )
+    worktree_manager = MagicMock()
+    worktree_manager.create_worktree.return_value = worktree
+    pipeline = SimpleNamespace(
+        integration_info=SimpleNamespace(branch_name="main"),
+        wt_mgr=worktree_manager,
+        integrate_subtask=MagicMock(return_value=integration_result),
+        last_integrated_sha=None,
+    )
+    state = StateManager(":memory:")
+    run_id = "timeout-salvage-run"
+    state.create_or_get_run("timeout salvage", force_run_id=run_id)
+    state.transition_run(run_id, RunState.RUNNING)
+    state.add_subtasks(run_id, [
+        {
+            "id": "salvage",
+            "description": "salvage work",
+            "target_files": ["salvaged.txt"],
+            "depends_on": [],
+        }
+    ])
+    config = _timeout_test_config(tmp_path, idle=0.02, retries=0)
+    client = AsyncMock()
+    client.read_pane.return_value = "idle"
+    bridge = HerdrEventBridge(config=config, client=client, state_manager=state)
+    bridge.current_run_id = run_id
+    bridge._integration_pipeline = pipeline
+
+    async def commit_worker_output(tier_name, task_context=None, **kwargs):
+        (repo_dir / "salvaged.txt").write_text("completed work\n")
+        if worker_commits:
+            subprocess.run(["git", "add", "salvaged.txt"], cwd=repo_dir, check=True)
+            subprocess.run(
+                ["git", "commit", "-m", "worker completed before timeout"],
+                cwd=repo_dir,
+                check=True,
+                capture_output=True,
+            )
+        return "pane-salvage", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = commit_worker_output
+    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+        result = await bridge.execute_subtask(
+            {
+                "id": "salvage",
+                "description": "salvage work",
+                "target_files": ["salvaged.txt"],
+                "cwd": str(repo_dir),
+            }
+        )
+
+    pipeline.integrate_subtask.assert_called_once()
+    events = [call.kwargs for call in log_event_mock.call_args_list]
+    assert any(event.get("event_type") == "worker_timeout_salvaged" for event in events)
+    if expected:
+        assert result is True
+        row = state.get_subtask(compute_subtask_id(run_id, "salvage", "salvage work"))
+        assert row["status"] == SubtaskState.COMPLETED.value
+    else:
+        assert result is False
+        rejected = next(
+            event for event in events if event.get("event_type") == "subtask_rejected"
+        )
+        assert rejected["reason"] == "gate"
+        row = state.get_subtask(compute_subtask_id(run_id, "salvage", "salvage work"))
+        assert row["status"] == SubtaskState.FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_bridge_timeout_retries_same_tier_then_escalates_and_fails_with_timeout(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
+    config = _timeout_test_config(tmp_path, tier_names=("A", "B"), idle=0.02, retries=1)
+    client = AsyncMock()
+    client.read_pane.return_value = "unchanged"
+    bridge = HerdrEventBridge(config=config, client=client)
+    spawns = []
+
+    async def never_finishes(tier_name, task_context=None, **kwargs):
+        spawns.append(tier_name)
+        return f"pane-{len(spawns)}", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = never_finishes
+    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+        bridge.get_state_manager(), "record_harness_failure"
+    ) as record_failure:
+        result = await asyncio.wait_for(
+            bridge.execute_subtask({"id": "timeout-escalation", "description": "timeouts only"}),
+            timeout=5,
+        )
+
+    assert result is False
+    assert spawns == ["A", "A", "B"]
+    retry = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_retry"
+    )
+    assert retry["reason"] == "timeout"
+    assert retry["tier"] == "A"
+    assert record_failure.call_count == 0
+    final_error = next(
+        call.kwargs for call in log_event_mock.call_args_list
+        if call.kwargs.get("event_type") == "worker_error"
+    )
+    assert final_error["status"] == "timeout"
+    assert "timeout por inatividade" in final_error["error"]
+    assert "encerrou prematuramente" not in final_error["error"]
+
+
+@pytest.mark.asyncio
+async def test_bridge_passes_worker_timeout_as_runtime_plus_sixty(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    config = _timeout_test_config(tmp_path, idle=0, maximum=4, retries=0)
+    client = AsyncMock()
+    bridge = HerdrEventBridge(config=config, client=client)
+    payload_timeouts = []
+
+    async def finish_worker(tier_name, task_context=None, **kwargs):
+        payload_timeouts.append(json.loads(Path(task_context["task_file"]).read_text())["timeout"])
+        write_atomic_json(
+            task_context["result_file"],
+            {"status": "done", "modified_files": []},
+        )
+        return "pane-timeout-value", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = finish_worker
+    assert await asyncio.wait_for(
+        bridge.execute_subtask({"id": "timeout-value", "description": "payload timeout"}),
+        timeout=3,
+    )
+    assert payload_timeouts == [64]
 
 
 @pytest.mark.asyncio

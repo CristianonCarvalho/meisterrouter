@@ -20,6 +20,8 @@ architect:
   effort: high
   prompt_template: templates/architect_prompt.md
 workers:
+  idle_timeout_seconds: 600
+  max_runtime_seconds: 3600
   tier_order:
     # A ordem define a cadeia de fallback, sempre para a frente.
     # Copilot vem primeiro por decisão do usuário: os créditos do Codex são limitados.

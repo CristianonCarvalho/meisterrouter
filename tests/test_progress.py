@@ -33,6 +33,42 @@ def test_format_event_line_for_each_event():
         3,
     ) == "[1/3] task pane perdido; retentativa 2/3 em copilot"
     assert format_event_line(
+        {
+            "event_type": "worker_timeout",
+            "task_id": "task",
+            "tier": "copilot",
+            "kind": "idle",
+            "seconds": 600,
+            "action": "retentando na mesma via",
+        },
+        1,
+        3,
+    ) == "[1/3] task timeout por inatividade (600 s) em copilot; retentando na mesma via"
+    assert format_event_line(
+        {
+            "event_type": "worker_timeout",
+            "task_id": "task",
+            "tier": "copilot",
+            "kind": "max_runtime",
+            "seconds": 3600,
+            "action": "falhando",
+        },
+        1,
+        3,
+    ) == "[1/3] task excedeu o teto de 3600 s em copilot; falhando"
+    assert format_event_line(
+        {
+            "event_type": "worker_error",
+            "task_id": "task",
+            "error": "Worker na via copilot sem atividade por 600 s (timeout por inatividade)",
+        },
+        1,
+        3,
+    ) == (
+        "[1/3] task FALHOU: Worker na via copilot sem atividade por 600 s "
+        "(timeout por inatividade)"
+    )
+    assert format_event_line(
         {"event_type": "quota_error", "task_id": "task", "tier": "copilot", "next_tier": "agy"}, 1, 3
     ) == "[1/3] task cota esgotada em copilot; tentando agy"
     assert format_event_line(

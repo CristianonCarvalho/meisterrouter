@@ -60,7 +60,17 @@ def format_event_line(
     if event == "worker_retry":
         retry = record.get("retry", record.get("attempt", 1))
         maximum = record.get("max_retries", record.get("max_attempts", retry))
+        if record.get("reason") == "timeout":
+            return f"{prefix} timeout; retentativa {retry}/{maximum} em {tier}"
         return f"{prefix} pane perdido; retentativa {retry}/{maximum} em {tier}"
+    if event == "worker_timeout":
+        seconds = f"{float(record.get('seconds') or 0):g}"
+        if record.get("kind") == "idle":
+            timeout = f"timeout por inatividade ({seconds} s)"
+        else:
+            timeout = f"excedeu o teto de {seconds} s"
+        action = str(record.get("action") or "avaliando trabalho")
+        return f"{prefix} {timeout} em {tier}; {action}"
     if event == "quota_error":
         next_tier = record.get("next_tier") or record.get("next_via")
         suffix = f"; tentando {next_tier}" if next_tier else ""

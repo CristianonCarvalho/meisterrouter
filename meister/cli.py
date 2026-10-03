@@ -1310,6 +1310,8 @@ def config_show(config_path, json_format):
             "scope": {"tolerated_files": cfg.scope.tolerated_files},
             "version": cfg.version,
             "workers": {
+                "idle_timeout_seconds": cfg.workers.idle_timeout_seconds,
+                "max_runtime_seconds": cfg.workers.max_runtime_seconds,
                 "disabled": [
                     {
                         "best_for": t.best_for,
@@ -1318,6 +1320,8 @@ def config_show(config_path, json_format):
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
+                        "idle_timeout_seconds": t.idle_timeout_seconds,
+                        "max_runtime_seconds": t.max_runtime_seconds,
                         "model": t.model,
                         "name": t.name,
                     }
@@ -1331,6 +1335,8 @@ def config_show(config_path, json_format):
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
+                        "idle_timeout_seconds": t.idle_timeout_seconds,
+                        "max_runtime_seconds": t.max_runtime_seconds,
                         "model": t.model,
                         "name": t.name,
                         "position": i + 1,
@@ -1373,24 +1379,30 @@ def config_show(config_path, json_format):
     click.echo("  (declarado; ainda nao conectado a nenhum fluxo)")
 
     click.echo("\nVias ativas (tier_order):")
+    click.echo(f"  Timeout por inatividade (segundos): {cfg.workers.idle_timeout_seconds}")
+    click.echo(f"  Runtime máximo (segundos): {cfg.workers.max_runtime_seconds}")
     if cfg.workers.tier_order:
-        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12}"
+        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, t in enumerate(cfg.workers.tier_order):
             max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
-            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12}")
+            idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
+            max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
+            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12}")
     else:
         click.echo("  (nenhuma via ativa)")
 
     click.echo("\nVias desabilitadas:")
     if cfg.workers.disabled:
-        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12}"
+        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for t in cfg.workers.disabled:
             max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
-            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12}")
+            idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
+            max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
+            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12}")
     else:
         click.echo("  (nenhuma)")
 
