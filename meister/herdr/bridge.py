@@ -13,6 +13,7 @@ import time
 import uuid
 import shlex
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -20,7 +21,7 @@ import re
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-from meister.config import MeisterConfig, load_config
+from meister.config import MeisterConfig, effective_worker_timeouts, load_config
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
@@ -48,6 +49,31 @@ from meister.worker import (
 from meister.jev import classify_task
 
 logger = logging.getLogger(__name__)
+_UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
+
+
+def _worker_git_activity(path: str) -> tuple[bytes, str]:
+    status = subprocess.run(
+        ["git", "status", "--porcelain=v1", "-z"],
+        cwd=path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ).stdout.strip()
+    return status, head
+
+
+def _worker_has_salvageable_changes(path: str, base_commit: Optional[str]) -> bool:
+    status, head = _worker_git_activity(path)
+    return bool(status) or bool(base_commit and head != base_commit.strip())
 
 
 class ResumeRequestError(ValueError):
@@ -729,7 +755,11 @@ class HerdrEventBridge:
                             resolved_config_path = os.path.abspath(cand)
                             break
 
-                timeout_val = float(task_dict.get("timeout", 300.0))
+                effective_timeouts = effective_worker_timeouts(self.config, current_tier, task_dict)
+                timeout_val = effective_timeouts["max_runtime_seconds"]
+                worker_timeout = (
+                    timeout_val + 60.0 if timeout_val > 0 else _UNBOUNDED_WORKER_TIMEOUT
+                )
                 task_payload = {
                     "run_id": active_run_id,
                     "task_id": task_id,
@@ -738,7 +768,7 @@ class HerdrEventBridge:
                     "target_files": target_files or [],
                     "cwd": resolved_cwd,
                     "config_path": resolved_config_path,
-                    "timeout": timeout_val,
+                    "timeout": worker_timeout,
                     "result_file": result_file,
                     "log_dir": os.environ.get("MEISTER_LOG_DIR"),
                 }
@@ -757,7 +787,17 @@ class HerdrEventBridge:
 
                 tab_id = None
                 pane_id = None
+                tab_closed = False
+                pane_closed = False
                 spawn_cwd = subtask_wt.worktree_path if subtask_wt else (task_dict.get("cwd") or task_dict.get("worktree"))
+                initial_worktree_fingerprint: Optional[tuple[bytes, str]] = None
+                if spawn_cwd:
+                    try:
+                        initial_worktree_fingerprint = await asyncio.to_thread(
+                            _worker_git_activity, spawn_cwd
+                        )
+                    except (OSError, subprocess.SubprocessError) as e:
+                        logger.debug("Could not inspect worker worktree before spawn at %s: %s", spawn_cwd, e)
                 try:
                     try:
                         if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
@@ -837,16 +877,28 @@ class HerdrEventBridge:
 
                     prompt_result: Optional[Dict[str, Any]] = None
                     infra_error: Optional[str] = None
+                    timeout_kind: Optional[str] = None
+                    timeout_seconds = 0.0
                     start_wait = time.monotonic()
                     poll_interval = 0.2
 
                     try:
                         liveness_interval = float(os.environ.get("MEISTER_PANE_LIVENESS_INTERVAL", "5.0"))
                     except (ValueError, TypeError):
-                        liveness_interval = 0.0
-                    last_liveness_check = time.monotonic()
+                        liveness_interval = 5.0
+                    if not math.isfinite(liveness_interval) or liveness_interval < 0:
+                        liveness_interval = 5.0
+                    last_liveness_check = start_wait
+                    last_activity = start_wait
+                    worktree_fingerprint = initial_worktree_fingerprint
+                    pane_fingerprint: Optional[str] = None
+                    try:
+                        pane_content = await self.client.read_pane(pane_id)
+                        pane_fingerprint = hashlib.sha256(str(pane_content).encode("utf-8")).hexdigest()
+                    except Exception:
+                        pass
 
-                    while time.monotonic() - start_wait < timeout_val:
+                    while True:
                         if os.path.exists(result_file):
                             res_data = read_atomic_json(result_file)
                             if res_data is not None:
@@ -883,6 +935,32 @@ class HerdrEventBridge:
 
                         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
                             last_liveness_check = time.monotonic()
+                            if spawn_cwd:
+                                try:
+                                    current_worktree_fingerprint = await asyncio.to_thread(
+                                        _worker_git_activity, spawn_cwd
+                                    )
+                                    if (
+                                        worktree_fingerprint is not None
+                                        and current_worktree_fingerprint != worktree_fingerprint
+                                    ):
+                                        last_activity = time.monotonic()
+                                    worktree_fingerprint = current_worktree_fingerprint
+                                except (OSError, subprocess.SubprocessError) as e:
+                                    logger.debug("Could not inspect worker worktree activity at %s: %s", spawn_cwd, e)
+                            try:
+                                pane_content = await self.client.read_pane(pane_id)
+                                current_pane_fingerprint = hashlib.sha256(
+                                    str(pane_content).encode("utf-8")
+                                ).hexdigest()
+                                if (
+                                    pane_fingerprint is not None
+                                    and current_pane_fingerprint != pane_fingerprint
+                                ):
+                                    last_activity = time.monotonic()
+                                pane_fingerprint = current_pane_fingerprint
+                            except Exception:
+                                pass
                             if self.client is not None and hasattr(self.client, "pane_exists"):
                                 try:
                                     exists = await self.client.pane_exists(pane_id)
@@ -903,6 +981,22 @@ class HerdrEventBridge:
                                         break
                                 except Exception:
                                     pass
+
+                        now = time.monotonic()
+                        if (
+                            effective_timeouts["max_runtime_seconds"] > 0
+                            and now - start_wait >= effective_timeouts["max_runtime_seconds"]
+                        ):
+                            timeout_kind = "max_runtime"
+                            timeout_seconds = effective_timeouts["max_runtime_seconds"]
+                        elif (
+                            effective_timeouts["idle_timeout_seconds"] > 0
+                            and now - last_activity >= effective_timeouts["idle_timeout_seconds"]
+                        ):
+                            timeout_kind = "idle"
+                            timeout_seconds = effective_timeouts["idle_timeout_seconds"]
+                        if timeout_kind:
+                            break
 
                         await asyncio.sleep(poll_interval)
 
@@ -950,6 +1044,196 @@ class HerdrEventBridge:
                         current_tier = next_tier.name
                         continue
 
+                    timeout_message = ""
+                    if timeout_kind:
+                        seconds_label = f"{timeout_seconds:g}"
+                        if timeout_kind == "idle":
+                            timeout_message = (
+                                f"Worker na via {current_tier} sem atividade por {seconds_label} s "
+                                "(timeout por inatividade)"
+                            )
+                        else:
+                            timeout_message = (
+                                f"Worker na via {current_tier} excedeu o teto de {seconds_label} s"
+                            )
+                        try:
+                            await self.client.send_interrupt(pane_id)
+                        except Exception as e:
+                            logger.debug("Failed interrupting timed-out worker pane %s: %s", pane_id, e)
+                        await asyncio.sleep(1.0)
+
+                        if os.path.exists(result_file):
+                            prompt_result = read_atomic_json(result_file)
+                            if prompt_result is not None:
+                                try:
+                                    os.remove(result_file)
+                                    if os.path.exists(task_file):
+                                        os.remove(task_file)
+                                except OSError:
+                                    pass
+
+                        timeout_salvaged = False
+                        if prompt_result is None and subtask_wt is not None and self._integration_pipeline is not None:
+                            try:
+                                has_changes = await asyncio.to_thread(
+                                    _worker_has_salvageable_changes,
+                                    subtask_wt.worktree_path,
+                                    subtask_wt.base_commit,
+                                )
+                            except (OSError, subprocess.SubprocessError) as e:
+                                logger.warning(
+                                    "Could not determine whether timed-out worktree %s has salvageable work: %s",
+                                    subtask_wt.worktree_path,
+                                    e,
+                                )
+                                has_changes = False
+                            if has_changes:
+                                timeout_salvaged = True
+                                prompt_result = {
+                                    "status": "done",
+                                    "modified_files": [],
+                                    "timeout_salvaged": True,
+                                }
+
+                        retry_timeout = False
+                        timeout_next_tier = None
+                        if prompt_result is None:
+                            retry_timeout = (
+                                pane_lost_retries_used < self.config.retry.pane_lost_attempts
+                            )
+                            if retry_timeout:
+                                pane_lost_retries_used += 1
+                            else:
+                                timeout_next_tier = self.spawner.get_next_available_tier(
+                                    current_tier, state_manager=sm
+                                )
+                            action = (
+                                "retentando na mesma via"
+                                if retry_timeout
+                                else (
+                                    f"escalando para {timeout_next_tier.name}"
+                                    if timeout_next_tier is not None
+                                    else "falhando sem trabalho aproveitavel"
+                                )
+                            )
+                        elif timeout_salvaged:
+                            action = "integrando trabalho salvaguardado"
+                        else:
+                            action = "integrando resultado recebido"
+
+                        log_event(
+                            event_type="worker_timeout",
+                            run_id=active_run_id,
+                            task_id=task_id,
+                            tier=current_tier,
+                            attempt=attempt_count,
+                            kind=timeout_kind,
+                            seconds=timeout_seconds,
+                            pane_id=pane_id,
+                            message=timeout_message,
+                            action=action,
+                        )
+                        if timeout_salvaged:
+                            log_event(
+                                event_type="worker_timeout_salvaged",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                tier=current_tier,
+                                attempt=attempt_count,
+                                kind=timeout_kind,
+                                seconds=timeout_seconds,
+                                pane_id=pane_id,
+                            )
+
+                        if tab_id and hasattr(self.client, "close_tab"):
+                            try:
+                                await self.client.close_tab(tab_id)
+                                tab_closed = True
+                            except Exception as e:
+                                logger.debug("Failed closing timed-out worker tab %s: %s", tab_id, e)
+                        elif pane_id and hasattr(self.client, "close_pane"):
+                            try:
+                                await self.client.close_pane(pane_id)
+                                pane_closed = True
+                            except Exception as e:
+                                logger.debug("Failed closing timed-out worker pane %s: %s", pane_id, e)
+                        if pane_id in self.active_workers:
+                            self.active_workers[pane_id]["status"] = "timed_out"
+
+                        if prompt_result is None:
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                                try:
+                                    sm.transition_subtask(
+                                        subtask_id,
+                                        to_state=SubtaskState.RETRYING,
+                                        error=timeout_message,
+                                    )
+                                except Exception:
+                                    pass
+                            self._quota_events.pop(pane_id, None)
+                            self._exit_events.pop(pane_id, None)
+                            self.active_workers.pop(pane_id, None)
+
+                            if retry_timeout:
+                                base_backoff = self.config.retry.pane_lost_backoff_seconds
+                                backoff_exponent = pane_lost_retries_used - 1
+                                backoff_cap_exponent = max(
+                                    0,
+                                    math.ceil(math.log2(60.0) - math.log2(base_backoff))
+                                    if base_backoff > 0
+                                    else backoff_exponent,
+                                )
+                                backoff_seconds = (
+                                    0.0
+                                    if base_backoff == 0
+                                    else min(
+                                        60.0,
+                                        math.ldexp(
+                                            base_backoff,
+                                            min(backoff_exponent, backoff_cap_exponent),
+                                        ),
+                                    )
+                                )
+                                log_event(
+                                    event_type="worker_retry",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    tier=current_tier,
+                                    attempt=attempt_count,
+                                    reason="timeout",
+                                    retry=pane_lost_retries_used,
+                                    max_retries=self.config.retry.pane_lost_attempts,
+                                    backoff_seconds=backoff_seconds,
+                                )
+                                await asyncio.sleep(backoff_seconds)
+                                continue
+
+                            if timeout_next_tier is not None:
+                                current_tier = timeout_next_tier.name
+                                continue
+
+                            self.last_failure_reason = timeout_message
+                            log_event(
+                                event_type="worker_error",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                attempt=attempt_count,
+                                tier=current_tier,
+                                status="timeout",
+                                error=timeout_message,
+                            )
+                            if active_run_id:
+                                try:
+                                    sm.transition_subtask(
+                                        subtask_id,
+                                        to_state=SubtaskState.FAILED,
+                                        error=timeout_message,
+                                    )
+                                except Exception:
+                                    pass
+                            return False
+
                     if prompt_result is None:
                         terminal_output = ""
                         try:
@@ -979,7 +1263,7 @@ class HerdrEventBridge:
                                     sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota detected in terminal output")
                                 except Exception:
                                     pass
-                            if tab_id and hasattr(self.client, "close_tab"):
+                            if tab_id and not tab_closed and hasattr(self.client, "close_tab"):
                                 try:
                                     await self.client.close_tab(tab_id)
                                 except Exception:
@@ -998,7 +1282,7 @@ class HerdrEventBridge:
                             continue
 
                         # Pane perdido/encerrado: retenta na mesma via antes de falhar sem escalar.
-                        err_msg = infra_error or f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                        err_msg = infra_error or f"Worker no pane {pane_id} terminou a espera sem fornecer resultado"
                         if (
                             infra_error is not None
                             and pane_lost_retries_used < self.config.retry.pane_lost_attempts
@@ -1297,7 +1581,7 @@ class HerdrEventBridge:
                         except Exception as e:
                             logger.debug("Failed closing worker tab %s: %s", tab_id, e)
                     if pane_id:
-                        if hasattr(self.client, "close_pane") and not tab_id:
+                        if hasattr(self.client, "close_pane") and not tab_id and not pane_closed:
                             try:
                                 await self.client.close_pane(pane_id)
                             except Exception as e:

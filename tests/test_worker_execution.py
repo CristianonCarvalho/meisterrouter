@@ -424,3 +424,53 @@ def test_disabled_tier_is_used_only_by_explicit_name():
     # nome inexistente continua sendo erro e a mensagem cita as desligadas
     with pytest.raises(UnknownTierError, match="desligadas.*codex_luna"):
         resolve_worker_harness_and_model("nao_existe", config=cfg)
+
+
+def _ceiling_config(tmp_path, workers_ceiling, tier_ceiling=None):
+    tier_extra = f", max_runtime_seconds: {tier_ceiling}" if tier_ceiling is not None else ""
+    cfg_file = tmp_path / "meister.config.yaml"
+    cfg_file.write_text(
+        "workers:\n"
+        f"  max_runtime_seconds: {workers_ceiling}\n"
+        "  tier_order:\n"
+        f"    - {{name: codex_luna, harness: codex, model: gpt-x{tier_extra}}}\n"
+    )
+    return str(cfg_file)
+
+
+def test_direct_worker_without_timeout_uses_the_configured_ceiling(tmp_path):
+    """`meister worker` direto nao pode ficar sem limite: vale workers.max_runtime_seconds (ou o da via)."""
+    from meister.worker import execute_worker_task, _UNBOUNDED_WORKER_TIMEOUT
+
+    def run(workers_ceiling, tier_ceiling=None, **kwargs):
+        cfg = _ceiling_config(tmp_path, workers_ceiling, tier_ceiling)
+        with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
+            execute_worker_task(model="codex_luna", task="t", cwd=str(tmp_path), config_path=cfg, **kwargs)
+        return mock_run.call_args.kwargs["timeout"]
+
+    assert run(123) == 123
+    assert run(123, tier_ceiling=77) == 77
+    assert run(0) == _UNBOUNDED_WORKER_TIMEOUT
+    assert run(123, timeout=5) == 5
+
+
+def test_execute_task_file_without_timeout_uses_the_configured_ceiling(tmp_path):
+    import json
+    from meister.worker import execute_task_file
+
+    cfg = _ceiling_config(tmp_path, 321)
+    worktree_dir = tmp_path / "wt"
+    worktree_dir.mkdir()
+
+    def run(extra):
+        task_file = tmp_path / "task.json"
+        task_file.write_text(json.dumps({
+            "task_id": "t-ceiling", "model": "codex_luna", "task": "x", "cwd": str(worktree_dir),
+            "config_path": cfg, "result_file": str(tmp_path / "result.json"), **extra,
+        }))
+        with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
+            execute_task_file(str(task_file))
+        return mock_run.call_args.kwargs["timeout"]
+
+    assert run({}) == 321
+    assert run({"timeout": 42}) == 42

@@ -28,6 +28,9 @@ architect:
   effort: high
   prompt_template: templates/architect_prompt.md
 workers:
+  # Timeout por inatividade (0 desliga); teto total (0 sem teto).
+  idle_timeout_seconds: 600
+  max_runtime_seconds: 3600
   tier_order:
     # O adaptador Copilot ocupa a primeira posição por decisão do usuário.
     # max_parallel limita onde a tarefa começa; um fallback não troca essa vaga.

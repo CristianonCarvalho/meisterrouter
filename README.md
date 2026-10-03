@@ -142,6 +142,15 @@ pane desaparece ou encerra sem resultado (padrão `1`; use `0` para desativar). 
 `pane_lost_backoff_seconds` define a espera inicial antes do retry (padrão `5`); ela dobra
 a cada retry e é limitada a `60` segundos. Esses retries preservam o worktree e não
 consomem as tentativas `workers.tier_order[].max_retries` nem escalam de via.
+Em `workers`, `idle_timeout_seconds` (padrão `600`) encerra workers sem sinais de atividade
+e `max_runtime_seconds` (padrão `3600`) define o teto total. Ambos aceitam `0` para desligar
+a respectiva proteção. Uma via pode sobrescrever ambos os valores em `workers.tier_order`;
+no dicionário interno da tarefa, `idle_timeout_seconds` e `max_runtime_seconds` têm prioridade
+maior, e o campo legado `timeout` equivale a `max_runtime_seconds`. Atividade é detectada por
+mudanças no estado Git do worktree ou no conteúdo do pane; o teto total não é estendido por
+atividade. Em timeout, alterações e commits existentes passam pelo fluxo normal de escopo,
+portão e integração, enquanto um worker sem trabalho é retentado na mesma via e depois escala
+pela cadeia configurada.
 
 #### Classificar uma Tarefa (`classify`):
 ```bash

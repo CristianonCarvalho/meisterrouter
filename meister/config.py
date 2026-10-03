@@ -15,7 +15,7 @@ from functools import lru_cache
 from importlib.resources import files
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, List, Set, Union
+from typing import Any, Dict, Optional, List, Set, Union
 import yaml
 
 
@@ -105,6 +105,8 @@ class WorkerTier:
     best_for: List[str] = field(default_factory=list)
     enabled: bool = True
     max_parallel: Optional[int] = None
+    idle_timeout_seconds: Optional[float] = None
+    max_runtime_seconds: Optional[float] = None
 
 
 def _all_default_worker_tiers() -> List[WorkerTier]:
@@ -118,6 +120,8 @@ def _all_default_worker_tiers() -> List[WorkerTier]:
             best_for=list(item.get("best_for", [])),
             enabled=bool(item.get("enabled", True)),
             max_parallel=item.get("max_parallel"),
+            idle_timeout_seconds=item.get("idle_timeout_seconds"),
+            max_runtime_seconds=item.get("max_runtime_seconds"),
         )
         for item in _default_config_data()["workers"]["tier_order"]
     ]
@@ -136,6 +140,12 @@ def _default_disabled_worker_tiers() -> List[WorkerTier]:
 class WorkersConfig:
     tier_order: List[WorkerTier] = field(default_factory=_default_worker_tiers)
     disabled: List[WorkerTier] = field(default_factory=_default_disabled_worker_tiers)
+    idle_timeout_seconds: float = field(
+        default_factory=lambda: float(_default_section("workers")["idle_timeout_seconds"])
+    )
+    max_runtime_seconds: float = field(
+        default_factory=lambda: float(_default_section("workers")["max_runtime_seconds"])
+    )
 
 
 @dataclass
@@ -302,6 +312,35 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     # Workers
     workers_data = data["workers"]
+    worker_defaults = _default_section("workers")
+    if not isinstance(workers_data, dict):
+        parse_issues.append(ConfigIssue("error", "workers", "workers deve ser um objeto"))
+        workers_data = worker_defaults
+
+    def worker_timeout(value: Any, path: str, default: float) -> float:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            parse_issues.append(
+                ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+            )
+            return default
+        return float(value)
+
+    worker_idle_timeout = worker_timeout(
+        workers_data.get("idle_timeout_seconds", worker_defaults["idle_timeout_seconds"]),
+        "workers.idle_timeout_seconds",
+        float(worker_defaults["idle_timeout_seconds"]),
+    )
+    worker_max_runtime = worker_timeout(
+        workers_data.get("max_runtime_seconds", worker_defaults["max_runtime_seconds"]),
+        "workers.max_runtime_seconds",
+        float(worker_defaults["max_runtime_seconds"]),
+    )
+
     if isinstance(workers_data, dict) and "tier_order" in workers_data:
         raw_tiers = workers_data["tier_order"] or []
         tier_list: List[WorkerTier] = []
@@ -310,6 +349,26 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             if isinstance(tier, dict):
                 raw_enabled = tier.get("enabled", True)
                 raw_max_parallel = tier.get("max_parallel")
+                raw_idle_timeout = tier.get("idle_timeout_seconds")
+                raw_max_runtime = tier.get("max_runtime_seconds")
+                tier_idle_timeout = (
+                    None
+                    if raw_idle_timeout is None
+                    else worker_timeout(
+                        raw_idle_timeout,
+                        f"workers.tier_order[{i}].idle_timeout_seconds",
+                        worker_idle_timeout,
+                    )
+                )
+                tier_max_runtime = (
+                    None
+                    if raw_max_runtime is None
+                    else worker_timeout(
+                        raw_max_runtime,
+                        f"workers.tier_order[{i}].max_runtime_seconds",
+                        worker_max_runtime,
+                    )
+                )
                 if raw_max_parallel is not None and (
                     isinstance(raw_max_parallel, bool) or not isinstance(raw_max_parallel, int)
                 ):
@@ -344,6 +403,8 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     best_for=list(tier.get("best_for", [])),
                     enabled=enabled_val,
                     max_parallel=raw_max_parallel,
+                    idle_timeout_seconds=tier_idle_timeout,
+                    max_runtime_seconds=tier_max_runtime,
                 )
                 if enabled_val:
                     tier_list.append(tier_obj)
@@ -362,9 +423,17 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     tier_list.append(tier)
                 else:
                     disabled_list.append(tier)
-        workers = WorkersConfig(tier_order=tier_list, disabled=disabled_list)
+        workers = WorkersConfig(
+            tier_order=tier_list,
+            disabled=disabled_list,
+            idle_timeout_seconds=worker_idle_timeout,
+            max_runtime_seconds=worker_max_runtime,
+        )
     else:
-        workers = WorkersConfig()
+        workers = WorkersConfig(
+            idle_timeout_seconds=worker_idle_timeout,
+            max_runtime_seconds=worker_max_runtime,
+        )
 
     # Concurrency
     concurrency_data = data["concurrency"]
@@ -553,6 +622,25 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     """
     issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
 
+    for path, value in (
+        ("workers.idle_timeout_seconds", config.workers.idle_timeout_seconds),
+        ("workers.max_runtime_seconds", config.workers.max_runtime_seconds),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ) and not any(issue.path == path for issue in issues):
+            issues.append(
+                ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+            )
+
+    if config.workers.idle_timeout_seconds == 0 and config.workers.max_runtime_seconds == 0:
+        issues.append(
+            ConfigIssue("warning", "workers", "sem proteção contra worker travado (timeouts de inatividade e runtime desativados)")
+        )
+
     # Erros
     if isinstance(config.retry.pane_lost_attempts, bool) or not isinstance(
         config.retry.pane_lost_attempts, int
@@ -654,6 +742,27 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     # 2. nome de via vazio ou repetido
     seen_names: Set[str] = set()
     for i, tier in enumerate(config.workers.tier_order):
+        for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
+            value = getattr(tier, field_name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                path = f"workers.tier_order[{i}].{field_name}"
+                if not any(issue.path == path for issue in issues):
+                    issues.append(
+                        ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                    )
+        if tier.idle_timeout_seconds == 0 and tier.max_runtime_seconds == 0:
+            issues.append(
+                ConfigIssue(
+                    "warning",
+                    f"workers.tier_order[{i}]",
+                    "sem proteção contra worker travado nesta via",
+                )
+            )
         if not tier.name or not tier.name.strip():
             issues.append(
                 ConfigIssue(
@@ -674,6 +783,27 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             seen_names.add(tier.name)
 
     for j, tier in enumerate(config.workers.disabled):
+        for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
+            value = getattr(tier, field_name)
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                path = f"workers.disabled[{j}].{field_name}"
+                if not any(issue.path == path for issue in issues):
+                    issues.append(
+                        ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                    )
+        if tier.idle_timeout_seconds == 0 and tier.max_runtime_seconds == 0:
+            issues.append(
+                ConfigIssue(
+                    "warning",
+                    f"workers.disabled[{j}]",
+                    "sem proteção contra worker travado nesta via",
+                )
+            )
         if not tier.name or not tier.name.strip():
             issues.append(
                 ConfigIssue(
@@ -885,3 +1015,39 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             )
 
     return issues
+
+
+def effective_worker_timeouts(
+    config: MeisterConfig,
+    tier_name: str,
+    task_dict: Optional[dict] = None,
+) -> Dict[str, float]:
+    """Resolve task > tier > workers defaults, including the legacy timeout ceiling."""
+    task = task_dict or {}
+    tier = next(
+        (item for item in [*config.workers.tier_order, *config.workers.disabled] if item.name == tier_name),
+        None,
+    )
+
+    def choose(value: Any, label: str) -> float:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value < 0
+        ):
+            raise ValueError(f"{label} deve ser número finito >= 0")
+        return float(value)
+
+    idle = task.get("idle_timeout_seconds")
+    if idle is None:
+        idle = tier.idle_timeout_seconds if tier and tier.idle_timeout_seconds is not None else config.workers.idle_timeout_seconds
+    maximum = task.get("max_runtime_seconds")
+    if maximum is None:
+        maximum = task.get("timeout")
+    if maximum is None:
+        maximum = tier.max_runtime_seconds if tier and tier.max_runtime_seconds is not None else config.workers.max_runtime_seconds
+    return {
+        "idle_timeout_seconds": choose(idle, "idle_timeout_seconds"),
+        "max_runtime_seconds": choose(maximum, "max_runtime_seconds"),
+    }

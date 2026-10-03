@@ -22,6 +22,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from meister.logger import log_event
 
 logger = logging.getLogger(__name__)
+_UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
 
 
 def _is_pane_gone(event: dict, pane_id: str) -> bool:
@@ -395,7 +396,7 @@ class HarnessWorker:
         task: str,
         target_files: Optional[List[str]] = None,
         extra_instructions: Optional[str] = None,
-        timeout: float = 300.0,
+        timeout: float = _UNBOUNDED_WORKER_TIMEOUT,
         env: Optional[Dict[str, str]] = None,
     ) -> Dict[str, Any]:
         """Execute task via local agent harness and track changes on disk."""
@@ -1011,12 +1012,31 @@ def execute_worker_task(
     task: str = "",
     target_files: Optional[List[str]] = None,
     cwd: Optional[str] = None,
-    timeout: float = 300.0,
+    timeout: Optional[float] = None,
     config_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Helper function to run a single task via HarnessWorker."""
+    """Helper function to run a single task via HarnessWorker.
+
+    Sem `timeout` explicito (uso direto de `meister worker`), vale o teto configurado
+    (`workers.max_runtime_seconds`, por via); 0 desliga o teto.
+    """
     worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
+    if timeout is None:
+        timeout = _configured_worker_ceiling(worker, model)
     return worker.run_task(task=task, target_files=target_files, timeout=timeout)
+
+
+def _configured_worker_ceiling(worker: "HarnessWorker", model: Optional[str]) -> float:
+    """Teto de execucao configurado para o uso direto do worker (sem bridge decidindo antes)."""
+    from meister.config import effective_worker_timeouts
+
+    ceiling = 3600.0
+    if worker.config is not None:
+        try:
+            ceiling = effective_worker_timeouts(worker.config, model or "", None)["max_runtime_seconds"]
+        except ValueError:
+            pass
+    return ceiling if ceiling > 0 else _UNBOUNDED_WORKER_TIMEOUT
 
 
 def execute_task_file(
@@ -1044,7 +1064,7 @@ def execute_task_file(
             if os.path.exists(cand):
                 config_path = os.path.abspath(cand)
                 break
-    timeout = float(task_data.get("timeout", 300.0))
+    raw_timeout = task_data.get("timeout")
     resolved_res_file = result_file or task_data.get("result_file")
 
     log_event(
@@ -1056,6 +1076,7 @@ def execute_task_file(
     )
 
     worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
+    timeout = float(raw_timeout) if raw_timeout is not None else _configured_worker_ceiling(worker, model)
 
     try:
         res = worker.run_task(task=task, target_files=target_files, timeout=timeout)
