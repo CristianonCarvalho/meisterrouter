@@ -1301,6 +1301,7 @@ def config_show(config_path, json_format):
                 "timeout_seconds": cfg.router.timeout_seconds,
                 "max_attempts": cfg.router.max_attempts,
                 "unavailable_cooldown_seconds": cfg.router.unavailable_cooldown_seconds,
+                "context_max_chars": cfg.router.context_max_chars,
             },
             "retry": {
                 "pane_lost_attempts": cfg.retry.pane_lost_attempts,
@@ -1367,6 +1368,7 @@ def config_show(config_path, json_format):
     click.echo(f"  Timeout Seconds: {cfg.router.timeout_seconds}")
     click.echo(f"  Max Attempts: {cfg.router.max_attempts}")
     click.echo(f"  Unavailable Cooldown Seconds: {cfg.router.unavailable_cooldown_seconds}")
+    click.echo(f"  Context Max Chars: {cfg.router.context_max_chars}")
 
     click.echo("\nRetry:")
     click.echo(f"  Pane Lost Attempts: {cfg.retry.pane_lost_attempts}")

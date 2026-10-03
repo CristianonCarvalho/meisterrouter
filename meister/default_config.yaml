@@ -11,6 +11,7 @@ router:
   timeout_seconds: 10
   max_attempts: 2
   unavailable_cooldown_seconds: 300
+  context_max_chars: 4000
 retry:
   pane_lost_attempts: 1
   pane_lost_backoff_seconds: 5

@@ -17,6 +17,7 @@ router:
   timeout_seconds: 10
   max_attempts: 2
   unavailable_cooldown_seconds: 300
+  context_max_chars: 4000
 retry:
   # Retenta na mesma via se o pane desaparecer ou encerrar sem resultado.
   # O backoff dobra a cada tentativa, limitado a 60 segundos.

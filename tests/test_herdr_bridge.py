@@ -1621,17 +1621,26 @@ async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, mon
     cfg.concurrency.layout_strategy = "tiled"
     cfg.concurrency.isolation_mode = "none"
     cfg.retry.pane_lost_attempts = 0
+    # Limites curtos: se o evento se perdesse, o teste falha em segundos em vez de ficar pendurado
+    # (os padroes sao 600 s de inatividade e 3600 s de teto).
+    cfg.workers.idle_timeout_seconds = 20
+    cfg.workers.max_runtime_seconds = 30
     bridge = HerdrEventBridge(config=cfg, client=mock_client)
 
     async def simulate_exit_event():
-        await asyncio.sleep(0.05)
+        # Espera o bridge registrar o pane: um evento enviado antes do registro e descartado
+        # (corrida vista no CI do Python 3.10).
+        for _ in range(500):
+            if "w1:p1" in bridge._exit_events:
+                break
+            await asyncio.sleep(0.01)
         # Push pane.exited event
         await bridge.handle_herdr_event({
             "method": "pane.exited",
             "params": {"pane_id": "w1:p1", "exit_code": 1}
         })
 
-    asyncio.create_task(simulate_exit_event())
+    exit_task = asyncio.create_task(simulate_exit_event())
 
     subtask = {
         "id": "t1",
@@ -1640,7 +1649,8 @@ async def test_bridge_premature_exit_fast_fails_without_escalation(tmp_path, mon
         "cwd": str(repo_dir),
     }
 
-    success = await bridge.execute_subtask(subtask)
+    success = await asyncio.wait_for(bridge.execute_subtask(subtask), timeout=60)
+    await exit_task
     assert success is False
     # Must have failed fast without escalating
     assert mock_client.split_pane.call_count == 1
@@ -2834,6 +2844,77 @@ async def test_bridge_jev_routes_and_logs_decision(tmp_path):
     assert route_events[0]["classification"] == "MEDIUM"
     assert route_events[0]["confidence"] == 0.88
     assert route_events[0]["fallback_rule_applied"] is False
+
+
+@pytest.mark.asyncio
+async def test_bridge_classifies_structured_task_context_with_configured_limit(tmp_path):
+    from meister.jev_context import build_jev_context
+
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    bridge.config.router.context_max_chars = 600
+    subtask.update(
+        {
+            "description": (
+                "Task 3: Implement a focused change\n\n"
+                "## Global Constraints\n"
+                + ("security auth migration " * 100)
+                + "\n\nArquivos permitidos: src/auth.py\n\n"
+                + ("Implement the task body. " * 100)
+            ),
+            "target_files": ["src/auth.py"],
+            "depends_on": ["task_1", "task_2"],
+        }
+    )
+    expected = build_jev_context(subtask, 600)
+    result = {
+        "classification": "MEDIUM",
+        "recommended_implementer": "luna",
+        "fallback_rule_applied": False,
+    }
+
+    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify:
+        assert await bridge.execute_subtask(subtask, run_id="structured-context-run") is True
+
+    context = mock_classify.call_args.kwargs["context"]
+    assert context == expected
+    assert len(context) <= 600
+    assert "Tarefa: Task 3: Implement a focused change" in context
+    assert "Arquivos (1): src/auth.py" in context
+    assert "Depende de: task_1, task_2" in context
+    assert "security auth migration" not in context
+    assert "Implement the task body." in context
+
+
+@pytest.mark.asyncio
+async def test_bridge_does_not_cut_the_structured_context_at_the_old_2000_chars(tmp_path):
+    """Com o limite padrao (4000), um contexto de ~3000 caracteres chega inteiro ao Jev (o corte antigo era 2000)."""
+    from meister.jev_context import build_jev_context
+
+    bridge, _, _, subtask = _make_router_bridge(tmp_path)
+    assert bridge.config.router.context_max_chars == 4000
+    subtask.update(
+        {
+            "description": (
+                "Task 3: Implement a focused change\n\n"
+                "## Global Constraints\n" + ("restricao global " * 200)
+                + "\n\nArquivos permitidos: src/auth.py\n\n"
+                + "Corpo: " + ("passo da tarefa " * 170) + "FIM-DO-CORPO"
+            ),
+            "target_files": ["src/auth.py"],
+            "depends_on": ["task_1"],
+        }
+    )
+    expected = build_jev_context(subtask, 4000)
+    assert 2000 < len(expected) <= 4000
+    result = {"classification": "MEDIUM", "recommended_implementer": "luna", "fallback_rule_applied": False}
+
+    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify:
+        assert await bridge.execute_subtask(subtask, run_id="no-2000-cut-run") is True
+
+    context = mock_classify.call_args.kwargs["context"]
+    assert context == expected
+    assert len(context) > 2000
+    assert context.rstrip().endswith("FIM-DO-CORPO")
 
 
 @pytest.mark.asyncio

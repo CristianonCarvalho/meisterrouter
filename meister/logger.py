@@ -7,8 +7,9 @@ Envelope unificado (Achado #32):
 {run_id, task_id, attempt, tier, event, ts, duration_ms, cost, exit_code}
 """
 
-import os
+import hashlib
 import json
+import os
 import time
 import uuid
 import threading
@@ -232,6 +233,8 @@ def log_classify(
         cost=cost_usd,
         exit_code=0,
         context=context[:300],
+        context_chars=len(context),
+        context_sha256=hashlib.sha256(context.encode("utf-8")).hexdigest(),
         classification=classification,
         recommended_implementer=recommended_implementer,
         confidence=confidence,
