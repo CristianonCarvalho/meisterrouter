@@ -324,3 +324,31 @@ def test_simulation_summary_counts_the_branches_that_would_be_deleted(tmp_path):
     assert applied["resumo"]["apagadas"] == 2
     assert applied["resumo"]["seriam_apagadas"] == 0
     assert applied["resumo"]["mantidas"] == 1
+
+
+def test_prunable_worktree_does_not_protect_a_merged_branch_but_a_live_one_does(tmp_path):
+    """Worktree com a pasta apagada (prunable) e so um registro velho; worktree vivo continua protegendo."""
+    import shutil
+
+    repo = make_repo(tmp_path / "repo")
+    git(repo, "branch", "meister/integration/stale", "main")
+    git(repo, "branch", "meister/integration/live", "main")
+    stale_path = tmp_path / "stale-wt"
+    live_path = tmp_path / "live-wt"
+    git(repo, "worktree", "add", str(stale_path), "meister/integration/stale")
+    git(repo, "worktree", "add", str(live_path), "meister/integration/live")
+    shutil.rmtree(stale_path)
+    assert "prunable" in git(repo, "worktree", "list", "--porcelain").stdout
+
+    runner = CliRunner()
+    simulation = json.loads(runner.invoke(main, ["clean", "--repo", str(repo), "--json"]).output)
+    actions = {row["branch"]: row["action"] for row in simulation["branches"]}
+    assert actions["meister/integration/stale"] == "apagar"
+    assert actions["meister/integration/live"].startswith("mantida")
+    assert branch_exists(repo, "meister/integration/stale")  # simulacao nao altera nada
+
+    applied = runner.invoke(main, ["clean", "--repo", str(repo), "--apply"])
+    assert applied.exit_code == 0, applied.output
+    assert not branch_exists(repo, "meister/integration/stale")
+    assert branch_exists(repo, "meister/integration/live")
+    assert (live_path / "base.txt").exists()
