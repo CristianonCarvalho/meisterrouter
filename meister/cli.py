@@ -13,6 +13,7 @@ Comandos:
   herdr-action   Executa ações integradas do plugin Herdr (classify, verify, orchestrate)
   orchestrate    Inicia o ciclo de orquestração autônoma multi-agente
   worker         Inicia instância de worker do MeisterRouter
+  clean          Limpa branches temporárias antigas do MeisterRouter
 """
 
 import os
@@ -1451,6 +1452,60 @@ def config_validate(config_path):
 
 
 # Aliases para compatibilidade caso chamados diretamente
+@main.command("clean")
+@click.option("--repo", "repo_path", default=".", show_default=True, help="Repositório Git a limpar")
+@click.option("--base", default=None, help="Branch base (default: main, senão master)")
+@click.option("--apply", "apply_changes", is_flag=True, help="Aplica as remoções; sem a opção, apenas simula")
+@click.option(
+    "--archive-and-delete",
+    is_flag=True,
+    help="Arquiva commits não integrados antes de remover suas branches",
+)
+@click.option("--keep", multiple=True, help="Preserva branches cujo run_id começa com este prefixo")
+@click.option("--close-stale-runs", is_flag=True, help="Cancela runs sem branch, processo ou panes ativos")
+@click.option("--force-busy", is_flag=True, help="Ignora o bloqueio quando há processo MeisterRouter ativo")
+@click.option("--json", "json_format", is_flag=True, help="Emite resultado JSON estável")
+def clean(repo_path, base, apply_changes, archive_and_delete, keep, close_stale_runs, force_busy, json_format):
+    """Remove branches MeisterRouter obsoletas com simulação segura por padrão."""
+    from meister.clean import (
+        CleanBusyError,
+        CleanError,
+        apply_cleanup,
+        list_processes,
+        plan_cleanup,
+        render_result,
+    )
+
+    if close_stale_runs and not apply_changes:
+        raise click.ClickException("--close-stale-runs exige --apply.")
+    try:
+        plan = plan_cleanup(
+            repo_path,
+            base=base,
+            keep=keep,
+            apply=apply_changes,
+            archive_and_delete=archive_and_delete,
+        )
+        result = None
+        if apply_changes:
+            result = apply_cleanup(
+                plan,
+                keep=keep,
+                archive_and_delete=archive_and_delete,
+                processes=list_processes(),
+                close_stale_runs=close_stale_runs,
+                force_busy=force_busy,
+            )
+        click.echo(render_result(plan, result=result, json_format=json_format))
+        if result and result["failures"]:
+            sys.exit(1)
+    except CleanBusyError as error:
+        click.echo(f"Erro: {error}", err=True)
+        sys.exit(3)
+    except CleanError as error:
+        raise click.ClickException(str(error))
+
+
 cmd_init = init
 cmd_classify = classify
 cmd_control = control

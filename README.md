@@ -212,6 +212,25 @@ Somente tarefas com descrição e dependências inalteradas, commit existente e 
 são retomadas. Sem `--resume`, a orquestração mantém o comportamento de executar o plano inteiro
 e avisa quando há um run anterior que pode ser reaproveitado.
 
+### Limpar branches temporárias (`clean`)
+
+`meister clean` mostra, sem alterar nada, o que pode ser removido das branches
+`meister/integration/*` e `meister/worktree/*`. A limpeza protege a branch atual,
+branches abertas em worktrees e runs informados com `--keep`:
+
+```bash
+meister clean
+meister clean --repo /caminho/do/projeto --apply
+meister clean --apply --archive-and-delete --close-stale-runs
+```
+
+Branches integradas, equivalentes ao base ou já arquivadas podem ser removidas com
+`--apply`. Commits não integrados ficam preservados, a menos que
+`--archive-and-delete` crie primeiro uma ref em `refs/meister/archive/`. A operação
+aborta com código 3 se detectar `meister orchestrate`, `run-task` ou `worker` em
+execução; `--force-busy` ignora essa trava. Use `--base BRANCH` para escolher a base,
+`--keep PREFIXO` para proteger runs e `--json` para obter resultado estruturado.
+
 ---
 
 ### 5. Painel de Telemetria ao Vivo (Dashboard)

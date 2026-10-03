@@ -48,7 +48,9 @@ continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
 - **Eventos:** JSONL em `~/.meister/logs` (ou `MEISTER_LOG_DIR`); `meister replay` reconstrói a linha do tempo; `meister dashboard` abre o painel. Eventos úteis: `subtask_reused`/`subtask_not_reused` (retomada), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Estado:** `.meister/meister.db` no projeto (runs, subtarefas, disjuntores). Um run retomado guarda `resumed_from`; o de origem recebe `superseded_by`.
 - **Trabalho rejeitado nunca é perdido:** fica em `refs/meister/archive/*`; commits reaproveitados numa retomada ficam fixados em `refs/meister/resume/*`.
-- **Sobras após uma queda ou retomada** (raro): worktrees em `~/.meister/worktrees/<hash>/` e branches `meister/integration/*` e `meister/worktree/*` no projeto; `git worktree list` e `git worktree prune` mostram e limpam o que sobrou. Apague só o que já estiver na `main`. **(temporário)** Um run interrompido e substituído por `--resume` continua RUNNING e sua branch de integração sobra (backlog C1).
+### Sobras
+
+Após uma queda ou retomada, use `meister clean` para simular a remoção de branches antigas `meister/integration/*` e `meister/worktree/*`; `meister clean --apply` aplica as remoções seguras. Commits não integrados são mantidos por padrão; `--archive-and-delete` cria uma ref em `refs/meister/archive/` antes de apagá-los. Branches abertas em worktrees, a branch atual, refs de arquivo e runs passados em `--keep` são protegidos. A trava impede aplicar enquanto `orchestrate`, `run-task` ou `worker` estiver executando (`--force-busy` ignora). `--close-stale-runs` cancela runs sem processo, panes ou branch de integração existentes. Não use `git branch -D` manualmente para limpar branches do MeisterRouter.
 
 ## 6. Lembrete de manutenção deste manual
 A cada PR que remova uma linha marcada **(temporário)**, remover a linha daqui. Atualize a data e o PR no topo.
