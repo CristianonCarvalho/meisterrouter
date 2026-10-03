@@ -384,7 +384,14 @@ def query_events(
         if needle and needle not in json.dumps(event, ensure_ascii=False, sort_keys=True).casefold():
             continue
         matching.append(event)
-    matching.sort(key=_event_sort_key, reverse=(order == "desc"))
+    # Desempate pela posição no log: sort(reverse=True) preserva a ordem original dos
+    # empates, o que deixaria o evento mais antigo antes do mais recente.
+    indexed = sorted(
+        enumerate(matching),
+        key=lambda pair: (_event_sort_key(pair[1]), pair[0]),
+        reverse=(order == "desc"),
+    )
+    matching = [event for _, event in indexed]
     return {
         "total": len(matching),
         "limit": limit,
