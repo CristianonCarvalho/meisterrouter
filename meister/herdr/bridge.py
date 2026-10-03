@@ -40,6 +40,7 @@ from meister.state import (
 from meister.faults import crash_point
 from meister.logger import log_event
 from meister.plan import PlanError, load_plan
+from meister.jev_context import build_jev_context
 from meister.worker import (
     write_atomic_json,
     read_atomic_json,
@@ -576,7 +577,10 @@ class HerdrEventBridge:
                             status="skipped_unavailable",
                         )
                     else:
-                        context = f"{description}\nArquivos: {', '.join(str(path) for path in target_files or [])}"[:2000]
+                        context = build_jev_context(
+                            task_dict,
+                            self.config.router.context_max_chars,
+                        )
                         try:
                             timeout_seconds = self.config.router.timeout_seconds
                             max_attempts = self.config.router.max_attempts

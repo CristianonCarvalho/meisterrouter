@@ -77,6 +77,7 @@ class RouterConfig:
     unavailable_cooldown_seconds: float = field(
         default_factory=lambda: float(_default_section("router")["unavailable_cooldown_seconds"])
     )
+    context_max_chars: int = field(default_factory=lambda: _default_section("router")["context_max_chars"])
 
 
 @dataclass
@@ -264,11 +265,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     timeout_seconds = router_number("timeout_seconds", (int, float))
     max_attempts = router_number("max_attempts", int)
     unavailable_cooldown_seconds = router_number("unavailable_cooldown_seconds", (int, float))
+    context_max_chars = router_number("context_max_chars", int)
     router = RouterConfig(
         mode=_as_str(router_values.get("mode")),
         timeout_seconds=float(timeout_seconds),
         max_attempts=max_attempts,
         unavailable_cooldown_seconds=float(unavailable_cooldown_seconds),
+        context_max_chars=context_max_chars,
     )
 
     retry_data = data.get("retry", {})
@@ -719,6 +722,26 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
         else:
             continue
         issues.append(ConfigIssue(level="error", path=path, message=message))
+
+    if isinstance(config.router.context_max_chars, bool) or not isinstance(
+        config.router.context_max_chars, int
+    ):
+        if not any(issue.path == "router.context_max_chars" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "router.context_max_chars",
+                    "deve ser um inteiro >= 500 (booleanos não são aceitos)",
+                )
+            )
+    elif config.router.context_max_chars < 500:
+        issues.append(
+            ConfigIssue(
+                "error",
+                "router.context_max_chars",
+                f"deve ser >= 500 ({config.router.context_max_chars})",
+            )
+        )
 
     # 1. tier_order efetivo vazio
     if not config.workers.tier_order:

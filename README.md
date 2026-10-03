@@ -137,6 +137,9 @@ fica em `meister.config.yaml`; para operação offline e determinística, defina
 `router.timeout_seconds` limita cada chamada, `router.max_attempts` define as tentativas
 e `router.unavailable_cooldown_seconds` define por quanto tempo novas chamadas são
 evitadas após uma falha. Os padrões são `10`, `2` e `300`, respectivamente.
+`router.context_max_chars` (padrão `4000`, mínimo `500`) limita o contexto enviado ao Jev:
+o cabeçalho da tarefa e seus arquivos/dependências é preservado, e o corpo é truncado
+quando necessário. Restrições globais do projeto são resumidas, não enviadas ao classificador.
 Na seção `retry`, `pane_lost_attempts` define retentativas extras na mesma via quando um
 pane desaparece ou encerra sem resultado (padrão `1`; use `0` para desativar). O
 `pane_lost_backoff_seconds` define a espera inicial antes do retry (padrão `5`); ela dobra

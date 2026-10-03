@@ -50,6 +50,35 @@ def test_load_config_defaults_when_no_file(tmp_path, monkeypatch):
     assert config.retry.pane_lost_backoff_seconds == 5
     assert config.workers.idle_timeout_seconds == 600
     assert config.workers.max_runtime_seconds == 3600
+    assert config.router.context_max_chars == 4000
+
+
+@pytest.mark.parametrize("value", ["499", "-1", "1.5", "500.0", '"five"', "true"])
+def test_router_context_max_chars_invalid_values_report_validation_error(tmp_path, value):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "invalid_context_max_chars.yaml"
+    config_file.write_text(f"router:\n  context_max_chars: {value}\n")
+    issues = validate_config(load_config(str(config_file)))
+
+    assert any(
+        issue.level == "error" and issue.path == "router.context_max_chars"
+        for issue in issues
+    )
+
+
+def test_router_context_max_chars_accepts_minimum(tmp_path):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "context_max_chars.yaml"
+    config_file.write_text("router:\n  context_max_chars: 500\n")
+    config = load_config(str(config_file))
+
+    assert config.router.context_max_chars == 500
+    assert not [
+        issue for issue in validate_config(config)
+        if issue.level == "error" and issue.path == "router.context_max_chars"
+    ]
 
 
 @pytest.mark.parametrize(

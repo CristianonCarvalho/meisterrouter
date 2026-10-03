@@ -255,6 +255,53 @@ def test_classify_task_rule_based_fallback_on_api_error():
         assert res_gen["recommended_implementer"] == "copilot_luna"
 
 
+def test_classify_fallback_uses_structured_context_and_logs_full_context(tmp_path, monkeypatch):
+    import hashlib
+    import json
+
+    from meister.jev_context import build_jev_context
+
+    log_path = tmp_path / "events.jsonl"
+    monkeypatch.setattr("meister.logger.get_log_file", lambda: str(log_path))
+    task_template = {
+        "id": "fallback-task",
+        "target_files": ["src/feature.py"],
+        "depends_on": [],
+    }
+
+    def classify(description):
+        context = build_jev_context(
+            {**task_template, "description": description},
+            1200,
+        )
+        with patch("meister.jev.call_decisions", side_effect=RuntimeError("offline")):
+            result = classify_task(context)
+        return context, result
+
+    global_only, global_result = classify(
+        "Task: ordinary change\n\n"
+        "## Global Constraints\n"
+        + ("security auth vulnerability " * 30)
+        + "\n\nArquivos permitidos: src/feature.py\n\n"
+        "Implement a generic feature."
+    )
+    body_security, body_result = classify(
+        "Task: security change\n\n"
+        "## Global Constraints\nproject-wide restriction\n\n"
+        "Arquivos permitidos: src/feature.py\n\n"
+        "Fix the authentication vulnerability."
+    )
+
+    events = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines()]
+    assert global_result["classification"] == "MEDIUM"
+    assert body_result["classification"] == "HIGH"
+    assert events[0]["context_chars"] == len(global_only)
+    assert events[0]["context_sha256"] == hashlib.sha256(global_only.encode("utf-8")).hexdigest()
+    assert events[0]["context"] == global_only[:300]
+    assert len(events[0]["context"]) <= 300
+    assert events[1]["context_sha256"] == hashlib.sha256(body_security.encode("utf-8")).hexdigest()
+
+
 def test_classify_task_normalizes_unknown_choices():
     mock_raw = {
         "answers": {

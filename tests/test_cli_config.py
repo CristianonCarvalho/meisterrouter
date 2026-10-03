@@ -81,6 +81,7 @@ def test_cli_config_show_json():
         "timeout_seconds": 10.0,
         "max_attempts": 2,
         "unavailable_cooldown_seconds": 300.0,
+        "context_max_chars": 4000,
     }
     assert data["retry"] == {
         "pane_lost_attempts": 1,
@@ -176,7 +177,24 @@ def test_cli_config_show_json_reports_jev_router(tmp_path):
         "timeout_seconds": 10.0,
         "max_attempts": 2,
         "unavailable_cooldown_seconds": 300.0,
+        "context_max_chars": 4000,
     }
+
+
+def test_cli_config_show_includes_context_max_chars_text_and_json(tmp_path):
+    runner = CliRunner()
+    cfg_file = tmp_path / "context_chars.yaml"
+    cfg_file.write_text("router:\n  context_max_chars: 750\n")
+
+    text_result = runner.invoke(main, ["config", "show", "--config-path", str(cfg_file)])
+    json_result = runner.invoke(
+        main, ["config", "show", "--json", "--config-path", str(cfg_file)]
+    )
+
+    assert text_result.exit_code == 0
+    assert "Context Max Chars: 750" in text_result.output
+    assert json_result.exit_code == 0
+    assert json.loads(json_result.output)["router"]["context_max_chars"] == 750
 
 
 def test_cli_classify_passes_configured_implementers(tmp_path, monkeypatch):
