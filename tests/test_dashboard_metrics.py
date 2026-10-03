@@ -339,3 +339,19 @@ def test_dashboard_template_keeps_the_events_table_readable_and_safe():
     assert "event-details" in html and "JSON completo" in html
     assert "innerHTML" not in html and "outerHTML" not in html
     assert "classify sem tarefa associada" in html
+
+
+def test_query_events_breaks_timestamp_ties_by_log_position():
+    stamp = "2026-10-03T17:00:00+00:00"
+    events = [
+        {"ts": stamp, "event": "first", "run_id": "r"},
+        {"ts": stamp, "event": "second", "run_id": "r"},
+        {"ts": "2026-10-03T16:00:00+00:00", "event": "older", "run_id": "r"},
+        {"ts": "", "event": "no_ts", "run_id": "r"},
+    ]
+
+    newest_first = query_events(events, "r", order="desc")["events"]
+    oldest_first = query_events(events, "r", order="asc")["events"]
+
+    assert [e["event"] for e in newest_first] == ["second", "first", "older", "no_ts"]
+    assert [e["event"] for e in oldest_first] == ["no_ts", "older", "first", "second"]
