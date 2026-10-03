@@ -130,11 +130,24 @@ def _active_meister_processes(processes: Iterable[ProcessInfo]) -> List[ProcessI
 
 
 def _worktree_branches(repo: str) -> Set[str]:
+    """Branches abertas em worktrees que ainda existem.
+
+    Worktrees `prunable` (a pasta ja foi apagada, tipico de teste/tmp) NAO protegem a branch: o git so
+    guarda um registro velho, e `git worktree prune` o remove.
+    """
     output = _git(repo, "worktree", "list", "--porcelain")
     branches: Set[str] = set()
-    for line in output.splitlines():
-        if line.startswith("branch refs/heads/"):
-            branches.add(line.removeprefix("branch refs/heads/"))
+    branch: Optional[str] = None
+    prunable = False
+    for line in [*output.splitlines(), ""]:
+        if not line:
+            if branch and not prunable:
+                branches.add(branch)
+            branch, prunable = None, False
+        elif line.startswith("branch refs/heads/"):
+            branch = line.removeprefix("branch refs/heads/")
+        elif line.startswith("prunable"):
+            prunable = True
     return branches
 
 
@@ -283,6 +296,8 @@ def apply_cleanup(
     if active and not force_busy:
         raise CleanBusyError("Há um processo MeisterRouter em execução; use --force-busy para ignorar.")
 
+    # Registros de worktrees cuja pasta nao existe mais: o git recusa apagar a branch enquanto eles existirem.
+    _git(plan.repo, "worktree", "prune")
     deleted: List[str] = []
     failures: List[str] = []
     for branch in plan.branches:
