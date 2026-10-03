@@ -988,32 +988,36 @@ async def test_bridge_idle_timeout_is_not_reported_as_pane_loss(tmp_path, monkey
 async def test_bridge_worktree_or_pane_activity_resets_idle_timeout(
     tmp_path, monkeypatch, activity
 ):
+    """Atividade continua (por contagem de leituras, nao por relogio) impede o timeout por inatividade.
+
+    O loop do bridge dorme 0,2 s por iteracao. Sem reset, o idle (0,8 s) dispararia por volta da 4a leitura;
+    com reset, so dispara depois que a atividade cessa (leitura > active_polls). A prova e a contagem de
+    leituras no instante do timeout, nao o relogio.
+    """
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
     repo_dir = tmp_path / "repo"
     _init_test_git_repo(repo_dir)
-    config = _timeout_test_config(tmp_path, idle=0.12, retries=0)
+    config = _timeout_test_config(tmp_path, idle=0.8, retries=0)
     client = AsyncMock()
-    start = time.monotonic()
-    activity_at = []
-    timeout_observed = []
-    client.send_interrupt.side_effect = lambda _pane: timeout_observed.append(time.monotonic())
-    if activity == "pane":
-        client.read_pane.side_effect = lambda _pane: (
-            "initial" if time.monotonic() - start < 0.08 else "changed"
-        )
-    else:
-        client.read_pane.return_value = "unchanged"
+    active_polls = 12
+    reads = []
+    reads_at_timeout = []
+
+    def read_pane(_pane):
+        reads.append(1)
+        n = len(reads)
+        if n <= active_polls and activity == "worktree":
+            (repo_dir / f"worker-output-{n}.txt").write_text("activity\n")
+        if activity == "pane":
+            return f"tick-{min(n, active_polls)}"
+        return "unchanged"
+
+    client.read_pane.side_effect = read_pane
+    client.send_interrupt.side_effect = lambda _pane: reads_at_timeout.append(len(reads))
     bridge = HerdrEventBridge(config=config, client=client)
 
-    async def create_activity():
-        await asyncio.sleep(0.08)
-        activity_at.append(time.monotonic())
-        if activity == "worktree":
-            (repo_dir / "worker-output.txt").write_text("activity\n")
-
     async def never_finishes(tier_name, task_context=None, **kwargs):
-        asyncio.create_task(create_activity())
         return "pane-activity", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
@@ -1022,13 +1026,12 @@ async def test_bridge_worktree_or_pane_activity_resets_idle_timeout(
             bridge.execute_subtask(
                 {"id": f"activity-{activity}", "description": "activity", "cwd": str(repo_dir)}
             ),
-            timeout=3,
+            timeout=30,
         )
 
     assert result is False
-    assert timeout_observed
-    assert activity_at
-    assert timeout_observed[0] - activity_at[0] >= 0.25
+    assert reads_at_timeout
+    assert reads_at_timeout[0] >= active_polls
 
 
 @pytest.mark.asyncio
@@ -1037,7 +1040,8 @@ async def test_bridge_max_runtime_timeout_fires_despite_activity_and_idle_can_be
 ):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
-    config = _timeout_test_config(tmp_path, idle=0.02, maximum=0.12, retries=0)
+    # idle folgado: o teto (0,12 s) tem de disparar primeiro mesmo se o runner pausar entre leituras
+    config = _timeout_test_config(tmp_path, idle=5.0, maximum=0.12, retries=0)
     client = AsyncMock()
     client.read_pane.side_effect = lambda _pane: str(time.monotonic())
     bridge = HerdrEventBridge(config=config, client=client)
