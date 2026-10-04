@@ -14,6 +14,7 @@ from meister.dashboard.metrics import (
     query_events,
 )
 from meister.logger import find_project_root, get_log_file
+from meister.report import compute_run_report
 
 
 app = Flask(
@@ -115,7 +116,14 @@ def api_runs():
 @app.route("/api/summary")
 def api_summary():
     run_id = request.args.get("run_id")
-    return jsonify(compute_summary(_read_events(), run_id, log_file=get_log_file()))
+    events = _read_events()
+    summary = compute_summary(events, run_id, log_file=get_log_file())
+    # Custo, tokens, créditos e tempo por fase vêm do mesmo cálculo do `meister report`.
+    selected = summary["meta"]["run_id"]
+    summary["report"] = (
+        compute_run_report(events, selected) if selected and selected != "all" else None
+    )
+    return jsonify(summary)
 
 
 def _query_int(name: str, default: int) -> int:

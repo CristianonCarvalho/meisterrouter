@@ -38,6 +38,8 @@
   .panel { margin-bottom: 16px; }
   .run-banner { border-left: 4px solid var(--purple); }
   .run-title { margin: 6px 0 4px; font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+  .distribution.stacked .distribution-row { display: block; }
+  .distribution.stacked .distribution-row strong { display: block; margin-top: 3px; font-weight: 600; overflow-wrap: anywhere; }
   .task-title { font-weight: 600; overflow-wrap: anywhere; }
   .task-id { color: var(--muted); font-size: 11px; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr)); gap: 14px; }
@@ -113,7 +115,8 @@
       <section class="panel"><h2>Classificação por tarefa</h2><div id="classification-task" class="distribution"></div></section>
       <section class="panel"><h2>Classificação por chamada</h2><div id="classification-call" class="distribution"></div></section>
       <section class="panel"><h2>Latência e custo do Jev</h2><div id="jev-cost" class="distribution"></div></section>
-      <section class="panel"><h2>Por via</h2><div id="tiers" class="distribution"></div></section>
+      <section class="panel"><h2>Por via</h2><div id="tiers" class="distribution stacked"></div></section>
+      <section class="panel"><h2>Tempo por fase</h2><div id="phases" class="distribution"></div><div id="report-notes" class="muted" style="margin-top:10px"></div></section>
     </div>
   </section>
 
@@ -165,6 +168,23 @@
     return node;
   };
   const formatMoney = (value) => value === null || value === undefined ? "não medido" : `$${Number(value).toFixed(6)}`;
+  // US$ conhecido + "?" quando há tarefas sem custo conhecido; nunca soma desconhecido como zero.
+  const formatCost = (known, unknown) => {
+    if (known === null || known === undefined) return unknown ? "?" : "não medido";
+    return `$${Number(known).toFixed(4)}${unknown ? " + ?" : ""}`;
+  };
+  const formatSeconds = (value) => value === null || value === undefined ? "não medido" : `${Number(value).toFixed(1)} s`;
+  const formatPercent = (value) => value === null || value === undefined ? "não medido" : `${(Number(value) * 100).toFixed(1)}%`;
+  const formatCount = (value) => value === null || value === undefined ? "não medido" : Number(value).toLocaleString("pt-BR");
+  function workerCostTotals(report) {
+    let known = null;
+    let unknown = 0;
+    Object.values(report ? report.by_tier : {}).forEach((row) => {
+      if (row.cost_known_usd !== null && row.cost_known_usd !== undefined) known = (known || 0) + row.cost_known_usd;
+      unknown += row.events_unknown || 0;
+    });
+    return {known, unknown};
+  }
   const formatDuration = (value) => value === null || value === undefined ? "—" : `${Number(value).toFixed(2)} s`;
   const shortId = (value) => {
     const text = String(value || "");
@@ -255,10 +275,10 @@
     box.hidden = !message;
   }
 
-  function renderDistribution(id, values) {
+  function renderDistribution(id, values, keepOrder = false) {
     const target = byId(id);
     target.replaceChildren();
-    const keys = Object.keys(values || {}).sort();
+    const keys = keepOrder ? Object.keys(values || {}) : Object.keys(values || {}).sort();
     if (!keys.length) {
       target.append(make("span", "Sem dados"));
       target.lastChild.className = "muted";
@@ -341,7 +361,15 @@
     addCard(container, "Reaproveitadas", totals.reused, `${totals.running} em execução`);
     addCard(container, "Duração média", formatDuration(totals.avg_duration_s), "somente tarefas concluídas");
     addCard(container, "Custo do Jev", formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
-    addCard(container, "Custo dos workers", formatMoney(summary.workers.cost_usd), "não medido quando não há custos registrados");
+    const report = summary.report;
+    const cost = workerCostTotals(report);
+    addCard(container, "Custo dos workers", report ? formatCost(cost.known, cost.unknown) : "—",
+      !report ? "selecione um run"
+        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido` : "reportado + estimado (catálogo)");
+    addCard(container, "Overhead do orquestrador", report ? formatPercent(report.overhead_ratio) : "—",
+      report ? `relógio ${formatSeconds(report.wall_seconds)} · worker ${formatSeconds(report.worker_seconds_union)}` : "selecione um run");
+    addCard(container, "Pico de workers", report ? formatCount(report.peak_parallel_workers) : "—",
+      report ? `soma de worker ${formatSeconds(report.worker_seconds_sum)}` : "selecione um run");
     renderTasks(summary.tasks);
     const jevCalls = {classify: summary.jev.classify_calls, control: summary.jev.control_calls};
     if (summary.jev.unlinked_classify_calls) {
@@ -357,9 +385,25 @@
     });
     const tierValues = {};
     Object.entries(summary.workers.by_tier).forEach(([tier, row]) => {
-      tierValues[tier] = `${row.tasks} tarefas · ${row.completed} concluídas · média ${formatDuration(row.avg_duration_s)}`;
+      const usage = report && report.by_tier[tier];
+      const parts = [plural(row.tasks, "tarefa"), `${row.completed} ${row.completed === 1 ? "concluída" : "concluídas"}`,
+        `média ${formatDuration(row.avg_duration_s)}`];
+      if (usage) {
+        parts.push(`tokens${usage.approx ? " ~" : ""} ${formatCount(usage.tokens_in)}/${formatCount(usage.tokens_out)}`);
+        if (usage.credits !== null && usage.credits !== undefined) parts.push(`créditos ${usage.credits}`);
+        parts.push(formatCost(usage.cost_known_usd, usage.events_unknown));
+      }
+      tierValues[tier] = parts.join(" · ");
     });
     renderDistribution("tiers", tierValues);
+    const phases = {};
+    if (report) {
+      ["setup", "worker", "gate", "integrate", "merge"].forEach((phase) => {
+        phases[phase] = formatSeconds(report.phase_seconds[phase]);
+      });
+    }
+    renderDistribution("phases", phases, true);
+    byId("report-notes").textContent = report ? report.notes.join(" · ") : "";
     const currentRun = summary.meta.run_id || "all";
     byId("run-select").value = currentRun;
     state.run_id = currentRun === "all" ? "all" : currentRun;

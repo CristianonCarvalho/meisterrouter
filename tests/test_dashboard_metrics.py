@@ -419,3 +419,50 @@ def test_clip_title_reads_description_from_truncated_json_plan():
     # JSON sem description legível: sem título (o dashboard cai para o id), nunca o JSON cru
     assert clip_title('[{"depends_on":[],"desc') == ""
     assert clip_title('{"a": 1}') == ""
+
+
+def test_api_summary_exposes_the_run_report_with_unknown_costs_and_phases(dashboard_client):
+    client, log_dir = dashboard_client
+    write_log(log_dir, [
+        event("orchestration_start", task="orchestrator", ts="2026-01-01T00:00:00+00:00"),
+        event("worker_spawn", task="a", tier="claude_sonnet", ts="2026-01-01T00:00:01+00:00"),
+        event("worker_spawn", task="b", tier="copilot_luna", ts="2026-01-01T00:00:01+00:00"),
+        event("worker_phase", task="a", tier="claude_sonnet", phase="worker", duration_ms=6000,
+              ts="2026-01-01T00:00:07+00:00"),
+        event("worker_phase", task="b", tier="copilot_luna", phase="worker", duration_ms=6000,
+              ts="2026-01-01T00:00:07+00:00"),
+        event("subtask_completed", task="a", tier="claude_sonnet", cost=0.05, cost_source="reported",
+              tokens_in=100, tokens_out=4, ts="2026-01-01T00:00:08+00:00"),
+        event("subtask_completed", task="b", tier="copilot_luna", cost=0.0, cost_source="unknown",
+              credits=0.19, ts="2026-01-01T00:00:08+00:00"),
+        event("orchestration_end", task="orchestrator", status="completed", ts="2026-01-01T00:00:10+00:00"),
+    ])
+
+    report = client.get("/api/summary").get_json()["report"]
+    assert report["peak_parallel_workers"] == 2
+    assert report["by_tier"]["claude_sonnet"]["cost_known_usd"] == 0.05
+    # custo desconhecido NÃO vira zero: sem valor conhecido e contado à parte
+    assert report["by_tier"]["copilot_luna"]["cost_known_usd"] is None
+    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 1
+    assert report["by_tier"]["copilot_luna"]["credits"] == 0.19
+    assert client.get("/api/summary?run_id=all").get_json()["report"] is None
+
+    html = client.get("/").get_data(as_text=True)
+    for element_id in ("phases", "report-notes", "summary-cards"):
+        assert f'id="{element_id}"' in html
+    assert "Overhead do orquestrador" in html and "Pico de workers" in html
+
+
+def test_api_summary_report_for_an_old_log_reports_unmeasured(dashboard_client):
+    client, log_dir = dashboard_client
+    write_log(log_dir, [
+        event("orchestration_start", task="orchestrator"),
+        event("worker_spawn", task="a", tier="copilot_luna"),
+        event("subtask_completed", task="a", tier="copilot_luna", cost=0.0),
+        event("orchestration_end", task="orchestrator", status="completed", ts="2026-01-01T00:00:09+00:00"),
+    ])
+    report = client.get("/api/summary").get_json()["report"]
+    assert report["overhead_ratio"] is None and report["peak_parallel_workers"] is None
+    assert report["phase_seconds"]["worker"] is None
+    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 1
+    assert any("worker_phase" in note for note in report["notes"])
