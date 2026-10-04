@@ -36,6 +36,7 @@ from meister.logger import (
     add_event_observer,
     get_events_by_run_id,
     get_current_run,
+    get_log_file,
     log_event,
     remove_event_observer,
 )
@@ -310,6 +311,82 @@ def dashboard(port, host, log_dir, tui):
     else:
         from meister.dashboard.server import start_server
         start_server(host=host, port=port, log_dir=log_dir)
+
+
+@main.command("report")
+@click.option("--run-id", "run_ids", multiple=True, help="Run a incluir (pode repetir; aceita prefixo único >= 6 chars)")
+@click.option("--group", "groups", multiple=True, metavar="NOME=ID,ID,...", help="Grupo de runs para comparar")
+@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help="Diretório com orchestration_log.jsonl")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["table", "json", "markdown"]),
+    default="table",
+    show_default=True,
+)
+def report(run_ids, groups, log_dir, output_format):
+    """Compara custo, tempo e tentativas sem modificar o log."""
+    from meister.dashboard.metrics import iter_events, list_runs
+    from meister.report import compute_group_report, compute_run_report, render_report
+
+    if not run_ids and not groups:
+        raise click.UsageError("informe ao menos um --run-id ou --group")
+    log_file = (
+        os.path.join(os.path.abspath(log_dir), "orchestration_log.jsonl")
+        if log_dir is not None else get_log_file()
+    )
+    if not os.path.isfile(log_file):
+        click.echo(f"Erro: arquivo de log não encontrado: {log_file}", err=True)
+        raise click.exceptions.Exit(2)
+
+    events = list(iter_events(log_file))
+    available = list_runs(events)
+    available_ids = [item["run_id"] for item in available]
+
+    def resolve(identifier):
+        if len(identifier) < 6:
+            raise ValueError(f"ID deve ter pelo menos 6 caracteres: {identifier}")
+        matches = [run for run in available_ids if run.startswith(identifier)]
+        if len(matches) == 1:
+            return matches[0]
+        detail = "ambíguo" if matches else "inexistente"
+        listing = ", ".join(available_ids) if available_ids else "nenhum run disponível"
+        raise ValueError(f"ID {detail}: {identifier}. Runs disponíveis: {listing}")
+
+    try:
+        resolved_runs = [resolve(identifier) for identifier in run_ids]
+        resolved_groups = []
+        for group in groups:
+            if "=" not in group:
+                raise ValueError(f"grupo inválido (esperado NOME=ID,ID,...): {group}")
+            name, raw_ids = group.split("=", 1)
+            identifiers = [item.strip() for item in raw_ids.split(",") if item.strip()]
+            if not name.strip() or not identifiers:
+                raise ValueError(f"grupo inválido ou vazio: {group}")
+            resolved_groups.append((name.strip(), [resolve(identifier) for identifier in identifiers]))
+    except ValueError as error:
+        click.echo(f"Erro: {error}", err=True)
+        raise click.exceptions.Exit(2)
+
+    cfg = load_config()
+    tier_prices = {tier.name: tier.cost_per_m_tokens for tier in cfg.workers.tier_order}
+    all_ids = list(dict.fromkeys(resolved_runs + [
+        run_id for _, member_ids in resolved_groups for run_id in member_ids
+    ]))
+    reports = {
+        run_id: compute_run_report(events, run_id, tier_prices=tier_prices)
+        for run_id in all_ids
+    }
+    group_reports = []
+    for name, member_ids in resolved_groups:
+        group_report = compute_group_report(name, [reports[run_id] for run_id in member_ids])
+        group_report["run_ids"] = member_ids
+        group_reports.append(group_report)
+    data = {
+        "groups": group_reports,
+        "runs": [reports[run_id] for run_id in resolved_runs],
+    }
+    click.echo(render_report(data, output_format))
 
 
 @main.command("install-hooks")
