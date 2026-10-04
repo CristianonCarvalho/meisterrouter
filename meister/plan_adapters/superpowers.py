@@ -41,6 +41,41 @@ _RANGE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
 _KNOWN_VERBS = frozenset(["create", "modify", "test"])
 
 
+_FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+
+
+def _fenced_ranges(text: str) -> list[tuple[int, int]]:
+    """Return (start, end) offsets of CLOSED fenced code blocks (``` or ~~~, CommonMark rules).
+
+    A fence closes only with the same character and at least the same length, so a
+    4-backtick block can safely contain 3-backtick blocks. An opening fence that is
+    never closed is ignored, so a stray fence cannot hide the rest of the plan.
+    """
+    ranges: list[tuple[int, int]] = []
+    opened: tuple[str, int, int] | None = None  # (char, length, start offset)
+    position = 0
+    for line in text.splitlines(keepends=True):
+        match = _FENCE_LINE_RE.match(line.rstrip("\r\n"))
+        if opened is None:
+            if match and not (match.group(1)[0] == "`" and "`" in match.group(2)):
+                opened = (match.group(1)[0], len(match.group(1)), position)
+        elif (
+            match
+            and match.group(1)[0] == opened[0]
+            and len(match.group(1)) >= opened[1]
+            and not match.group(2).strip()
+        ):
+            ranges.append((opened[2], position + len(line)))
+            opened = None
+        position += len(line)
+    return ranges
+
+
+def _in_ranges(offset: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= offset < end for start, end in ranges)
+
+
+
 def _parse_global_constraints(text: str) -> str:
     """Extract the raw '## Global Constraints' section (verbatim), or ''."""
     m = _GLOBAL_CONSTRAINTS_RE.search(text)
@@ -236,7 +271,8 @@ def convert(
         raise PlanError([f"unknown deps mode {deps!r}; choices: 'sequential', 'files'"])
 
     # ── 1. Find all task headers ───────────────────────────────────────────────
-    headers = list(_TASK_HEADER_RE.finditer(text))
+    fences = _fenced_ranges(text)
+    headers = [m for m in _TASK_HEADER_RE.finditer(text) if not _in_ranges(m.start(), fences)]
     if not headers:
         raise PlanError(["no '### Task N: name' headings found in plan"])
 
@@ -266,10 +302,12 @@ def convert(
         body_end = headers[i + 1].start() if i + 1 < len(headers) else len(text)
         # Trim body at next ## section (non-task)
         body_raw = text[body_start:body_end]
-        # Stop at '## ' section header (but not '### Task')
-        sec_match = re.search(r"\n## (?!#)", body_raw)
-        if sec_match:
-            body_raw = body_raw[: sec_match.start()]
+        # Stop at '## ' section header (but not '### Task'), ignoring lines inside fenced
+        # code blocks: a README/doc template in the task body may contain its own '## ' headings.
+        for sec_match in re.finditer(r"\n## (?!#)", body_raw):
+            if not _in_ranges(body_start + sec_match.start() + 1, fences):
+                body_raw = body_raw[: sec_match.start()]
+                break
         task_bodies.append((num, name, body_raw))
 
     # ── 5. Parse each task ───────────────────────────────────────────────────
