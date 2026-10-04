@@ -180,6 +180,7 @@ class GateCommand:
     run: Union[str, List[str]]
     timeout_seconds: float
     required: bool
+    ok_exit_codes: List[int] = field(default_factory=lambda: [0])
 
 
 @dataclass
@@ -187,6 +188,7 @@ class GateConfig:
     install: Optional[str] = field(default_factory=lambda: _default_section("gate")["install"])
     commands: List[GateCommand] = field(default_factory=list)
     allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
+    python: Optional[str] = None
 
 
 @dataclass
@@ -496,6 +498,10 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if install is not None and (not isinstance(install, str) or not install.strip()):
         parse_issues.append(ConfigIssue("error", "gate.install", "deve ser string não vazia ou nulo"))
         install = gate_defaults["install"]
+    python = gate_data.get("python", gate_defaults["python"])
+    if python is not None and (not isinstance(python, str) or not python.strip()):
+        parse_issues.append(ConfigIssue("error", "gate.python", "deve ser string não vazia ou nulo"))
+        python = gate_defaults["python"]
     allow_unverified = gate_data.get("allow_unverified", gate_defaults["allow_unverified"])
     if not isinstance(allow_unverified, bool):
         parse_issues.append(ConfigIssue("error", "gate.allow_unverified", "deve ser booleano"))
@@ -514,6 +520,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         run = item.get("run")
         timeout = item.get("timeout_seconds", 300)
         required = item.get("required", True)
+        ok_exit_codes = item.get("ok_exit_codes", [0])
         valid = True
         if not isinstance(name, str) or not name.strip():
             parse_issues.append(ConfigIssue("error", f"{prefix}.name", "nome não pode ser vazio"))
@@ -537,6 +544,20 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             parse_issues.append(ConfigIssue("error", f"{prefix}.required", "deve ser booleano"))
             required = True
             valid = False
+        if (
+            not isinstance(ok_exit_codes, list)
+            or not ok_exit_codes
+            or any(isinstance(code, bool) or not isinstance(code, int) for code in ok_exit_codes)
+        ):
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    f"{prefix}.ok_exit_codes",
+                    "deve ser uma lista não vazia de inteiros (booleanos não são aceitos)",
+                )
+            )
+            ok_exit_codes = [0]
+            valid = False
         if valid:
             command_name = name if isinstance(name, str) else ""
             command_run: Union[str, List[str]] = (
@@ -546,14 +567,21 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                 if isinstance(run, list)
                 else []
             )
-            commands.append(GateCommand(command_name, command_run, float(timeout), required))
+            commands.append(
+                GateCommand(command_name, command_run, float(timeout), required, ok_exit_codes)
+            )
     command_names = [command.name for command in commands]
     for index, name in enumerate(command_names):
         if name in command_names[:index]:
             parse_issues.append(
                 ConfigIssue("error", f"gate.commands[{index}].name", f"nome repetido: {name!r}")
             )
-    gate = GateConfig(install=install, commands=commands, allow_unverified=allow_unverified)
+    gate = GateConfig(
+        install=install,
+        commands=commands,
+        allow_unverified=allow_unverified,
+        python=python,
+    )
 
     return MeisterConfig(
         version=version,
