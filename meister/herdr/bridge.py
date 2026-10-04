@@ -823,6 +823,7 @@ class HerdrEventBridge:
                         )
                     except (OSError, subprocess.SubprocessError) as e:
                         logger.debug("Could not inspect worker worktree before spawn at %s: %s", spawn_cwd, e)
+                worker_phase_start = time.monotonic()
                 try:
                     try:
                         if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
@@ -1025,6 +1026,15 @@ class HerdrEventBridge:
 
                         await asyncio.sleep(poll_interval)
 
+                    log_event(
+                        event_type="worker_phase",
+                        run_id=active_run_id,
+                        task_id=task_id,
+                        attempt=attempt_count,
+                        tier=current_tier,
+                        phase="worker",
+                        duration_ms=(time.monotonic() - worker_phase_start) * 1000.0,
+                    )
                     self._quota_events.pop(pane_id, None)
                     self._exit_events.pop(pane_id, None)
 
@@ -1485,12 +1495,27 @@ class HerdrEventBridge:
                     if subtask_wt is not None and self._integration_pipeline is not None:
                         crash_point("after_worker_result", task_id=task_id, run_id=active_run_id)
                         async with self._merge_lock:
-                            ok_int, int_err = await asyncio.to_thread(
-                                self._integration_pipeline.integrate_subtask,
-                                subtask_wt=subtask_wt,
-                                target_files=target_files,
-                                commit_message=f"subtask({task_id}): {description}",
-                            )
+                            integration_start = time.monotonic()
+                            try:
+                                ok_int, int_err = await asyncio.to_thread(
+                                    self._integration_pipeline.integrate_subtask,
+                                    subtask_wt=subtask_wt,
+                                    target_files=target_files,
+                                    commit_message=f"subtask({task_id}): {description}",
+                                    task_id=task_id,
+                                    attempt=attempt_count,
+                                    tier=current_tier,
+                                )
+                            finally:
+                                log_event(
+                                    event_type="worker_phase",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    attempt=attempt_count,
+                                    tier=current_tier,
+                                    phase="integrate",
+                                    duration_ms=(time.monotonic() - integration_start) * 1000.0,
+                                )
                             from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
 
                             if not ok_int and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX):
@@ -1575,13 +1600,24 @@ class HerdrEventBridge:
                             tokens_out=int(tokens_out or 0),
                             cost=cost_val,
                         )
+                    usage_data = prompt_result.get("usage", {})
+                    usage_data = usage_data if isinstance(usage_data, dict) else {}
+                    event_cost = usage_data.get("cost")
+                    event_cost = float(event_cost) if event_cost is not None else 0.0
+                    usage_event_fields = {
+                        key: usage_data[key]
+                        for key in ("tokens_in", "tokens_out", "tokens_total", "credits", "approx")
+                        if usage_data.get(key) is not None
+                    }
                     log_event(
                         event_type="subtask_completed",
                         run_id=active_run_id,
                         task_id=task_id,
                         attempt=attempt_count,
                         tier=current_tier,
-                        cost=cost_val,
+                        cost=event_cost,
+                        cost_source=usage_data.get("cost_source", "unknown"),
+                        **usage_event_fields,
                         exit_code=0,
                     )
                     if active_run_id:

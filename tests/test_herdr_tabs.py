@@ -161,7 +161,8 @@ async def test_run_worker_in_herdr_tab_async_timeout_closes_tab(tmp_path):
     mock_client.close_tab.assert_called_once_with("t1")
 
 
-def test_cli_worker_with_tab_flag(tmp_path):
+def test_cli_worker_with_tab_flag(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     runner = CliRunner()
     mock_result = {
         "status": "done",

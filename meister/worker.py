@@ -20,6 +20,7 @@ import shlex
 import signal
 from typing import Optional, List, Dict, Any, Tuple
 from meister.logger import log_event
+from meister.usage import finalize_usage, parse_for_harness
 
 logger = logging.getLogger(__name__)
 _UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
@@ -298,13 +299,13 @@ def build_harness_command(
         cmd = [cli_bin, "--dangerously-skip-permissions"]
         if model:
             cmd.extend(["--model", model])
-        cmd.extend(["-p", prompt])
+        cmd.extend(["--output-format", "json", "-p", prompt])
         return cmd
     elif harness == HARNESS_CLAUDE:
         cmd = [cli_bin, "--dangerously-skip-permissions"]
         if model:
             cmd.extend(["--model", model])
-        cmd.extend(["-p", prompt])
+        cmd.extend(["--output-format", "json", "-p", prompt])
         return cmd
     elif harness == HARNESS_COPILOT:
         # Adaptador GitHub Copilot CLI (verificado contra GitHub Copilot CLI 1.0.88).
@@ -372,6 +373,25 @@ class HarnessWorker:
         self.harness, self.resolved_model = resolve_worker_harness_and_model(
             model, config=self.config, cwd=self.cwd, config_path=self.config_path
         )
+        configured_tiers = (
+            [*self.config.workers.tier_order, *self.config.workers.disabled]
+            if self.config is not None
+            else []
+        )
+        selected = next(
+            (tier for tier in configured_tiers if model and tier.name.casefold() == model.casefold()),
+            None,
+        )
+        if selected is None:
+            selected = next(
+                (
+                    tier for tier in configured_tiers
+                    if tier.harness.casefold() in (self.harness, "agy" if self.harness == HARNESS_ANTIGRAVITY else self.harness)
+                    and tier.model == self.resolved_model
+                ),
+                None,
+            )
+        self.tier_key = selected.name if selected is not None else (model or "")
         self.cli_binary = find_cli_binary(self.harness)
 
     def _build_context(self, target_files: Optional[List[str]] = None) -> str:
@@ -450,6 +470,15 @@ class HarnessWorker:
 
         safe_env = build_safe_worker_env(extra_env=env)
         output_lines: List[str] = []
+        structured_json = self.harness in (HARNESS_CLAUDE, HARNESS_ANTIGRAVITY)
+
+        def capture_line(line: Any) -> None:
+            text = str(line)
+            output_lines.append(text)
+            if not structured_json:
+                sys.stdout.write(text)
+                sys.stdout.flush()
+
         process = None
         try:
             process = subprocess.Popen(
@@ -466,9 +495,7 @@ class HarnessWorker:
 
             if isinstance(process.stdout, list):
                 for line in process.stdout:
-                    sys.stdout.write(str(line))
-                    sys.stdout.flush()
-                    output_lines.append(str(line))
+                    capture_line(line)
                 exit_code = process.wait(timeout=timeout) if hasattr(process, "wait") else 0
             elif process.stdout is not None and hasattr(process.stdout, "fileno"):
                 import select
@@ -483,23 +510,17 @@ class HarnessWorker:
                         line = process.stdout.readline()
                         if not line:
                             break
-                        sys.stdout.write(line)
-                        sys.stdout.flush()
-                        output_lines.append(line)
+                        capture_line(line)
                     else:
                         if process.poll() is not None:
                             for rem_line in process.stdout:
-                                sys.stdout.write(rem_line)
-                                sys.stdout.flush()
-                                output_lines.append(rem_line)
+                                capture_line(rem_line)
                             break
                 exit_code = process.wait(timeout=max(1.0, timeout - (time.monotonic() - start_time)))
             else:
                 if process.stdout:
                     for line in process.stdout:
-                        sys.stdout.write(str(line))
-                        sys.stdout.flush()
-                        output_lines.append(str(line))
+                        capture_line(line)
                 exit_code = process.wait(timeout=timeout) if hasattr(process, "wait") else 0
         except (subprocess.TimeoutExpired, TimeoutError) as te:
             if process is not None and hasattr(process, "pid") and isinstance(process.pid, int):
@@ -509,6 +530,13 @@ class HarnessWorker:
             raise RuntimeError(f"Erro ao executar harness {self.harness}: {e}") from e
 
         captured_output = "".join(output_lines)
+        readable_output, parsed_usage = parse_for_harness(self.harness, captured_output)
+        usage = finalize_usage(parsed_usage, self.tier_key, config=self.config)
+        if structured_json:
+            sys.stdout.write(readable_output)
+            if readable_output and not readable_output.endswith("\n"):
+                sys.stdout.write("\n")
+            sys.stdout.flush()
 
         # Check git status for modified files
         status_after = get_git_status_files(self.cwd)
@@ -550,7 +578,8 @@ class HarnessWorker:
             "model": self.resolved_model or "default",
             "cli": self.cli_binary,
             "modified_files": modified_files,
-            "output": captured_output,
+            "output": readable_output,
+            "usage": usage.to_dict(),
             "exit_code": exit_code,
         }
 

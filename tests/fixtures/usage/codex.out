@@ -1,0 +1,25 @@
+OpenAI Codex v0.157.1
+--------
+workdir: /private/tmp/claude-501/-Users-cristianocarvalho-Documents-meisterrouter/690ffac8-21ac-4454-a9c0-e82a84918dc4/scratchpad/cost_samples/repo
+model: gpt-6-luna
+provider: openai
+approval: never
+sandbox: danger-full-access
+reasoning effort: none
+reasoning summaries: none
+session id: 01a0eecb-0399-7eb2-ba69-8a768292aff9
+--------
+user
+Responda apenas a palavra OK, sem editar arquivos.
+hook: SessionStart
+hook: SessionStart Completed
+hook: UserPromptSubmit
+hook: UserPromptSubmit Completed
+codex
+OK
+hook: Stop
+hook: Stop Completed
+tokens used
+3,884
+OK
+rc=0

@@ -7,7 +7,8 @@ import tempfile
 from meister.hooks import install_git_hook, install_claude_hook
 
 
-def test_install_claude_hook_creates_files_and_config():
+def test_install_claude_hook_creates_files_and_config(monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         ok, msg = install_claude_hook(tmpdir)
         assert ok is True
@@ -45,7 +46,8 @@ def test_install_claude_hook_creates_files_and_config():
         assert "[MEISTERROUTER MANDATORY DIRECTIVE]" in res_p.stdout
 
 
-def test_guard_hook_allow_orchestrator_override():
+def test_guard_hook_allow_orchestrator_override(monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         install_claude_hook(tmpdir)
         guard_hook = os.path.join(tmpdir, ".claude", "hooks", "meister-guard-hook.sh")
@@ -75,4 +77,3 @@ def test_install_git_hook_fail_closed_without_llm():
         assert '{"action": "COMPLETE"}' not in content
         assert "meister control" not in content
         assert "fail-closed" in content
-

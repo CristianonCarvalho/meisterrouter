@@ -97,6 +97,7 @@ def test_cli_control_auto_close_worker(tmp_path):
 
 def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
     """E2E-3: meister worker executa em worktree isolado e aplica pipeline (gate -> merge -> ff)."""
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     from unittest.mock import patch
     from click.testing import CliRunner
     from meister.cli import main
@@ -186,6 +187,7 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
 
     log_dir = str(tmp_path / "logs")
     monkeypatch.setenv("MEISTER_LOG_DIR", log_dir)
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
 
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()
@@ -226,7 +228,10 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
             "status": "done",
             "modified_files": ["calc.py"],
             "exit_code": 0,
-            "cost": 0.00005,
+            "usage": {
+                "cost": 0.00005,
+                "cost_source": "reported",
+            },
         }
 
     with patch("meister.worker.is_herdr_available", return_value=False), \
@@ -258,24 +263,40 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
 
     # 4. Verificar eventos de telemetria
     events = read_events()
-    assert len(events) == 4, f"Esperava 4 eventos, obteve {len(events)}: {[e['event'] for e in events]}"
+    assert len(events) == 9, f"Esperava 9 eventos, obteve {len(events)}: {[e['event'] for e in events]}"
 
     event_types = [e["event"] for e in events]
-    assert event_types == ["classify", "worker_start", "worker_end", "control"]
+    assert event_types == [
+        "classify",
+        "worker_start",
+        "worker_phase",
+        "worker_end",
+        "worker_phase",
+        "worker_phase",
+        "worker_phase",
+        "worker_phase",
+        "control",
+    ]
+    phases = [event for event in events if event.get("event") == "worker_phase"]
+    assert [event["phase"] for event in phases] == [
+        "worker", "gate", "gate", "integrate", "gate",
+    ]
 
-    # Todos os 4 eventos devem compartilhar o mesmo run_id e mesmo task_id
+    # Todos os eventos do worker devem compartilhar o mesmo run_id e task_id lógico.
     for ev in events:
         assert ev["run_id"] == expected_run_id
-        assert ev["task_id"] == expected_task_id
         assert ev["duration_ms"] >= 0.0
+        if ev.get("phase") != "gate" or ev["task_id"] != "final-integration":
+            assert ev["task_id"] == expected_task_id
 
     # Worker_start e worker_end
-    start_ev = events[1]
-    end_ev = events[2]
+    start_ev = next(event for event in events if event["event"] == "worker_start")
+    end_ev = next(event for event in events if event["event"] == "worker_end")
     assert start_ev["tier"] == "codex_luna"
     assert end_ev["tier"] == "codex_luna"
     assert end_ev["exit_code"] == 0
     assert end_ev["cost"] == 0.00005
+    assert end_ev["cost_source"] == "reported"
     assert end_ev["duration_ms"] >= 0.0
 
 
@@ -319,8 +340,9 @@ def test_e2e_meister_gitignore_clean_git_status(tmp_path):
     assert st.stdout.strip() == ""
 
 
-def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
+def test_cli_worker_defaults_to_tab_in_herdr(tmp_path, monkeypatch):
     """E2E-9: meister worker despacha para aba dedicada no Herdr por padrão (tab.create), e split pane apenas sob demanda."""
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     from unittest.mock import patch
     from click.testing import CliRunner
     from meister.cli import main
@@ -347,4 +369,3 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path):
         assert "terminal lateral no Herdr" in res_split.output
         mock_pane.assert_called_once()
         mock_tab.assert_not_called()
-

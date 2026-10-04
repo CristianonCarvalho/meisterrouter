@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from meister.gate import DeterministicGate
+from meister.logger import add_event_observer, remove_event_observer
 from meister.worktree import WorktreeManager, IntegrationPipeline
 
 
@@ -177,12 +178,24 @@ def test_integration_pipeline_gate_failure_triggers_rollback(git_test_repo):
         f.write("def add(a, b):\n    return 0  # Broken logic\n")
 
     # Integrate subtask: worktree gate must catch broken test and reject before merge
-    ok, err = pipeline.integrate_subtask(
-        subtask_wt=subtask_wt,
-        target_files=["app.py"],
-    )
+    events = []
+    observer = events.append
+    add_event_observer(observer)
+    try:
+        ok, err = pipeline.integrate_subtask(
+            subtask_wt=subtask_wt,
+            target_files=["app.py"],
+        )
+    finally:
+        remove_event_observer(observer)
     assert ok is False
     assert "Portão determinístico falhou no worktree do worker" in err
+    gate_phase = next(
+        event for event in events
+        if event.get("event") == "worker_phase" and event.get("phase") == "gate"
+    )
+    assert gate_phase["duration_ms"] >= 0
+    assert gate_phase["task_id"] == subtask_wt.task_id
 
     # Integration worktree remained unaffected
     with open(os.path.join(int_info.worktree_path, "app.py"), "r", encoding="utf-8") as f:
@@ -1038,5 +1051,4 @@ def test_rebuild_ancestry_reuse_path_regression(git_test_repo):
     assert anc_ok is True, anc_msg
 
     pipeline2.abort_integration()
-
 
