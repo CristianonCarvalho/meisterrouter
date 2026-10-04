@@ -150,6 +150,19 @@ class WorktreeInfo:
     status: str = "active"
 
 
+@dataclass
+class PreparedSubtask:
+    subtask_wt: WorktreeInfo
+    target_files: Optional[List[str]]
+    commit_message: Optional[str]
+    commit_sha: Optional[str]
+    phase_task_id: str
+    attempt: int
+    tier: Optional[str]
+    early: Optional[Tuple[bool, str]] = None
+    integrated_sha: Optional[str] = None
+
+
 class WorktreeManager:
     """Gerencia o ciclo de vida completo de worktrees isolados no Git."""
 
@@ -1116,20 +1129,42 @@ class IntegrationPipeline:
         attempt: int = 1,
         tier: Optional[str] = None,
     ) -> Tuple[bool, str]:
-        """Processa a integração determinística de uma subtarefa:
+        """Prepara e integra uma subtarefa sequencialmente para callers legados."""
+        return self.merge_prepared(
+            self.prepare_subtask(
+                subtask_wt=subtask_wt,
+                target_files=target_files,
+                commit_message=commit_message,
+                task_id=task_id,
+                attempt=attempt,
+                tier=tier,
+            )
+        )
 
-        1. Valida escopo de arquivos modificados no worktree do worker (Achado #2).
-        2. Executa o portão de verificação de testes e linters no worktree do worker.
-        3. Commita as mudanças na branch do worker.
-        4. Efetua merge na branch de integração.
-        5. Executa o portão de verificação no worktree de integração.
-        6. Se o portão falhar, faz rollback (git reset --hard) para o commit anterior.
-        """
-        self.last_integrated_sha = None
-        if self.integration_info is None:
-            return False, "Pipeline de integração não foi inicializado."
-
+    def prepare_subtask(
+        self,
+        subtask_wt: WorktreeInfo,
+        target_files: Optional[List[str]] = None,
+        commit_message: Optional[str] = None,
+        task_id: Optional[str] = None,
+        attempt: int = 1,
+        tier: Optional[str] = None,
+    ) -> PreparedSubtask:
+        """Valida escopo, executa o gate do worker e commita no worktree da tarefa."""
         phase_task_id = task_id or subtask_wt.task_id
+        prepared = PreparedSubtask(
+            subtask_wt=subtask_wt,
+            target_files=target_files,
+            commit_message=commit_message,
+            commit_sha=None,
+            phase_task_id=phase_task_id,
+            attempt=attempt,
+            tier=tier,
+        )
+        if self.integration_info is None:
+            prepared.early = (False, "Pipeline de integração não foi inicializado.")
+            return prepared
+
         # 1. Validação estrita de escopo
         valid_scope, out_of_scope = self.wt_mgr.verify_scope(
             subtask_wt.worktree_path,
@@ -1138,10 +1173,11 @@ class IntegrationPipeline:
             tolerated=self.config.scope.tolerated_files,
         )
         if not valid_scope:
-            return False, (
+            prepared.early = (False, (
                 f"Violação de escopo no worktree: {out_of_scope}. Declare o arquivo em **Files:** "
                 "(aceita glob, ex.: drizzle/*) ou adicione-o a scope.tolerated_files no meister.config.yaml."
-            )
+            ))
+            return prepared
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
@@ -1152,12 +1188,14 @@ class IntegrationPipeline:
             preserve_message = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
             preserved_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, preserve_message)
             if preserved_sha:
-                self.last_integrated_sha = preserved_sha
+                prepared.integrated_sha = preserved_sha
             self._log_gate_infrastructure_error(subtask_wt.task_id, worker_result.output)
-            return False, self._gate_infrastructure_message(worker_result.output)
+            prepared.early = (False, self._gate_infrastructure_message(worker_result.output))
+            return prepared
         if not worker_result.passed:
             out = worker_result.output
-            return False, f"Portão determinístico falhou no worktree do worker:\n{out}"
+            prepared.early = (False, f"Portão determinístico falhou no worktree do worker:\n{out}")
+            return prepared
 
         # 3. Commit das alterações no worktree do worker
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
@@ -1226,15 +1264,38 @@ class IntegrationPipeline:
                         logger.debug("Erro ao verificar commits anteriores da subtarefa no git log: %s", e)
 
                 if existing_sha:
-                    self.last_integrated_sha = existing_sha
-                    return True, f"Subtarefa {matched_id} já integrada anteriormente ({existing_sha[:8]})."
+                    prepared.integrated_sha = existing_sha
+                    prepared.early = (
+                        True,
+                        f"Subtarefa {matched_id} já integrada anteriormente ({existing_sha[:8]}).",
+                    )
+                    return prepared
 
-                return False, f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})"
-            return True, "Nenhuma alteração para integrar."
+                prepared.early = (
+                    False,
+                    f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})",
+                )
+                return prepared
+            prepared.early = (True, "Nenhuma alteração para integrar.")
+            return prepared
 
-        self.last_integrated_sha = commit_sha
+        prepared.commit_sha = commit_sha
+        prepared.integrated_sha = commit_sha
         crash_point("after_worker_commit", task_id=subtask_wt.task_id)
+        return prepared
 
+    def merge_prepared(self, prepared: PreparedSubtask) -> Tuple[bool, str]:
+        """Executa em série o merge, gate de integração e eventual rollback."""
+        self.last_integrated_sha = prepared.integrated_sha
+        if prepared.early is not None:
+            return prepared.early
+        if prepared.commit_sha is None:
+            raise ValueError("PreparedSubtask sem resultado antecipado ou commit para integrar")
+        if self.integration_info is None:
+            return False, "Pipeline de integração não foi inicializado."
+
+        subtask_wt = prepared.subtask_wt
+        commit_sha = prepared.commit_sha
         # 4. Merge sequencial na branch de integração
         merged, rollback_sha_or_err = self.wt_mgr.merge_branch_into(
             source_branch=subtask_wt.branch_name,
@@ -1249,7 +1310,10 @@ class IntegrationPipeline:
 
         # 5. Gate determinístico no worktree de integração após o merge
         integration_result = self._run_gate(
-            self.integration_info.worktree_path, task_id=phase_task_id, attempt=attempt, tier=tier
+            self.integration_info.worktree_path,
+            task_id=prepared.phase_task_id,
+            attempt=prepared.attempt,
+            tier=prepared.tier,
         )
         if integration_result.infrastructure_error:
             self._log_gate_infrastructure_error(subtask_wt.task_id, integration_result.output)

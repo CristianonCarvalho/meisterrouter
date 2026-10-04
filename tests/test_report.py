@@ -32,6 +32,8 @@ def test_full_run_aggregates_phases_and_gate_events():
               offset=6),
         event("worker_phase", phase="gate", duration_ms=300, task_id="task-a", attempt=1, tier="copilot",
               offset=7),
+        event("worker_phase", phase="lock_wait", duration_ms=150, task_id="task-a", attempt=1, tier="copilot",
+              offset=7.5),
         event("worker_phase", phase="integrate", duration_ms=3000, task_id="task-a", attempt=1, tier="copilot",
               offset=8),
         event("subtask_completed", task_id="task-a", tier="copilot", cost=0.01, cost_source="reported"),
@@ -43,8 +45,10 @@ def test_full_run_aggregates_phases_and_gate_events():
     assert report["wall_seconds"] == 10
     assert report["tasks"] == {"total": 1, "completed": 1, "failed": 0, "reused": 0}
     assert report["phase_seconds"] == {
-        "worker": 4.0, "gate": 0.5, "integrate": 3.0, "merge": 2.5, "setup": None,
+        "worker": 4.0, "gate": 0.5, "integrate": 3.0, "lock_wait": 0.15, "merge": 2.5, "setup": None,
     }
+    table = render_report({"groups": [], "runs": [report]}, "table")
+    assert "Fase lock_wait (s)" in table and "0.15" in table
     assert report["worker_seconds_sum"] == 4
     assert report["worker_seconds_union"] == 4
     assert report["overhead_ratio"] == 0.6
@@ -83,6 +87,7 @@ def test_old_run_without_phases_or_cost_source_reports_unmeasured():
     ]
     report = compute_run_report(events, "run-alpha-0001")
     assert report["phase_seconds"]["worker"] is None
+    assert report["phase_seconds"]["lock_wait"] is None
     assert report["phase_seconds"]["merge"] is None
     assert report["worker_seconds_sum"] is None
     assert report["worker_seconds_union"] is None

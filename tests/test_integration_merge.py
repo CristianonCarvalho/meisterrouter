@@ -1,5 +1,8 @@
 import os
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from types import SimpleNamespace
 import pytest
 
 from meister.gate import DeterministicGate
@@ -404,6 +407,54 @@ def test_integration_subtask_noop_with_target_files_rejected(git_test_repo):
     assert "sem alterações" in msg.lower()
     assert pipeline.last_integrated_sha is None
     wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
+    pipeline.abort_integration()
+
+
+def test_prepared_subtasks_are_pure_and_worker_gates_overlap(git_test_repo):
+    repo_path = str(git_test_repo)
+    wt_mgr = WorktreeManager(repo_root=repo_path)
+    pipeline = IntegrationPipeline(wt_mgr, gate=DeterministicGate(repo_path))
+    int_info = pipeline.start_integration("run-prepared-parallel")
+    workers = [
+        wt_mgr.create_worktree("parallel-a", base_ref=int_info.branch_name),
+        wt_mgr.create_worktree("parallel-b", base_ref=int_info.branch_name),
+    ]
+    target_files = ["parallel-a.txt", "parallel-b.txt"]
+    for worker, filename in zip(workers, target_files):
+        with open(os.path.join(worker.worktree_path, filename), "w", encoding="utf-8") as file:
+            file.write(f"{worker.task_id}\n")
+
+    worker_gate_barrier = threading.Barrier(2, timeout=5)
+
+    def concurrent_gate(repo_path, task_id=None, attempt=1, tier=None):
+        if repo_path != int_info.worktree_path:
+            worker_gate_barrier.wait()
+        return SimpleNamespace(passed=True, infrastructure_error=False, output="ok")
+
+    pipeline._run_gate = concurrent_gate
+    pipeline.last_integrated_sha = "previous-sha"
+    integration_head = wt_mgr._run_git(["rev-parse", "HEAD"], cwd=int_info.worktree_path)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                pipeline.prepare_subtask,
+                worker,
+                target_files=[filename],
+                task_id=worker.task_id,
+            )
+            for worker, filename in zip(workers, target_files)
+        ]
+        prepared = [future.result(timeout=10) for future in futures]
+
+    assert pipeline.last_integrated_sha == "previous-sha"
+    assert wt_mgr._run_git(["rev-parse", "HEAD"], cwd=int_info.worktree_path) == integration_head
+    assert all(item.commit_sha and item.early is None for item in prepared)
+
+    for item in prepared:
+        ok, message = pipeline.merge_prepared(item)
+        assert ok is True, message
+        assert pipeline.last_integrated_sha == item.commit_sha
+    assert prepared[0].commit_sha != prepared[1].commit_sha
     pipeline.abort_integration()
 
 
@@ -1051,4 +1102,3 @@ def test_rebuild_ancestry_reuse_path_regression(git_test_repo):
     assert anc_ok is True, anc_msg
 
     pipeline2.abort_integration()
-

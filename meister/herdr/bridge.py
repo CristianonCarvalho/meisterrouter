@@ -1492,13 +1492,16 @@ class HerdrEventBridge:
                                 pass
                         return False
 
+                    integrated_sha_for_task = None
                     if subtask_wt is not None and self._integration_pipeline is not None:
                         crash_point("after_worker_result", task_id=task_id, run_id=active_run_id)
-                        async with self._merge_lock:
-                            integration_start = time.monotonic()
+                        prepare_duration = 0.0
+                        merge_duration = 0.0
+                        try:
+                            prepare_start = time.monotonic()
                             try:
-                                ok_int, int_err = await asyncio.to_thread(
-                                    self._integration_pipeline.integrate_subtask,
+                                prepared = await asyncio.to_thread(
+                                    self._integration_pipeline.prepare_subtask,
                                     subtask_wt=subtask_wt,
                                     target_files=target_files,
                                     commit_message=f"subtask({task_id}): {description}",
@@ -1507,78 +1510,100 @@ class HerdrEventBridge:
                                     tier=current_tier,
                                 )
                             finally:
+                                prepare_duration = time.monotonic() - prepare_start
+                            lock_wait_start = time.monotonic()
+                            async with self._merge_lock:
                                 log_event(
                                     event_type="worker_phase",
                                     run_id=active_run_id,
                                     task_id=task_id,
                                     attempt=attempt_count,
                                     tier=current_tier,
-                                    phase="integrate",
-                                    duration_ms=(time.monotonic() - integration_start) * 1000.0,
+                                    phase="lock_wait",
+                                    duration_ms=(time.monotonic() - lock_wait_start) * 1000.0,
                                 )
-                            from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
-
-                            if not ok_int and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX):
-                                logger.error(
-                                    "Infrastructure error in deterministic gate for subtask %s: %s",
-                                    task_id,
-                                    int_err,
-                                )
-                                log_event(
-                                    event_type="worker_error",
-                                    run_id=active_run_id,
-                                    task_id=task_id,
-                                    attempt=attempt_count,
-                                    tier=current_tier,
-                                    exit_code=2,
-                                    status="infrastructure_error",
-                                    error=int_err,
-                                )
-                                self.last_failure_reason = int_err
-                                subtask_wt = None
-                                if active_run_id:
-                                    sm.unregister_pane(pane_id)
-                                return False
-                            await asyncio.to_thread(
-                                self._integration_pipeline.wt_mgr.cleanup_worktree,
-                                subtask_wt.task_id,
-                                delete_branch=True,
-                                force=True,
-                                archive_unmerged=True,
+                                merge_start = time.monotonic()
+                                try:
+                                    ok_int, int_err = await asyncio.to_thread(
+                                        self._integration_pipeline.merge_prepared,
+                                        prepared,
+                                    )
+                                    integrated_sha_for_task = self._integration_pipeline.last_integrated_sha
+                                finally:
+                                    merge_duration = time.monotonic() - merge_start
+                        finally:
+                            log_event(
+                                event_type="worker_phase",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                attempt=attempt_count,
+                                tier=current_tier,
+                                phase="integrate",
+                                duration_ms=(prepare_duration + merge_duration) * 1000.0,
                             )
-                            subtask_wt = None
-                            if not ok_int:
-                                logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
-                                reason = "integration"
-                                if "sem alterações" in int_err.lower():
-                                    reason = "no_changes"
-                                elif "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
-                                    reason = "gate"
-                                elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
-                                    reason = "scope"
-                                elif "merge" in int_err.lower() or "conflito" in int_err.lower():
-                                    reason = "merge"
+                        from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
 
-                                short_err = int_err.strip()[:200]
-                                self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
-                                log_event(
-                                    event_type="subtask_rejected",
-                                    run_id=active_run_id,
-                                    task_id=task_id,
-                                    attempt=attempt_count,
-                                    tier=current_tier,
-                                    reason=reason,
-                                    output=short_err,
-                                    error=short_err,
-                                    exit_code=1,
-                                )
-                                if active_run_id:
-                                    sm.unregister_pane(pane_id)
-                                    try:
-                                        sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
-                                    except Exception:
-                                        pass
-                                return False
+                        if not ok_int and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX):
+                            logger.error(
+                                "Infrastructure error in deterministic gate for subtask %s: %s",
+                                task_id,
+                                int_err,
+                            )
+                            log_event(
+                                event_type="worker_error",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                attempt=attempt_count,
+                                tier=current_tier,
+                                exit_code=2,
+                                status="infrastructure_error",
+                                error=int_err,
+                            )
+                            self.last_failure_reason = int_err
+                            subtask_wt = None
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                            return False
+                        await asyncio.to_thread(
+                            self._integration_pipeline.wt_mgr.cleanup_worktree,
+                            subtask_wt.task_id,
+                            delete_branch=True,
+                            force=True,
+                            archive_unmerged=True,
+                        )
+                        subtask_wt = None
+                        if not ok_int:
+                            logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
+                            reason = "integration"
+                            if "sem alterações" in int_err.lower():
+                                reason = "no_changes"
+                            elif "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
+                                reason = "gate"
+                            elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
+                                reason = "scope"
+                            elif "merge" in int_err.lower() or "conflito" in int_err.lower():
+                                reason = "merge"
+
+                            short_err = int_err.strip()[:200]
+                            self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
+                            log_event(
+                                event_type="subtask_rejected",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                attempt=attempt_count,
+                                tier=current_tier,
+                                reason=reason,
+                                output=short_err,
+                                error=short_err,
+                                exit_code=1,
+                            )
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                                try:
+                                    sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
+                                except Exception:
+                                    pass
+                            return False
 
                     self.active_workers[pane_id]["status"] = "done"
                     sm.record_harness_success(current_tier)
@@ -1621,7 +1646,6 @@ class HerdrEventBridge:
                         exit_code=0,
                     )
                     if active_run_id:
-                        integrated_sha = getattr(self._integration_pipeline, "last_integrated_sha", None)
                         crash_point("after_merge_before_state", task_id=task_id, run_id=active_run_id)
                         try:
                             sm.transition_subtask(
@@ -1629,7 +1653,7 @@ class HerdrEventBridge:
                                 to_state=SubtaskState.COMPLETED,
                                 result=prompt_result,
                                 pane_id=pane_id,
-                                integrated_sha=integrated_sha,
+                                integrated_sha=integrated_sha_for_task,
                             )
                         except Exception as e:
                             logger.debug("State transition to COMPLETED error: %s", e)

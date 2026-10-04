@@ -398,7 +398,7 @@
     renderDistribution("tiers", tierValues);
     const phases = {};
     if (report) {
-      ["setup", "worker", "gate", "integrate", "merge"].forEach((phase) => {
+      ["setup", "worker", "gate", "integrate", "lock_wait", "merge"].forEach((phase) => {
         phases[phase] = formatSeconds(report.phase_seconds[phase]);
       });
     }
