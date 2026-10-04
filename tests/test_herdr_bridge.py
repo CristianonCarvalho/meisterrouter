@@ -1185,7 +1185,8 @@ async def test_bridge_timeout_salvages_dirty_or_committed_work_through_integrati
     pipeline = SimpleNamespace(
         integration_info=SimpleNamespace(branch_name="main"),
         wt_mgr=worktree_manager,
-        integrate_subtask=MagicMock(return_value=integration_result),
+        prepare_subtask=MagicMock(return_value=object()),
+        merge_prepared=MagicMock(return_value=integration_result),
         last_integrated_sha=None,
     )
     state = StateManager(":memory:")
@@ -1230,7 +1231,8 @@ async def test_bridge_timeout_salvages_dirty_or_committed_work_through_integrati
             }
         )
 
-    pipeline.integrate_subtask.assert_called_once()
+    pipeline.prepare_subtask.assert_called_once()
+    pipeline.merge_prepared.assert_called_once()
     events = [call.kwargs for call in log_event_mock.call_args_list]
     assert any(event.get("event_type") == "worker_timeout_salvaged" for event in events)
     if expected:
@@ -1349,7 +1351,8 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
     pipeline = SimpleNamespace(
         integration_info=SimpleNamespace(branch_name="main"),
         wt_mgr=worktree_manager,
-        integrate_subtask=MagicMock(return_value=(True, "")),
+        prepare_subtask=MagicMock(return_value=object()),
+        merge_prepared=MagicMock(return_value=(True, "")),
         last_integrated_sha=None,
     )
     bridge._integration_pipeline = pipeline
@@ -1403,7 +1406,8 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
         ("copilot_luna", str(worktree_path)),
     ]
     worktree_manager.create_worktree.assert_called_once()
-    pipeline.integrate_subtask.assert_called_once()
+    pipeline.prepare_subtask.assert_called_once()
+    pipeline.merge_prepared.assert_called_once()
     retry_event = next(
         call.kwargs for call in log_event_mock.call_args_list
         if call.kwargs.get("event_type") == "worker_retry"
@@ -1598,7 +1602,8 @@ async def test_bridge_does_not_retry_gate_infrastructure_error(tmp_path, monkeyp
     pipeline = SimpleNamespace(
         integration_info=SimpleNamespace(branch_name="main"),
         wt_mgr=worktree_manager,
-        integrate_subtask=MagicMock(
+        prepare_subtask=MagicMock(return_value=object()),
+        merge_prepared=MagicMock(
             return_value=(False, "ERRO DE INFRAESTRUTURA no portão: gate runner indisponível")
         ),
         last_integrated_sha=None,
@@ -1636,7 +1641,8 @@ async def test_bridge_does_not_retry_gate_infrastructure_error(tmp_path, monkeyp
         call.kwargs.get("event_type") == "worker_retry"
         for call in log_event_mock.call_args_list
     )
-    assert pipeline.integrate_subtask.call_count == 1
+    pipeline.prepare_subtask.assert_called_once()
+    assert pipeline.merge_prepared.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1928,13 +1934,15 @@ async def test_bridge_subtask_and_integration_run_in_threads_without_blocking_ev
         remove_event_observer(events.append)
     assert success is True
 
-    # create_worktree, integrate_subtask, and cleanup_worktree must all have run through asyncio.to_thread!
+    # create_worktree, prepare_subtask, merge_prepared, and cleanup_worktree use asyncio.to_thread.
     assert "create_worktree" in dispatched_targets
-    assert "integrate_subtask" in dispatched_targets
+    assert "prepare_subtask" in dispatched_targets
+    assert "merge_prepared" in dispatched_targets
     assert "cleanup_worktree" in dispatched_targets
     phases = [event for event in events if event.get("event") == "worker_phase"]
     assert [event["phase"] for event in phases].count("worker") == 1
     assert [event["phase"] for event in phases].count("integrate") == 1
+    assert [event["phase"] for event in phases].count("lock_wait") == 1
     gate_phases = [event for event in phases if event["phase"] == "gate"]
     assert gate_phases and all(event["duration_ms"] >= 0 for event in gate_phases)
     assert sum(event["duration_ms"] for event in phases) <= phase_elapsed_ms + 1000
@@ -2847,6 +2855,116 @@ def _make_router_bridge(
         "cwd": str(tmp_path),
     }
     return bridge, client, state_manager, subtask
+
+
+@pytest.mark.asyncio
+async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(tmp_path):
+    from types import SimpleNamespace
+    from meister.state import RunState, SubtaskState
+
+    bridge, _, state, template = _make_router_bridge(tmp_path, mode="first", tier_count=1)
+    run_id = "parallel-prepare-run"
+    state.create_or_get_run("parallel prepare", force_run_id=run_id)
+    state.transition_run(run_id, RunState.RUNNING)
+    subtasks = [
+        {**template, "id": task_id, "description": f"task {task_id}"}
+        for task_id in ("task-a", "task-b")
+    ]
+    state.add_subtasks(run_id, subtasks)
+
+    prepare_barrier = threading.Barrier(2, timeout=5)
+    cleanup_barrier = threading.Barrier(2, timeout=5)
+    merge_guard = threading.Lock()
+    phase_durations = {}
+
+    class FakePipeline:
+        integration_info = SimpleNamespace(branch_name="main")
+        last_integrated_sha = None
+
+        def __init__(self):
+            self.max_merge_concurrency = 0
+            self.active_merges = 0
+            self.wt_mgr = SimpleNamespace(
+                create_worktree=self.create_worktree,
+                cleanup_worktree=self.cleanup_worktree,
+            )
+
+        def create_worktree(self, task_id, base_ref):
+            path = tmp_path / task_id
+            path.mkdir()
+            return SimpleNamespace(task_id=task_id, worktree_path=str(path), base_commit="base")
+
+        def prepare_subtask(self, subtask_wt, **kwargs):
+            started = time.monotonic()
+            try:
+                prepare_barrier.wait()
+                return subtask_wt.task_id, f"sha-{kwargs['task_id']}"
+            finally:
+                with merge_guard:
+                    phase_durations.setdefault(kwargs["task_id"], {})["prepare"] = time.monotonic() - started
+
+        def merge_prepared(self, prepared):
+            started = time.monotonic()
+            with merge_guard:
+                self.active_merges += 1
+                self.max_merge_concurrency = max(self.max_merge_concurrency, self.active_merges)
+            try:
+                time.sleep(0.08)
+                self.last_integrated_sha = prepared[1]
+                return True, ""
+            finally:
+                with merge_guard:
+                    phase_durations.setdefault(prepared[1].removeprefix("sha-"), {})["merge"] = (
+                        time.monotonic() - started
+                    )
+                with merge_guard:
+                    self.active_merges -= 1
+
+        def cleanup_worktree(self, task_id, **kwargs):
+            cleanup_barrier.wait()
+
+    pipeline = FakePipeline()
+    bridge._integration_pipeline = pipeline
+
+    async def finish_worker(tier_name, task_context=None, **kwargs):
+        write_atomic_json(task_context["result_file"], {"status": "done", "modified_files": []})
+        return f"worker-{task_context['id']}", bridge.spawner.get_tier(tier_name)
+
+    bridge.spawner.spawn_worker_pane = finish_worker
+    events = []
+    add_event_observer(events.append)
+    try:
+        results = await asyncio.wait_for(
+            asyncio.gather(*(bridge.execute_subtask(item, run_id=run_id) for item in subtasks)),
+            timeout=10,
+        )
+    finally:
+        remove_event_observer(events.append)
+
+    assert results == [True, True]
+    assert pipeline.max_merge_concurrency == 1
+    phase_events = [
+        event for event in events
+        if event.get("event") == "worker_phase" and event.get("phase") in {"integrate", "lock_wait"}
+    ]
+    assert sum(event["phase"] == "lock_wait" for event in phase_events) == len(subtasks)
+    assert sum(event["phase"] == "integrate" for event in phase_events) == len(subtasks)
+    for item in subtasks:
+        subtask_id = compute_subtask_id(run_id, item["id"], item["description"])
+        row = state.get_subtask(subtask_id)
+        assert row["status"] == SubtaskState.COMPLETED.value
+        assert row["integrated_sha"] == f"sha-{item['id']}"
+        task_phases = {
+            event["phase"]: event["duration_ms"]
+            for event in phase_events
+            if event.get("task_id") == item["id"]
+        }
+        measured = phase_durations[item["id"]]
+        assert task_phases["integrate"] >= (measured["prepare"] + measured["merge"]) * 1000
+        assert task_phases["integrate"] - (measured["prepare"] + measured["merge"]) * 1000 < 25
+    assert max(
+        event["duration_ms"] for event in phase_events if event["phase"] == "lock_wait"
+    ) >= 30
 
 
 def _track_spawned_tiers(bridge):

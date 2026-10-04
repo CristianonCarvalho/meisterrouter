@@ -81,7 +81,7 @@ def compute_run_report(
     summary = compute_summary(selected, run_id)
     phases = [event for event in selected if event_type(event) == "worker_phase"]
     phase_seconds: Dict[str, Optional[float]] = {
-        phase: None for phase in ("worker", "gate", "integrate", "merge", "setup")
+        phase: None for phase in ("worker", "gate", "integrate", "lock_wait", "merge", "setup")
     }
     worker_seconds_sum: Optional[float] = None
     worker_seconds_union: Optional[float] = None
@@ -89,13 +89,15 @@ def compute_run_report(
     overhead_ratio: Optional[float] = None
     notes: List[str] = []
     if phases:
-        totals: Dict[str, float] = {"worker": 0.0, "gate": 0.0, "integrate": 0.0}
+        totals: Dict[str, float] = {
+            "worker": 0.0, "gate": 0.0, "integrate": 0.0, "lock_wait": 0.0,
+        }
         for event in phases:
             phase = event.get("phase")
             duration = _number(event.get("duration_ms"))
-            if phase in {"worker", "gate", "integrate"} and duration is not None and duration >= 0:
+            if phase in {"worker", "gate", "integrate", "lock_wait"} and duration is not None and duration >= 0:
                 totals[phase] += duration
-        for phase in ("worker", "gate", "integrate"):
+        for phase in ("worker", "gate", "integrate", "lock_wait"):
             phase_seconds[phase] = round(totals[phase] / 1000.0, 3)
         phase_seconds["merge"] = round(
             max(0.0, totals["integrate"] - totals["gate"]) / 1000.0, 3
@@ -382,7 +384,7 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
     add("Relógio (s)", [_display(report["wall_seconds"]) for report in reports])
     add("Worker soma (s)", [_display(report["worker_seconds_sum"]) for report in reports])
     add("Worker união (s)", [_display(report["worker_seconds_union"]) for report in reports])
-    for phase in ("worker", "gate", "integrate", "merge", "setup"):
+    for phase in ("worker", "gate", "integrate", "lock_wait", "merge", "setup"):
         add(f"Fase {phase} (s)", [_display(report["phase_seconds"][phase]) for report in reports])
     add("Overhead", [_display_percent(report["overhead_ratio"]) for report in reports])
     add("Pico workers", [_display(report["peak_parallel_workers"]) for report in reports])
