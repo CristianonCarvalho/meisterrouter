@@ -1875,7 +1875,22 @@ async def test_bridge_subtask_and_integration_run_in_threads_without_blocking_ev
     mock_client.close_tab = AsyncMock()
 
     async def fake_worker(*args, **kwargs):
-        auto_write_result(tmp_path)
+        auto_write_result(
+            tmp_path,
+            {
+                "status": "done",
+                "modified_files": [],
+                "usage": {
+                    "tokens_in": 123,
+                    "tokens_out": 45,
+                    "tokens_total": 168,
+                    "credits": 0.15,
+                    "cost": 0.0005,
+                    "cost_source": "estimated",
+                    "approx": True,
+                },
+            },
+        )
         for p in Path(wt_mgr.worktrees_dir).rglob("app.py"):
             if "int_" not in str(p):
                 p.write_text("print('hello modified')\n")
@@ -1903,13 +1918,34 @@ async def test_bridge_subtask_and_integration_run_in_threads_without_blocking_ev
         "target_files": ["app.py"],
     }
 
-    success = await bridge.execute_subtask(subtask, run_id="run_thread_test")
+    events = []
+    add_event_observer(events.append)
+    phase_start = time.monotonic()
+    try:
+        success = await bridge.execute_subtask(subtask, run_id="run_thread_test")
+    finally:
+        phase_elapsed_ms = (time.monotonic() - phase_start) * 1000.0
+        remove_event_observer(events.append)
     assert success is True
 
     # create_worktree, integrate_subtask, and cleanup_worktree must all have run through asyncio.to_thread!
     assert "create_worktree" in dispatched_targets
     assert "integrate_subtask" in dispatched_targets
     assert "cleanup_worktree" in dispatched_targets
+    phases = [event for event in events if event.get("event") == "worker_phase"]
+    assert [event["phase"] for event in phases].count("worker") == 1
+    assert [event["phase"] for event in phases].count("integrate") == 1
+    gate_phases = [event for event in phases if event["phase"] == "gate"]
+    assert gate_phases and all(event["duration_ms"] >= 0 for event in gate_phases)
+    assert sum(event["duration_ms"] for event in phases) <= phase_elapsed_ms + 1000
+    assert all(event["task_id"] == "t1" for event in phases)
+
+    completed = next(event for event in events if event.get("event") == "subtask_completed")
+    assert completed["cost"] == 0.0005
+    assert completed["cost_source"] == "estimated"
+    assert (completed["tokens_in"], completed["tokens_out"], completed["tokens_total"]) == (123, 45, 168)
+    assert completed["credits"] == 0.15
+    assert completed["approx"] is True
 
 
 @pytest.mark.asyncio

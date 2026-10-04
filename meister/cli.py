@@ -26,12 +26,11 @@ import subprocess
 import uuid
 import time
 import hashlib
-from typing import Optional
+from typing import Any, Optional
 
 import click
 
 from meister.jev import classify_task, control_cycle, call_decisions
-from meister.models import estimate_cost
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import (
     add_event_observer,
@@ -46,6 +45,24 @@ from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+
+def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, Any]:
+    usage = result.get("usage") if isinstance(result, dict) else None
+    usage = usage if isinstance(usage, dict) else {}
+    source = usage.get("cost_source", "unknown")
+    cost = usage.get("cost")
+    if source == "unknown" or cost is None:
+        source = "unknown"
+        cost = 0.0
+    else:
+        cost = float(cost)
+    fields = {
+        key: usage[key]
+        for key in ("tokens_in", "tokens_out", "tokens_total", "credits", "approx")
+        if usage.get(key) is not None
+    }
+    return {"cost": cost, "cost_source": source, **fields}
 
 
 def is_pid_alive(pid: int) -> bool:
@@ -460,40 +477,51 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
             worker_cwd = subtask_wt.worktree_path
 
         try:
-            if should_spawn_in_herdr:
-                if use_split_pane:
-                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
-                    res = run_worker_in_herdr_pane(
-                        model=model,
-                        task=task,
-                        target_files=target_files,
-                        cwd=worker_cwd,
-                        config_path=config_path,
-                        run_id=resolved_run_id,
-                        task_id=resolved_task_id,
-                    )
+            worker_phase_start = time.monotonic()
+            try:
+                if should_spawn_in_herdr:
+                    if use_split_pane:
+                        click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+                        res = run_worker_in_herdr_pane(
+                            model=model,
+                            task=task,
+                            target_files=target_files,
+                            cwd=worker_cwd,
+                            config_path=config_path,
+                            run_id=resolved_run_id,
+                            task_id=resolved_task_id,
+                        )
+                    else:
+                        click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
+                        res = run_worker_in_herdr_tab(
+                            model=model,
+                            task=task,
+                            target_files=target_files,
+                            cwd=worker_cwd,
+                            config_path=config_path,
+                            run_id=resolved_run_id,
+                            task_id=resolved_task_id,
+                            label=resolved_task_id,
+                        )
                 else:
-                    click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
-                    res = run_worker_in_herdr_tab(
-                        model=model,
-                        task=task,
-                        target_files=target_files,
-                        cwd=worker_cwd,
-                        config_path=config_path,
+                    # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando ou --no-pane)
+                    click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+                    res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
+            finally:
+                if not in_pane:
+                    log_event(
+                        event_type="worker_phase",
                         run_id=resolved_run_id,
                         task_id=resolved_task_id,
-                        label=resolved_task_id,
+                        attempt=1,
+                        tier=model,
+                        phase="worker",
+                        duration_ms=(time.monotonic() - worker_phase_start) * 1000.0,
                     )
-            else:
-                # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando ou --no-pane)
-                click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
-                res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
 
             status = res.get("status", "done")
             worker_duration_ms = round((time.monotonic() - worker_start_time) * 1000.0, 2)
-            cost_val = res.get("cost")
-            if cost_val is None:
-                cost_val = estimate_cost(model)
+            usage_fields = _worker_usage_event_fields(res)
 
             if status != "done":
                 if subtask_wt is not None and wt_mgr is not None:
@@ -508,7 +536,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                         tier=model,
                         duration_ms=worker_duration_ms,
                         exit_code=res.get("exit_code", 1),
-                        cost=cost_val,
+                        **usage_fields,
                         status=status,
                     )
                 click.echo(f"❌ [MeisterRouter] Worker terminou com status: {status}", err=True)
@@ -522,18 +550,33 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     tier=model,
                     duration_ms=worker_duration_ms,
                     exit_code=res.get("exit_code", 0),
-                    cost=cost_val,
+                    **usage_fields,
                     status=status,
                     modified_files=res.get("modified_files", []),
                 )
 
             # Se worktree/pipeline estavam ativos, integra determinísticamente (gate -> commit -> merge -> gate -> ff) (E2E-3)
             if pipeline is not None and subtask_wt is not None and wt_mgr is not None:
-                ok_int, int_err = pipeline.integrate_subtask(
-                    subtask_wt=subtask_wt,
-                    target_files=target_files,
-                    commit_message=f"worker({model}): {task}",
-                )
+                integration_start = time.monotonic()
+                try:
+                    ok_int, int_err = pipeline.integrate_subtask(
+                        subtask_wt=subtask_wt,
+                        target_files=target_files,
+                        commit_message=f"worker({model}): {task}",
+                        task_id=resolved_task_id,
+                        attempt=1,
+                        tier=model,
+                    )
+                finally:
+                    log_event(
+                        event_type="worker_phase",
+                        run_id=resolved_run_id,
+                        task_id=resolved_task_id,
+                        attempt=1,
+                        tier=model,
+                        phase="integrate",
+                        duration_ms=(time.monotonic() - integration_start) * 1000.0,
+                    )
                 wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
                 subtask_wt = None
 
@@ -583,7 +626,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     tier=model,
                     duration_ms=worker_duration_ms,
                     exit_code=2,
-                    cost=0.0,
+                    **_worker_usage_event_fields(None),
                     status="infrastructure_error",
                     error=str(e),
                 )
@@ -604,7 +647,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     tier=model,
                     duration_ms=worker_duration_ms,
                     exit_code=1,
-                    cost=estimate_cost(model),
+                    **_worker_usage_event_fields(None),
                     status="timeout",
                     error=str(e),
                 )
@@ -624,7 +667,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     tier=model,
                     duration_ms=worker_duration_ms,
                     exit_code=1,
-                    cost=estimate_cost(model),
+                    **_worker_usage_event_fields(None),
                     status="error",
                     error=str(e),
                 )
@@ -1095,20 +1138,30 @@ def replay(run_id: str, json_format: bool):
     click.echo("-" * 80)
 
     total_cost = 0.0
+    unknown_cost_events = 0
+    known_cost_events = 0
     for ev in events:
         ts = str(ev.get("ts") or ev.get("timestamp") or "")[:23]
         event_name = str(ev.get("event") or ev.get("event_type") or "unknown").upper()
         tier = str(ev.get("tier") or ev.get("model") or "-")[:12]
         task_id = str(ev.get("task_id") or "-")[:12]
+        cost_source = ev.get("cost_source")
         cost = float(ev.get("cost") or ev.get("cost_usd") or 0.0)
-        total_cost += cost
+        if cost_source == "unknown":
+            unknown_cost_events += 1
+        else:
+            total_cost += cost
+            if cost_source in ("reported", "estimated") or cost != 0:
+                known_cost_events += 1
 
         info_parts = []
         if ev.get("attempt"):
             info_parts.append(f"att={ev.get('attempt')}")
         if ev.get("duration_ms"):
             info_parts.append(f"{ev.get('duration_ms')}ms")
-        if cost > 0:
+        if cost_source == "unknown":
+            info_parts.append("custo ?")
+        elif cost > 0 or cost_source in ("reported", "estimated"):
             info_parts.append(f"${cost:.6f}")
         if ev.get("classification"):
             info_parts.append(f"class={ev.get('classification')}")
@@ -1123,7 +1176,17 @@ def replay(run_id: str, json_format: bool):
         click.echo(f"{ts:<24} | {event_name:<18} | {tier:<12} | {task_id:<12} | {info_str}")
 
     click.echo("=" * 80)
-    click.echo(f"📊 Total de eventos: {len(events)} | Custo total: ${total_cost:.6f}\n")
+    if unknown_cost_events and not known_cost_events:
+        total_display = "?"
+    elif unknown_cost_events:
+        total_display = f"${total_cost:.6f} + ?"
+    else:
+        total_display = f"${total_cost:.6f}"
+    unknown_label = "evento" if unknown_cost_events == 1 else "eventos"
+    click.echo(
+        f"📊 Total de eventos: {len(events)} | Custo total: {total_display} "
+        f"| {unknown_cost_events} {unknown_label} sem custo conhecido\n"
+    )
 
 
 # ── plan subcommand group ──────────────────────────────────────────────────────

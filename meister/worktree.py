@@ -1112,6 +1112,9 @@ class IntegrationPipeline:
         subtask_wt: WorktreeInfo,
         target_files: Optional[List[str]] = None,
         commit_message: Optional[str] = None,
+        task_id: Optional[str] = None,
+        attempt: int = 1,
+        tier: Optional[str] = None,
     ) -> Tuple[bool, str]:
         """Processa a integração determinística de uma subtarefa:
 
@@ -1126,6 +1129,7 @@ class IntegrationPipeline:
         if self.integration_info is None:
             return False, "Pipeline de integração não foi inicializado."
 
+        phase_task_id = task_id or subtask_wt.task_id
         # 1. Validação estrita de escopo
         valid_scope, out_of_scope = self.wt_mgr.verify_scope(
             subtask_wt.worktree_path,
@@ -1141,7 +1145,9 @@ class IntegrationPipeline:
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
-        worker_result = self._run_gate(subtask_wt.worktree_path)
+        worker_result = self._run_gate(
+            subtask_wt.worktree_path, task_id=phase_task_id, attempt=attempt, tier=tier
+        )
         if worker_result.infrastructure_error:
             preserve_message = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
             preserved_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, preserve_message)
@@ -1242,7 +1248,9 @@ class IntegrationPipeline:
         crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
 
         # 5. Gate determinístico no worktree de integração após o merge
-        integration_result = self._run_gate(self.integration_info.worktree_path)
+        integration_result = self._run_gate(
+            self.integration_info.worktree_path, task_id=phase_task_id, attempt=attempt, tier=tier
+        )
         if integration_result.infrastructure_error:
             self._log_gate_infrastructure_error(subtask_wt.task_id, integration_result.output)
             return False, self._gate_infrastructure_message(integration_result.output)
@@ -1277,18 +1285,39 @@ class IntegrationPipeline:
 
         log_event(event_type="gate_infrastructure_error", run_id=self.run_id, task_id=task_id, error=detail)
 
-    def _run_gate(self, repo_path: str):
+    def _run_gate(
+        self,
+        repo_path: str,
+        task_id: Optional[str] = None,
+        attempt: int = 1,
+        tier: Optional[str] = None,
+    ):
         from meister.gate import VerificationResult
 
-        run_ex = getattr(self.gate, "run_verification_ex", None)
-        if callable(run_ex):
-            result = run_ex(repo_path=repo_path)
-            if isinstance(result, VerificationResult):
-                return result
-        legacy = self.gate.run_verification(repo_path=repo_path)
-        if isinstance(legacy, tuple) and len(legacy) == 2 and isinstance(legacy[0], bool):
-            return VerificationResult(legacy[0], str(legacy[1]))
-        raise TypeError("gate must return VerificationResult or a (bool, str) tuple")
+        started = time.monotonic()
+        try:
+            run_ex = getattr(self.gate, "run_verification_ex", None)
+            if callable(run_ex):
+                result = run_ex(repo_path=repo_path)
+                if isinstance(result, VerificationResult):
+                    return result
+            legacy = self.gate.run_verification(repo_path=repo_path)
+            if isinstance(legacy, tuple) and len(legacy) == 2 and isinstance(legacy[0], bool):
+                return VerificationResult(legacy[0], str(legacy[1]))
+            raise TypeError("gate must return VerificationResult or a (bool, str) tuple")
+        finally:
+            from meister.logger import log_event
+
+            # When callers lack a logical id, use the worktree id (or final-integration id).
+            log_event(
+                event_type="worker_phase",
+                run_id=self.run_id,
+                task_id=task_id or "final-integration",
+                attempt=attempt,
+                tier=tier or "integration",
+                phase="gate",
+                duration_ms=(time.monotonic() - started) * 1000.0,
+            )
 
     def get_integration_diff_summary(self) -> str:
         """Obtém resumo de diff entre a branch de integração e a base para julgamento de conclusão."""

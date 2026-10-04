@@ -71,11 +71,15 @@ def test_build_harness_command():
     assert "--dangerously-skip-permissions" in cmd_agy
     assert "--model" in cmd_agy
     assert "gemini-3.8-flash-high" in cmd_agy
+    assert cmd_agy.index("--output-format") < cmd_agy.index("-p")
+    assert cmd_agy[cmd_agy.index("--output-format") + 1] == "json"
     assert "-p" in cmd_agy
 
     cmd_claude = build_harness_command(HARNESS_CLAUDE, "/bin/claude", "claude-3-5-haiku-20241022", "fix code", "/tmp")
     assert cmd_claude[0] == "/bin/claude"
     assert "--dangerously-skip-permissions" in cmd_claude
+    assert cmd_claude.index("--output-format") < cmd_claude.index("-p")
+    assert cmd_claude[cmd_claude.index("--output-format") + 1] == "json"
     assert "-p" in cmd_claude
 
 
@@ -159,7 +163,8 @@ def test_cli_worker_with_task_flag(tmp_path):
         mock_exec.assert_called_once()
 
 
-def test_cli_worker_with_pane_dispatch(tmp_path):
+def test_cli_worker_with_pane_dispatch(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     runner = CliRunner()
     mock_result = {
         "status": "done",
@@ -176,7 +181,8 @@ def test_cli_worker_with_pane_dispatch(tmp_path):
         mock_pane.assert_called_once()
 
 
-def test_cli_worker_pane_timeout_blocks_direct_reexecution(tmp_path):
+def test_cli_worker_pane_timeout_blocks_direct_reexecution(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     runner = CliRunner()
     with patch("meister.worker.is_herdr_available", return_value=True), \
          patch("meister.worker.run_worker_in_herdr_pane", side_effect=TimeoutError("timed out")), \
@@ -256,10 +262,63 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
     }))
 
     from meister.worker import execute_task_file
-    with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
+    usage = {"tokens_in": 12, "tokens_out": 3, "cost": 0.25, "cost_source": "estimated"}
+    with patch.object(
+        HarnessWorker,
+        "run_task",
+        return_value={"status": "done", "modified_files": [], "usage": usage},
+    ) as mock_run:
         res = execute_task_file(str(task_file))
         assert res["status"] == "done"
+        assert res["usage"] == usage
+        assert json.loads(result_file.read_text())["usage"] == usage
         mock_run.assert_called_once()
+
+
+def test_cli_worker_end_logs_usage_and_unknown_is_not_estimated(tmp_path, monkeypatch):
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
+    from meister.logger import add_event_observer, remove_event_observer
+
+    events = []
+    add_event_observer(events.append)
+    try:
+        runner = CliRunner()
+        usage = {
+            "tokens_in": 12,
+            "tokens_out": 3,
+            "cost": 0.25,
+            "cost_source": "estimated",
+            "approx": True,
+        }
+        with patch("meister.worker.execute_worker_task", return_value={
+            "status": "done", "modified_files": [], "usage": usage,
+        }):
+            result = runner.invoke(
+                main,
+                ["worker", "--no-pane", "--model", "codex_luna", "--task", "test", "--cwd", str(tmp_path)],
+            )
+        assert result.exit_code == 0
+        event = next(event for event in events if event["event"] == "worker_end")
+        assert event["cost"] == 0.25
+        assert event["cost_source"] == "estimated"
+        assert (event["tokens_in"], event["tokens_out"], event["approx"]) == (12, 3, True)
+
+        events.clear()
+        with patch("meister.worker.execute_worker_task", return_value={
+            "status": "done",
+            "modified_files": [],
+            "usage": {"cost_source": "unknown", "approx": False},
+        }):
+            result = runner.invoke(
+                main,
+                ["worker", "--no-pane", "--model", "codex_luna", "--task", "test", "--cwd", str(tmp_path)],
+            )
+        assert result.exit_code == 0
+        event = next(event for event in events if event["event"] == "worker_end")
+        assert event["cost"] == 0.0
+        assert event["cost_source"] == "unknown"
+    finally:
+        remove_event_observer(events.append)
 
 
 @pytest.mark.asyncio
@@ -295,8 +354,9 @@ async def test_run_worker_in_herdr_pane_fast_fail_on_pane_exited(tmp_path):
         mock_client.close_pane.assert_called_with("p_test_dead")
 
 
-def test_cli_worker_infrastructure_error_fast_exit(tmp_path):
+def test_cli_worker_infrastructure_error_fast_exit(tmp_path, monkeypatch):
     """E2E-2: CLI meister worker captura WorkerInfrastructureError e aborta com rc=2 sem escalar tier."""
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     from meister.worker import WorkerInfrastructureError
 
     runner = CliRunner()

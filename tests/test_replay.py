@@ -188,6 +188,22 @@ def test_cli_replay_formatted_output(clean_log_env):
     assert "Custo total:" in result.output
 
 
+def test_cli_replay_marks_unknown_cost_and_counts_events(clean_log_env):
+    run_id = "run_unknown_cost"
+    log_event(
+        "worker_end",
+        run_id=run_id,
+        task_id="t1",
+        cost=0.0,
+        cost_source="unknown",
+    )
+    result = CliRunner().invoke(main, ["replay", run_id])
+    assert result.exit_code == 0
+    assert "custo ?" in result.output
+    assert "1 evento sem custo conhecido" in result.output
+    assert "$0.000000" not in result.output
+
+
 def test_cli_replay_json_output(clean_log_env):
     """Testa o comando meister replay <run_id> com a flag --json."""
     run_id = "run_json_test_2"
