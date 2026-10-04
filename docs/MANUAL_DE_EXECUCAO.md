@@ -22,11 +22,12 @@ Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o
 ## 3. Rodar um plano
 1. Dentro do Herdr (os workers abrem em tabs `worker:*`):
    `meister plan import --format superpowers plano.md -o plano.json` e `meister plan validate plano.json`
-2. `meister orchestrate --plan-file plano.json`
-3. **AÇÃO: não passe a saída por pipe** (`| head`, `| tee` sem `pipefail`): o código de saída que você vê passa a ser o do pipe, não o do orquestrador. Falha = código diferente de zero.
-4. Planos do superpowers encadeiam as tarefas por padrão (`--deps sequential`). Para paralelismo real, use `**Depends on:**` explícito ou `--deps files`. Tarefas sem `target_files` rodam isoladas, uma por vez.
-5. `**Files:**` aceita glob (`src/text/*.ts`, `drizzle/*`). Declare todos os arquivos que a tarefa pode criar ou alterar; o que sair do escopo reprova a tarefa.
-6. No fim, o resultado é integrado na `main` do projeto por fast-forward; nada entra sem passar pelos gates.
+2. Antes de executar, use `meister plan analyze plano.json` para ver lotes, dependências e conflitos de arquivos. A estimativa por arquivo ignora dependências semânticas; `--max-workers N` altera o teto usado nos passos estimados.
+3. `meister orchestrate --plan-file plano.json`
+4. **AÇÃO: não passe a saída por pipe** (`| head`, `| tee` sem `pipefail`): o código de saída que você vê passa a ser o do pipe, não o do orquestrador. Falha = código diferente de zero.
+5. Planos do superpowers encadeiam as tarefas por padrão (`--deps sequential`). Para paralelismo real, use `**Depends on:**` explícito ou `--deps files`. Tarefas sem `target_files` rodam isoladas, uma por vez.
+6. `**Files:**` aceita glob (`src/text/*.ts`, `drizzle/*`). Declare todos os arquivos que a tarefa pode criar ou alterar; o que sair do escopo reprova a tarefa.
+7. No fim, o resultado é integrado na `main` do projeto por fast-forward; nada entra sem passar pelos gates.
 
 ## 4. Quando algo falha: o que você precisa fazer
 `meister orchestrate` mostra progresso por tarefa e o resumo final em stderr; a frase de sucesso/falha

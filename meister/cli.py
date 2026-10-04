@@ -1063,13 +1063,20 @@ def orchestrate(
                 err=True,
             )
             sys.exit(2)
+        try:
+            from meister.plan_analysis import serial_plan_warning
+
+            warning = serial_plan_warning(validated_tasks)
+            if warning:
+                click.echo(f"Aviso: {warning} — veja `meister plan analyze`", err=True)
+        except Exception:
+            pass
         # Use canonical JSON as the task text so run_id is stable
         task = canonical_json(validated_tasks)
     elif task and not allow_freeform:
         # Validate strict JSON plan from --task
         try:
             validated = load_plan(task, allow_freeform=False)
-            task = canonical_json(validated)
         except PlanError as exc:
             click.echo("Erro: --task não é um plano JSON canônico válido:", err=True)
             for msg in exc.messages:
@@ -1079,6 +1086,15 @@ def orchestrate(
                 err=True,
             )
             sys.exit(2)
+        try:
+            from meister.plan_analysis import serial_plan_warning
+
+            warning = serial_plan_warning(validated)
+            if warning:
+                click.echo(f"Aviso: {warning} — veja `meister plan analyze`", err=True)
+        except Exception:
+            pass
+        task = canonical_json(validated)
 
     cfg = load_config(config_path)
     from meister.config import validate_config
@@ -1295,6 +1311,38 @@ def plan_validate(plan_json):
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
     click.echo(f"✅ Plano válido: {len(tasks)} tarefas em {plan_json}")
+
+
+@plan_group.command("analyze")
+@click.argument("plan_json", type=click.Path(exists=True, readable=True))
+@click.option("--max-workers", type=click.IntRange(min=1), default=None)
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", show_default=True)
+def plan_analyze(plan_json, max_workers, fmt):
+    """Analisa o paralelismo previsto de um plano canônico."""
+    from meister.plan import PlanError, load_plan
+    from meister.plan_analysis import analyze_plan, format_analysis_table
+
+    try:
+        with open(plan_json, "r", encoding="utf-8") as fh:
+            raw = fh.read()
+    except OSError as exc:
+        click.echo(f"Erro ao ler {plan_json!r}: {exc}", err=True)
+        sys.exit(1)
+    try:
+        tasks = load_plan(raw)
+    except PlanError as exc:
+        click.echo(f"Plano inválido: {plan_json}", err=True)
+        for msg in exc.messages:
+            click.echo(f"  • {msg}", err=True)
+        sys.exit(2)
+
+    if max_workers is None:
+        max_workers = load_config(None).concurrency.max_parallel_workers
+    analysis = analyze_plan(tasks, max_workers)
+    if fmt == "json":
+        click.echo(json.dumps(analysis, ensure_ascii=False, indent=2))
+    else:
+        click.echo(format_analysis_table(analysis, max_workers))
 
 
 @plan_group.command("import")
