@@ -38,6 +38,57 @@ class DeterministicGate:
         self.repo_path = os.path.abspath(repo_path)
         self.config = config or load_config(cwd=self.repo_path)
 
+    def _resolve_python(self) -> tuple[str, Optional[str]]:
+        """Resolve o interpretador Python configurado ou pertencente ao projeto."""
+        configured = self.config.gate.python
+        if configured is not None:
+            python = configured if os.path.isabs(configured) else os.path.join(self.repo_path, configured)
+            python = os.path.abspath(python)
+            if not os.path.isfile(python) or not os.access(python, os.X_OK):
+                raise FileNotFoundError(f"gate.python não encontrado: {python}")
+            return python, None
+
+        bin_dir = "Scripts" if os.name == "nt" else "bin"
+        executable = "python.exe" if os.name == "nt" else "python"
+        for environment in (".venv", "venv"):
+            python = os.path.join(self.repo_path, environment, bin_dir, executable)
+            if os.path.isfile(python) and os.access(python, os.X_OK):
+                return python, None
+
+        python = sys.executable
+        warning = (
+            f"[AVISO] usando o Python do Meister ({python}); "
+            "crie .venv na raiz do projeto ou defina gate.python"
+        )
+        return python, warning
+
+    def _project_python_bin(self, python: str) -> Optional[str]:
+        """Retorna o diretório de binários somente para Python configurado/do projeto."""
+        if self.config.gate.python is not None:
+            return os.path.dirname(python)
+        bin_dir = "Scripts" if os.name == "nt" else "bin"
+        executable = "python.exe" if os.name == "nt" else "python"
+        for environment in (".venv", "venv"):
+            candidate = os.path.abspath(
+                os.path.join(self.repo_path, environment, bin_dir, executable)
+            )
+            if candidate == python:
+                return os.path.dirname(candidate)
+        return None
+
+    @staticmethod
+    def _has_python_test_files(path: str) -> bool:
+        ignored = {".git", "node_modules", ".venv", "venv", "__pycache__"}
+        for root, directories, files in os.walk(path):
+            directories[:] = [directory for directory in directories if directory not in ignored]
+            if any(
+                filename.endswith(".py")
+                and (filename.startswith("test_") or filename.endswith("_test.py"))
+                for filename in files
+            ):
+                return True
+        return False
+
     def detect_test_runner(self, repo_path: Optional[str] = None) -> Optional[str]:
         """
         Auto-detecta o executor de testes apropriado no diretório do repositório.
@@ -238,7 +289,19 @@ class DeterministicGate:
                 "(ou gate.allow_unverified: true).",
             )
 
+        python: Optional[str] = None
+        python_warning: Optional[str] = None
+        if runner == "pytest" or "ruff" in linters:
+            try:
+                python, python_warning = self._resolve_python()
+            except OSError as exc:
+                return VerificationResult(
+                    False, f"[PYTHON] executável indisponível: {exc}", infrastructure_error=True
+                )
+
         outputs: List[str] = [install_prefix.rstrip()] if install_prefix else []
+        if python_warning:
+            outputs.append(python_warning)
         skipped: List[str] = []
         attempted = False
         env = os.environ.copy()
@@ -250,7 +313,7 @@ class DeterministicGate:
         # 1. Executa linters se presentes
         for linter in linters:
             if linter == "ruff":
-                cmd = [sys.executable, "-m", "ruff", "check", "."]
+                cmd = [python or sys.executable, "-m", "ruff", "check", "."]
             elif linter == "eslint":
                 cmd = [os.path.join(local_bin, "eslint"), "."]
                 if not os.path.isfile(cmd[0]):
@@ -288,7 +351,7 @@ class DeterministicGate:
         # 2. Executa suite de testes se detectada
         if runner:
             if runner == "pytest":
-                cmd = [sys.executable, "-m", "pytest"]
+                cmd = [python or sys.executable, "-m", "pytest"]
             elif runner == "vitest":
                 cmd = [os.path.join(local_bin, "vitest"), "run"]
                 if not os.path.isfile(cmd[0]):
@@ -318,7 +381,16 @@ class DeterministicGate:
                     combined = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
                     outputs.append(f"[{runner}]\n{combined}")
                     if proc.returncode != 0:
-                        return VerificationResult(False, "\n".join(outputs), skipped=skipped)
+                        if (
+                            runner == "pytest"
+                            and proc.returncode == 5
+                            and not self._has_python_test_files(path)
+                        ):
+                            message = "[SKIPPED PYTEST] nenhum teste coletado"
+                            outputs.append(message)
+                            skipped.append(message)
+                        else:
+                            return VerificationResult(False, "\n".join(outputs), skipped=skipped)
                 except subprocess.TimeoutExpired as exc:
                     return VerificationResult(
                         False, f"[{runner}] timeout: {exc}", infrastructure_error=True, skipped=skipped
@@ -342,8 +414,16 @@ class DeterministicGate:
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         local_bin = os.path.join(path, "node_modules", ".bin")
-        if os.path.isdir(local_bin):
-            env["PATH"] = local_bin + os.pathsep + env.get("PATH", "")
+        try:
+            python, python_warning = self._resolve_python()
+        except OSError as exc:
+            return VerificationResult(
+                False,
+                f"[PYTHON] executável indisponível: {exc}",
+                infrastructure_error=True,
+                skipped=skipped,
+            )
+        python_bin = self._project_python_bin(python)
 
         if self.config.environment.install_dependencies:
             installed, install_output = prepare_environment(path, self.config)
@@ -351,11 +431,29 @@ class DeterministicGate:
                 return VerificationResult(False, f"[INSTALL] {install_output}", infrastructure_error=True)
             if install_output:
                 outputs.append(f"[INSTALL]\n{install_output}")
+        path_entries = []
+        if python_bin:
+            path_entries.append(python_bin)
         if os.path.isdir(local_bin):
-            env["PATH"] = local_bin + os.pathsep + env.get("PATH", "")
+            path_entries.append(local_bin)
+        path_entries.append(env.get("PATH", ""))
+        env["PATH"] = os.pathsep.join(entry for entry in path_entries if entry)
+
+        uses_python_marker = any(
+            "{python}" in command.run
+            if isinstance(command.run, str)
+            else any("{python}" in argument for argument in command.run)
+            for command in self.config.gate.commands
+        )
+        if python_warning and uses_python_marker:
+            outputs.append(python_warning)
 
         for command in self.config.gate.commands:
-            argv = shlex.split(command.run) if isinstance(command.run, str) else list(command.run)
+            if isinstance(command.run, str):
+                run = command.run.replace("{python}", shlex.quote(python))
+                argv = shlex.split(run)
+            else:
+                argv = [argument.replace("{python}", python) for argument in command.run]
             try:
                 proc = subprocess.run(
                     argv,
@@ -376,9 +474,14 @@ class DeterministicGate:
                 return VerificationResult(False, "\n".join(outputs), infrastructure_error=True, skipped=skipped)
             combined = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
             outputs.append(f"[{command.name}]\n{combined}")
-            if proc.returncode:
-                if command.required:
-                    return VerificationResult(False, "\n".join(outputs), skipped=skipped)
+            if proc.returncode in command.ok_exit_codes:
+                if proc.returncode != 0:
+                    outputs.append(
+                        f"[NOTE {command.name}] rc={proc.returncode} aceito por ok_exit_codes"
+                    )
+            elif command.required:
+                return VerificationResult(False, "\n".join(outputs), skipped=skipped)
+            else:
                 warning = f"[WARN {command.name}] comando opcional falhou (rc={proc.returncode})"
                 outputs.append(warning)
                 skipped.append(warning)

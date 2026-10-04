@@ -54,5 +54,6 @@ environment:
   install_timeout_seconds: 300
 gate:
   install: null
+  python: null
   commands: []
   allow_unverified: false

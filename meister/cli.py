@@ -1475,10 +1475,12 @@ def config_show(config_path, json_format):
                         "required": command.required,
                         "run": command.run,
                         "timeout_seconds": command.timeout_seconds,
+                        "ok_exit_codes": command.ok_exit_codes,
                     }
                     for command in cfg.gate.commands
                 ],
                 "install": cfg.gate.install,
+                "python": cfg.gate.python,
             },
             "master": {
                 "api_key_env": cfg.master.api_key_env,
@@ -1610,11 +1612,13 @@ def config_show(config_path, json_format):
     click.echo(f"  Install Timeout Seconds: {cfg.environment.install_timeout_seconds}")
     click.echo("\nGate:")
     click.echo(f"  Install: {cfg.gate.install}")
+    click.echo(f"  Python: {cfg.gate.python}")
     click.echo(f"  Allow Unverified: {cfg.gate.allow_unverified}")
     for command in cfg.gate.commands:
         click.echo(
             f"  Command {command.name}: {command.run} "
-            f"(timeout={command.timeout_seconds}, required={command.required})"
+            f"(timeout={command.timeout_seconds}, required={command.required}, "
+            f"ok_exit_codes={command.ok_exit_codes})"
         )
 
 

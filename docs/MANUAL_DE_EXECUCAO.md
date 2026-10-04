@@ -15,6 +15,15 @@ Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o
 - **Configuração (opcional):** `meister.config.yaml` na raiz sobrescreve `meister/default_config.yaml`. Conferir com `meister config show` e `meister config validate`. A lista `workers.tier_order` do seu arquivo **substitui** a padrão; as demais seções mesclam. Exemplos comentados em `meister.config.example.yaml`.
 - **O Codex vem desligado** (`codex_luna`, créditos limitados). Para usá-lo no roteamento automático, ligue-o no seu `meister.config.yaml` (`enabled: true`); para um uso pontual, `meister worker --model codex_luna --task "..."`.
 - **Projeto Node/TypeScript:** nada a fazer. O MeisterRouter instala as dependências em cada worktree (`pnpm install --frozen-lockfile`, `npm ci` ou `yarn install --frozen-lockfile`, conforme o lockfile) e o portão usa os binários locais (`node_modules/.bin`), sem `npx`. Para desligar: `environment.install_dependencies: false`.
+- **Projeto Python:** crie uma vez `.venv` na raiz (`python3 -m venv .venv`); o portão a detecta também nos worktrees. Exemplo:
+  ```yaml
+  gate:
+    commands:
+      - {name: ruff,   run: "ruff check app tests", timeout_seconds: 120, required: true}
+      - {name: mypy,   run: "mypy app",             timeout_seconds: 180, required: true}
+      - {name: pytest, run: "{python} -m pytest -q", ok_exit_codes: [0, 5], timeout_seconds: 300, required: true}
+  ```
+  Faça commits do scaffold (`app/__init__.py` e um teste mínimo) antes das tarefas; sem eles `mypy app` reprova por diretório inexistente. Tarefas que mudam `requirements*.txt` não reinstalam o venv.
 - **Projeto que não é Python/Node/Rust** (Go, Java...): declare o portão no `meister.config.yaml`, por exemplo `gate.commands: [{name: unit, run: "go test ./...", timeout_seconds: 300, required: true}]` (sem shell). Sem isso o portão não detecta teste e reprova; `gate.allow_unverified: true` aceita sem verificar (não recomendado).
 - **Arquivos gerados** (lockfiles, `*.tsbuildinfo`, `.vitest/**`) já são tolerados no escopo; acrescente outros em `scope.tolerated_files` (lista **substitui** a padrão: copie a padrão e some os seus).
 - Contexto para os workers: se quiser, escreva no `AGENTS.md` do **projeto** a stack, o comando de testes e as convenções.
