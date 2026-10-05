@@ -62,7 +62,7 @@ def test_documentation_pricing_and_catalog_alignment():
     agents_md = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
 
     # Repository guidance retains its current catalog; distributable templates stay generic.
-    assert "$3.00" in claude_md
+    assert "$4.00" in claude_md
     assert "$1.54" not in claude_md
     assert "meister config show" in claude_template
     assert "meister models" in claude_template
@@ -74,10 +74,10 @@ def test_documentation_pricing_and_catalog_alignment():
     assert "copilot" in codex_md
     assert "Copilot Harness" in agents_md or "copilot" in agents_md
 
-    # Luna pricing consistency ($0.077)
-    assert "$0.077" in claude_md
-    assert "$0.077" in codex_md
-    assert "$0.077" in agents_md
+    # Luna pricing consistency ($0.20, preço combinado 3:1 de 0.10 entrada / 0.50 saída)
+    assert "$0.20" in claude_md
+    assert "$0.20" in codex_md
+    assert "$0.20" in agents_md
 
 
 def test_daemon_pid_locking_race_prevention(tmp_path):

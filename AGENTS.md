@@ -15,7 +15,7 @@ This project uses **MeisterRouter** for deterministic, cost-optimized multi-mode
      - **Claude Harness** (`claude` CLI): runs Claude Haiku / Sonnet models locally.
      - **Copilot Harness** (`copilot` CLI): runs GitHub Copilot CLI models locally.
 2. **Cost-Optimized Tiering & Mandatory Fallback:**
-   - Default Implementer: **Codex / Luna** (`codex` CLI, $0.077/M tokens) or **Antigravity / Gemini 3.8 Flash** (`agy` CLI, $0.577/M tokens).
+   - Default Implementer: **Codex / Luna** (`codex` CLI, $0.20/M tokens) or **Antigravity / Gemini 3.8 Flash** (`agy` CLI, $1.50/M tokens).
    - Deep Reasoning / Escalation: **Antigravity / Gemini 3.8 Flash** or **Claude 4.5 Haiku**.
    - Maximum Escalation: **Claude Sonnet 5** / **Claude Opus 5.5**.
    - ⚠️ **Zero Direct Implementation by Orchestrator:** If the recommended implementer (e.g. Luna) is inactive or unavailable, the orchestrator MUST NOT write code. It must dispatch immediately to **Gemini 3.8 Flash** or **Claude 4.5 Haiku**.

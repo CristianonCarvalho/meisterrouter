@@ -12,12 +12,12 @@ All task sizing, subagent routing, and exit evaluations are governed by **TypeSa
 
 | Model | Assigned Role | Local Harness / Executable | Cost / 1M tokens |
 |---|---|---|---|
-| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Codex CLI (`codex`) | **$0.077** (90% savings) |
+| **GPT-6 Luna (medium)** | **Primary Worker (Fast & Low Cost)** | Codex CLI (`codex`) | **$0.20** (90% savings) |
 | **GitHub Copilot CLI** | **Code Implementer (GitHub)** | Copilot CLI (`copilot`) | $0.20 |
-| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Antigravity CLI (`agy`) | $0.5775 (Heavy Lift) |
-| **Claude 4.5 Haiku** | **Secondary Implementer** | Claude CLI (`claude`) | $0.77 |
+| **Gemini 3.8 Flash** | **Deep Reasoning & Code Fixer** | Antigravity CLI (`agy`) | $1.50 (Heavy Lift) |
+| **Claude 4.5 Haiku** | **Secondary Implementer** | Claude CLI (`claude`) | $2.00 |
 | **OpenAI Codex / GPT-4o** | **Architect & Plan Supervisor** | Codex CLI (`codex`) | $2.50 / $10.00 |
-| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | OpenRouter (Decisions Only) | $0.50 |
+| **TypeSafe Jev-1.13** | **State Machine & Exit Gate** | OpenRouter (Decisions Only) | $0.042 (input only; output free) |
 
 > 🔒 **OPENROUTER ISOLATION:** OpenRouter is strictly and exclusively used by TypeSafe Jev for deterministic state machine decisions (`classify` and `control`). Workers NEVER call OpenRouter; they run via local harnesses (`codex`, `agy`, `claude`, `copilot`).
 
