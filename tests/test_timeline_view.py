@@ -4,7 +4,9 @@ from meister.timeline import build_timeline
 from meister.timeline_view import (
     MIN_WIDTH,
     View,
+    all_body_line_count,
     detect_color,
+    render_all,
     render_frame,
     render_waiting,
     slowest_task_id,
@@ -119,3 +121,105 @@ def test_detect_color():
 def test_slowest_task_and_waiting_message():
     assert slowest_task_id(_timeline()) == "task_2"
     assert "aguardando" in render_waiting("aguardando o primeiro run", width=100)
+
+
+def _all_timelines():
+    older_events = parallel_events("older123") + [
+        {
+            "event_type": "orchestration_end",
+            "run_id": "older123",
+            "task_id": "orchestrator",
+            "ts": at(30).isoformat(),
+            "status": "completed",
+        }
+    ]
+    return [
+        build_timeline(parallel_events("newer456"), "newer456", at(30)),
+        build_timeline(older_events, "older123", at(30)),
+    ]
+
+
+def _all_frame(**kwargs):
+    options = dict(
+        width=120,
+        height=20,
+        now=at(30),
+        tz=timezone.utc,
+        project="DEMO",
+        interactive=True,
+    )
+    options.update(kwargs)
+    return render_all(_all_timelines(), **options)
+
+
+def test_all_runs_render_in_order_with_relative_rulers_and_block_costs():
+    plain = strip_ansi(_all_frame(color="none"))
+    lines = plain.splitlines()
+    assert "todos os runs (2)" in lines[0]
+    headers = [line for line in lines if "newer456" in line or "older123" in line]
+    assert "newer456" in headers[0] and "older123" in headers[1]
+    assert all("US$ 0.7500" in line for line in headers)
+    rulers = [line for line in lines if line[27:].lstrip().startswith("0:00")]
+    assert len(rulers) == 2
+    assert "AO VIVO" in headers[0] and "CONCLUÍDO" in headers[1]
+
+
+def test_all_runs_summary_colors_size_and_scroll():
+    timelines = _all_timelines()
+    out = render_all(
+        timelines,
+        width=100,
+        height=20,
+        now=at(30),
+        color="truecolor",
+        project="DEMO",
+        tz=timezone.utc,
+    )
+    plain = strip_ansi(out)
+    assert "Concluídas 4/6" in plain
+    assert "US$ 1.5000" in plain
+    assert all(len(line) <= 100 for line in plain.splitlines())
+    assert len(out.splitlines()) <= 20
+    bg_codes = {
+        line.split("\x1b[48;2;", 1)[1].split("m", 1)[0]
+        for line in out.splitlines()
+        if "\x1b[48;2;" in line
+    }
+    assert len(bg_codes) >= 2
+    colored_headers = [
+        line
+        for line in out.splitlines()
+        if "newer456" in line or "older123" in line
+    ]
+    header_backgrounds = [
+        line.split("\x1b[48;2;", 1)[1].split("m", 1)[0] for line in colored_headers
+    ]
+    assert len(header_backgrounds) == 2 and header_backgrounds[0] != header_backgrounds[1]
+    scrolled = strip_ansi(
+        render_all(
+            timelines,
+            width=120,
+            height=8,
+            now=at(30),
+            view=View(row_offset=1),
+            tz=timezone.utc,
+        )
+    )
+    assert "newer456" not in scrolled
+    assert "0:00" in scrolled
+    assert all_body_line_count(timelines) == sum(2 + len(item.rows) for item in timelines)
+
+
+def test_all_runs_width_warning_and_no_color_escape_sequences():
+    assert "80 colunas" in render_all(_all_timelines(), width=79, height=20, now=at(30))
+    assert "\x1b" not in _all_frame(color="none")
+
+
+def test_all_runs_cost_is_unknown_when_none_are_known():
+    timelines = _all_timelines()
+    for timeline in timelines:
+        timeline.summary.cost_usd = None
+    plain = strip_ansi(
+        render_all(timelines, width=120, height=20, now=at(30), tz=timezone.utc)
+    )
+    assert "US$ ?" in plain

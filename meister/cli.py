@@ -409,8 +409,9 @@ def report(run_ids, groups, log_dir, output_format):
     help="Diretório com orchestration_log.jsonl",
 )
 @click.option("--once", is_flag=True, default=False, help="Imprime um quadro e sai (sem modo interativo)")
+@click.option("--all", "all_runs", is_flag=True, default=False, help="Exibe todos os runs")
 @click.option("--no-color", is_flag=True, default=False, help="Desliga as cores")
-def timeline_command(run_id, log_dir, once, no_color):
+def timeline_command(run_id, log_dir, once, all_runs, no_color):
     """Linha do tempo (Gantt) colorida das tarefas de um run, somente leitura."""
     import shutil
     from datetime import datetime, timezone
@@ -419,6 +420,8 @@ def timeline_command(run_id, log_dir, once, no_color):
     from meister.timeline_cli import once_frame
     from meister.timeline_view import detect_color
 
+    if all_runs and run_id is not None:
+        raise click.UsageError("use --all ou --run-id, não os dois")
     if not once:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
             raise click.UsageError("o modo interativo precisa de um terminal (TTY): use --once")
@@ -427,7 +430,7 @@ def timeline_command(run_id, log_dir, once, no_color):
         log_file = resolve_log_file(log_dir)
         color = "none" if no_color else detect_color(os.environ, sys.stdout.isatty())
         try:
-            run_interactive(log_file, run_id=run_id, color=color)
+            run_interactive(log_file, run_id=run_id, color=color, all_runs=all_runs)
         except ValueError as error:
             click.echo(f"Erro: {error}", err=True)
             raise click.exceptions.Exit(2)
@@ -437,7 +440,14 @@ def timeline_command(run_id, log_dir, once, no_color):
     color = "none" if no_color else detect_color(os.environ, isatty)
     width = shutil.get_terminal_size((120, 24)).columns if isatty else 120
     try:
-        frame = once_frame(log_file, run_id, width=width, now=datetime.now(timezone.utc), color=color)
+        frame = once_frame(
+            log_file,
+            run_id,
+            width=width,
+            now=datetime.now(timezone.utc),
+            color=color,
+            all_runs=all_runs,
+        )
     except ValueError as error:
         click.echo(f"Erro: {error}", err=True)
         raise click.exceptions.Exit(2)

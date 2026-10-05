@@ -1,10 +1,11 @@
 import io
 import json
+from datetime import datetime, timedelta
 
 from meister.timeline import build_timeline
-from meister.timeline_app import AppState, handle_key, run_interactive, view_for
+from meister.timeline_app import AppState, handle_key, parse_keys, read_key, run_interactive, view_for
 from meister.timeline_view import strip_ansi
-from tests.timeline_fixtures import at, parallel_events
+from tests.timeline_fixtures import at, ev, parallel_events
 
 COMMON = dict(n_runs=3, n_rows=10, visible_rows=4, base_span_s=120.0)
 
@@ -54,6 +55,20 @@ def test_toggles_quit_and_unknown_keys():
     assert key(AppState(), "z") == AppState()
 
 
+def test_all_runs_keys_preserve_selection_and_disable_zoom():
+    state = key(AppState(run_index=1), "a")
+    assert state.all_runs and state.run_index == 1
+    assert key(state, "+") == state and key(state, "left") == state
+    toggled_back = key(state, "a")
+    assert not toggled_back.all_runs and toggled_back.run_index == 1
+    older = key(state, "[")
+    assert not older.all_runs and older.run_index == 2 and not older.live
+    newer = key(older, "]")
+    assert not newer.all_runs and newer.run_index == 1
+    live = key(state, "l")
+    assert not live.all_runs and live.live and live.run_index == 0
+
+
 def test_view_for_maps_zoom_and_pan_to_a_time_window():
     timeline = build_timeline(parallel_events(), "r1", at(30))
     assert view_for(AppState(), timeline, at(30)).t_start is None
@@ -67,7 +82,7 @@ def _log(tmp_path, events):
     return str(path)
 
 
-def _drive(tmp_path, events, keys, frames):
+def _drive(tmp_path, events, keys, frames, *, all_runs=False):
     log = _log(tmp_path, events)
     out = io.StringIO()
     script = iter(keys)
@@ -82,6 +97,7 @@ def _drive(tmp_path, events, keys, frames):
         size_fn=lambda: (120, 30),
         poll_interval=0.0,
         frame_interval=0.0,
+        all_runs=all_runs,
     )
     return out.getvalue()
 
@@ -122,3 +138,62 @@ def test_frames_never_use_the_last_terminal_column(tmp_path):
     for frame in frames:  # cada quadro termina com "\x1b[K\x1b[J": cada linha é medida sem ANSI
         for line in strip_ansi(frame).splitlines():
             assert len(line) <= 119
+
+
+def test_loop_all_runs_and_completed_timeline_cache(tmp_path, monkeypatch):
+    import meister.timeline_app as app
+
+    events = parallel_events("newrun01") + [
+        ev("orchestration_end", "orchestrator", 30, run="newrun01", status="completed")
+    ]
+    older = parallel_events("oldrun01")
+    for event in older:
+        event["ts"] = (
+            datetime.fromisoformat(event["ts"]) + timedelta(seconds=100)
+        ).isoformat()
+    older.append(
+        ev("orchestration_end", "orchestrator", 130, run="oldrun01", status="completed")
+    )
+    calls = []
+    original = app.build_timeline
+
+    def spy(events, run_id, now, **kwargs):
+        calls.append(run_id)
+        return original(events, run_id, now, **kwargs)
+
+    monkeypatch.setattr(app, "build_timeline", spy)
+    out = _drive(
+        tmp_path,
+        events + older,
+        [None, None, None, "q"],
+        frames=5,
+        all_runs=True,
+    )
+    plain = strip_ansi(out)
+    assert "todos os runs (2)" in plain
+    assert "newrun01" in plain and "oldrun01" in plain
+    assert calls.count("newrun01") == 1 and calls.count("oldrun01") == 1
+
+
+def test_parse_keys_splits_bursts_and_never_turns_unknown_sequences_into_esc():
+    assert parse_keys(b"\x1b[B\x1b[B\x1b[B") == ["down", "down", "down"]
+    assert parse_keys(b"a\x1b[Cb") == ["a", "right", "b"]
+    assert parse_keys(b"\x1b") == ["\x1b"]  # Esc sozinho
+    assert parse_keys(b"\x1b[5~") == []  # PageUp: ignorado (não fecha a tela)
+    assert parse_keys(b"\x1b[1;5C\x1bOP") == []  # ctrl+seta e F1: ignorados
+    assert parse_keys(b"\x1bx") == []  # alt+x: ignorado
+    assert parse_keys("ação".encode()) == ["a", "ç", "ã", "o"]
+    assert parse_keys(b"\xff") == []  # byte inválido
+
+
+def test_read_key_returns_one_key_per_call_from_a_burst():
+    import os
+
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"\x1b[B\x1b[B\x1b[5~q")
+        assert [read_key(read_fd, 0.2) for _ in range(3)] == ["down", "down", "q"]
+        assert read_key(read_fd, 0.01) is None
+    finally:
+        os.close(read_fd)
+        os.close(write_fd)
