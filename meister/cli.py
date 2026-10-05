@@ -396,6 +396,43 @@ def report(run_ids, groups, log_dir, output_format):
     click.echo(render_report(data, output_format))
 
 
+@main.command("timeline")
+@click.option(
+    "--run-id",
+    default=None,
+    help="Run a exibir (prefixo de pelo menos 6 caracteres); padrão: o mais novo",
+)
+@click.option(
+    "--log-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help="Diretório com orchestration_log.jsonl",
+)
+@click.option("--once", is_flag=True, default=False, help="Imprime um quadro e sai (sem modo interativo)")
+@click.option("--no-color", is_flag=True, default=False, help="Desliga as cores")
+def timeline_command(run_id, log_dir, once, no_color):
+    """Linha do tempo (Gantt) colorida das tarefas de um run, somente leitura."""
+    import shutil
+    from datetime import datetime, timezone
+
+    from meister.log_tail import resolve_log_file
+    from meister.timeline_cli import once_frame
+    from meister.timeline_view import detect_color
+
+    if not once:
+        raise click.UsageError("o modo interativo ainda não está disponível: use --once")
+    log_file = resolve_log_file(log_dir)
+    isatty = sys.stdout.isatty()
+    color = "none" if no_color else detect_color(os.environ, isatty)
+    width = shutil.get_terminal_size((120, 24)).columns if isatty else 120
+    try:
+        frame = once_frame(log_file, run_id, width=width, now=datetime.now(timezone.utc), color=color)
+    except ValueError as error:
+        click.echo(f"Erro: {error}", err=True)
+        raise click.exceptions.Exit(2)
+    click.echo(frame)
+
+
 @main.command("install-hooks")
 @click.option("--target", "-t", default=".", help="Diretório do repositório")
 @click.option("--git", is_flag=True, default=False, help="Instalar Git pre-commit hook")
