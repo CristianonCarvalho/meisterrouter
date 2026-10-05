@@ -252,7 +252,14 @@ def _build_task(
         if event_type(event) == "classify" and event.get("classification") is not None
     ]
     latest_classification = classification_events[-1] if classification_events else None
-    latest_tier = next((event.get("tier") for event in reversed(events) if event.get("tier")), None)
+    latest_tier = next(
+        (
+            event.get("tier")
+            for event in reversed(events)
+            if event_type(event) not in {"classify", "control"} and event.get("tier")
+        ),
+        None,
+    )
     cost = sum(_cost(event) for event in completions)
     return {
         "run_id": run_id,

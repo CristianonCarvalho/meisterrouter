@@ -62,6 +62,22 @@ class Summary:
     cost_usd: Optional[float]
 
 
+@dataclass(frozen=True)
+class JevCall:
+    kind: str
+    start: datetime
+    end: datetime
+    task_id: str
+
+
+@dataclass
+class JevLane:
+    calls: List[JevCall]
+    classify_count: int
+    control_count: int
+    cost_usd: float
+
+
 @dataclass
 class Timeline:
     run_id: str
@@ -71,6 +87,7 @@ class Timeline:
     ended_at: Optional[datetime]
     rows: List[TaskRow]
     summary: Summary
+    jev: JevLane
 
 
 def _ts(event: Dict[str, Any]) -> Optional[datetime]:
@@ -138,7 +155,7 @@ def _build_row(
     for event in events:
         kind = event_type(event)
         timestamp = _ts(event)
-        if event.get("tier") and event.get("tier") != "unknown":
+        if kind not in {"classify", "control"} and event.get("tier") and event.get("tier") != "unknown":
             tier = str(event["tier"])
         if timestamp is None:
             continue
@@ -185,6 +202,11 @@ def _build_row(
             current["kind"] = kind
             if kind in FAILURE_EVENTS:
                 current["reason"] = str(event.get("reason") or event.get("error") or kind)
+        elif kind == "worker_retry" and current["terminal"] is None:
+            # tentativa abandonada (ex.: pane_lost): fecha aqui, senão uma fase inferida ficaria
+            # aberta por cima da tentativa seguinte
+            current["terminal"] = timestamp
+            current["kind"] = "worker_retry"
 
     segments: List[Segment] = []
     previous_end: Optional[datetime] = None
@@ -195,7 +217,14 @@ def _build_row(
             segments.append(Segment("wait", run_start, attempt["spawn"]))
         segments.extend(Segment(name, start, end) for name, start, end in attempt["phases"])
         if attempt["terminal"] is not None:
-            if attempt["worker_end"] is None:
+            if attempt["kind"] == "worker_retry":
+                if attempt["worker_end"] is None:
+                    segments.append(Segment("worker", attempt["spawn"], attempt["terminal"]))
+                if attempt is attempts[-1]:  # retry anunciado e a nova tentativa ainda não começou
+                    segments.append(
+                        Segment("wait", attempt["terminal"], run_end, inferred=run_end is None)
+                    )
+            elif attempt["worker_end"] is None:
                 segments.append(Segment("worker", attempt["spawn"], attempt["terminal"]))
             else:
                 segments.extend(
@@ -224,7 +253,7 @@ def _build_row(
 
     last = attempts[-1]
     failure: Optional[str] = None
-    if last["terminal"] is not None:
+    if last["terminal"] is not None and last["kind"] != "worker_retry":
         if last["kind"] == "subtask_completed":
             status = "completed"
         elif last["kind"] == "subtask_reused":
@@ -342,6 +371,34 @@ def build_timeline(
         for task_id in plan_ids + extras
     ]
 
+    jev_events = [
+        event for event in run_events if event_type(event) in {"classify", "control"}
+    ]
+    jev_calls = []
+    for event in jev_events:
+        end = _ts(event)
+        if end is None:
+            continue
+        jev_calls.append(
+            JevCall(
+                kind=event_type(event),
+                start=end - timedelta(milliseconds=_num(event.get("duration_ms"))),
+                end=end,
+                task_id=str(event.get("task_id") or ""),
+            )
+        )
+    jev_calls.sort(key=lambda call: call.end)
+    jev_cost = sum(
+        _num(event.get("cost") if event.get("cost") is not None else event.get("cost_usd"))
+        for event in jev_events
+    )
+    jev = JevLane(
+        calls=jev_calls,
+        classify_count=sum(event_type(event) == "classify" for event in jev_events),
+        control_count=sum(event_type(event) == "control" for event in jev_events),
+        cost_usd=jev_cost,
+    )
+
     peak, average = _parallelism(rows, ended_at or now)
     cost: Optional[float] = None
     if run_events:
@@ -365,4 +422,4 @@ def build_timeline(
         avg_parallel=average,
         cost_usd=cost,
     )
-    return Timeline(run_id, title, status, started_at, ended_at, rows, summary)
+    return Timeline(run_id, title, status, started_at, ended_at, rows, summary, jev)
