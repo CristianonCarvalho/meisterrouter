@@ -362,10 +362,12 @@
     addCard(container, "Duração média", formatDuration(totals.avg_duration_s), "somente tarefas concluídas");
     addCard(container, "Custo do Jev", formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
     const report = summary.report;
-    const cost = workerCostTotals(report);
-    addCard(container, "Custo dos workers", report ? formatCost(cost.known, cost.unknown) : "—",
-      !report ? "selecione um run"
-        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido` : "reportado (inclui créditos) + estimado (catálogo)");
+    const costSource = report || summary.all_runs_cost;
+    const cost = workerCostTotals(costSource);
+    addCard(container, "Custo dos workers", costSource ? formatCost(cost.known, cost.unknown) : "—",
+      !costSource ? "selecione um run"
+        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido`
+        : `${report ? "" : "soma dos runs · "}reportado (inclui créditos) + estimado (catálogo atual)`);
     addCard(container, "Overhead do orquestrador", report ? formatPercent(report.overhead_ratio) : "—",
       report ? `relógio ${formatSeconds(report.wall_seconds)} · worker ${formatSeconds(report.worker_seconds_union)}` : "selecione um run");
     addCard(container, "Pico de workers", report ? formatCount(report.peak_parallel_workers) : "—",

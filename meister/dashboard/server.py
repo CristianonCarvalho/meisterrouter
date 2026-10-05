@@ -2,7 +2,7 @@
 
 import os
 from collections import Counter
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, render_template, request
 
@@ -45,16 +45,35 @@ def _read_events() -> List[Dict[str, Any]]:
     return list(iter_events(get_log_file()))
 
 
-def _credit_prices() -> Dict[str, float]:
+def _price_tables() -> Tuple[Dict[str, float], Dict[str, float]]:
+    """Preços do catálogo atual: (US$ por 1M de tokens, US$ por crédito) por via."""
     try:
         config = load_config()
     except Exception:
-        return {}
-    return {
-        tier.name: tier.credit_usd
-        for tier in [*config.workers.tier_order, *config.workers.disabled]
-        if tier.credit_usd is not None
-    }
+        return {}, {}
+    tiers = [*config.workers.tier_order, *config.workers.disabled]
+    return (
+        {tier.name: tier.cost_per_m_tokens for tier in tiers},
+        {tier.name: tier.credit_usd for tier in tiers if tier.credit_usd is not None},
+    )
+
+
+def _all_runs_cost(events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Soma o custo dos workers de todos os runs, com o mesmo cálculo do relatório."""
+    tier_prices, credit_prices = _price_tables()
+    by_tier: Dict[str, Dict[str, Any]] = {}
+    for run in list_runs(events):
+        report = compute_run_report(
+            events, run["run_id"], tier_prices=tier_prices, credit_prices=credit_prices
+        )
+        for tier, row in report["by_tier"].items():
+            total = by_tier.setdefault(tier, {"cost_known_usd": None, "events_unknown": 0})
+            if row["cost_known_usd"] is not None:
+                total["cost_known_usd"] = round(
+                    (total["cost_known_usd"] or 0.0) + row["cost_known_usd"], 6
+                )
+            total["events_unknown"] += row["events_unknown"]
+    return {"by_tier": by_tier}
 
 
 def compute_metrics(events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -133,10 +152,14 @@ def api_summary():
     summary = compute_summary(events, run_id, log_file=get_log_file())
     # Custo, tokens, créditos e tempo por fase vêm do mesmo cálculo do `meister report`.
     selected = summary["meta"]["run_id"]
+    tier_prices, credit_prices = _price_tables()
     summary["report"] = (
-        compute_run_report(events, selected, credit_prices=_credit_prices())
+        compute_run_report(
+            events, selected, tier_prices=tier_prices, credit_prices=credit_prices
+        )
         if selected and selected != "all" else None
     )
+    summary["all_runs_cost"] = _all_runs_cost(events) if selected == "all" else None
     return jsonify(summary)
 
 
