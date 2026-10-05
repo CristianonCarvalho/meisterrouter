@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta
 
 from click.testing import CliRunner
 
@@ -73,3 +74,45 @@ def test_cli_run_id_with_missing_log_exits_2_without_creating_directory(tmp_path
     )
     assert result.exit_code == 2 and "inexistente" in result.output
     assert not log_dir.exists()
+
+
+def test_cli_all_runs_once_and_rejects_run_id(tmp_path):
+    events = parallel_events("newrun01")
+    older = parallel_events("oldrun01")
+    for event in older:
+        event["ts"] = (
+            datetime.fromisoformat(event["ts"]) - timedelta(seconds=100)
+        ).isoformat()
+    log = _write(tmp_path, events + older)
+    result = CliRunner().invoke(
+        main, ["timeline", "--once", "--all", "--log-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    plain = strip_ansi(result.output)
+    assert "todos os runs (2)" in plain
+    assert "newrun01" in plain and "oldrun01" in plain
+    assert plain.index("newrun01") < plain.index("oldrun01")
+    assert "0:00" in plain and "\x1b" not in result.output
+    assert log
+    invalid = CliRunner().invoke(
+        main,
+        ["timeline", "--all", "--run-id", "newrun", "--log-dir", str(tmp_path)],
+    )
+    assert invalid.exit_code == 2
+    assert "use --all ou --run-id, não os dois" in invalid.output
+
+
+def test_cli_all_once_without_log_says_waiting(tmp_path):
+    result = CliRunner().invoke(
+        main, ["timeline", "--once", "--all", "--log-dir", str(tmp_path / "missing")]
+    )
+    assert result.exit_code == 0
+    assert "aguardando o primeiro run" in result.output
+    empty_dir = tmp_path / "empty"
+    empty_dir.mkdir()
+    (empty_dir / "orchestration_log.jsonl").write_text("", encoding="utf-8")
+    empty = CliRunner().invoke(
+        main, ["timeline", "--once", "--all", "--log-dir", str(empty_dir)]
+    )
+    assert empty.exit_code == 0
+    assert "aguardando o primeiro run" in empty.output

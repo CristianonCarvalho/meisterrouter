@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from meister.dashboard.metrics import iter_events, list_runs
 from meister.timeline import build_timeline
-from meister.timeline_view import render_frame, render_waiting
+from meister.timeline_view import all_body_line_count, render_all, render_frame, render_waiting
 
 
 def project_name(log_file: str) -> str:
@@ -61,7 +61,13 @@ def pick_run(runs: List[Dict[str, Any]], run_id: Optional[str]) -> str:
 
 
 def once_frame(
-    log_file: str, run_id: Optional[str], *, width: int, now: datetime, color: str
+    log_file: str,
+    run_id: Optional[str],
+    *,
+    width: int,
+    now: datetime,
+    color: str,
+    all_runs: bool = False,
 ) -> str:
     """Um quadro completo (sem rolagem) do run escolhido, para `--once`."""
     if not os.path.isfile(log_file):
@@ -72,10 +78,27 @@ def once_frame(
         )
     events = list(iter_events(log_file))
     runs = list_runs(events)
-    if not runs and run_id is None:
+    if not runs and (run_id is None or all_runs):
         return render_waiting("aguardando o primeiro run", width=width, color=color)
-    chosen = pick_run(runs, run_id)
     tier_prices, credit_prices = price_tables_from_config()
+    if all_runs:
+        timelines = [
+            build_timeline(
+                events, str(run["run_id"]), now, tier_prices=tier_prices, credit_prices=credit_prices
+            )
+            for run in runs
+        ]
+        return render_all(
+            timelines,
+            width=width,
+            height=all_body_line_count(timelines) + 4,
+            now=now,
+            color=color,
+            project=project_name(log_file),
+            via_index=via_index_from_config(),
+            interactive=False,
+        )
+    chosen = pick_run(runs, run_id)
     timeline = build_timeline(
         events, chosen, now, tier_prices=tier_prices, credit_prices=credit_prices
     )

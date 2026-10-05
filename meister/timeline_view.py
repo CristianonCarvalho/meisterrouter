@@ -167,18 +167,41 @@ def _label(row: TaskRow) -> str:
 _STEPS = (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 14400, 43200, 86400)
 
 
-def _ruler(t0: datetime, span: float, width: int, tz: Optional[tzinfo]) -> str:
+def _ruler(
+    t0: datetime,
+    span: float,
+    width: int,
+    tz: Optional[tzinfo],
+    *,
+    relative: bool = False,
+) -> str:
     per_second = width / span
     step = next((step for step in _STEPS if step * per_second >= 12), _STEPS[-1])
     line = [" "] * width
-    origin = t0.timestamp()
-    moment = math.ceil(origin / step) * step
-    while moment < origin + span:
-        column = int((moment - origin) * per_second)
-        label = datetime.fromtimestamp(moment, tz).strftime("%H:%M" if step >= 60 else "%H:%M:%S")
-        if column + len(label) <= width:
-            line[column : column + len(label)] = list(label)
-        moment += step
+    if relative:
+        moment = 0
+        while moment < span:
+            column = int(moment * per_second)
+            total = int(moment)
+            label = (
+                f"{total // 3600}:{total % 3600 // 60:02d}:{total % 60:02d}"
+                if span > 3600
+                else f"{total // 60}:{total % 60:02d}"
+            )
+            if column + len(label) <= width:
+                line[column : column + len(label)] = list(label)
+            moment += step
+    else:
+        origin = t0.timestamp()
+        moment = math.ceil(origin / step) * step
+        while moment < origin + span:
+            column = int((moment - origin) * per_second)
+            label = datetime.fromtimestamp(moment, tz).strftime(
+                "%H:%M" if step >= 60 else "%H:%M:%S"
+            )
+            if column + len(label) <= width:
+                line[column : column + len(label)] = list(label)
+            moment += step
     return "".join(line)
 
 
@@ -284,6 +307,52 @@ def render_waiting(message: str, *, width: int, color: str = "none") -> str:
     return painter.line([("  MEISTER  " + message, PALETTE["dim"], False)], max(width, len(message) + 12))
 
 
+def _render_ruler_line(
+    painter: Painter,
+    *,
+    t0: datetime,
+    span: float,
+    bar_width: int,
+    tz: Optional[tzinfo],
+    relative: bool = False,
+) -> str:
+    return " " * (LABEL_W + 1) + painter.paint(
+        _ruler(t0, span, bar_width, tz, relative=relative), PALETTE["dim"]
+    )
+
+
+def _render_task_lines(
+    painter: Painter,
+    timeline: Timeline,
+    *,
+    t0: datetime,
+    span: float,
+    bar_width: int,
+    width: int,
+    now_eff: datetime,
+    tick: int,
+    via_index: Mapping[str, int],
+    color: str,
+    hue: int,
+    row_offset: int,
+    row_count: int,
+) -> Tuple[List[str], int]:
+    rows = timeline.rows[row_offset : row_offset + row_count]
+    slowest = slowest_task_id(timeline)
+    lines: List[str] = []
+    for index, row in enumerate(rows):
+        position = via_index.get(row.tier or "")
+        via_color = VIA_COLORS[position % len(VIA_COLORS)] if position is not None else None
+        background = _row_bg(hue, index) if color != "none" else None
+        pieces: List[Piece] = [(_label(row), PALETTE["text"], False), (" ", None, False)]
+        pieces += _bar_pieces(row, t0, span, bar_width, now_eff, tick)
+        pieces.append((" ", None, False))
+        pieces += _info_pieces(row, timeline, slowest, via_color)
+        lines.append(painter.line(pieces, width, background))
+    hidden = max(0, len(timeline.rows) - (row_offset + len(rows)))
+    return lines, hidden
+
+
 def render_frame(
     timeline: Timeline,
     *,
@@ -354,21 +423,33 @@ def render_frame(
         )
     )
     lines.append(painter.paint("─" * width, dim))
-    lines.append(" " * (LABEL_W + 1) + painter.paint(_ruler(t0, span, bar_width, tz), dim))
+    lines.append(
+        _render_ruler_line(
+            painter,
+            t0=t0,
+            span=span,
+            bar_width=bar_width,
+            tz=tz,
+        )
+    )
 
     visible = max(1, height - CHROME_ROWS)
-    rows = timeline.rows[view.row_offset : view.row_offset + visible]
-    slowest = slowest_task_id(timeline)
-    for index, row in enumerate(rows):
-        position = via_index.get(row.tier or "")
-        via_color = VIA_COLORS[position % len(VIA_COLORS)] if position is not None else None
-        background = _row_bg(hue, index) if color != "none" else None
-        pieces: List[Piece] = [(_label(row), text_color, False), (" ", None, False)]
-        pieces += _bar_pieces(row, t0, span, bar_width, now_eff, tick)
-        pieces.append((" ", None, False))
-        pieces += _info_pieces(row, timeline, slowest, via_color)
-        lines.append(painter.line(pieces, width, background))
-    hidden = max(0, len(timeline.rows) - (view.row_offset + len(rows)))
+    rows, hidden = _render_task_lines(
+        painter,
+        timeline,
+        t0=t0,
+        span=span,
+        bar_width=bar_width,
+        width=width,
+        now_eff=now_eff,
+        tick=tick,
+        via_index=via_index,
+        color=color,
+        hue=hue,
+        row_offset=view.row_offset,
+        row_count=visible,
+    )
+    lines.extend(rows)
 
     lines.append(painter.paint("─" * width, dim))
     legend: List[Piece] = []
@@ -387,3 +468,165 @@ def render_frame(
     )
     lines.append(painter.line([(keys, dim, False)], width))
     return "\n".join(lines)
+
+
+def _all_badge(timelines: Sequence[Timeline], view: View, tick: int) -> Tuple[str, RGB, bool]:
+    if view.paused:
+        return "⏸ PAUSADO", PALETTE["paused"], True
+    if any(timeline.status == "running" for timeline in timelines):
+        return "▶ AO VIVO", PALETTE["live"], tick % 2 == 0
+    return "≡ VISÃO GERAL", PALETTE["replay"], True
+
+
+def _run_duration(timeline: Timeline, now: datetime) -> str:
+    if timeline.started_at is None:
+        return "—"
+    end = timeline.ended_at or now
+    return _duration_text(max(0.0, (end - timeline.started_at).total_seconds()))
+
+
+def all_body_line_count(timelines: Sequence[Timeline]) -> int:
+    return sum(2 + len(timeline.rows) for timeline in timelines)
+
+
+def render_all(
+    timelines: Sequence[Timeline],
+    *,
+    width: int,
+    height: int,
+    now: datetime,
+    tick: int = 0,
+    view: Optional[View] = None,
+    color: str = "none",
+    project: str = "",
+    via_index: Optional[Mapping[str, int]] = None,
+    tz: Optional[tzinfo] = None,
+    interactive: bool = True,
+) -> str:
+    if width < MIN_WIDTH:
+        return f"Terminal estreito: use pelo menos {MIN_WIDTH} colunas (atual: {width})."
+    view = view or View()
+    painter = Painter(color)
+    via_index = via_index or {}
+    dim, text_color = PALETTE["dim"], PALETTE["text"]
+    summary = [timeline.summary for timeline in timelines]
+    completed = sum(item.completed for item in summary)
+    total = sum(item.total for item in summary)
+    running = sum(item.running for item in summary)
+    failed = sum(item.failed for item in summary)
+    known_costs = [item.cost_usd for item in summary if item.cost_usd is not None]
+    cost = f"US$ {sum(known_costs):.4f}" if known_costs else "US$ ?"
+    badge, badge_color, badge_bold = _all_badge(timelines, view, tick)
+    left = _fit(f"  MEISTER  {project}   todos os runs ({len(timelines)})", width - len(badge) - 1)
+    lines = [
+        painter.line(
+            [
+                (left.rstrip(), text_color, True),
+                (" " * (width - len(left.rstrip()) - len(badge)), None, False),
+                (badge, badge_color, badge_bold),
+            ],
+            width,
+        ),
+        painter.line(
+            [
+                (f" Concluídas {completed}/{total}", text_color, True),
+                (f"   Rodando {running}", PALETTE["live"] if running else dim, False),
+                (f"   Falhas {failed}", PALETTE["fail"] if failed else dim, False),
+                (f"   {cost}", text_color, False),
+            ],
+            width,
+        ),
+    ]
+
+    body: List[str] = []
+    for run_index, timeline in enumerate(timelines):
+        t0 = timeline.started_at or timeline.ended_at or now
+        now_eff = timeline.ended_at or now
+        span = max((now_eff - t0).total_seconds(), 1.0)
+        bar_width = max(1, width - LABEL_W - INFO_W - 2)
+        run_badge = (
+            ("▶ AO VIVO", PALETTE["live"], tick % 2 == 0)
+            if timeline.status == "running"
+            else (
+                ("✔ CONCLUÍDO", PALETTE["done"], True)
+                if timeline.status == "completed"
+                else ("✖ FALHOU", PALETTE["fail"], True)
+            )
+        )
+        status, status_color, status_bold = run_badge
+        run_cost = (
+            f"US$ {timeline.summary.cost_usd:.4f}"
+            if timeline.summary.cost_usd is not None
+            else "US$ ?"
+        )
+        time_range = f"{_clock(timeline.started_at, tz)} → {_clock(timeline.ended_at, tz)}"
+        details = (
+            f"{status}  {timeline.summary.completed}/{timeline.summary.total}  "
+            f"{run_cost}  {_run_duration(timeline, now)}  {time_range}"
+        )
+        label = f" {timeline.run_id[:8]} · {timeline.title}".rstrip(" ·")
+        label = _fit(label, max(0, width - len(details) - 1)).rstrip()
+        body.append(
+            painter.line(
+                [
+                    (label, text_color, True),
+                    (" " * max(0, width - len(label) - len(details)), None, False),
+                    (status, status_color, status_bold),
+                    (details[len(status) :], dim, False),
+                ],
+                width,
+                _row_bg((210 + 67 * run_index) % 360, 0) if color != "none" else None,
+            )
+        )
+        body.append(
+            _render_ruler_line(
+                painter,
+                t0=t0,
+                span=span,
+                bar_width=bar_width,
+                tz=tz,
+                relative=True,
+            )
+        )
+        task_lines, _ = _render_task_lines(
+            painter,
+            timeline,
+            t0=t0,
+            span=span,
+            bar_width=bar_width,
+            width=width,
+            now_eff=now_eff,
+            tick=tick,
+            via_index=via_index,
+            color=color,
+            hue=(210 + 67 * run_index) % 360,
+            row_offset=0,
+            row_count=len(timeline.rows),
+        )
+        body.extend(task_lines)
+
+    visible_body = max(0, height - 4)
+    offset = min(view.row_offset, max(0, len(body) - visible_body))
+    visible = body[offset : offset + visible_body]
+    lines.extend(visible)
+    hidden_above = offset
+    hidden_below = max(0, len(body) - offset - len(visible))
+    legend: List[Piece] = [(" ", None, False)]
+    for phase in ("worker", "gate", "integrate", "lock_wait", "wait"):
+        legend += [
+            (GLYPHS[phase], PALETTE[phase], False),
+            (f" {PHASE_LABEL[phase]}  ", dim, False),
+        ]
+    if hidden_above or hidden_below:
+        legend.append(
+            (f"  ↑ {hidden_above} acima ↓ {hidden_below} abaixo", PALETTE["retry"], False)
+        )
+    lines.append(painter.line(legend, width))
+    keys = (
+        " a run selecionado   [ / ] sair e navegar   l ao vivo   p pausa   "
+        "zoom e tempo: só em um run   ↑/↓ rolar   ? ajuda   q sair"
+        if interactive
+        else f" Gerado às {_clock(now, tz)} · use `meister timeline` para o modo interativo"
+    )
+    lines.append(painter.line([(keys, dim, False)], width))
+    return "\n".join(lines[:height])
