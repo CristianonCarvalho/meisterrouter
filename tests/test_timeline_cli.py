@@ -63,6 +63,7 @@ def test_cli_unknown_run_exits_2_and_without_once_is_a_usage_error(tmp_path):
     assert bad.exit_code == 2 and "inexistente" in bad.output
     interactive = CliRunner().invoke(main, ["timeline", "--log-dir", str(tmp_path)])
     assert interactive.exit_code != 0 and "--once" in interactive.output
+    assert "o modo interativo precisa de um terminal (TTY): use --once" in interactive.output
 
 
 def test_cli_run_id_with_missing_log_exits_2_without_creating_directory(tmp_path):

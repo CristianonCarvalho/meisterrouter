@@ -89,3 +89,15 @@ def once_frame(
         via_index=via_index_from_config(),
         interactive=False,
     )
+
+
+def open_timeline(log_dir: Optional[str] = None) -> None:
+    """Abre a tela interativa no terminal atual (usada pelo comando e pelo overlay)."""
+    import sys
+
+    from meister.log_tail import resolve_log_file
+    from meister.timeline_app import run_interactive
+    from meister.timeline_view import detect_color
+
+    color = detect_color(os.environ, sys.stdout.isatty())
+    run_interactive(resolve_log_file(log_dir), color=color)

@@ -118,7 +118,7 @@ def render_tui_dashboard(session_state: Optional[Dict[str, Any]] = None,
     lines.append(f"{CYAN}╠{'═' * (width - 2)}╣{RESET}")
 
     # Section 4: Key Shortcuts & Controls
-    shortcuts = "[Q] to close overlay (or Esc) | [O] to open web browser dashboard"
+    shortcuts = "[Q] fechar overlay | [O] abrir dashboard web | [T] linha do tempo"
     lines.append(f"{CYAN}║{RESET} {DIM}{shortcuts:^{inner_width}}{RESET} {CYAN}║{RESET}")
     lines.append(f"{CYAN}╚{'═' * (width - 2)}╝{RESET}")
 
@@ -273,6 +273,11 @@ def run_tui_loop(poll_interval: float = 1.0,
                         return
                     elif key_lower == "o":
                         open_browser("http://127.0.0.1:5050")
+                    elif key_lower == "t":
+                        from meister.timeline_cli import open_timeline
+
+                        open_timeline()
+                        break
 
     except (KeyboardInterrupt, SystemExit):
         sys.stdout.write("\nClosing TUI dashboard overlay...\n")

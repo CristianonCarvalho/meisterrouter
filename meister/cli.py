@@ -420,7 +420,18 @@ def timeline_command(run_id, log_dir, once, no_color):
     from meister.timeline_view import detect_color
 
     if not once:
-        raise click.UsageError("o modo interativo ainda não está disponível: use --once")
+        if not sys.stdin.isatty() or not sys.stdout.isatty():
+            raise click.UsageError("o modo interativo precisa de um terminal (TTY): use --once")
+        from meister.timeline_app import run_interactive
+
+        log_file = resolve_log_file(log_dir)
+        color = "none" if no_color else detect_color(os.environ, sys.stdout.isatty())
+        try:
+            run_interactive(log_file, run_id=run_id, color=color)
+        except ValueError as error:
+            click.echo(f"Erro: {error}", err=True)
+            raise click.exceptions.Exit(2)
+        return
     log_file = resolve_log_file(log_dir)
     isatty = sys.stdout.isatty()
     color = "none" if no_color else detect_color(os.environ, isatty)
