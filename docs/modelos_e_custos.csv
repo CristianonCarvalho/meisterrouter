@@ -1,0 +1,43 @@
+modelo,esforco,criador,entrada_usd_1m,saida_usd_1m,cache_leitura_usd_1m,cache_escrita_usd_1m,combinado_3_1_usd_1m,custo_por_tarefa_aa_usd,indice_inteligencia_aa,vias_meister,nota
+Claude Sonnet 5.5,low,Anthropic,2.0,10.0,0.2,2.5,4.0,0.42,36,,
+Claude Sonnet 5.5,medium,Anthropic,2.0,10.0,0.2,2.5,4.0,0.59,41,,
+Claude Sonnet 5.5,high,Anthropic,2.0,10.0,0.2,2.5,4.0,1.12,47,claude_sonnet,arquiteto (effort high) e via claude_sonnet; o worker usa o esforço padrão do CLI (não verificado)
+Claude Sonnet 5.5,xhigh,Anthropic,2.0,10.0,0.2,2.5,4.0,2.75,52,,
+Claude Sonnet 5.5,max,Anthropic,2.0,10.0,0.2,2.5,4.0,7.67,56,,
+Claude Opus 5.5,low,Anthropic,4.0,20.0,0.2,5.0,8.0,0.55,42,,
+Claude Opus 5.5,medium,Anthropic,4.0,20.0,0.2,5.0,8.0,1.34,51,,
+Claude Opus 5.5,high,Anthropic,4.0,20.0,0.2,5.0,8.0,1.82,54,,
+Claude Opus 5.5,xhigh,Anthropic,4.0,20.0,0.2,5.0,8.0,3.46,56,,
+Claude Opus 5.5,max,Anthropic,4.0,20.0,0.2,5.0,8.0,5.98,58,,
+Gemini 3.8 Flash,low,Google,0.75,3.75,0.075,0.0417,1.5,,33,,
+Gemini 3.8 Flash,medium,Google,0.75,3.75,0.075,0.0417,1.5,0.93,40,,
+Gemini 3.8 Flash,high,Google,0.75,3.75,0.075,0.0417,1.5,1.24,41,agy_gemini_flash,"coberto por assinatura subsidiada (custo efetivo menor); AA lista cache de escrita 0.75, OpenRouter 0.0417"
+GPT-6 Luna,non-reasoning,OpenAI,0.1,0.5,0.01,0.125,0.2,0.01,18,,
+GPT-6 Luna,low,OpenAI,0.1,0.5,0.01,0.125,0.2,0.0045,22,,
+GPT-6 Luna,medium,OpenAI,0.1,0.5,0.01,0.125,0.2,0.02,30,copilot_luna;codex_luna,esforço real não confirmado (amostra do Codex: none); Copilot cobra por crédito (1 crédito = US$ 0.01); acima de 272k tokens de prompt o preço sobe (0.20/0.75)
+GPT-6 Luna,high,OpenAI,0.1,0.5,0.01,0.125,0.2,0.03,33,,
+GPT-6 Luna,xhigh,OpenAI,0.1,0.5,0.01,0.125,0.2,0.04,35,,
+GPT-6 Luna,max,OpenAI,0.1,0.5,0.01,0.125,0.2,0.07,38,,
+GPT-6.1 Sol,low,OpenAI,2.0,10.0,0.1,2.5,4.0,0.13,42,,
+GPT-6.1 Sol,medium,OpenAI,2.0,10.0,0.1,2.5,4.0,0.21,48,,
+GPT-6.1 Sol,high,OpenAI,2.0,10.0,0.1,2.5,4.0,0.32,50,,
+GPT-6.1 Sol,xhigh,OpenAI,2.0,10.0,0.1,2.5,4.0,0.39,51,,
+GPT-6.1 Sol,max,OpenAI,2.0,10.0,0.1,2.5,4.0,0.72,52,,
+GPT-6 Astra,low,OpenAI,10.0,50.0,1.0,12.5,20.0,0.82,46,,
+GPT-6 Astra,medium,OpenAI,10.0,50.0,1.0,12.5,20.0,1.54,50,,
+GPT-6 Astra,high,OpenAI,10.0,50.0,1.0,12.5,20.0,1.73,51,,
+GPT-6 Astra,xhigh,OpenAI,10.0,50.0,1.0,12.5,20.0,2.31,52,,
+GPT-6 Astra,max,OpenAI,10.0,50.0,1.0,12.5,20.0,3.26,53,,
+Claude Fable 5.1,low,Anthropic,10.0,50.0,0.25,12.5,20.0,2.37,47,,
+Claude Fable 5.1,medium,Anthropic,10.0,50.0,0.25,12.5,20.0,2.98,49,,
+Claude Fable 5.1,high,Anthropic,10.0,50.0,0.25,12.5,20.0,3.91,51,,
+Claude Fable 5.1,xhigh,Anthropic,10.0,50.0,0.25,12.5,20.0,5.98,53,,
+Claude Fable 5.1,max,Anthropic,10.0,50.0,0.25,12.5,20.0,7.63,53,,
+Gemini 4 Argon,high,Google,2.0,10.0,0.1,2.0,4.0,1.99,53,,
+Claude 4.5 Haiku,reasoning,Anthropic,1.0,5.0,0.1,1.25,2.0,0.28,17,,fora do padrão por decisão do dono
+GLM-5.3-Flash,-,Z AI,0.15,0.5,0.03,,0.2375,0.25,42,,referência barata; sem harness no Meister
+Qwen3.8-Flash-Next,-,Alibaba,0.15,0.47,0.02,,0.23,0.37,40,,referência barata; sem harness no Meister
+DeepSeek V4.1 Flash,max,DeepSeek,0.3,1.2,0.006,,0.525,0.27,39,,referência barata; sem harness no Meister
+MiMo-V2.6-Flash,-,Xiaomi,0.14,0.28,0.0,,0.175,0.06,38,,referência barata; sem harness no Meister
+Gemini 3.5 Flash-Lite,-,Google,0.3,2.5,0.03,,0.85,0.12,22,,referência barata; sem harness no Meister
+TypeSafe Jev 1.13,-,TypeSafe,0.042,0.0,,,0.042,,,"(jev, só decisões)",preço do endpoint no OpenRouter; não está no Artificial Analysis; saída grátis

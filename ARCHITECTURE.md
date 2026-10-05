@@ -21,9 +21,9 @@ flowchart TD
     end
 
     subgraph Workers["3. Subagentes Workers (Implementers)"]
-        Luna["🌙 GPT-6 Luna ($0.077/M)<br/>Workers Small/Medium"]
+        Luna["🌙 GPT-6 Luna ($0.20/M)<br/>Workers Small/Medium"]
         Haiku["⚡ Claude 4.5 Haiku ($0.77/M)<br/>Workers Rápidos"]
-        Gemini["✨ Gemini 3.8 Flash ($0.577/M)<br/>Deep Reasoning & Hard Code"]
+        Gemini["✨ Gemini 3.8 Flash ($1.50/M)<br/>Deep Reasoning & Hard Code"]
     end
 
     subgraph Verification["4. Verificação Determinística"]
@@ -70,10 +70,10 @@ O MeisterRouter implementa o módulo `meister.worker` (`NativeWorker`), eliminan
 [Invocação Worker]
        │
        ▼
-1. Worker Primário: GPT-6 Luna ($0.077/M tokens)
+1. Worker Primário: GPT-6 Luna ($0.20/M tokens)
        │  (se indisponível, timeout ou erro 400/404/rate-limit)
        ▼
-2. Escalonamento Imediato: Gemini 3.8 Flash ($0.577/M tokens)
+2. Escalonamento Imediato: Gemini 3.8 Flash ($1.50/M tokens)
        │  (se indisponível ou falha)
        ▼
 3. Worker Secundário: Claude 4.5 Haiku ($0.77/M tokens)

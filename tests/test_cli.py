@@ -16,9 +16,8 @@ def test_cli_models():
     assert "agy_gemini_flash" in res.output
     assert "claude_sonnet" in res.output
     assert "$0.200" in res.output
-    assert "$0.077" in res.output
-    assert "$0.577" in res.output
-    assert "$3.000" in res.output
+    assert "$1.500" in res.output
+    assert "$4.000" in res.output
     # ativas primeiro, na ordem do fallback; a desligada (codex_luna) vem ao final
     assert res.output.index("copilot_luna") < res.output.index("agy_gemini_flash")
     assert res.output.index("agy_gemini_flash") < res.output.index("claude_sonnet")

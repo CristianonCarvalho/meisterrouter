@@ -18,11 +18,13 @@ Para toda tarefa de engenharia:
 | Modelo | Papel Principal | Harness / Executável | Custo / 1M tokens |
 |---|---|---|---|
 | **GitHub Copilot CLI** | **Primeira via padrão de implementação** | Copilot CLI (`copilot`) | $0.20 |
-| **GPT-6 Luna (medium)** | **Via Codex de baixo custo** | Codex CLI (`codex`) | **$0.077** |
-| **Gemini 3.8 Flash (medium)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $0.5775 (Líder em Código Difícil) |
-| **Claude Sonnet 5.5 (high)** | **Arquiteto / Planejador** | Claude CLI (`claude`) | $3.00 |
-| **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $15.00 |
-| **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.50 |
+| **GPT-6 Luna (medium)** | **Via Codex de baixo custo** | Codex CLI (`codex`) | **$0.20** |
+| **Gemini 3.8 Flash (high)** | **Raciocínio Profundo / Escalonamento** | Antigravity CLI (`agy`) | $1.50 (Líder em Código Difícil; assinatura subsidiada: o custo efetivo é menor) |
+| **Claude Sonnet 5.5 (high)** | **Arquiteto / Planejador** | Claude CLI (`claude`) | $4.00 |
+| **Claude Opus 5.5** | **Escalonamento Máximo de Raciocínio** | Claude CLI (`claude`) | $8.00 |
+| **TypeSafe Jev-1.13** | **Juiz de Máquina de Estados / Router** | OpenRouter (Somente Decisões) | $0.042 (só entrada; saída grátis) |
+
+> 💲 **Custos:** preço combinado 3:1 (3 partes de entrada para 1 de saída) por 1M tokens, conferido no OpenRouter e no Artificial Analysis em 2026-10-05. O esforço de raciocínio não muda o preço por token, só quantos tokens o modelo gasta. Custo por tarefa no Artificial Analysis (benchmark de raciocínio, não o nosso trabalho de código): Sonnet 5.5 high US$ 1,12, Gemini 3.8 Flash high US$ 1,24, Luna high US$ 0,03. O Gemini via `agy` é coberto por assinatura subsidiada, por isso permanece como via de escalonamento. Tabela completa para estudo: `docs/MODELOS_E_CUSTOS.md` (dados em `docs/modelos_e_custos.csv`).
 
 > 🔒 **ISOLAMENTO OPENROUTER:** A API OpenRouter é utilizada EXCLUSIVAMENTE pelo JEV para decisões determinísticas (`classify` e `control`). Os workers NUNCA consomem tokens no OpenRouter; executam através dos respectivos harnesses instalados (`codex`, `agy`, `claude`, `copilot`).
 > O catálogo efetivo vive em `meister/default_config.yaml` / `meister.config.yaml`.
