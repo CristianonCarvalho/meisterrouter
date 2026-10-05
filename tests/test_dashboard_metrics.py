@@ -412,6 +412,14 @@ def test_dashboard_template_keeps_the_events_table_readable_and_safe():
     assert "classify sem tarefa associada" in html
 
 
+def test_dashboard_template_shows_run_column_only_in_all_runs_view():
+    """Em "Todos os runs" os task_ids se repetem entre runs: a coluna Run diferencia as linhas."""
+    html = (Path(__file__).resolve().parents[1] / "meister" / "dashboard" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert '<th id="run-col" hidden>Run</th>' in html
+    assert 'renderTasks(summary.tasks, summary.meta.run_id === "all")' in html
+    assert "runCell(task.run_id)" in html
+
+
 def test_query_events_breaks_timestamp_ties_by_log_position():
     stamp = "2026-10-03T17:00:00+00:00"
     events = [
