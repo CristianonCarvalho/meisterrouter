@@ -235,6 +235,46 @@ def test_api_summary_prices_copilot_credits_and_survives_bad_config(dashboard_cl
     assert broken_config_summary["report"]["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.46
 
 
+def test_api_summary_reprices_with_current_catalog_and_sums_all_runs(dashboard_client, monkeypatch):
+    from meister import config as config_module
+    from meister.dashboard import server
+
+    client, log_dir = dashboard_client
+    cfg = config_module.MeisterConfig()
+    gemini = next(t for t in cfg.workers.tier_order if t.name == "agy_gemini_flash")
+    gemini.cost_per_m_tokens = 1.5
+    cfg.workers.tier_order[0].name = "copilot_luna"
+    cfg.workers.tier_order[0].credit_usd = 0.01
+    monkeypatch.setattr(server, "load_config", lambda: cfg)
+    events = []
+    for run, credits in (("run-a", 7.16), ("run-b", 3.42)):
+        events += [
+            event("orchestration_start", run=run, task="orchestrator"),
+            event(
+                "subtask_completed", run=run, tier="agy_gemini_flash", task="gem",
+                tokens_in=288094, tokens_out=20571, tokens_total=308665,
+                cost=0.1781, cost_source="estimated",
+            ),
+            event(
+                "subtask_completed", run=run, tier="copilot_luna", task="cop",
+                cost=0.46, cost_source="estimated", credits=credits,
+            ),
+            event("orchestration_end", run=run, task="orchestrator", status="completed"),
+        ]
+    write_log(log_dir, events)
+
+    one = client.get("/api/summary?run_id=run-a").get_json()
+    assert one["report"]["by_tier"]["agy_gemini_flash"]["cost_known_usd"] == 0.462998
+    assert one["all_runs_cost"] is None
+
+    everything = client.get("/api/summary?run_id=all").get_json()
+    assert everything["report"] is None
+    by_tier = everything["all_runs_cost"]["by_tier"]
+    assert by_tier["agy_gemini_flash"]["cost_known_usd"] == 0.925996
+    assert by_tier["copilot_luna"]["cost_known_usd"] == 0.1058
+    assert by_tier["copilot_luna"]["events_unknown"] == 0
+
+
 @pytest.mark.parametrize("query", [
     "?limit=nope", "?offset=-1", "?limit=501", "?order=invalid",
 ])
