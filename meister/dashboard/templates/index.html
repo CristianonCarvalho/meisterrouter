@@ -60,6 +60,10 @@
   th, td { padding: 9px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
   th { color: var(--muted); text-transform: uppercase; font: 600 10px -apple-system, sans-serif; }
   tbody tr:hover { background: var(--hover); }
+tbody tr.run-row { background: hsl(var(--run-hue) 38% 13%); }
+tbody tr.run-row.run-row-alt { background: hsl(var(--run-hue) 38% 17%); }
+tbody tr.run-row:hover { background: hsl(var(--run-hue) 42% 22%); }
+tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 65% 55%); }
   .badge { display: inline-block; padding: 3px 7px; border-radius: 6px; background: #252c3e; }
   .completed { color: var(--green); } .failed { color: var(--red); } .reused { color: var(--cyan); }
   .running { color: var(--yellow); } .unknown { color: var(--muted); }
@@ -318,8 +322,17 @@
     const body = byId("tasks-body");
     byId("run-col").hidden = !showRun;
     body.replaceChildren();
+    const runHue = {};
+    const runCount = {};
     tasks.forEach((task) => {
       const row = document.createElement("tr");
+      if (showRun) {
+        // Um matiz por run (na ordem em que aparecem) e tom alternado entre as linhas do mesmo run.
+        if (!(task.run_id in runHue)) runHue[task.run_id] = (210 + Object.keys(runHue).length * 67) % 360;
+        runCount[task.run_id] = (runCount[task.run_id] || 0) + 1;
+        row.className = runCount[task.run_id] % 2 ? "run-row" : "run-row run-row-alt";
+        row.style.setProperty("--run-hue", String(runHue[task.run_id]));
+      }
       const status = make("span", task.status, `badge ${task.status}`);
       const taskCell = make("div");
       taskCell.append(make("div", task.title || task.task_id, "task-title"));
