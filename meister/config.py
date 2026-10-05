@@ -108,6 +108,7 @@ class WorkerTier:
     max_parallel: Optional[int] = None
     idle_timeout_seconds: Optional[float] = None
     max_runtime_seconds: Optional[float] = None
+    credit_usd: Optional[float] = None
 
 
 def _all_default_worker_tiers() -> List[WorkerTier]:
@@ -123,6 +124,7 @@ def _all_default_worker_tiers() -> List[WorkerTier]:
             max_parallel=item.get("max_parallel"),
             idle_timeout_seconds=item.get("idle_timeout_seconds"),
             max_runtime_seconds=item.get("max_runtime_seconds"),
+            credit_usd=item.get("credit_usd"),
         )
         for item in _default_config_data()["workers"]["tier_order"]
     ]
@@ -356,6 +358,25 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                 raw_max_parallel = tier.get("max_parallel")
                 raw_idle_timeout = tier.get("idle_timeout_seconds")
                 raw_max_runtime = tier.get("max_runtime_seconds")
+                raw_credit_usd = tier.get("credit_usd")
+                credit_usd = None
+                if raw_credit_usd is not None:
+                    if (
+                        isinstance(raw_credit_usd, bool)
+                        or not isinstance(raw_credit_usd, (int, float))
+                        or not math.isfinite(raw_credit_usd)
+                        or raw_credit_usd <= 0
+                    ):
+                        parse_issues.append(
+                            ConfigIssue(
+                                "error",
+                                f"workers.tier_order[{i}].credit_usd",
+                                "deve ser número finito > 0 (booleanos não são aceitos), "
+                                f"recebido: {raw_credit_usd!r}",
+                            )
+                        )
+                    else:
+                        credit_usd = float(raw_credit_usd)
                 tier_idle_timeout = (
                     None
                     if raw_idle_timeout is None
@@ -410,6 +431,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     max_parallel=raw_max_parallel,
                     idle_timeout_seconds=tier_idle_timeout,
                     max_runtime_seconds=tier_max_runtime,
+                    credit_usd=credit_usd,
                 )
                 if enabled_val:
                     tier_list.append(tier_obj)
@@ -793,6 +815,22 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     # 2. nome de via vazio ou repetido
     seen_names: Set[str] = set()
     for i, tier in enumerate(config.workers.tier_order):
+        if tier.credit_usd is not None and (
+            isinstance(tier.credit_usd, bool)
+            or not isinstance(tier.credit_usd, (int, float))
+            or not math.isfinite(tier.credit_usd)
+            or tier.credit_usd <= 0
+        ):
+            path = f"workers.tier_order[{i}].credit_usd"
+            if not any(issue.path == path for issue in issues):
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        "deve ser número finito > 0 (booleanos não são aceitos), "
+                        f"recebido: {tier.credit_usd!r}",
+                    )
+                )
         for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
             value = getattr(tier, field_name)
             if value is not None and (
@@ -834,6 +872,22 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             seen_names.add(tier.name)
 
     for j, tier in enumerate(config.workers.disabled):
+        if tier.credit_usd is not None and (
+            isinstance(tier.credit_usd, bool)
+            or not isinstance(tier.credit_usd, (int, float))
+            or not math.isfinite(tier.credit_usd)
+            or tier.credit_usd <= 0
+        ):
+            path = f"workers.disabled[{j}].credit_usd"
+            if not any(issue.path == path for issue in issues):
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        "deve ser número finito > 0 (booleanos não são aceitos), "
+                        f"recebido: {tier.credit_usd!r}",
+                    )
+                )
         for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
             value = getattr(tier, field_name)
             if value is not None and (

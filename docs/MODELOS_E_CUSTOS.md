@@ -104,6 +104,8 @@ para custo por tarefa e índice de inteligência. Os preços por token dos dois 
 O catálogo **superestima** o gasto: o uso real é cerca de 98% entrada, e a maior parte é cache de leitura (US$ 0,01 por 1M no Luna), que o preço
 combinado não conhece. Para o Copilot, os créditos × US$ 0,01 são a medida fiel. Cada chamada, mesmo trivial, consome 15 a 29 mil tokens de entrada
 (contexto do projeto).
+O `meister report` e o dashboard agora calculam o custo do Copilot a partir dos créditos registrados pelo CLI.
+O preço por crédito (`credit_usd`) fica no catálogo de vias da configuração; a estimativa do catálogo não é usada quando há créditos.
 
 ## Lacunas
 - O **Coding Agent Index** do Artificial Analysis não foi coletado (só o Intelligence Index e o custo por tarefa).

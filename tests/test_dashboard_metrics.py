@@ -204,6 +204,37 @@ def test_api_meta_runs_summary_events_and_html(dashboard_client):
     assert "innerHTML" not in html
 
 
+def test_api_summary_prices_copilot_credits_and_survives_bad_config(dashboard_client, monkeypatch):
+    from meister import config as config_module
+    from meister.dashboard import server
+
+    client, log_dir = dashboard_client
+    cfg = config_module.MeisterConfig()
+    cfg.workers.tier_order[0].name = "copilot_luna"
+    cfg.workers.tier_order[0].credit_usd = 0.01
+    monkeypatch.setattr(server, "load_config", lambda: cfg)
+    write_log(log_dir, [
+        event("orchestration_start", task="orchestrator"),
+        event(
+            "subtask_completed",
+            tier="copilot_luna",
+            task="copilot",
+            cost=0.46,
+            cost_source="estimated",
+            credits=7.16,
+        ),
+        event("orchestration_end", task="orchestrator", status="completed"),
+    ])
+
+    summary = client.get("/api/summary").get_json()
+    assert summary["report"]["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.0716
+
+    monkeypatch.setattr(server, "load_config", lambda: (_ for _ in ()).throw(ValueError("bad config")))
+    broken_config_summary = client.get("/api/summary").get_json()
+    assert broken_config_summary["totals"]["completed"] == 1
+    assert broken_config_summary["report"]["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.46
+
+
 @pytest.mark.parametrize("query", [
     "?limit=nope", "?offset=-1", "?limit=501", "?order=invalid",
 ])
@@ -441,9 +472,10 @@ def test_api_summary_exposes_the_run_report_with_unknown_costs_and_phases(dashbo
     report = client.get("/api/summary").get_json()["report"]
     assert report["peak_parallel_workers"] == 2
     assert report["by_tier"]["claude_sonnet"]["cost_known_usd"] == 0.05
-    # custo desconhecido NÃO vira zero: sem valor conhecido e contado à parte
-    assert report["by_tier"]["copilot_luna"]["cost_known_usd"] is None
-    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 1
+    assert report["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.0019
+    assert report["by_tier"]["copilot_luna"]["cost_reported_usd"] == 0.0019
+    assert report["by_tier"]["copilot_luna"]["credits_usd"] == 0.0019
+    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 0
     assert report["by_tier"]["copilot_luna"]["credits"] == 0.19
     assert client.get("/api/summary?run_id=all").get_json()["report"] is None
 

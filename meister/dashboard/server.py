@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from flask import Flask, jsonify, render_template, request
 
+from meister.config import load_config
 from meister.dashboard.metrics import (
     compute_summary,
     event_type,
@@ -42,6 +43,18 @@ def project_from_log(log_file: str, project_root: Optional[str] = None) -> Dict[
 
 def _read_events() -> List[Dict[str, Any]]:
     return list(iter_events(get_log_file()))
+
+
+def _credit_prices() -> Dict[str, float]:
+    try:
+        config = load_config()
+    except Exception:
+        return {}
+    return {
+        tier.name: tier.credit_usd
+        for tier in [*config.workers.tier_order, *config.workers.disabled]
+        if tier.credit_usd is not None
+    }
 
 
 def compute_metrics(events: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -121,7 +134,8 @@ def api_summary():
     # Custo, tokens, créditos e tempo por fase vêm do mesmo cálculo do `meister report`.
     selected = summary["meta"]["run_id"]
     summary["report"] = (
-        compute_run_report(events, selected) if selected and selected != "all" else None
+        compute_run_report(events, selected, credit_prices=_credit_prices())
+        if selected and selected != "all" else None
     )
     return jsonify(summary)
 

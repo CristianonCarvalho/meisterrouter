@@ -212,6 +212,18 @@ def catalog_cost(
         from meister.config import load_config
 
         config = load_config()
+    tier = _find_tier(key, config)
+    if tier is None:
+        return None
+    total_tokens = (tokens_in or 0) + (tokens_out or 0)
+    return round(total_tokens / 1_000_000 * tier.cost_per_m_tokens, 6)
+
+
+def _find_tier(key: str, config: Optional[Any] = None) -> Optional[Any]:
+    if config is None:
+        from meister.config import load_config
+
+        config = load_config()
     lookup = key.casefold().strip()
     if not lookup:
         return None
@@ -219,10 +231,7 @@ def catalog_cost(
     tier = next((item for item in tiers if item.name.casefold().strip() == lookup), None)
     if tier is None:
         tier = next((item for item in tiers if item.model.casefold().strip() == lookup), None)
-    if tier is None:
-        return None
-    total_tokens = (tokens_in or 0) + (tokens_out or 0)
-    return round(total_tokens / 1_000_000 * tier.cost_per_m_tokens, 6)
+    return tier
 
 
 def finalize_usage(
@@ -232,6 +241,14 @@ def finalize_usage(
 ) -> WorkerUsage:
     if usage.cost_source == "reported":
         return usage
+    if usage.credits is not None:
+        tier = _find_tier(tier_key, config)
+        if tier is not None and tier.credit_usd is not None:
+            return replace(
+                usage,
+                cost_usd=round(usage.credits * tier.credit_usd, 6),
+                cost_source="reported",
+            )
     tokens_in = usage.tokens_in
     tokens_out = usage.tokens_out
     if tokens_in is None and tokens_out is None and usage.tokens_total is not None:
