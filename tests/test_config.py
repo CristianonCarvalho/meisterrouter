@@ -137,6 +137,34 @@ workers:
     assert tier.name == ""
     assert tier.harness == ""
     assert tier.model == ""
+    assert tier.credit_usd is None
+
+
+@pytest.mark.parametrize("value", ["0", "-1", '"x"', "true", ".inf"])
+def test_worker_credit_price_invalid_values_report_validation_error(tmp_path, value):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "invalid_credit_price.yaml"
+    config_yaml.write_text(
+        f"workers:\n  tier_order:\n    - name: copilot\n      credit_usd: {value}\n"
+    )
+    config = load_config(str(config_yaml))
+    issues = validate_config(config)
+
+    assert config.workers.tier_order[0].credit_usd is None
+    assert any(
+        issue.level == "error"
+        and issue.path == "workers.tier_order[0].credit_usd"
+        for issue in issues
+    )
+
+
+def test_default_worker_credit_prices():
+    config = load_config()
+    tiers = {tier.name: tier for tier in [*config.workers.tier_order, *config.workers.disabled]}
+
+    assert tiers["copilot_luna"].credit_usd == 0.01
+    assert tiers["codex_luna"].credit_usd is None
 
 def test_worker_max_parallel_parsing_and_validation(tmp_path):
     from meister.config import validate_config

@@ -34,6 +34,8 @@ def test_cli_config_show_default():
     assert "(declarado; ainda nao conectado a nenhum fluxo)" in result.output
     assert "Vias ativas (tier_order):" in result.output
     assert "copilot_luna" in result.output
+    assert "Credit USD" in result.output
+    assert "0.01" in result.output
     assert "agy_gemini_flash" in result.output
     assert "claude_sonnet" in result.output
     # codex_luna vem desligada por padrao (creditos do Codex limitados)
@@ -91,6 +93,11 @@ def test_cli_config_show_json():
         "copilot_luna", "agy_gemini_flash", "claude_sonnet"
     ]
     assert [tier["name"] for tier in data["workers"]["disabled"]] == ["codex_luna"]
+    assert next(
+        tier["credit_usd"] for tier in data["workers"]["tier_order"]
+        if tier["name"] == "copilot_luna"
+    ) == 0.01
+    assert data["workers"]["disabled"][0]["credit_usd"] is None
     assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
     assert data["workers"]["idle_timeout_seconds"] == 600
     assert data["workers"]["max_runtime_seconds"] == 3600

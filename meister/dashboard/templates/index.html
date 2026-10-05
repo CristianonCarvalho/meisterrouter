@@ -365,7 +365,7 @@
     const cost = workerCostTotals(report);
     addCard(container, "Custo dos workers", report ? formatCost(cost.known, cost.unknown) : "—",
       !report ? "selecione um run"
-        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido` : "reportado + estimado (catálogo)");
+        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido` : "reportado (inclui créditos) + estimado (catálogo)");
     addCard(container, "Overhead do orquestrador", report ? formatPercent(report.overhead_ratio) : "—",
       report ? `relógio ${formatSeconds(report.wall_seconds)} · worker ${formatSeconds(report.worker_seconds_union)}` : "selecione um run");
     addCard(container, "Pico de workers", report ? formatCount(report.peak_parallel_workers) : "—",

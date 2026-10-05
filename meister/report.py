@@ -73,6 +73,7 @@ def compute_run_report(
     events: Iterable[Dict[str, Any]],
     run_id: str,
     tier_prices: Optional[Dict[str, float]] = None,
+    credit_prices: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Compute comparable run metrics from already-loaded events, without side effects."""
     all_events = list(events)
@@ -177,6 +178,8 @@ def compute_run_report(
 
     by_tier: Dict[str, Dict[str, Any]] = {}
     prices = tier_prices or {}
+    credits_prices = credit_prices or {}
+    credited_tiers = set()
     for event in selected:
         if event_type(event) != "subtask_completed":
             continue
@@ -189,6 +192,7 @@ def compute_run_report(
                 "tokens_out": [],
                 "tokens_total": [],
                 "credits": [],
+                "credits_usd": [],
                 "cost_reported_usd": [],
                 "cost_estimated_usd": [],
                 "events_unknown": 0,
@@ -200,29 +204,41 @@ def compute_run_report(
             value = _number(event.get(key))
             if value is not None:
                 row[key].append(value)
+        credits = _number(event.get("credits"))
+        credit_price = _number(credits_prices.get(tier))
+        credit_cost = (
+            credits * credit_price
+            if credits is not None and credit_price is not None and credit_price > 0
+            else None
+        )
+        if credit_cost is not None:
+            row["credits_usd"].append(credit_cost)
+            row["cost_reported_usd"].append(credit_cost)
+            credited_tiers.add(tier)
         source = event.get("cost_source")
         cost = _number(event.get("cost"))
         if cost is None:
             cost = _number(event.get("cost_usd"))
-        if source == "reported":
-            if cost is not None:
-                row["cost_reported_usd"].append(cost)
-        elif source == "estimated":
-            token_total = _number(event.get("tokens_total"))
-            if token_total is None:
-                token_in = _number(event.get("tokens_in"))
-                token_out = _number(event.get("tokens_out"))
-                if token_in is not None or token_out is not None:
-                    token_total = (token_in or 0.0) + (token_out or 0.0)
-            catalog_price = _number(prices.get(tier))
-            estimated = (
-                token_total * catalog_price / 1_000_000.0
-                if token_total is not None and catalog_price is not None else cost
-            )
-            if estimated is not None:
-                row["cost_estimated_usd"].append(estimated)
-        else:
-            row["events_unknown"] += 1
+        if credit_cost is None:
+            if source == "reported":
+                if cost is not None:
+                    row["cost_reported_usd"].append(cost)
+            elif source == "estimated":
+                token_total = _number(event.get("tokens_total"))
+                if token_total is None:
+                    token_in = _number(event.get("tokens_in"))
+                    token_out = _number(event.get("tokens_out"))
+                    if token_in is not None or token_out is not None:
+                        token_total = (token_in or 0.0) + (token_out or 0.0)
+                catalog_price = _number(prices.get(tier))
+                estimated = (
+                    token_total * catalog_price / 1_000_000.0
+                    if token_total is not None and catalog_price is not None else cost
+                )
+                if estimated is not None:
+                    row["cost_estimated_usd"].append(estimated)
+            else:
+                row["events_unknown"] += 1
         row["approx"] = row["approx"] or event.get("approx") is True
 
     for row in by_tier.values():
@@ -232,11 +248,19 @@ def compute_run_report(
         for key in ("cost_reported_usd", "cost_estimated_usd"):
             values = row[key]
             row[key] = round(sum(values), 6) if values else None
+        credits_usd = row["credits_usd"]
+        row["credits_usd"] = round(sum(credits_usd), 6) if credits_usd else None
         known_costs = [
             value for value in (row["cost_reported_usd"], row["cost_estimated_usd"])
             if value is not None
         ]
         row["cost_known_usd"] = round(sum(known_costs), 6) if known_costs else None
+    for tier in sorted(credited_tiers):
+        notes.append(
+            f"custo de {tier} calculado por créditos × US$ "
+            f"{credits_prices[tier]:g} (cobrança); "
+            "a estimativa de catálogo não foi usada"
+        )
 
     return {
         "run_id": run_id,
@@ -414,6 +438,10 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
             add(f"{tier} {label}", [
                 _display(report["by_tier"].get(tier, {}).get(metric)) for report in reports
             ])
+        add(f"{tier} créditos (US$)", [
+            _money(report["by_tier"].get(tier, {}).get("credits_usd"))
+            for report in reports
+        ])
         add(f"{tier} US$", [
             _money(
                 report["by_tier"][tier]["cost_known_usd"],

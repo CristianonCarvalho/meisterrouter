@@ -113,6 +113,38 @@ def test_catalog_estimates_only_configured_routes_and_finalizes_reported_usage()
     assert reported.cost_source == "reported"
 
 
+def test_copilot_credits_override_catalog_only_when_credit_price_is_configured():
+    fixture = FIXTURES / "copilot.out"
+    _, usage = parse_copilot_text(fixture.read_text())
+    config = _catalog_config()
+    config.workers.tier_order[0].name = "copilot-route"
+    config.workers.tier_order[0].credit_usd = 0.01
+
+    priced = finalize_usage(usage, "copilot-route", config)
+    assert priced.cost_usd == 0.0015
+    assert priced.cost_source == "reported"
+    assert priced.credits == 0.15
+
+    config.workers.tier_order[0].credit_usd = None
+    estimated = finalize_usage(usage, "copilot-route", config)
+    assert estimated.cost_source == "estimated"
+    assert estimated.cost_usd == 0.02341
+
+    outside = finalize_usage(usage, "outside", config)
+    assert outside.cost_source == "unknown"
+    assert outside.cost_usd is None
+
+
+def test_other_reported_usage_is_not_overridden_by_credit_price():
+    config = _catalog_config()
+    config.workers.tier_order[0].credit_usd = 0.01
+    claude = WorkerUsage(
+        credits=20, cost_usd=0.0026178, cost_source="reported", tokens_in=1
+    )
+
+    assert finalize_usage(claude, "route", config) == claude
+
+
 @pytest.mark.parametrize(
     ("route", "harness", "fixture", "response", "expected"),
     [

@@ -370,11 +370,18 @@ def report(run_ids, groups, log_dir, output_format):
 
     cfg = load_config()
     tier_prices = {tier.name: tier.cost_per_m_tokens for tier in cfg.workers.tier_order}
+    credit_prices = {
+        tier.name: tier.credit_usd
+        for tier in [*cfg.workers.tier_order, *cfg.workers.disabled]
+        if tier.credit_usd is not None
+    }
     all_ids = list(dict.fromkeys(resolved_runs + [
         run_id for _, member_ids in resolved_groups for run_id in member_ids
     ]))
     reports = {
-        run_id: compute_run_report(events, run_id, tier_prices=tier_prices)
+        run_id: compute_run_report(
+            events, run_id, tier_prices=tier_prices, credit_prices=credit_prices
+        )
         for run_id in all_ids
     }
     group_reports = []
@@ -1509,6 +1516,7 @@ def config_show(config_path, json_format):
                     {
                         "best_for": t.best_for,
                         "cost_per_m_tokens": t.cost_per_m_tokens,
+                        "credit_usd": t.credit_usd,
                         "enabled": False,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
@@ -1524,6 +1532,7 @@ def config_show(config_path, json_format):
                     {
                         "best_for": t.best_for,
                         "cost_per_m_tokens": t.cost_per_m_tokens,
+                        "credit_usd": t.credit_usd,
                         "enabled": True,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
@@ -1576,27 +1585,29 @@ def config_show(config_path, json_format):
     click.echo(f"  Timeout por inatividade (segundos): {cfg.workers.idle_timeout_seconds}")
     click.echo(f"  Runtime máximo (segundos): {cfg.workers.max_runtime_seconds}")
     if cfg.workers.tier_order:
-        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12}"
+        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, t in enumerate(cfg.workers.tier_order):
             max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
             idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
             max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
-            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12}")
+            credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
+            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10}")
     else:
         click.echo("  (nenhuma via ativa)")
 
     click.echo("\nVias desabilitadas:")
     if cfg.workers.disabled:
-        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12}"
+        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for t in cfg.workers.disabled:
             max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
             idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
             max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
-            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12}")
+            credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
+            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10}")
     else:
         click.echo("  (nenhuma)")
 
