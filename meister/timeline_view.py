@@ -6,7 +6,7 @@ import colorsys
 import math
 import re
 from dataclasses import dataclass
-from datetime import datetime, tzinfo
+from datetime import datetime, timedelta, tzinfo
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from meister.timeline import TaskRow, Timeline
@@ -37,6 +37,7 @@ PALETTE: Dict[str, RGB] = {
     "replay": (90, 150, 255),
     "paused": (240, 200, 60),
 }
+JEV: RGB = (255, 105, 180)
 VIA_COLORS: Tuple[RGB, ...] = (
     (70, 200, 220),
     (255, 160, 60),
@@ -336,6 +337,7 @@ def _render_task_lines(
     hue: int,
     row_offset: int,
     row_count: int,
+    row_index_offset: int = 0,
 ) -> Tuple[List[str], int]:
     rows = timeline.rows[row_offset : row_offset + row_count]
     slowest = slowest_task_id(timeline)
@@ -343,7 +345,7 @@ def _render_task_lines(
     for index, row in enumerate(rows):
         position = via_index.get(row.tier or "")
         via_color = VIA_COLORS[position % len(VIA_COLORS)] if position is not None else None
-        background = _row_bg(hue, index) if color != "none" else None
+        background = _row_bg(hue, row_index_offset + index) if color != "none" else None
         pieces: List[Piece] = [(_label(row), PALETTE["text"], False), (" ", None, False)]
         pieces += _bar_pieces(row, t0, span, bar_width, now_eff, tick)
         pieces.append((" ", None, False))
@@ -351,6 +353,44 @@ def _render_task_lines(
         lines.append(painter.line(pieces, width, background))
     hidden = max(0, len(timeline.rows) - (row_offset + len(rows)))
     return lines, hidden
+
+
+def _render_jev_line(
+    painter: Painter,
+    timeline: Timeline,
+    *,
+    t0: datetime,
+    span: float,
+    bar_width: int,
+    width: int,
+    color: str,
+    hue: int,
+) -> str:
+    cells = [" "] * bar_width
+
+    def column(moment: datetime) -> int:
+        return max(0, min(bar_width - 1, int((moment - t0).total_seconds() / span * bar_width)))
+
+    for call in timeline.jev.calls:
+        if call.end < t0 or call.start > t0 + timedelta(seconds=span):
+            continue
+        first, last = column(call.start), column(call.end)
+        if first > last:
+            continue
+        for index in range(first, last):
+            if cells[index] == " ":
+                cells[index] = "━"
+        cells[last] = "◆"
+
+    # o custo vai no rótulo (a coluna de info é estreita e cortaria o valor)
+    label = _fit(f"jev · US$ {timeline.jev.cost_usd:.4f}", LABEL_W)
+    info = f"{timeline.jev.classify_count} classify · {timeline.jev.control_count} control"
+    pieces: List[Piece] = [(label, JEV, False), (" ", None, False)]
+    pieces.append(("".join(cells), JEV, False))
+    pieces.append((" ", None, False))
+    pieces.append((info[:INFO_W], JEV, False))
+    background = _row_bg(hue, 0) if color != "none" else None
+    return painter.line(pieces, width, background)
 
 
 def render_frame(
@@ -433,8 +473,27 @@ def render_frame(
         )
     )
 
-    visible = max(1, height - CHROME_ROWS)
-    rows, hidden = _render_task_lines(
+    lane_count = int(bool(timeline.jev.calls))
+    total_rows = lane_count + len(timeline.rows)
+    visible = max(0, height - CHROME_ROWS)
+    offset = min(max(0, view.row_offset), max(0, total_rows - visible))
+    lane_visible = lane_count and offset == 0 and visible > 0
+    if lane_visible:
+        lines.append(
+            _render_jev_line(
+                painter,
+                timeline,
+                t0=t0,
+                span=span,
+                bar_width=bar_width,
+                width=width,
+                color=color,
+                hue=hue,
+            )
+        )
+    task_offset = max(0, offset - lane_count)
+    task_capacity = max(0, visible - int(bool(lane_visible)))
+    rows, _ = _render_task_lines(
         painter,
         timeline,
         t0=t0,
@@ -446,10 +505,12 @@ def render_frame(
         via_index=via_index,
         color=color,
         hue=hue,
-        row_offset=view.row_offset,
-        row_count=visible,
+        row_offset=task_offset,
+        row_count=task_capacity,
+        row_index_offset=lane_count + task_offset if lane_count else 0,
     )
     lines.extend(rows)
+    hidden = max(0, total_rows - offset - visible)
 
     lines.append(painter.paint("─" * width, dim))
     legend: List[Piece] = []
@@ -467,7 +528,7 @@ def render_frame(
         else f" Gerado às {_clock(now, tz)} · use `meister timeline` para o modo interativo"
     )
     lines.append(painter.line([(keys, dim, False)], width))
-    return "\n".join(lines)
+    return "\n".join(lines[: max(0, height)])
 
 
 def _all_badge(timelines: Sequence[Timeline], view: View, tick: int) -> Tuple[str, RGB, bool]:
@@ -486,7 +547,7 @@ def _run_duration(timeline: Timeline, now: datetime) -> str:
 
 
 def all_body_line_count(timelines: Sequence[Timeline]) -> int:
-    return sum(2 + len(timeline.rows) for timeline in timelines)
+    return sum(2 + len(timeline.rows) + bool(timeline.jev.calls) for timeline in timelines)
 
 
 def render_all(
@@ -588,6 +649,19 @@ def render_all(
                 relative=True,
             )
         )
+        if timeline.jev.calls:
+            body.append(
+                _render_jev_line(
+                    painter,
+                    timeline,
+                    t0=t0,
+                    span=span,
+                    bar_width=bar_width,
+                    width=width,
+                    color=color,
+                    hue=(210 + 67 * run_index) % 360,
+                )
+            )
         task_lines, _ = _render_task_lines(
             painter,
             timeline,
@@ -602,6 +676,7 @@ def render_all(
             hue=(210 + 67 * run_index) % 360,
             row_offset=0,
             row_count=len(timeline.rows),
+            row_index_offset=int(bool(timeline.jev.calls)),
         )
         body.extend(task_lines)
 

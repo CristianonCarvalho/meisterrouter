@@ -401,6 +401,22 @@ def test_jev_events_with_logical_ids_link_to_their_task():
     assert list_runs(events)[0]["tasks"] == 3
 
 
+def test_task_tier_ignores_final_jev_control_without_changing_jev_metrics():
+    events = [
+        event("classify", task="fix_28", tier="jev", classification="SMALL", duration_ms=1000, cost=0.01),
+        event("route_decision", task="fix_28", tier="agy_gemini_flash"),
+        event("worker_spawn", task="fix_28", tier="agy_gemini_flash"),
+        event("subtask_completed", task="fix_28", tier="agy_gemini_flash", cost=0.2),
+        event("control", task="fix_28", tier="jev", action="COMPLETE", duration_ms=500, cost_usd=0.02),
+    ]
+    summary = compute_summary(events, "run-a")
+    assert summary["tasks"][0]["tier"] == "agy_gemini_flash"
+    assert summary["jev"]["classify_calls"] == 1
+    assert summary["jev"]["control_calls"] == 1
+    assert summary["jev"]["cost_usd"] == pytest.approx(0.03)
+    assert summary["workers"]["cost_usd"] == pytest.approx(0.2)
+
+
 def test_dashboard_template_keeps_the_events_table_readable_and_safe():
     """Regressao visual: colunas curtas fixas e em uma linha (o `overflow-wrap: anywhere` global as reduzia a 1 caractere)."""
     html = (Path(__file__).resolve().parents[1] / "meister" / "dashboard" / "templates" / "index.html").read_text(encoding="utf-8")

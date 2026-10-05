@@ -115,6 +115,28 @@ def test_run_without_events_is_empty_not_an_error():
     timeline = build_timeline([], "r1", at(0))
     assert timeline.rows == [] and timeline.summary.total == 0
     assert timeline.summary.cost_usd is None
+    assert timeline.jev.calls == []
+
+
+def test_jev_lane_tracks_run_calls_cost_duration_and_worker_tier():
+    events = [
+        ev("classify", "fix_28", 2, tier="jev", duration_ms=1500, cost=0.01),
+        ev("route_decision", "fix_28", 3, tier="agy_gemini_flash"),
+        ev("worker_spawn", "fix_28", 4, tier="agy_gemini_flash"),
+        ev("subtask_completed", "fix_28", 8, tier="agy_gemini_flash", cost=0.2),
+        ev("control", "fix_28", 9, tier="jev", duration_ms=2000, cost_usd=0.02),
+        ev("control", "other", 10, run="other", duration_ms=5000, cost=10),
+    ]
+    timeline = build_timeline(events, "r1", at(20))
+    assert _row(timeline, "fix_28").tier == "agy_gemini_flash"
+    assert timeline.jev.classify_count == 1
+    assert timeline.jev.control_count == 1
+    assert timeline.jev.cost_usd == 0.03
+    assert [(call.kind, call.start, call.end, call.task_id) for call in timeline.jev.calls] == [
+        ("classify", at(0.5), at(2), "fix_28"),
+        ("control", at(7), at(9), "fix_28"),
+    ]
+    assert build_timeline([ev("worker_spawn", "task_1", 1, tier="worker")], "r1", at(2)).jev.calls == []
 
 
 def test_dependencies_ignore_non_json_task_text():
@@ -123,3 +145,40 @@ def test_dependencies_ignore_non_json_task_text():
         ev("worker_spawn", "t", 1, tier="x"),
     ]
     assert _row(build_timeline(events, "r1", at(2)), "t").depends_on == []
+
+
+def test_pane_lost_retry_closes_the_abandoned_attempt_without_a_phantom_phase():
+    events = [
+        ev("worker_spawn", "t", 1, tier="x"),
+        phase("t", 5, "worker", 4),
+        ev("worker_retry", "t", 5.1, reason="pane_lost"),
+        ev("worker_spawn", "t", 8, tier="x"),
+        phase("t", 20, "worker", 12),
+        phase("t", 25, "gate", 5),
+        ev("subtask_rejected", "t", 26, reason="gate"),
+    ]
+    timeline = build_timeline(events, "r1", at(60))
+    assert _spans(_row(timeline, "t")) == [
+        ("worker", at(1), at(5)),
+        ("wait", at(5.1), at(8)),
+        ("worker", at(8), at(20)),
+        ("gate", at(20), at(25)),
+        ("integrate", at(25), at(26)),
+    ]
+    assert timeline.summary.peak_parallel == 1  # uma tarefa nunca roda em paralelo consigo mesma
+
+
+def test_announced_retry_without_a_new_attempt_is_running_then_failed_when_the_run_ends():
+    events = [
+        ev("worker_spawn", "t", 1, tier="x"),
+        phase("t", 5, "worker", 4),
+        ev("worker_retry", "t", 5.1, reason="pane_lost"),
+    ]
+    row = _row(build_timeline(events, "r1", at(10)), "t")
+    assert row.status == "running" and row.end is None
+    assert _spans(row)[-1] == ("wait", at(5.1), None) and row.segments[-1].inferred is True
+
+    ended = events + [ev("orchestration_end", "orchestrator", 9, status="failed")]
+    row = _row(build_timeline(ended, "r1", at(100)), "t")
+    assert row.status == "failed" and row.failure == "sem conclusão"
+    assert _spans(row)[-1] == ("wait", at(5.1), at(9))

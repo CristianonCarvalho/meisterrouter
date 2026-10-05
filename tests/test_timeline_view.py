@@ -1,4 +1,5 @@
 from datetime import timezone
+import hashlib
 
 from meister.timeline import build_timeline
 from meister.timeline_view import (
@@ -39,6 +40,78 @@ def test_frame_shows_header_progress_rows_and_states():
     assert "✔" in plain and "▶ worker" in plain
     assert "12:00:00" in plain
     assert max(len(line) for line in plain.splitlines()) <= 120
+
+
+def _timeline_with_jev():
+    events = parallel_events() + [
+        {
+            "event_type": "classify",
+            "run_id": "r1",
+            "task_id": "task_1",
+            "ts": at(3).isoformat(),
+            "duration_ms": 2000,
+            "cost": 0.001,
+        },
+        {
+            "event_type": "control",
+            "run_id": "r1",
+            "task_id": "orchestrator",
+            "ts": at(8).isoformat(),
+            "duration_ms": 1000,
+            "cost_usd": 0.002,
+        },
+    ]
+    return build_timeline(events, "r1", at(30))
+
+
+def test_jev_lane_appears_with_diamonds_info_color_and_bounded_dimensions():
+    timeline = _timeline_with_jev()
+    frame = render_frame(
+        timeline, width=120, height=30, now=at(30), color="truecolor", tz=timezone.utc
+    )
+    plain = strip_ansi(frame)
+    jev_line = next(line for line in plain.splitlines() if line.startswith("jev"))
+    assert "◆" in jev_line
+    assert "1 classify · 1 control" in jev_line
+    assert "US$ " in jev_line  # o custo do Jev aparece inteiro, no rótulo
+    colored_jev = next(line for line in frame.splitlines() if "jev" in strip_ansi(line))
+    assert "\x1b[38;2;255;105;180m" in colored_jev
+    assert "jev" not in strip_ansi(_frame(color="none"))
+    assert max(len(line) for line in plain.splitlines()) <= 120
+    assert len(frame.splitlines()) <= 30
+    assert "jev" in strip_ansi(render_frame(
+        timeline, width=120, height=30, now=at(30), color="none", view=View(row_offset=0)
+    ))
+    scrolled = strip_ansi(render_frame(
+        timeline, width=120, height=9, now=at(30), color="none", view=View(row_offset=1)
+    ))
+    assert not any(line.startswith("jev") for line in scrolled.splitlines())
+    assert any(line.startswith("task_1") for line in scrolled.splitlines())
+
+
+def test_jev_lane_is_included_in_all_runs_blocks_and_scroll_count():
+    timelines = _all_timelines()
+    timelines[0] = _timeline_with_jev()
+    out = render_all(timelines, width=120, height=30, now=at(30), color="truecolor")
+    plain = strip_ansi(out)
+    assert sum(line.startswith("jev") for line in plain.splitlines()) == 1
+    assert all_body_line_count(timelines) == sum(
+        2 + len(item.rows) + bool(item.jev.calls) for item in timelines
+    )
+    assert len(out.splitlines()) <= 30
+    assert max(len(line) for line in plain.splitlines()) <= 120
+
+
+def test_no_jev_frame_stays_unchanged_and_small_frames_respect_height():
+    no_jev = _frame(color="none")
+    assert "jev" not in no_jev
+    # Golden from the pre-Jev renderer for a run without Jev calls.
+    assert hashlib.sha256(no_jev.encode()).hexdigest() == (
+        "9ad342ecd9895bcec209918beed017e26944639d658072bca072ae632c79e2f0"
+    )
+    assert len(render_frame(
+        _timeline_with_jev(), width=120, height=5, now=at(30), color="none"
+    ).splitlines()) <= 5
 
 
 def test_color_none_has_no_escape_sequences_and_truecolor_has_them():
