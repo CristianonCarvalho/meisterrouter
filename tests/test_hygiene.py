@@ -147,3 +147,29 @@ def test_test_environment_isolation_guard():
     abs_wt_dir = os.path.abspath(wt_dir)
     assert not abs_wt_dir.startswith(repo_root), f"WT dir {abs_wt_dir} deve estar isolado fora do repo {repo_root}"
     assert not abs_wt_dir.startswith(home_meister), f"WT dir {abs_wt_dir} deve estar isolado fora de ~/.meister"
+
+
+def test_model_table_matches_catalog():
+    """A tabela de estudo (docs/modelos_e_custos.csv) precisa bater com o catálogo de vias."""
+    import csv
+
+    import yaml
+
+    repo_root = Path(__file__).resolve().parent.parent
+    catalog = yaml.safe_load((repo_root / "meister" / "default_config.yaml").read_text(encoding="utf-8"))
+    rows = list(csv.DictReader((repo_root / "docs" / "modelos_e_custos.csv").open(encoding="utf-8")))
+    assert (repo_root / "docs" / "MODELOS_E_CUSTOS.md").is_file()
+
+    for tier in catalog["workers"]["tier_order"]:
+        matching = [
+            row for row in rows
+            if tier["name"] in [via.strip() for via in row["vias_meister"].split(";")]
+        ]
+        assert matching, f"via {tier['name']} sem linha na tabela de modelos"
+        for row in matching:
+            assert float(row["combinado_3_1_usd_1m"]) == tier["cost_per_m_tokens"], (
+                f"{tier['name']}: catálogo {tier['cost_per_m_tokens']} != tabela {row['combinado_3_1_usd_1m']}"
+            )
+            # o combinado precisa ser (3 * entrada + saída) / 4
+            entrada, saida = float(row["entrada_usd_1m"]), float(row["saida_usd_1m"])
+            assert round((3 * entrada + saida) / 4, 4) == float(row["combinado_3_1_usd_1m"])
