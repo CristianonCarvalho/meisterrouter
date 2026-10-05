@@ -104,7 +104,7 @@
       <h2>Tarefas</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Tarefa</th><th>Status</th><th>Via</th><th>Tentativas</th><th>Duração</th><th>Falha</th><th>Classificação</th><th>Chamadas Jev</th><th>Eventos</th></tr></thead>
+          <thead><tr><th>Tarefa</th><th id="run-col" hidden>Run</th><th>Status</th><th>Via</th><th>Tentativas</th><th>Duração</th><th>Falha</th><th>Classificação</th><th>Chamadas Jev</th><th>Eventos</th></tr></thead>
           <tbody id="tasks-body"></tbody>
         </table>
       </div>
@@ -304,8 +304,19 @@
     return link;
   }
 
-  function renderTasks(tasks) {
+  const runsById = {};
+
+  function runCell(runId) {
+    const run = runsById[runId];
+    const cell = make("div");
+    cell.append(make("div", run && run.started_at ? formatTime(run.started_at) : "—", "task-title"));
+    cell.append(make("div", shortId(runId), "task-id"));
+    return cell;
+  }
+
+  function renderTasks(tasks, showRun) {
     const body = byId("tasks-body");
+    byId("run-col").hidden = !showRun;
     body.replaceChildren();
     tasks.forEach((task) => {
       const row = document.createElement("tr");
@@ -314,7 +325,7 @@
       taskCell.append(make("div", task.title || task.task_id, "task-title"));
       if (task.title) taskCell.append(make("div", task.task_id, "task-id"));
       const cells = [
-        taskCell, status, task.tier || "—", task.attempts, formatDuration(task.duration_s),
+        taskCell, ...(showRun ? [runCell(task.run_id)] : []), status, task.tier || "—", task.attempts, formatDuration(task.duration_s),
         task.failure || "—", task.classification || "—", task.jev_calls
       ];
       cells.forEach((value) => {
@@ -331,7 +342,7 @@
     if (!tasks.length) {
       const row = document.createElement("tr");
       const cell = make("td", "Nenhuma tarefa neste run.");
-      cell.colSpan = 9;
+      cell.colSpan = showRun ? 10 : 9;
       row.append(cell);
       body.append(row);
     }
@@ -372,7 +383,7 @@
       report ? `relógio ${formatSeconds(report.wall_seconds)} · worker ${formatSeconds(report.worker_seconds_union)}` : "selecione um run");
     addCard(container, "Pico de workers", report ? formatCount(report.peak_parallel_workers) : "—",
       report ? `soma de worker ${formatSeconds(report.worker_seconds_sum)}` : "selecione um run");
-    renderTasks(summary.tasks);
+    renderTasks(summary.tasks, summary.meta.run_id === "all");
     const jevCalls = {classify: summary.jev.classify_calls, control: summary.jev.control_calls};
     if (summary.jev.unlinked_classify_calls) {
       jevCalls["classify sem tarefa associada (logs antigos)"] = summary.jev.unlinked_classify_calls;
@@ -471,6 +482,7 @@
     } else {
       warning.hidden = true;
     }
+    runData.runs.forEach((run) => { runsById[run.run_id] = run; });
     const select = byId("run-select");
     const allOption = make("option", "Todos os runs");
     allOption.value = "all";
