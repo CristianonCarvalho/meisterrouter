@@ -412,12 +412,30 @@ def test_dashboard_template_keeps_the_events_table_readable_and_safe():
     assert "classify sem tarefa associada" in html
 
 
+def test_summary_orders_tasks_by_run_recency_then_natural_task_id():
+    events = []
+    # run-z começou ANTES de run-a, mas o id dele vem depois no alfabeto
+    for run, start in (("run-a", "2026-01-02T10:00:00+00:00"), ("run-z", "2026-01-01T08:00:00+00:00")):
+        events.append(event("orchestration_start", run=run, task="orchestrator", ts=start))
+        for task in ("task_10", "task_2", "task_1"):
+            events.append(event("worker_spawn", run=run, task=task, ts=start))
+            events.append(event("subtask_completed", run=run, task=task, ts=start, tier="copilot_luna"))
+        events.append(event("orchestration_end", run=run, task="orchestrator", status="completed", ts=start))
+
+    tasks = compute_summary(events, "all")["tasks"]
+    assert [(t["run_id"], t["task_id"]) for t in tasks] == [
+        ("run-a", "task_1"), ("run-a", "task_2"), ("run-a", "task_10"),
+        ("run-z", "task_1"), ("run-z", "task_2"), ("run-z", "task_10"),
+    ]
+
+
 def test_dashboard_template_shows_run_column_only_in_all_runs_view():
     """Em "Todos os runs" os task_ids se repetem entre runs: a coluna Run diferencia as linhas."""
     html = (Path(__file__).resolve().parents[1] / "meister" / "dashboard" / "templates" / "index.html").read_text(encoding="utf-8")
     assert '<th id="run-col" hidden>Run</th>' in html
     assert 'renderTasks(summary.tasks, summary.meta.run_id === "all")' in html
     assert "runCell(task.run_id)" in html
+    assert "tr.run-row.run-row-alt" in html and 'style.setProperty("--run-hue"' in html
 
 
 def test_query_events_breaks_timestamp_ties_by_log_position():

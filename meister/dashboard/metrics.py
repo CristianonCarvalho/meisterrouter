@@ -270,6 +270,14 @@ def _build_task(
     }
 
 
+def _natural_key(value: str) -> List[Any]:
+    """Chave de ordenação natural: números dentro do id comparam como números."""
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"(\d+)", value) if part
+    ]
+
+
 def compute_summary(
     events: Iterable[Dict[str, Any]],
     run_id: Optional[str],
@@ -295,7 +303,12 @@ def compute_summary(
         _build_task(task_run_id, task_id, task_events, titles.get((task_run_id, task_id), ""))
         for (task_run_id, task_id), task_events in grouped.items()
     ]
-    tasks.sort(key=lambda task: (task["run_id"], task["task_id"]))
+    # Runs do mais recente para o mais antigo (mesma ordem de `list_runs`); dentro do run, ordem natural
+    # dos ids (task_2 antes de task_10).
+    run_position = {run["run_id"]: index for index, run in enumerate(runs)}
+    tasks.sort(key=lambda task: (
+        run_position.get(task["run_id"], len(run_position)), _natural_key(task["task_id"]),
+    ))
     counts = Counter(task["status"] for task in tasks)
     completed_durations = [
         task["duration_s"] for task in tasks
