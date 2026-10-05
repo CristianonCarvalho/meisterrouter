@@ -53,7 +53,7 @@ Quatro unidades pequenas, cada uma com um propósito e testável sozinha:
 (`None` em andamento), `rows`, `summary`.
 
 `TaskRow`: `task_id`, `title`, `tier`, `attempts`, `status` (`waiting`, `running`, `completed`,
-`failed`), `depends_on`, `segments`, `duration_s`, `cost_usd`, `failure`.
+`failed`, `reused`), `depends_on`, `segments`, `start`, `end`, `duration_s`, `failure`.
 
 `Segment`: `phase` (`worker`, `gate`, `lock_wait`, `integrate`, `wait`), `start`, `end` (`None` =
 em andamento), `inferred` (verdadeiro quando a fase atual foi deduzida).
@@ -82,8 +82,10 @@ em andamento), `inferred` (verdadeiro quando a fase atual foi deduzida).
   em `failure`; a barra termina com `✖`.
 - Run sem `orchestration_end` e sem evento recente continua `running` (a tela não adivinha abandono).
 - Paralelismo: pico e média por varredura dos intervalos `[spawn, fim]`, ignorando `wait`.
-- Custo: soma de `cost_usd` de `subtask_completed`, com o mesmo cálculo do relatório do Meister
-  (`compute_run_report`), sem recalcular fórmulas aqui.
+- Custo: só no resumo do run (`summary.cost_usd`), vindo de `compute_run_report` com os preços do
+  catálogo atual (o mesmo cálculo do `meister report` e do dashboard), sem recalcular fórmulas aqui.
+- Run encerrado com tarefa sem conclusão: a tarefa vira `failed` (motivo "sem conclusão") e a barra
+  fecha no fim do run, para o replay não pulsar para sempre.
 
 ### `meister/timeline_view.py`
 
@@ -110,7 +112,7 @@ em andamento), `inferred` (verdadeiro quando a fase atual foi deduzida).
 | Falha | vermelho com fundo escuro, `✖` |
 | Retentativa | laranja, `↻n` |
 | Barra geral | degradê contínuo vermelho → amarelo → verde conforme a % |
-| Via (só no rótulo) | copilot ciano, agy laranja, codex verde-água, claude lilás, jev branco; via desconhecida cinza |
+| Via (só no rótulo) | uma de 6 cores (ciano, laranja, verde-água, lilás, branco, rosa) pela **posição da via no catálogo** (`tier_order`, depois as desligadas); via fora do catálogo em cinza. Sem nomes de modelo no código (o catálogo vive na configuração) |
 | Fundo das linhas | tom alternado; em replay, o matiz do run é o mesmo do dashboard web (`210 + 67·índice`) |
 | Tarefa mais lenta do run | duração em negrito e vermelho |
 | Selos | `▶ AO VIVO` verde pulsando; `⏸ REPLAY` azul; `✔ CONCLUÍDO` verde; `✖ FALHOU` vermelho |
