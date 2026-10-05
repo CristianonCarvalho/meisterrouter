@@ -119,3 +119,14 @@ def test_cli_dashboard_tui_invocation():
         result = runner.invoke(main, ["dashboard", "--tui"])
         assert result.exit_code == 0
         mock_tui_loop.assert_called_once()
+
+
+def test_tui_key_t_opens_the_timeline_and_returns_to_the_overlay():
+    keys = iter(["t", "q"])
+    opened = MagicMock()
+    with patch("meister.herdr.tui.get_live_metrics_and_state", return_value=({}, {})), \
+         patch("meister.herdr.tui.check_key_press", side_effect=lambda timeout=0.0: next(keys, None)), \
+         patch("meister.timeline_cli.open_timeline", opened), \
+         patch("sys.stdout"):
+        run_tui_loop(poll_interval=0.5)
+    assert opened.call_count == 1
