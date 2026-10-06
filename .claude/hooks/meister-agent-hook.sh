@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# MeisterRouter — Claude Code Hook
+# Managed by MeisterRouter
+# Intercepta eventos e injeta telemetria ou regras do Jev Router
+# ==============================================================================
+
+EVENT_TYPE="$1"
+shift || true
+EVENT_PAYLOAD="$@"
+
+if command -v meister &> /dev/null; then
+    # Registra no log de telemetria que um evento de hook do Claude foi disparado
+    python3 -c "
+from meister.logger import log_event
+log_event('claude_hook', hook_type='$EVENT_TYPE', payload='$EVENT_PAYLOAD'[:200])
+" 2>/dev/null || true
+fi
+
+exit 0
