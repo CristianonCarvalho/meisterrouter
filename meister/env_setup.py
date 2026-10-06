@@ -33,6 +33,29 @@ def _node_install_command(path: str) -> list[str]:
     return ["npm", "install"]
 
 
+_NODE_INSTALL_SIGNALS = ("pnpm-lock.yaml", "package-lock.json", "yarn.lock", "pnpm-workspace.yaml")
+
+
+def _node_install_is_needed(repo_path: str) -> bool:
+    """Se há algo a instalar: lockfile, workspace pnpm, dependências ou `workspaces` no package.json.
+
+    Só devolve False quando NADA sinaliza instalação (ex.: o wrapper npm do próprio MeisterRouter, só com
+    `bin`/`scripts`). Package.json ilegível ou fora do formato conta como "sim": mantém o comportamento anterior.
+    """
+    if any(os.path.exists(os.path.join(repo_path, name)) for name in _NODE_INSTALL_SIGNALS):
+        return True
+    try:
+        with open(os.path.join(repo_path, "package.json"), "r", encoding="utf-8") as package_file:
+            package = json.load(package_file)
+    except (OSError, json.JSONDecodeError):
+        return True
+    if not isinstance(package, dict):
+        return True
+    if package.get("workspaces"):
+        return True
+    return any(package.get(key) for key in ("dependencies", "devDependencies", "optionalDependencies"))
+
+
 def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
     """Install the project's configured environment, or do nothing if not applicable."""
     if not config.environment.install_dependencies:
@@ -42,6 +65,10 @@ def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
     if config.gate.install:
         command = shlex.split(config.gate.install)
     elif os.path.isfile(os.path.join(repo_path, "package.json")):
+        if not _node_install_is_needed(repo_path):
+            # nada a instalar (ex.: o wrapper npm do próprio MeisterRouter): `npm install` só geraria um
+            # package-lock.json solto em cada worktree, que depois quebra o merge ("untracked files would be overwritten")
+            return True, ""
         command = _node_install_command(repo_path)
     else:
         return True, ""
