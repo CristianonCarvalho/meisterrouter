@@ -38,6 +38,8 @@ def test_cli_config_show_default():
     assert "0.01" in result.output
     assert "agy_gemini_flash" in result.output
     assert "claude_sonnet" in result.output
+    assert "Classes" in result.output
+    assert "ESCALATE" in result.output
     # codex_luna vem desligada por padrao (creditos do Codex limitados)
     ativas, desligadas = result.output.split("Vias desabilitadas:")
     assert "codex_luna" not in ativas
@@ -98,6 +100,15 @@ def test_cli_config_show_json():
         if tier["name"] == "copilot_luna"
     ) == 0.01
     assert data["workers"]["disabled"][0]["credit_usd"] is None
+    assert next(
+        tier["eligible_classes"] for tier in data["workers"]["tier_order"]
+        if tier["name"] == "claude_sonnet"
+    ) == ["ESCALATE"]
+    assert all(
+        tier["eligible_classes"] == []
+        for tier in data["workers"]["tier_order"]
+        if tier["name"] != "claude_sonnet"
+    )
     assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
     assert data["workers"]["idle_timeout_seconds"] == 600
     assert data["workers"]["max_runtime_seconds"] == 3600
@@ -202,6 +213,30 @@ def test_cli_config_show_includes_context_max_chars_text_and_json(tmp_path):
     assert "Context Max Chars: 750" in text_result.output
     assert json_result.exit_code == 0
     assert json.loads(json_result.output)["router"]["context_max_chars"] == 750
+
+
+def test_cli_config_show_exposes_custom_eligible_classes(tmp_path):
+    runner = CliRunner()
+    config_file = tmp_path / "eligible_classes.yaml"
+    config_file.write_text("""
+workers:
+  tier_order:
+    - name: constrained
+      eligible_classes: [small, ESCALATE]
+""")
+
+    text_result = runner.invoke(
+        main, ["config", "show", "--config-path", str(config_file)]
+    )
+    json_result = runner.invoke(
+        main, ["config", "show", "--json", "--config-path", str(config_file)]
+    )
+
+    assert text_result.exit_code == 0
+    assert "SMALL,ESCALATE" in text_result.output
+    assert json_result.exit_code == 0
+    tiers = json.loads(json_result.output)["workers"]["tier_order"]
+    assert tiers[0]["eligible_classes"] == ["SMALL", "ESCALATE"]
 
 
 def test_cli_classify_passes_configured_implementers(tmp_path, monkeypatch):

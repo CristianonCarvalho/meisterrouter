@@ -166,6 +166,49 @@ def test_default_worker_credit_prices():
     assert tiers["copilot_luna"].credit_usd == 0.01
     assert tiers["codex_luna"].credit_usd is None
 
+
+def test_worker_eligible_classes_parse_normalize_and_default(tmp_path):
+    config_file = tmp_path / "eligible_classes.yaml"
+    config_file.write_text("""
+workers:
+  tier_order:
+    - name: multiple
+      eligible_classes: [small, HIGH]
+    - name: unrestricted
+""")
+    config = load_config(str(config_file))
+
+    assert config.workers.tier_order[0].eligible_classes == ["SMALL", "HIGH"]
+    assert config.workers.tier_order[1].eligible_classes == []
+
+    defaults = load_config()
+    default_tiers = {
+        tier.name: tier for tier in [*defaults.workers.tier_order, *defaults.workers.disabled]
+    }
+    assert default_tiers["claude_sonnet"].eligible_classes == ["ESCALATE"]
+    assert all(
+        tier.eligible_classes == []
+        for name, tier in default_tiers.items()
+        if name != "claude_sonnet"
+    )
+
+
+@pytest.mark.parametrize("value", ['["HUGE"]', '"ESCALATE"', "[1]", "true"])
+def test_invalid_worker_eligible_classes_report_validation_error(tmp_path, value):
+    from meister.config import validate_config
+
+    config_file = tmp_path / "invalid_eligible_classes.yaml"
+    config_file.write_text(
+        f"workers:\n  tier_order:\n    - name: restricted\n      eligible_classes: {value}\n"
+    )
+    issues = validate_config(load_config(str(config_file)))
+
+    assert any(
+        issue.level == "error"
+        and issue.path == "workers.tier_order[0].eligible_classes"
+        for issue in issues
+    )
+
 def test_worker_max_parallel_parsing_and_validation(tmp_path):
     from meister.config import validate_config
 

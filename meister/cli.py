@@ -1575,6 +1575,7 @@ def config_show(config_path, json_format):
                         "best_for": t.best_for,
                         "cost_per_m_tokens": t.cost_per_m_tokens,
                         "credit_usd": t.credit_usd,
+                        "eligible_classes": t.eligible_classes,
                         "enabled": False,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
@@ -1591,6 +1592,7 @@ def config_show(config_path, json_format):
                         "best_for": t.best_for,
                         "cost_per_m_tokens": t.cost_per_m_tokens,
                         "credit_usd": t.credit_usd,
+                        "eligible_classes": t.eligible_classes,
                         "enabled": True,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
@@ -1643,7 +1645,7 @@ def config_show(config_path, json_format):
     click.echo(f"  Timeout por inatividade (segundos): {cfg.workers.idle_timeout_seconds}")
     click.echo(f"  Runtime máximo (segundos): {cfg.workers.max_runtime_seconds}")
     if cfg.workers.tier_order:
-        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10}"
+        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, t in enumerate(cfg.workers.tier_order):
@@ -1651,13 +1653,14 @@ def config_show(config_path, json_format):
             idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
             max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
             credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
-            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10}")
+            eligible_classes = ",".join(t.eligible_classes) or "-"
+            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo("  (nenhuma via ativa)")
 
     click.echo("\nVias desabilitadas:")
     if cfg.workers.disabled:
-        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10}"
+        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for t in cfg.workers.disabled:
@@ -1665,7 +1668,8 @@ def config_show(config_path, json_format):
             idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
             max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
             credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
-            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10}")
+            eligible_classes = ",".join(t.eligible_classes) or "-"
+            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo("  (nenhuma)")
 

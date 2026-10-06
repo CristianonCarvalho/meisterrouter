@@ -37,7 +37,8 @@ workers:
     - {name: codex_luna, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
     - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2, best_for: [deep_reasoning, complex_algorithms, hard_bugs]}
     # sonnet é o apelido aceito pelo CLI claude.
-    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions]}
+    # Só roteada pelo Jev para classe ESCALATE; as demais vias ficam sem restrição.
+    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions], eligible_classes: [ESCALATE]}
 # Para alterar modelos, custos, ordem ou habilitação, sobrescreva este arquivo com
 # meister.config.yaml no projeto (listas como tier_order substituem a lista inteira).
 # Haiku foi omitido por decisão do usuário (custo alto e capacidade insuficiente).
