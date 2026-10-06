@@ -2872,8 +2872,8 @@ async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(
     ]
     state.add_subtasks(run_id, subtasks)
 
-    prepare_barrier = threading.Barrier(2, timeout=5)
-    cleanup_barrier = threading.Barrier(2, timeout=5)
+    prepare_barrier = threading.Barrier(2, timeout=30)
+    cleanup_barrier = threading.Barrier(2, timeout=30)
     merge_guard = threading.Lock()
     phase_durations = {}
 
@@ -3330,7 +3330,7 @@ async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(t
     subtask_count = 3
     # Prova o paralelismo sem depender do relogio: as 3 chamadas so passam da barreira
     # se estiverem em andamento ao mesmo tempo (em serie, a barreira expira e o maximo fica 1).
-    barrier = threading.Barrier(subtask_count, timeout=5)
+    barrier = threading.Barrier(subtask_count, timeout=30)
     lock = threading.Lock()
     active = 0
     max_active = 0

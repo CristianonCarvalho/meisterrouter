@@ -49,7 +49,7 @@ def test_requirements_and_setup_alignment():
     req_content = req_path.read_text(encoding="utf-8")
     setup_content = setup_path.read_text(encoding="utf-8")
 
-    for dep in ["pydantic", "pytest", "pytest-asyncio", "ruff", "mypy", "PyYAML", "click"]:
+    for dep in ["pydantic", "pytest", "pytest-asyncio", "pytest-xdist", "ruff", "mypy", "PyYAML", "click"]:
         assert dep in req_content, f"Missing {dep} in requirements.txt"
         assert dep in setup_content, f"Missing {dep} in setup.py"
 
@@ -173,3 +173,23 @@ def test_model_table_matches_catalog():
             # o combinado precisa ser (3 * entrada + saída) / 4
             entrada, saida = float(row["entrada_usd_1m"]), float(row["saida_usd_1m"])
             assert round((3 * entrada + saida) / 4, 4) == float(row["combinado_3_1_usd_1m"])
+
+
+def test_modules_that_use_cwd_task_files_are_isolated_for_parallel_runs():
+    """Quem grava/lê arquivos de tarefa em <cwd>/.meister/runs precisa de cwd próprio: senão, em paralelo
+    (pytest-xdist), um teste responde às tarefas dos outros e trava até o watchdog."""
+    from tests.conftest import CWD_ISOLATED_MODULES
+
+    tests_dir = Path(__file__).resolve().parent
+    markers = ("auto_write_result", ".meister/runs", '".meister" / "runs"', "os.getcwd()")
+    users = {
+        path.stem
+        for path in tests_dir.glob("test_*.py")
+        if path.stem != "test_hygiene"
+        and any(marker in path.read_text(encoding="utf-8") for marker in markers)
+    }
+    missing = users - CWD_ISOLATED_MODULES
+    assert not missing, (
+        f"adicione a CWD_ISOLATED_MODULES (tests/conftest.py) os módulos {sorted(missing)}: "
+        "eles usam arquivos de tarefa no cwd compartilhado"
+    )

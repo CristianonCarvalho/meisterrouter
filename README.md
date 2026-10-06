@@ -94,7 +94,11 @@ pip install -e .
 
 ### Executar os testes
 
-`pytest -v --durations=15` lista os 15 testes mais lentos. A suíte interrompe cada
+A suíte inteira roda **em paralelo** (`pytest-xdist`, `-n auto`) sozinha quando o xdist está
+instalado (`pip install -e ".[dev]"`): cerca de 50 s em vez de 3,5 min. Escolher arquivos ou
+testes mantém a execução em série; use `-n0` ou `MEISTER_TEST_PARALLEL=0` para forçar série
+(depuração) ou `MEISTER_TEST_PARALLEL=4` para fixar o número de processos. Sem o xdist nada quebra:
+roda em série. `pytest -v --durations=15` lista os 15 testes mais lentos. A suíte interrompe cada
 teste após 180 segundos por padrão; ajuste com `MEISTER_TEST_TIMEOUT` ou use `0`
 para desativar o watchdog (em plataformas com `SIGALRM`). Uma proteção autouse
 detecta e remove refs de branches e worktrees criados acidentalmente no checkout real;

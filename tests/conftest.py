@@ -10,6 +10,33 @@ from dataclasses import dataclass
 
 import pytest
 
+from tests.parallel_default import default_numprocesses
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_cmdline_main(config):
+    """Liga o pytest-xdist sozinho na rodada da suíte inteira, se ele estiver instalado (ver parallel_default)."""
+    chosen = default_numprocesses(
+        config.args,
+        getattr(config.option, "numprocesses", None),
+        config.pluginmanager.has_plugin("xdist"),
+        os.environ,
+    )
+    if chosen is not None:
+        config.option.numprocesses = int(chosen) if chosen.isdigit() else chosen
+
+
+# Estes módulos gravam e leem arquivos de tarefa em <diretório de trabalho>/.meister/runs. Com o diretório
+# compartilhado (a raiz do repositório), o `auto_write_result` de um teste respondia às tarefas dos outros
+# testes rodando ao mesmo tempo (pytest-xdist): resultado errado ou travado até o watchdog de 180 s.
+CWD_ISOLATED_MODULES = frozenset({"test_cli", "test_herdr_bridge", "test_herdr_tabs", "test_task_runner"})
+
+
+@pytest.fixture(autouse=True)
+def isolate_cwd_for_task_files(request, tmp_path, monkeypatch):
+    if request.module.__name__.rsplit(".", 1)[-1] in CWD_ISOLATED_MODULES:
+        monkeypatch.chdir(tmp_path)
+
 
 @dataclass(frozen=True)
 class RepoSnapshot:
