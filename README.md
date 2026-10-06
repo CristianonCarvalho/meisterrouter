@@ -102,9 +102,16 @@ command = "meister timeline"
 width = "85%"
 height = "85%"
 ```
-Para ter também um atalho direto, sem passar pelo `prefix`, repita os blocos com outra tecla
-(por exemplo `ctrl+alt+shift+m` e `ctrl+alt+t`). Dentro do dashboard em TUI, `t` abre a linha
-do tempo e `q` fecha o popup.
+**Atalhos (com o exemplo acima, mais as versões diretas):**
+
+| Atalho | O que faz |
+|---|---|
+| `prefix+m` ou `ctrl+alt+m` | Inicia a orquestração autônoma no workspace |
+| `prefix+shift+m` ou `ctrl+alt+shift+m` | Abre o **dashboard** (TUI) em popup |
+| `prefix+t` ou `ctrl+alt+t` | Abre a **linha do tempo** (Gantt) em popup |
+
+As versões `ctrl+alt+...` funcionam sem passar pelo `prefix`: basta repetir os blocos acima
+com a outra tecla. Dentro do dashboard em TUI, `t` abre a linha do tempo e `q` fecha o popup.
 
 ---
 
