@@ -2736,7 +2736,12 @@ async def test_bridge_active_liveness_pane_exists_success(tmp_path, monkeypatch)
     mock_client.pane_exists = AsyncMock(return_value=True)
 
     async def write_later():
-        await asyncio.sleep(0.3)
+        # o resultado só aparece depois da 1ª sondagem de liveness (com um prazo largo): sob carga o setup do
+        # worktree pode levar mais que qualquer espera fixa, e o resultado já existiria antes da primeira sondagem
+        for _ in range(600):
+            if mock_client.pane_exists.call_count >= 1:
+                break
+            await asyncio.sleep(0.05)
         auto_write_result(repo_dir)
 
     asyncio.create_task(write_later())
@@ -2909,7 +2914,7 @@ async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(
                 self.active_merges += 1
                 self.max_merge_concurrency = max(self.max_merge_concurrency, self.active_merges)
             try:
-                time.sleep(0.08)
+                time.sleep(0.6)  # longo o bastante para que o tempo de fila (lock_wait) se distinga do ruído de carga
                 self.last_integrated_sha = prepared[1]
                 return True, ""
             finally:
@@ -2961,10 +2966,11 @@ async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(
         }
         measured = phase_durations[item["id"]]
         assert task_phases["integrate"] >= (measured["prepare"] + measured["merge"]) * 1000
-        assert task_phases["integrate"] - (measured["prepare"] + measured["merge"]) * 1000 < 25
+        # overhead de agendamento sob carga fica na casa de 100-150 ms; a fila (lock_wait) seria >= 600 ms
+        assert task_phases["integrate"] - (measured["prepare"] + measured["merge"]) * 1000 < 400
     assert max(
         event["duration_ms"] for event in phase_events if event["phase"] == "lock_wait"
-    ) >= 30
+    ) >= 300
 
 
 def _track_spawned_tiers(bridge):
