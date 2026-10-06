@@ -424,7 +424,7 @@ def test_prepared_subtasks_are_pure_and_worker_gates_overlap(git_test_repo):
         with open(os.path.join(worker.worktree_path, filename), "w", encoding="utf-8") as file:
             file.write(f"{worker.task_id}\n")
 
-    worker_gate_barrier = threading.Barrier(2, timeout=5)
+    worker_gate_barrier = threading.Barrier(2, timeout=30)
 
     def concurrent_gate(repo_path, task_id=None, attempt=1, tier=None):
         if repo_path != int_info.worktree_path:

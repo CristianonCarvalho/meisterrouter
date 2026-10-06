@@ -20,6 +20,7 @@ setup(
         "dev": [
             "pytest>=8.0.0",
             "pytest-asyncio>=0.23.0",
+            "pytest-xdist>=3.5.0",
             "ruff>=0.1.0",
             "mypy>=1.10.0",
             "types-PyYAML>=6.0.0",
