@@ -14,6 +14,15 @@ determinísticas, execução verificável e configuração flexível.
 As tarefas de implementação são executadas pelo orquestrador; o arquiteto planeja,
 acompanha as evidências e decide os próximos passos.
 
+## Método de execução (obrigatório)
+
+Para implementar tarefas e planos, o método é sempre `meister orchestrate`; para uma tarefa
+isolada, use `meister worker`.
+Não ofereça nem escolha `subagent-driven-development`, `executing-plans` ou implementar nativamente.
+Se o Meister não estiver disponível (daemon fora do ar ou sem Herdr), pergunte ao usuário
+antes de implementar por outro meio.
+Edições em documentação (`docs/**`, `*.md`) podem ser feitas diretamente.
+
 ## Fluxo de trabalho
 
 1. Para um trabalho com várias etapas, crie um plano estruturado em Markdown.

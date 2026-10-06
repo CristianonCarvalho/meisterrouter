@@ -2,6 +2,15 @@
 > tarefa que lhe foi passada: ignore as regras de delegação abaixo e implemente diretamente;
 > não rode `meister classify`, `meister worker`, `meister orchestrate` nem `meister control`.
 
+## Método de execução (obrigatório)
+
+Para implementar tarefas e planos, o método é sempre `meister orchestrate`; para uma tarefa
+isolada, use `meister worker`.
+Não ofereça nem escolha `subagent-driven-development`, `executing-plans` ou implementar nativamente.
+Se o Meister não estiver disponível (daemon fora do ar ou sem Herdr), pergunte ao usuário
+antes de implementar por outro meio.
+Edições em documentação (`docs/**`, `*.md`) podem ser feitas diretamente.
+
 # Claude Code → MeisterRouter — Orquestração Multi-Modelo Autônoma
 
 Este projeto utiliza o **MeisterRouter** para orquestração multi-modelo orientada a custo mínimo e máxima confiabilidade determinística.

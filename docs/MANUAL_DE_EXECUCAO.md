@@ -31,6 +31,17 @@ Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o
 - **Arquivos gerados** (lockfiles, `*.tsbuildinfo`, `.vitest/**`) já são tolerados no escopo; acrescente outros em `scope.tolerated_files` (lista **substitui** a padrão: copie a padrão e some os seus).
 - Contexto para os workers: se quiser, escreva no `AGENTS.md` do **projeto** a stack, o comando de testes e as convenções.
 
+### Guard do Claude Code
+O guard opcional instalado com `meister install-hooks --claude` protege edições de código.
+O modo padrão é `block`; configure-o em `.meister/guard_mode` com `echo ask > .meister/guard_mode`.
+`ask` pede confirmação a cada edição de código; `echo off > .meister/guard_mode` desliga o guard.
+Arquivo ausente, vazio ou modo desconhecido mantém o comportamento seguro `block`.
+Documentação (`docs/**`, `*.md`, `*.mdx`, `*.txt`) passa sem perguntar, em qualquer modo.
+`MEISTER_IN_PANE=1` libera os workers; `MEISTER_ALLOW_ORCHESTRATOR_EDIT=1` também libera.
+O arquivo `.meister/allow_orchestrator` é outro bypass explícito para edições diretas.
+Para implementar tarefas e planos, o método é sempre `meister orchestrate` (`meister worker` para tarefa isolada).
+Não ofereça execução nativa ou fluxos alternativos; se o Meister não estiver disponível, pergunte ao usuário.
+
 ## 3. Rodar um plano
 1. Dentro do Herdr (os workers abrem em tabs `worker:*`):
    `meister plan import --format superpowers plano.md -o plano.json` e `meister plan validate plano.json`
