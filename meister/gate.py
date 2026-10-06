@@ -7,12 +7,16 @@ a conclusão com o TypeSafe Jev Decisions API (control_cycle).
 """
 
 import json
+import hashlib
 import logging
 import os
 import shlex
 import subprocess
 import sys
-from dataclasses import dataclass, field
+import tempfile
+import threading
+import time
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from meister.config import MeisterConfig, load_config
@@ -27,6 +31,8 @@ class VerificationResult:
     output: str
     infrastructure_error: bool = False
     skipped: List[str] = field(default_factory=list)
+    cached: bool = False
+    saved_seconds: float = 0.0
 
 
 class DeterministicGate:
@@ -37,6 +43,8 @@ class DeterministicGate:
     def __init__(self, repo_path: str = ".", config: Optional[MeisterConfig] = None):
         self.repo_path = os.path.abspath(repo_path)
         self.config = config or load_config(cwd=self.repo_path)
+        self._pass_cache: Dict[Tuple[str, str], Tuple[VerificationResult, float]] = {}
+        self._pass_cache_lock = threading.Lock()
 
     def _resolve_python(self) -> tuple[str, Optional[str]]:
         """Resolve o interpretador Python configurado ou pertencente ao projeto."""
@@ -247,8 +255,54 @@ class DeterministicGate:
         return result.passed, result.output
 
     def run_verification_ex(self, repo_path: Optional[str] = None) -> VerificationResult:
-        """Executa verificações e distingue falhas de código de falhas de infraestrutura."""
+        """Executa verificações ou reutiliza uma aprovação para a mesma árvore e configuração."""
         path = os.path.abspath(repo_path or self.repo_path)
+        if not self.config.gate.cache:
+            return self._run_verification_uncached(path)
+
+        tree_hash = _worktree_tree_hash(path)
+        if tree_hash is None:
+            return self._run_verification_uncached(path)
+
+        config_hash = self._verification_config_hash()
+        cache_key = (tree_hash, config_hash)
+        with self._pass_cache_lock:
+            cached = self._pass_cache.get(cache_key)
+        if cached is not None:
+            result, elapsed = cached
+            return replace(result, cached=True, saved_seconds=elapsed)
+
+        started = time.monotonic()
+        result = self._run_verification_uncached(path)
+        elapsed = time.monotonic() - started
+        if result.passed and not result.infrastructure_error:
+            stored = replace(result, cached=False, saved_seconds=0.0)
+            with self._pass_cache_lock:
+                self._pass_cache[cache_key] = (stored, elapsed)
+        return result
+
+    def _verification_config_hash(self) -> str:
+        commands = [
+            {
+                "name": command.name,
+                "run": command.run,
+                "timeout_seconds": command.timeout_seconds,
+                "required": command.required,
+                "ok_exit_codes": command.ok_exit_codes,
+            }
+            for command in self.config.gate.commands
+        ]
+        config_data = {
+            "commands": commands,
+            "python": self.config.gate.python,
+            "install": self.config.gate.install,
+            "install_dependencies": self.config.environment.install_dependencies,
+        }
+        serialized = json.dumps(config_data, sort_keys=True, default=str)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+    def _run_verification_uncached(self, path: str) -> VerificationResult:
+        """Executa verificações e distingue falhas de código de falhas de infraestrutura."""
         if self.config.gate.commands:
             return self._run_configured_commands(path)
 
@@ -550,3 +604,61 @@ def evaluate_completion(
         security_sensitive=security_sensitive,
         model=model,
     )
+
+
+def _worktree_tree_hash(path: str) -> Optional[str]:
+    """Calcula o tree Git usando índice temporário sem modificar o índice do worktree."""
+    index_path: Optional[str] = None
+    try:
+        if not os.path.lexists(os.path.join(path, ".git")):
+            return None
+        descriptor, index_path = tempfile.mkstemp(prefix="meister-gate-index-")
+        os.close(descriptor)
+        os.remove(index_path)
+        env = os.environ.copy()
+        env["GIT_INDEX_FILE"] = index_path
+
+        head = subprocess.run(
+            ["git", "rev-parse", "--verify", "HEAD"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        read_tree_command = ["git", "read-tree", "HEAD"] if head.returncode == 0 else ["git", "read-tree", "--empty"]
+        read_tree = subprocess.run(
+            read_tree_command,
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if read_tree.returncode != 0:
+            return None
+        add = subprocess.run(
+            ["git", "add", "-A", "--", ".", ":(exclude).venv"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if add.returncode != 0:
+            return None
+        write_tree = subprocess.run(
+            ["git", "write-tree"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if write_tree.returncode != 0:
+            return None
+        return write_tree.stdout.strip() or None
+    except (OSError, subprocess.SubprocessError):
+        return None
+    finally:
+        if index_path and os.path.exists(index_path):
+            os.remove(index_path)

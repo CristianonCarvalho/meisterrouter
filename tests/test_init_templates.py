@@ -116,6 +116,7 @@ def test_agents_template_has_universal_worker_directive():
     assert "meister control" not in template
     assert "meisterrouter" in template
     assert "meister_in_pane" in template
+    assert template.count("não rode a suíte inteira: o portão do meisterrouter a roda depois") == 2
 
 
 def test_architect_template_describes_current_plan_flow():

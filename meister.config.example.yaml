@@ -70,3 +70,4 @@ gate:
   #   - {name: unit, run: "pnpm exec vitest run", timeout_seconds: 300, required: true}
   commands: []
   allow_unverified: false
+  cache: true

@@ -10,12 +10,12 @@
 
 - Siga o escopo e os arquivos-alvo indicados na tarefa recebida.
 - Preserve alterações preexistentes e evite mudanças fora do escopo.
-- Execute os testes relevantes e relate resultados e limitações com clareza.
+- Execute os testes relevantes e relate resultados e limitações com clareza. NÃO rode a suíte inteira: o portão do MeisterRouter a roda depois.
 
 ## Se você é um worker do MeisterRouter
 
 Considere-se um worker se `MEISTER_IN_PANE=1` estiver definido no ambiente ou se estiver
 em uma worktree criada para uma subtarefa. Implemente diretamente a tarefa recebida,
-somente nos arquivos-alvo. Execute os testes relevantes e informe as evidências.
+somente nos arquivos-alvo. Execute os testes relevantes e informe as evidências. NÃO rode a suíte inteira: o portão do MeisterRouter a roda depois.
 Não execute comandos de classificação, execução de workers, orquestração ou controle do
 MeisterRouter; não delegue a tarefa a outro agente.

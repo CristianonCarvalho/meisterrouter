@@ -51,6 +51,7 @@ def test_load_config_defaults_when_no_file(tmp_path, monkeypatch):
     assert config.workers.idle_timeout_seconds == 600
     assert config.workers.max_runtime_seconds == 3600
     assert config.router.context_max_chars == 4000
+    assert config.gate.cache is True
 
 
 @pytest.mark.parametrize("value", ["499", "-1", "1.5", "500.0", '"five"', "true"])
@@ -565,6 +566,21 @@ def test_example_yaml_loads_and_validates():
     disabled_names = [t.name for t in cfg.workers.disabled]
     assert active_names == ["copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"]
     assert disabled_names == []
+
+
+@pytest.mark.parametrize("value", ['"yes"', "1", "null"])
+def test_gate_cache_must_be_boolean(tmp_path, value):
+    from meister.config import validate_config
+
+    config_yaml = tmp_path / "invalid_gate_cache.yaml"
+    config_yaml.write_text(f"gate:\n  cache: {value}\n")
+    config = load_config(str(config_yaml))
+
+    assert config.gate.cache is True
+    assert any(
+        issue.level == "error" and issue.path == "gate.cache"
+        for issue in validate_config(config)
+    )
 
 
 def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path, monkeypatch):
