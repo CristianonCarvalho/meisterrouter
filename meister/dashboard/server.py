@@ -2,6 +2,7 @@
 
 import os
 from collections import Counter
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, render_template, request
@@ -16,6 +17,7 @@ from meister.dashboard.metrics import (
 )
 from meister.logger import find_project_root, get_log_file
 from meister.report import compute_run_report
+from meister.timeline_cli import stale_after_from_config
 
 
 app = Flask(
@@ -142,14 +144,26 @@ def api_meta():
 
 @app.route("/api/runs")
 def api_runs():
-    return jsonify({"runs": list_runs(_read_events())})
+    return jsonify({
+        "runs": list_runs(
+            _read_events(),
+            now=datetime.now(timezone.utc),
+            stale_after_s=stale_after_from_config().total_seconds(),
+        )
+    })
 
 
 @app.route("/api/summary")
 def api_summary():
     run_id = request.args.get("run_id")
     events = _read_events()
-    summary = compute_summary(events, run_id, log_file=get_log_file())
+    summary = compute_summary(
+        events,
+        run_id,
+        log_file=get_log_file(),
+        now=datetime.now(timezone.utc),
+        stale_after_s=stale_after_from_config().total_seconds(),
+    )
     # Custo, tokens, créditos e tempo por fase vêm do mesmo cálculo do `meister report`.
     selected = summary["meta"]["run_id"]
     tier_prices, credit_prices = _price_tables()

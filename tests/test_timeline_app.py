@@ -125,6 +125,14 @@ def test_loop_shows_waiting_message_when_log_is_missing(tmp_path):
     assert "aguardando" in strip_ansi(out.getvalue())
 
 
+def test_interactive_loop_applies_staleness_threshold_from_config(tmp_path, monkeypatch):
+    import meister.timeline_app as app
+
+    monkeypatch.setattr(app, "stale_after_from_config", lambda: timedelta(seconds=5))
+    out = _drive(tmp_path, parallel_events(), [None, "q"], frames=3)
+    assert "SEM SINAL" in strip_ansi(out)
+
+
 def test_pause_draws_one_frame_with_the_badge_then_freezes(tmp_path):
     out = _drive(tmp_path, parallel_events(), [None, "p", None, None, "q"], frames=20)
     assert "PAUSADO" in strip_ansi(out)

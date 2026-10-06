@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from meister.dashboard.metrics import iter_events, list_runs
-from meister.timeline import build_timeline
+from meister.timeline import DEFAULT_STALE_AFTER, build_timeline
 from meister.timeline_view import all_body_line_count, render_all, render_frame, render_waiting
 
 
@@ -42,6 +42,19 @@ def price_tables_from_config() -> Tuple[Dict[str, float], Dict[str, float]]:
         {tier.name: tier.cost_per_m_tokens for tier in tiers},
         {tier.name: tier.credit_usd for tier in tiers if tier.credit_usd is not None},
     )
+
+
+def stale_after_from_config() -> timedelta:
+    """Silence threshold from the largest configured worker runtime, plus five minutes."""
+    try:
+        values = [
+            float(tier.max_runtime_seconds)
+            for tier in _tiers()
+            if tier.max_runtime_seconds is not None
+        ]
+    except Exception:
+        return DEFAULT_STALE_AFTER
+    return timedelta(seconds=max(values) + 300) if values else DEFAULT_STALE_AFTER
 
 
 def pick_run(runs: List[Dict[str, Any]], run_id: Optional[str]) -> str:
@@ -81,10 +94,16 @@ def once_frame(
     if not runs and (run_id is None or all_runs):
         return render_waiting("aguardando o primeiro run", width=width, color=color)
     tier_prices, credit_prices = price_tables_from_config()
+    stale_after = stale_after_from_config()
     if all_runs:
         timelines = [
             build_timeline(
-                events, str(run["run_id"]), now, tier_prices=tier_prices, credit_prices=credit_prices
+                events,
+                str(run["run_id"]),
+                now,
+                tier_prices=tier_prices,
+                credit_prices=credit_prices,
+                stale_after=stale_after,
             )
             for run in runs
         ]
@@ -100,7 +119,12 @@ def once_frame(
         )
     chosen = pick_run(runs, run_id)
     timeline = build_timeline(
-        events, chosen, now, tier_prices=tier_prices, credit_prices=credit_prices
+        events,
+        chosen,
+        now,
+        tier_prices=tier_prices,
+        credit_prices=credit_prices,
+        stale_after=stale_after,
     )
     return render_frame(
         timeline,

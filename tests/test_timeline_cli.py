@@ -1,10 +1,16 @@
 import json
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 
 from meister.cli import main
-from meister.timeline_cli import once_frame, pick_run, project_name
+from meister.timeline_cli import (
+    once_frame,
+    pick_run,
+    project_name,
+    stale_after_from_config,
+)
 from meister.timeline_view import strip_ansi
 from tests.timeline_fixtures import at, parallel_events
 
@@ -31,6 +37,27 @@ def test_pick_run_prefix_default_and_errors():
 def test_project_name_from_standard_layout_and_fallback(tmp_path):
     assert project_name("/x/MeuProjeto/.meister/logs/orchestration_log.jsonl") == "MeuProjeto"
     assert project_name("/x/logs_soltos/orchestration_log.jsonl") == "logs_soltos"
+
+
+def test_stale_after_uses_largest_configured_runtime_and_fallbacks(monkeypatch):
+    from meister import config
+
+    workers = SimpleNamespace(
+        tier_order=[
+            SimpleNamespace(max_runtime_seconds=1200),
+            SimpleNamespace(max_runtime_seconds=None),
+        ],
+        disabled=[SimpleNamespace(max_runtime_seconds=2400)],
+    )
+    monkeypatch.setattr(config, "load_config", lambda: SimpleNamespace(workers=workers))
+    assert stale_after_from_config() == timedelta(seconds=2700)
+
+    workers.tier_order = [SimpleNamespace(max_runtime_seconds=None)]
+    workers.disabled = []
+    assert stale_after_from_config() == timedelta(seconds=3900)
+
+    monkeypatch.setattr(config, "load_config", lambda: (_ for _ in ()).throw(ValueError("bad")))
+    assert stale_after_from_config() == timedelta(seconds=3900)
 
 
 def test_once_frame_renders_the_latest_run(tmp_path):

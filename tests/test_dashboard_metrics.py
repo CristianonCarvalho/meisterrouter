@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -95,6 +96,47 @@ def test_summary_run_selection_unknown_and_zero_worker_costs():
     assert all_summary["totals"]["tasks_total"] == 2
     assert all_summary["workers"]["cost_usd"] is None
     assert compute_summary(events, "missing")["totals"]["tasks_total"] == 0
+
+
+def test_list_runs_marks_stale_only_when_both_threshold_arguments_are_supplied():
+    now = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    events = [
+        event("orchestration_start", task="orchestrator", ts="2026-10-01T00:00:00+00:00"),
+        event("worker_spawn", task="task-1", ts="2026-10-01T00:00:01+00:00"),
+        event("orchestration_start", run="ended", task="orchestrator",
+              ts="2026-10-01T00:00:00+00:00"),
+        event("orchestration_end", run="ended", task="orchestrator", status="completed",
+              ts="2026-10-01T00:00:02+00:00"),
+    ]
+    default_runs = {row["run_id"]: row for row in list_runs(events)}
+    assert default_runs["run-a"]["status"] is None
+    assert default_runs["ended"]["status"] == "completed"
+
+    stale_runs = {
+        row["run_id"]: row
+        for row in list_runs(events, now=now, stale_after_s=3600)
+    }
+    assert stale_runs["run-a"]["status"] == "sem sinal"
+    assert stale_runs["ended"]["status"] == "completed"
+    assert list_runs(events, now=now)[0]["status"] is None
+
+
+def test_dashboard_apis_expose_stale_run_status(dashboard_client, monkeypatch):
+    from meister.dashboard import server
+
+    client, log_dir = dashboard_client
+    monkeypatch.setattr(
+        server, "stale_after_from_config", lambda: timedelta(seconds=3900)
+    )
+    write_log(log_dir, [
+        event("orchestration_start", task="orchestrator", ts="2026-10-01T00:00:00+00:00"),
+        event("worker_spawn", task="task-1", ts="2026-10-01T00:00:01+00:00"),
+    ])
+
+    runs = client.get("/api/runs").get_json()["runs"]
+    assert runs[0]["status"] == "sem sinal"
+    summary = client.get("/api/summary").get_json()
+    assert summary["meta"]["run"]["status"] == "sem sinal"
 
 
 def test_query_events_filters_sorts_and_paginates():

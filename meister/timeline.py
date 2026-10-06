@@ -18,6 +18,7 @@ from meister.dashboard.metrics import (
 )
 
 _EPOCH = datetime.min.replace(tzinfo=timezone.utc)
+DEFAULT_STALE_AFTER = timedelta(seconds=3900)
 _TERMINAL = FAILURE_EVENTS | {"subtask_completed", "subtask_reused"}
 _NEXT_PHASE = {
     None: "worker",
@@ -57,6 +58,7 @@ class Summary:
     completed: int
     failed: int
     running: int
+    stalled: int
     peak_parallel: int
     avg_parallel: float
     cost_usd: Optional[float]
@@ -85,6 +87,7 @@ class Timeline:
     status: str
     started_at: Optional[datetime]
     ended_at: Optional[datetime]
+    stalled_since: Optional[datetime]
     rows: List[TaskRow]
     summary: Summary
     jev: JevLane
@@ -313,7 +316,9 @@ def build_timeline(
     now: datetime,
     tier_prices: Optional[Dict[str, float]] = None,
     credit_prices: Optional[Dict[str, float]] = None,
+    stale_after: Optional[timedelta] = None,
 ) -> Timeline:
+    stale_after = stale_after if stale_after is not None else DEFAULT_STALE_AFTER
     all_events = list(events)
     indexed = [
         (index, event)
@@ -331,11 +336,30 @@ def build_timeline(
     )
     started_at = _ts(start_event) if start_event else (_ts(run_events[0]) if run_events else None)
     ended_at = _ts(end_event) if end_event else None
+    event_times: List[datetime] = []
+    for event in run_events:
+        event_time = _ts(event)
+        if event_time is not None:
+            event_times.append(event_time)
+    last_event_at = max(event_times, default=None)
     title = clip_title(start_event.get("task")) if start_event else ""
-    if end_event is None:
-        status = "running"
+    stalled_since = (
+        last_event_at
+        if end_event is None
+        and last_event_at is not None
+        and now - last_event_at > stale_after
+        else None
+    )
+    if end_event is not None:
+        status = (
+            "completed"
+            if str(end_event.get("status") or "completed") == "completed"
+            else "failed"
+        )
+    elif stalled_since is not None:
+        status = "stalled"
     else:
-        status = "completed" if str(end_event.get("status") or "completed") == "completed" else "failed"
+        status = "running"
 
     plan_event = next(
         (event for event in reversed(run_events) if event_type(event) == "plan_parsed"), None
@@ -370,6 +394,16 @@ def build_timeline(
         )
         for task_id in plan_ids + extras
     ]
+    if stalled_since is not None:
+        for row in rows:
+            if row.status == "running":
+                row.status = "stalled"
+            row.segments = [
+                Segment(segment.phase, segment.start, stalled_since, segment.inferred)
+                if segment.end is None
+                else segment
+                for segment in row.segments
+            ]
 
     jev_events = [
         event for event in run_events if event_type(event) in {"classify", "control"}
@@ -399,7 +433,7 @@ def build_timeline(
         cost_usd=jev_cost,
     )
 
-    peak, average = _parallelism(rows, ended_at or now)
+    peak, average = _parallelism(rows, ended_at or stalled_since or now)
     cost: Optional[float] = None
     if run_events:
         from meister.report import compute_run_report
@@ -418,8 +452,11 @@ def build_timeline(
         completed=sum(row.status in ("completed", "reused") for row in rows),
         failed=sum(row.status == "failed" for row in rows),
         running=sum(row.status == "running" for row in rows),
+        stalled=sum(row.status == "stalled" for row in rows),
         peak_parallel=peak,
         avg_parallel=average,
         cost_usd=cost,
     )
-    return Timeline(run_id, title, status, started_at, ended_at, rows, summary, jev)
+    return Timeline(
+        run_id, title, status, started_at, ended_at, stalled_since, rows, summary, jev
+    )

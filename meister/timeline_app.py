@@ -15,7 +15,13 @@ from typing import Any, Callable, Deque, Dict, List, Optional, TextIO, Tuple
 from meister.dashboard.metrics import list_runs
 from meister.log_tail import LogTail
 from meister.timeline import Timeline, build_timeline
-from meister.timeline_cli import pick_run, price_tables_from_config, project_name, via_index_from_config
+from meister.timeline_cli import (
+    pick_run,
+    price_tables_from_config,
+    project_name,
+    stale_after_from_config,
+    via_index_from_config,
+)
 from meister.timeline_view import (
     CHROME_ROWS,
     MIN_WIDTH,
@@ -95,7 +101,7 @@ def view_for(state: AppState, timeline: Timeline, now: datetime) -> View:
     view = View(row_offset=state.row_offset, paused=state.paused, live=state.live)
     if state.zoom <= 1 or timeline.started_at is None:
         return view
-    base_end = timeline.ended_at or now
+    base_end = timeline.stalled_since or timeline.ended_at or now
     span = max((base_end - timeline.started_at).total_seconds(), 1.0)
     start = timeline.started_at + timedelta(seconds=state.pan_s)
     return replace(view, t_start=start, t_end=start + timedelta(seconds=span / state.zoom))
@@ -176,6 +182,7 @@ def run_interactive(
     tail = LogTail(log_file)
     events: List[Dict[str, Any]] = []
     tier_prices, credit_prices = price_tables_from_config()
+    stale_after = stale_after_from_config()
     via_index = via_index_from_config()
     project = project_name(log_file)
     state = AppState(all_runs=all_runs)
@@ -233,6 +240,7 @@ def run_interactive(
                         now,
                         tier_prices=tier_prices,
                         credit_prices=credit_prices,
+                        stale_after=stale_after,
                     )
                     timeline_cache[run_identifier] = cached
                     dirty_runs.discard(run_identifier)

@@ -13,11 +13,20 @@ from meister.timeline_view import (
     slowest_task_id,
     strip_ansi,
 )
-from tests.timeline_fixtures import at, parallel_events
+from tests.timeline_fixtures import at, ev, parallel_events, phase
 
 
 def _timeline():
     return build_timeline(parallel_events(), "r1", at(30))
+
+
+def _stalled_timeline():
+    events = [
+        ev("orchestration_start", "orchestrator", 0, run="stale123", task="stale run"),
+        ev("worker_spawn", "task_stale", 1, run="stale123", tier="copilot_luna"),
+        phase("task_stale", 10, "worker", 9, run="stale123"),
+    ]
+    return build_timeline(events, "stale123", at(5000))
 
 
 def _frame(**kwargs):
@@ -112,6 +121,7 @@ def test_no_jev_frame_stays_unchanged_and_small_frames_respect_height():
     assert len(render_frame(
         _timeline_with_jev(), width=120, height=5, now=at(30), color="none"
     ).splitlines()) <= 5
+    assert "Sem sinal" not in no_jev
 
 
 def test_color_none_has_no_escape_sequences_and_truecolor_has_them():
@@ -296,3 +306,41 @@ def test_all_runs_cost_is_unknown_when_none_are_known():
         render_all(timelines, width=120, height=20, now=at(30), tz=timezone.utc)
     )
     assert "US$ ?" in plain
+
+
+def test_stalled_run_frame_marks_warning_without_exceeding_width():
+    timeline = _stalled_timeline()
+    out = render_frame(
+        timeline, width=120, height=20, now=at(5000), color="none", tz=timezone.utc
+    )
+    lines = out.splitlines()
+    plain = strip_ansi(out)
+    assert "⚠ SEM SINAL" in plain and "→ ⚠ 12:00:10" in plain
+    assert "Sem sinal 1" in plain
+    assert "⚠" in next(line for line in lines if "task_stale" in line)
+    assert "sem sinal há 1 h 23 min" in plain
+    assert "\x1b" not in out
+    assert max(map(len, lines)) <= 120
+    assert timeline.stalled_since == at(10)
+
+
+def test_stalled_runs_in_all_view_have_warning_and_only_live_runs_set_live_badge():
+    stalled = _stalled_timeline()
+    overview = strip_ansi(
+        render_all([stalled], width=120, height=20, now=at(5000), color="none")
+    )
+    assert "VISÃO GERAL" in overview and "AO VIVO" not in overview
+    assert "⚠ SEM SINAL" in overview
+    assert "último evento há 1 h 23 min" in overview
+    assert "Sem sinal 1" in overview
+
+    mixed = strip_ansi(
+        render_all(
+            [stalled, _timeline()],
+            width=120,
+            height=24,
+            now=at(5000),
+            color="none",
+        )
+    )
+    assert "AO VIVO" in mixed and max(map(len, mixed.splitlines())) <= 120
