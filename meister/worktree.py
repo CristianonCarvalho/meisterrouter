@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from dataclasses import dataclass, asdict
@@ -237,7 +238,12 @@ class WorktreeManager:
         except Exception:
             return os.getcwd()
 
-    def _run_git(self, args: List[str], cwd: Optional[str] = None) -> str:
+    def _run_git(
+        self,
+        args: List[str],
+        cwd: Optional[str] = None,
+        env: Optional[dict[str, str]] = None,
+    ) -> str:
         """Executa comando git capturando stdout com tratamento defensivo."""
         target_cwd = cwd or self.repo_root
         res = subprocess.run(
@@ -245,6 +251,7 @@ class WorktreeManager:
             cwd=target_cwd,
             capture_output=True,
             text=True,
+            env=env,
         )
         if res.returncode != 0:
             raise RuntimeError(
@@ -664,6 +671,121 @@ class WorktreeManager:
                 return (False, None)
         return (True, None)
 
+    def _archive_uncommitted(
+        self,
+        wt_path: str,
+        task_id: str,
+    ) -> Tuple[bool, Optional[str]]:
+        """Arquiva alterações soltas sem alterar o índice ou a branch do worktree."""
+        if not os.path.exists(wt_path):
+            return (True, None)
+
+        try:
+            status = self._run_git(
+                ["status", "--porcelain", "--untracked-files=all"],
+                cwd=wt_path,
+            )
+        except Exception as exc:
+            logger.error("Falha ao verificar alterações não commitadas em %s: %s", wt_path, exc)
+            return (False, None)
+        if not status:
+            return (True, None)
+
+        safe_task = "".join(c if c.isalnum() or c in ("-", "_") else "_" for c in task_id)
+        branch = "HEAD"
+        snapshot_sha: Optional[str] = None
+        index_path: Optional[str] = None
+        try:
+            branch = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=wt_path)
+            fd, index_path = tempfile.mkstemp(prefix="meister-archive-index-")
+            os.close(fd)
+            os.remove(index_path)
+
+            env = os.environ.copy()
+            env.update({
+                "GIT_INDEX_FILE": index_path,
+                "GIT_AUTHOR_NAME": "MeisterRouter",
+                "GIT_AUTHOR_EMAIL": "meister@localhost",
+                "GIT_COMMITTER_NAME": "MeisterRouter",
+                "GIT_COMMITTER_EMAIL": "meister@localhost",
+            })
+            self._run_git(["read-tree", "HEAD"], cwd=wt_path, env=env)
+            self._run_git(
+                ["add", "-A", "--", ".", ":(exclude).venv"],
+                cwd=wt_path,
+                env=env,
+            )
+            tree_sha = self._run_git(["write-tree"], cwd=wt_path, env=env)
+            head_tree = self._run_git(["rev-parse", "HEAD^{tree}"], cwd=wt_path)
+            if tree_sha == head_tree:
+                return (True, None)
+
+            snapshot_sha = self._run_git(
+                [
+                    "commit-tree",
+                    tree_sha,
+                    "-p",
+                    "HEAD",
+                    "-m",
+                    f"meister: mudanças não commitadas de {task_id} (rejeitadas)",
+                ],
+                cwd=wt_path,
+                env=env,
+            )
+            timestamp = int(time.time())
+            while True:
+                ref_name = (
+                    f"refs/meister/archive/{safe_task}-{timestamp}-uncommitted"
+                )
+                existing_refs = self._run_git(
+                    ["for-each-ref", "--format=%(refname)", ref_name]
+                ).splitlines()
+                if not existing_refs:
+                    break
+                timestamp += 1
+            self._run_git(["update-ref", ref_name, snapshot_sha, ""])
+            logger.warning(
+                "Alterações não commitadas da branch %s arquivadas em %s (%s).",
+                branch,
+                ref_name,
+                snapshot_sha[:8],
+            )
+            try:
+                from meister.logger import log_event
+
+                log_event(
+                    event_type="worktree_archived",
+                    task_id=task_id,
+                    branch=branch,
+                    archive_ref=ref_name,
+                    sha=snapshot_sha,
+                    unmerged_commits=0,
+                    uncommitted=True,
+                )
+            except Exception:
+                pass
+            return (True, ref_name)
+        except Exception as exc:
+            logger.error("Falha ao arquivar alterações não commitadas da tarefa %s: %s", task_id, exc)
+            try:
+                from meister.logger import log_event
+
+                log_event(
+                    event_type="worktree_archive_failed",
+                    task_id=task_id,
+                    branch=branch,
+                    sha=snapshot_sha,
+                    unmerged_commits=0,
+                    uncommitted=True,
+                    error=str(exc),
+                )
+            except Exception:
+                pass
+            return (False, None)
+        finally:
+            if index_path and os.path.exists(index_path):
+                os.remove(index_path)
+
     def cleanup_worktree(
         self,
         task_id: str,
@@ -688,6 +810,16 @@ class WorktreeManager:
         success = True
 
         with self._worktree_lock:
+            # Preserve loose worker changes before deleting the worktree.
+            if archive_unmerged:
+                archive_ok, _ = self._archive_uncommitted(worktree_path, task_id)
+                if not archive_ok:
+                    logger.error(
+                        "Bloqueando remoção do worktree %s: falha ao arquivar alterações não commitadas.",
+                        worktree_path,
+                    )
+                    return False
+
             # 1. Remove worktree via Git
             cmd = ["worktree", "remove"]
             if force:
