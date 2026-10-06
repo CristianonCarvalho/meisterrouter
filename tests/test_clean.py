@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -13,6 +14,17 @@ from meister.clean import (
     apply_cleanup,
     plan_cleanup,
 )
+
+
+@pytest.fixture(autouse=True)
+def no_live_meister_processes(monkeypatch):
+    """Estes testes não podem depender de haver um Meister rodando na máquina.
+
+    `clean` recusa agir (exit 3) se vê um `meister orchestrate`/`worker` vivo; rodando o portão do
+    próprio Meister (ou um run em outra aba) isso reprovava testes sem relação com a mudança.
+    Os testes que exercitam o bloqueio injetam seus próprios processos.
+    """
+    monkeypatch.setattr("meister.clean.list_processes", lambda: [])
 
 
 def git(repo, *args, check=True):
@@ -352,3 +364,20 @@ def test_prunable_worktree_does_not_protect_a_merged_branch_but_a_live_one_does(
     assert not branch_exists(repo, "meister/integration/stale")
     assert branch_exists(repo, "meister/integration/live")
     assert (live_path / "base.txt").exists()
+
+
+def test_a_live_meister_process_on_the_machine_does_not_leak_into_these_tests(tmp_path):
+    """Regressão: um `orchestrate` real vivo (aqui um processo-isca) não pode bloquear o `clean` dos testes."""
+    decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "orchestrate"])
+    try:
+        import meister.clean as clean_module
+
+        real_listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
+        assert str(decoy.pid) in real_listing  # o isca existe de verdade
+        repo = make_repo(tmp_path / "repo")
+        result = CliRunner().invoke(main, ["clean", "--repo", str(repo), "--apply"])
+        assert result.exit_code == 0, result.output
+        assert clean_module.list_processes() == []
+    finally:
+        decoy.kill()
+        decoy.wait()
