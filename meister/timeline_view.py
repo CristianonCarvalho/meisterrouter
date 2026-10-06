@@ -36,6 +36,7 @@ PALETTE: Dict[str, RGB] = {
     "live": (80, 220, 120),
     "replay": (90, 150, 255),
     "paused": (240, 200, 60),
+    "stalled": (255, 150, 50),
 }
 JEV: RGB = (255, 105, 180)
 VIA_COLORS: Tuple[RGB, ...] = (
@@ -160,6 +161,20 @@ def _duration_text(seconds: Optional[float]) -> str:
     return f"{total} s"
 
 
+def _stalled_duration_text(seconds: float) -> str:
+    total = max(0, int(seconds))
+    days, remainder = divmod(total, 86400)
+    if days:
+        return f"{days} {'dia' if days == 1 else 'dias'}"
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds_left = divmod(remainder, 60)
+    if hours:
+        return f"{hours} h {minutes:02d} min"
+    if minutes:
+        return f"{minutes} min"
+    return f"{seconds_left} s"
+
+
 def _label(row: TaskRow) -> str:
     title = re.sub(r"^Task\s+\d+\s*:\s*", "", row.title).strip()
     return _fit(f"{row.task_id} {title}".rstrip(), LABEL_W)
@@ -226,8 +241,16 @@ def _bar_pieces(
         tip = filled[-1]
         phase_name = row.segments[-1].phase
         cells[tip] = ("●", phase_name + "+") if tick % 2 == 0 else ("○", phase_name)
-    elif filled and filled[-1] + 1 < width and row.status in ("completed", "failed"):
-        cells[filled[-1] + 1] = ("✔", "done") if row.status == "completed" else ("✖", "fail")
+    elif row.status == "stalled" and filled:
+        cells[filled[-1]] = ("⚠", "stalled")
+    elif filled and filled[-1] + 1 < width and row.status in ("completed", "failed", "stalled"):
+        cells[filled[-1] + 1] = (
+            ("✔", "done")
+            if row.status == "completed"
+            else ("⚠", "stalled")
+            if row.status == "stalled"
+            else ("✖", "fail")
+        )
     pieces: List[Piece] = []
     for glyph, cell_phase in cells:
         if cell_phase is None:
@@ -244,7 +267,11 @@ def _bar_pieces(
 
 
 def _info_pieces(
-    row: TaskRow, timeline: Timeline, slowest: Optional[str], via_color: Optional[RGB]
+    row: TaskRow,
+    timeline: Timeline,
+    slowest: Optional[str],
+    via_color: Optional[RGB],
+    now: datetime,
 ) -> List[Piece]:
     tier = row.tier or ""
     retry = f" ↻{row.attempts}" if row.attempts > 1 else ""
@@ -261,6 +288,15 @@ def _info_pieces(
         pieces = [("↺ reaproveitada", PALETTE["dim"], False)]
     elif row.status == "failed":
         pieces = [(f"✖ {row.failure or 'falhou'}", PALETTE["fail"], True)]
+    elif row.status == "stalled":
+        elapsed = (
+            max(0.0, (now - timeline.stalled_since).total_seconds())
+            if timeline.stalled_since is not None
+            else 0.0
+        )
+        pieces = [
+            (f"⚠ sem sinal há {_stalled_duration_text(elapsed)}", PALETTE["stalled"], True)
+        ]
     elif row.status == "running":
         phase = row.segments[-1].phase if row.segments else "worker"
         pieces = [
@@ -292,6 +328,8 @@ def _badge(timeline: Timeline, view: View, tick: int) -> Tuple[str, RGB, bool]:
         return "⏸ PAUSADO", PALETTE["paused"], True
     if timeline.status == "running":
         return "▶ AO VIVO", PALETTE["live"], tick % 2 == 0
+    if timeline.status == "stalled":
+        return "⚠ SEM SINAL", PALETTE["stalled"], True
     if not view.live:
         return "⏸ REPLAY", PALETTE["replay"], True
     if timeline.status == "completed":
@@ -337,6 +375,7 @@ def _render_task_lines(
     hue: int,
     row_offset: int,
     row_count: int,
+    now: datetime,
     row_index_offset: int = 0,
 ) -> Tuple[List[str], int]:
     rows = timeline.rows[row_offset : row_offset + row_count]
@@ -349,7 +388,7 @@ def _render_task_lines(
         pieces: List[Piece] = [(_label(row), PALETTE["text"], False), (" ", None, False)]
         pieces += _bar_pieces(row, t0, span, bar_width, now_eff, tick)
         pieces.append((" ", None, False))
-        pieces += _info_pieces(row, timeline, slowest, via_color)
+        pieces += _info_pieces(row, timeline, slowest, via_color, now)
         lines.append(painter.line(pieces, width, background))
     hidden = max(0, len(timeline.rows) - (row_offset + len(rows)))
     return lines, hidden
@@ -413,9 +452,11 @@ def render_frame(
     view = view or View()
     painter = Painter(color)
     via_index = via_index or {}
-    now_eff = timeline.ended_at or now
+    now_eff = timeline.stalled_since or timeline.ended_at or now
     t0 = view.t_start or timeline.started_at or now_eff
-    t1 = view.t_end or now_eff
+    t1 = min(view.t_end, now_eff) if timeline.status == "stalled" and view.t_end else (
+        view.t_end or now_eff
+    )
     span = max((t1 - t0).total_seconds(), 1.0)
     bar_width = width - LABEL_W - INFO_W - 2
     summary = timeline.summary
@@ -423,7 +464,12 @@ def render_frame(
     lines: List[str] = []
 
     badge, badge_color, badge_bold = _badge(timeline, view, tick)
-    right = f"{badge}  {_clock(timeline.started_at, tz)} → {_clock(timeline.ended_at, tz)}"
+    end_clock = (
+        f"⚠ {_clock(timeline.stalled_since, tz)}"
+        if timeline.stalled_since is not None
+        else _clock(timeline.ended_at, tz)
+    )
+    right = f"{badge}  {_clock(timeline.started_at, tz)} → {end_clock}"
     left = f"  MEISTER  {project}   run {timeline.run_id[:8]}" + (
         f" · {timeline.title}" if timeline.title else ""
     )
@@ -444,24 +490,22 @@ def render_frame(
     progress = [("█", _gradient(index / (PROGRESS_W - 1)), False) for index in range(done_cells)]
     progress.append(("░" * (PROGRESS_W - done_cells), dim, False))
     cost = f"US$ {summary.cost_usd:.4f}" if summary.cost_usd is not None else "US$ ?"
-    lines.append(
-        painter.line(
-            [
-                (" Concluídas ", dim, False),
-                *progress,
-                (f" {summary.completed}/{summary.total}", text_color, True),
-                (
-                    f"   Rodando {summary.running} (pico {summary.peak_parallel} · "
-                    f"média {summary.avg_parallel:.1f})",
-                    text_color,
-                    False,
-                ),
-                (f"   Falhas {summary.failed}", PALETTE["fail"] if summary.failed else dim, False),
-                (f"   {cost}", text_color, False),
-            ],
-            width,
-        )
-    )
+    summary_pieces: List[Piece] = [
+        (" Concluídas ", dim, False),
+        *progress,
+        (f" {summary.completed}/{summary.total}", text_color, True),
+        (
+            f"   Rodando {summary.running} (pico {summary.peak_parallel} · "
+            f"média {summary.avg_parallel:.1f})",
+            text_color,
+            False,
+        ),
+        (f"   Falhas {summary.failed}", PALETTE["fail"] if summary.failed else dim, False),
+    ]
+    if summary.stalled:
+        summary_pieces.append((f"   Sem sinal {summary.stalled}", PALETTE["stalled"], False))
+    summary_pieces.append((f"   {cost}", text_color, False))
+    lines.append(painter.line(summary_pieces, width))
     lines.append(painter.paint("─" * width, dim))
     lines.append(
         _render_ruler_line(
@@ -508,6 +552,7 @@ def render_frame(
         row_offset=task_offset,
         row_count=task_capacity,
         row_index_offset=lane_count + task_offset if lane_count else 0,
+        now=now,
     )
     lines.extend(rows)
     hidden = max(0, total_rows - offset - visible)
@@ -542,7 +587,7 @@ def _all_badge(timelines: Sequence[Timeline], view: View, tick: int) -> Tuple[st
 def _run_duration(timeline: Timeline, now: datetime) -> str:
     if timeline.started_at is None:
         return "—"
-    end = timeline.ended_at or now
+    end = timeline.stalled_since or timeline.ended_at or now
     return _duration_text(max(0.0, (end - timeline.started_at).total_seconds()))
 
 
@@ -575,10 +620,19 @@ def render_all(
     total = sum(item.total for item in summary)
     running = sum(item.running for item in summary)
     failed = sum(item.failed for item in summary)
+    stalled = sum(item.stalled for item in summary)
     known_costs = [item.cost_usd for item in summary if item.cost_usd is not None]
     cost = f"US$ {sum(known_costs):.4f}" if known_costs else "US$ ?"
     badge, badge_color, badge_bold = _all_badge(timelines, view, tick)
     left = _fit(f"  MEISTER  {project}   todos os runs ({len(timelines)})", width - len(badge) - 1)
+    summary_pieces: List[Piece] = [
+        (f" Concluídas {completed}/{total}", text_color, True),
+        (f"   Rodando {running}", PALETTE["live"] if running else dim, False),
+        (f"   Falhas {failed}", PALETTE["fail"] if failed else dim, False),
+    ]
+    if stalled:
+        summary_pieces.append((f"   Sem sinal {stalled}", PALETTE["stalled"], False))
+    summary_pieces.append((f"   {cost}", text_color, False))
     lines = [
         painter.line(
             [
@@ -588,30 +642,26 @@ def render_all(
             ],
             width,
         ),
-        painter.line(
-            [
-                (f" Concluídas {completed}/{total}", text_color, True),
-                (f"   Rodando {running}", PALETTE["live"] if running else dim, False),
-                (f"   Falhas {failed}", PALETTE["fail"] if failed else dim, False),
-                (f"   {cost}", text_color, False),
-            ],
-            width,
-        ),
+        painter.line(summary_pieces, width),
     ]
 
     body: List[str] = []
     for run_index, timeline in enumerate(timelines):
         t0 = timeline.started_at or timeline.ended_at or now
-        now_eff = timeline.ended_at or now
+        now_eff = timeline.stalled_since or timeline.ended_at or now
         span = max((now_eff - t0).total_seconds(), 1.0)
         bar_width = max(1, width - LABEL_W - INFO_W - 2)
         run_badge = (
             ("▶ AO VIVO", PALETTE["live"], tick % 2 == 0)
             if timeline.status == "running"
             else (
-                ("✔ CONCLUÍDO", PALETTE["done"], True)
-                if timeline.status == "completed"
-                else ("✖ FALHOU", PALETTE["fail"], True)
+                ("⚠ SEM SINAL", PALETTE["stalled"], True)
+                if timeline.status == "stalled"
+                else (
+                    ("✔ CONCLUÍDO", PALETTE["done"], True)
+                    if timeline.status == "completed"
+                    else ("✖ FALHOU", PALETTE["fail"], True)
+                )
             )
         )
         status, status_color, status_bold = run_badge
@@ -620,11 +670,26 @@ def render_all(
             if timeline.summary.cost_usd is not None
             else "US$ ?"
         )
-        time_range = f"{_clock(timeline.started_at, tz)} → {_clock(timeline.ended_at, tz)}"
-        details = (
-            f"{status}  {timeline.summary.completed}/{timeline.summary.total}  "
-            f"{run_cost}  {_run_duration(timeline, now)}  {time_range}"
+        time_range = (
+            f"{_clock(timeline.started_at, tz)} → ⚠ {_clock(timeline.stalled_since, tz)}"
+            if timeline.stalled_since is not None
+            else f"{_clock(timeline.started_at, tz)} → {_clock(timeline.ended_at, tz)}"
         )
+        if timeline.status == "stalled":
+            elapsed = (
+                max(0.0, (now - timeline.stalled_since).total_seconds())
+                if timeline.stalled_since is not None
+                else 0.0
+            )
+            details = (
+                f"{status} · último evento há {_stalled_duration_text(elapsed)}  "
+                f"{timeline.summary.completed}/{timeline.summary.total}  {run_cost}"
+            )
+        else:
+            details = (
+                f"{status}  {timeline.summary.completed}/{timeline.summary.total}  "
+                f"{run_cost}  {_run_duration(timeline, now)}  {time_range}"
+            )
         label = f" {timeline.run_id[:8]} · {timeline.title}".rstrip(" ·")
         label = _fit(label, max(0, width - len(details) - 1)).rstrip()
         body.append(
@@ -676,6 +741,7 @@ def render_all(
             hue=(210 + 67 * run_index) % 360,
             row_offset=0,
             row_count=len(timeline.rows),
+            now=now,
             row_index_offset=int(bool(timeline.jev.calls)),
         )
         body.extend(task_lines)

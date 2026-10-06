@@ -3,7 +3,7 @@
 import json
 import re
 from collections import Counter, defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 
@@ -143,7 +143,11 @@ def iter_events(log_file: str, run_id: Optional[str] = None) -> Iterator[Dict[st
                 yield event
 
 
-def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def list_runs(
+    events: Iterable[Dict[str, Any]],
+    now: Optional[datetime] = None,
+    stale_after_s: Optional[float] = None,
+) -> List[Dict[str, Any]]:
     """Summarize non-global orchestration runs, newest first."""
     runs: Dict[str, Dict[str, Any]] = {}
     tasks: Dict[str, set] = defaultdict(set)
@@ -162,6 +166,8 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "events": 0,
                 "tasks": 0,
                 "_sort_at": "",
+                "_last_event_at": None,
+                "_has_end": False,
             },
         )
         row["events"] += 1
@@ -170,6 +176,9 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         current_timestamp = _timestamp(row["_sort_at"])
         if parsed_timestamp and (current_timestamp is None or parsed_timestamp > current_timestamp):
             row["_sort_at"] = timestamp
+        last_event_at = row["_last_event_at"]
+        if parsed_timestamp and (last_event_at is None or parsed_timestamp > last_event_at):
+            row["_last_event_at"] = parsed_timestamp
         kind = event_type(event)
         if kind == "orchestration_start":
             row["started_at"] = timestamp or row["started_at"]
@@ -177,6 +186,7 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         elif kind == "orchestration_end":
             row["ended_at"] = timestamp or row["ended_at"]
             row["status"] = event.get("status") or row["status"]
+            row["_has_end"] = True
         task_key = _task_key(event)
         if task_key and kind in LIFECYCLE_EVENTS:
             tasks[run_id].add(task_key[1])
@@ -192,7 +202,17 @@ def list_runs(events: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         reverse=True,
     )
     for row in ordered_runs:
+        if (
+            now is not None
+            and stale_after_s is not None
+            and not row["_has_end"]
+            and row["_last_event_at"] is not None
+            and now - row["_last_event_at"] > timedelta(seconds=stale_after_s)
+        ):
+            row["status"] = "sem sinal"
         row.pop("_sort_at")
+        row.pop("_last_event_at")
+        row.pop("_has_end")
     return ordered_runs
 
 
@@ -289,10 +309,12 @@ def compute_summary(
     events: Iterable[Dict[str, Any]],
     run_id: Optional[str],
     log_file: Optional[str] = None,
+    now: Optional[datetime] = None,
+    stale_after_s: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Compute grouped analytics for the selected run (or all runs)."""
     event_list = list(events)
-    runs = list_runs(event_list)
+    runs = list_runs(event_list, now=now, stale_after_s=stale_after_s)
     selected_run = run_id
     if selected_run is None:
         selected_run = runs[0]["run_id"] if runs else None

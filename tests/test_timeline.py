@@ -1,3 +1,6 @@
+import json
+from datetime import timedelta
+
 from meister.timeline import build_timeline
 from tests.timeline_fixtures import at, ev, parallel_events, phase
 
@@ -85,9 +88,73 @@ def test_ended_run_closes_unfinished_task_as_failed():
 
 
 def test_run_without_end_stays_running():
-    timeline = build_timeline([ev("worker_spawn", "t", 1, tier="x")], "r1", at(5000))
+    events = [ev("worker_spawn", "t", 1, tier="x")]
+    timeline = build_timeline(events, "r1", at(600))
     assert timeline.status == "running"
     assert _row(timeline, "t").status == "running"
+
+    stalled = build_timeline(events, "r1", at(5000))
+    assert stalled.status == "stalled" and stalled.stalled_since == at(1)
+    assert _row(stalled, "t").status == "stalled"
+    assert _row(stalled, "t").failure is None
+    assert (_row(stalled, "t").segments[-1].start, _row(stalled, "t").segments[-1].end) == (
+        at(1), at(1)
+    )
+    assert (stalled.summary.running, stalled.summary.stalled) == (0, 1)
+
+
+def test_stalled_threshold_is_customizable_and_recent_events_restore_running():
+    events = [
+        ev("orchestration_start", "orchestrator", 0, task="plan"),
+        ev("worker_spawn", "t", 1, tier="x"),
+        phase("t", 10, "worker", 9),
+    ]
+    assert build_timeline(events, "r1", at(20), stale_after=timedelta(seconds=5)).status == "stalled"
+    assert build_timeline(events, "r1", at(20), stale_after=timedelta(seconds=30)).status == "running"
+    recent = events + [ev("route_decision", "orchestrator", 19)]
+    assert build_timeline(recent, "r1", at(20)).status == "running"
+
+
+def test_stalled_run_closes_waiting_segments_and_ended_runs_never_stall():
+    events = [
+        ev(
+            "orchestration_start",
+            "orchestrator",
+            0,
+            run="r1",
+            task=json.dumps([
+                {"id": "active", "depends_on": []},
+                {"id": "waiting", "depends_on": ["active"]},
+            ]),
+        ),
+        ev("worker_spawn", "active", 1, tier="x"),
+        phase("active", 10, "worker", 9),
+        ev(
+            "plan_parsed",
+            "orchestrator",
+            0.1,
+            task_ids=["active", "waiting"],
+            task_titles={},
+        ),
+    ]
+    stalled = build_timeline(events, "r1", at(5000))
+    waiting = _row(stalled, "waiting")
+    assert waiting.status == "waiting"
+    assert _spans(waiting) == [("wait", at(0), at(10))]
+    assert all(segment.end == at(10) for row in stalled.rows for segment in row.segments)
+
+    completed = build_timeline(
+        events + [ev("orchestration_end", "orchestrator", 11, status="completed")],
+        "r1",
+        at(5000),
+    )
+    assert completed.status == "completed" and completed.stalled_since is None
+    failed = build_timeline(
+        events + [ev("orchestration_end", "orchestrator", 11, status="failed")],
+        "r1",
+        at(5000),
+    )
+    assert failed.status == "failed" and failed.stalled_since is None
 
 
 def test_old_log_without_plan_or_phases_uses_natural_order_and_single_bar():
