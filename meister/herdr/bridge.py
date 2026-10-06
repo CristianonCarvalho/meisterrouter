@@ -21,7 +21,7 @@ import re
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
-from meister.config import MeisterConfig, effective_worker_timeouts, load_config
+from meister.config import MeisterConfig, WorkerTier, effective_worker_timeouts, load_config
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
@@ -640,19 +640,76 @@ class HerdrEventBridge:
                                     error=error,
                                 )
                             else:
+                                classification = result.get("classification")
+                                jev_recommended = recommended
+                                ineligible_replaced = False
                                 if recommended in tier_names:
                                     current_tier = recommended
-                                log_event(
-                                    event_type="route_decision",
-                                    run_id=active_run_id,
-                                    task_id=task_id,
-                                    subtask_id=subtask_id,
-                                    tier=current_tier,
-                                    classification=result.get("classification"),
-                                    confidence=result.get("classification_confidence"),
-                                    fallback_rule_applied=bool(result.get("fallback_rule_applied", False))
-                                    or recommended not in tier_names,
-                                )
+                                    classification_name = (
+                                        classification.upper()
+                                        if isinstance(classification, str)
+                                        else ""
+                                    )
+                                    recommended_index = next(
+                                        index
+                                        for index, tier in enumerate(tier_order)
+                                        if tier.name == recommended
+                                    )
+                                    recommended_tier = tier_order[recommended_index]
+                                    if (
+                                        recommended_tier.eligible_classes
+                                        and classification_name not in recommended_tier.eligible_classes
+                                    ):
+                                        def is_eligible(tier: WorkerTier) -> bool:
+                                            return (
+                                                not tier.eligible_classes
+                                                or classification_name in tier.eligible_classes
+                                            )
+
+                                        replacement = next(
+                                            (
+                                                tier
+                                                for tier in reversed(tier_order[:recommended_index])
+                                                if is_eligible(tier)
+                                            ),
+                                            None,
+                                        )
+                                        if replacement is None:
+                                            replacement = next(
+                                                (
+                                                    tier
+                                                    for tier in tier_order[recommended_index + 1 :]
+                                                    if is_eligible(tier)
+                                                ),
+                                                None,
+                                            )
+                                        if replacement is not None:
+                                            current_tier = replacement.name
+                                            ineligible_replaced = True
+                                            log_event(
+                                                event_type="route_decision",
+                                                run_id=active_run_id,
+                                                task_id=task_id,
+                                                subtask_id=subtask_id,
+                                                tier=current_tier,
+                                                classification=classification,
+                                                confidence=result.get("classification_confidence"),
+                                                fallback_rule_applied=True,
+                                                jev_recommended=jev_recommended,
+                                                status="ineligible_replaced",
+                                            )
+                                if not ineligible_replaced:
+                                    log_event(
+                                        event_type="route_decision",
+                                        run_id=active_run_id,
+                                        task_id=task_id,
+                                        subtask_id=subtask_id,
+                                        tier=current_tier,
+                                        classification=classification,
+                                        confidence=result.get("classification_confidence"),
+                                        fallback_rule_applied=bool(result.get("fallback_rule_applied", False))
+                                        or recommended not in tier_names,
+                                    )
                         except Exception as e:
                             logger.warning("Jev routing failed for subtask %s; using first tier: %s", task_id, e)
                             self._jev_unavailable_until = (
@@ -671,6 +728,10 @@ class HerdrEventBridge:
                                 status="fallback",
                                 error=str(e)[:200] or "Jev routing timed out",
                             )
+
+        if current_tier is None:
+            logger.error("Não foi possível selecionar uma via para a subtarefa %s.", task_id)
+            return False
 
         if sm and hasattr(self.spawner, "get_first_available_tier"):
             tier_obj = self.spawner.get_tier(current_tier) if hasattr(self.spawner, "get_tier") else None

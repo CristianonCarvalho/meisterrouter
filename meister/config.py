@@ -20,6 +20,7 @@ import yaml
 
 
 VALID_ARCHITECT_EFFORTS: Set[str] = {"low", "medium", "high", "xhigh", "max"}
+VALID_WORKER_CLASSES: Set[str] = {"SMALL", "MEDIUM", "HIGH", "ESCALATE"}
 KNOWN_HARNESSES: Set[str] = {
     "codex", "agy", "antigravity", "claude", "copilot", "github-copilot"
 }
@@ -109,6 +110,7 @@ class WorkerTier:
     idle_timeout_seconds: Optional[float] = None
     max_runtime_seconds: Optional[float] = None
     credit_usd: Optional[float] = None
+    eligible_classes: List[str] = field(default_factory=list)
 
 
 def _all_default_worker_tiers() -> List[WorkerTier]:
@@ -125,6 +127,7 @@ def _all_default_worker_tiers() -> List[WorkerTier]:
             idle_timeout_seconds=item.get("idle_timeout_seconds"),
             max_runtime_seconds=item.get("max_runtime_seconds"),
             credit_usd=item.get("credit_usd"),
+            eligible_classes=[str(value).upper() for value in item.get("eligible_classes", [])],
         )
         for item in _default_config_data()["workers"]["tier_order"]
     ]
@@ -377,6 +380,25 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                         )
                     else:
                         credit_usd = float(raw_credit_usd)
+                raw_eligible_classes = tier.get("eligible_classes", [])
+                eligible_classes: List[str] = []
+                if (
+                    not isinstance(raw_eligible_classes, list)
+                    or any(
+                        not isinstance(value, str)
+                        or value.upper() not in VALID_WORKER_CLASSES
+                        for value in raw_eligible_classes
+                    )
+                ):
+                    parse_issues.append(
+                        ConfigIssue(
+                            "error",
+                            f"workers.tier_order[{i}].eligible_classes",
+                            "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                        )
+                    )
+                else:
+                    eligible_classes = [value.upper() for value in raw_eligible_classes]
                 tier_idle_timeout = (
                     None
                     if raw_idle_timeout is None
@@ -432,6 +454,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     idle_timeout_seconds=tier_idle_timeout,
                     max_runtime_seconds=tier_max_runtime,
                     credit_usd=credit_usd,
+                    eligible_classes=eligible_classes,
                 )
                 if enabled_val:
                     tier_list.append(tier_obj)
@@ -815,6 +838,22 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     # 2. nome de via vazio ou repetido
     seen_names: Set[str] = set()
     for i, tier in enumerate(config.workers.tier_order):
+        if (
+            not isinstance(tier.eligible_classes, list)
+            or any(
+                not isinstance(value, str) or value.upper() not in VALID_WORKER_CLASSES
+                for value in tier.eligible_classes
+            )
+        ):
+            path = f"workers.tier_order[{i}].eligible_classes"
+            if not any(issue.path == path for issue in issues):
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                    )
+                )
         if tier.credit_usd is not None and (
             isinstance(tier.credit_usd, bool)
             or not isinstance(tier.credit_usd, (int, float))
@@ -872,6 +911,22 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             seen_names.add(tier.name)
 
     for j, tier in enumerate(config.workers.disabled):
+        if (
+            not isinstance(tier.eligible_classes, list)
+            or any(
+                not isinstance(value, str) or value.upper() not in VALID_WORKER_CLASSES
+                for value in tier.eligible_classes
+            )
+        ):
+            path = f"workers.disabled[{j}].eligible_classes"
+            if not any(issue.path == path for issue in issues):
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                    )
+                )
         if tier.credit_usd is not None and (
             isinstance(tier.credit_usd, bool)
             or not isinstance(tier.credit_usd, (int, float))

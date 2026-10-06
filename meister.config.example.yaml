@@ -40,7 +40,7 @@ workers:
     - {name: codex_luna, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2, max_parallel: 1, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
     - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2, best_for: [deep_reasoning, complex_algorithms, hard_bugs]}
     # sonnet é o apelido aceito pelo CLI claude.
-    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions]}
+    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions], eligible_classes: [ESCALATE]}
 concurrency:
   parallel_tasks: true
   max_parallel_workers: 4
