@@ -72,3 +72,24 @@ def parallel_events(run="r1"):
         ),
         ev("worker_spawn", "task_3", 23.5, run=run, tier="copilot_luna"),
     ]
+
+
+def worker_cli_events(run="worker_cli", task_id="5b936c6b64348070"):
+    """Formato real de `meister worker` sem eventos de orquestração."""
+    return [
+        ev("classify", task_id, 0.2, run=run, tier="jev", duration_ms=100),
+        ev("classify", task_id, 0.5, run=run, tier="jev", duration_ms=100),
+        ev("worker_start", task_id, 1, run=run, tier="copilot_luna"),
+        ev("worktree_setup_ok", "int_run_" + run, 1.5, run=run, tier="unknown"),
+        ev("worktree_setup_ok", "worker_run_" + run, 2, run=run, tier="unknown"),
+        phase(task_id, 8, "worker", 7, run=run),
+        ev(
+            "worker_end",
+            task_id,
+            10,
+            run=run,
+            status="timeout",
+            exit_code=1,
+            error="Worker excedeu o timeout de 180.0s",
+        ),
+    ]

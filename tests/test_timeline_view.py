@@ -13,7 +13,7 @@ from meister.timeline_view import (
     slowest_task_id,
     strip_ansi,
 )
-from tests.timeline_fixtures import at, ev, parallel_events, phase
+from tests.timeline_fixtures import at, ev, parallel_events, phase, worker_cli_events
 
 
 def _timeline():
@@ -344,3 +344,16 @@ def test_stalled_runs_in_all_view_have_warning_and_only_live_runs_set_live_badge
         )
     )
     assert "AO VIVO" in mixed and max(map(len, mixed.splitlines())) <= 120
+
+
+def test_worker_cli_failure_renders_task_bar_and_closed_run_badge():
+    timeline = build_timeline(worker_cli_events(), "worker_cli", at(20))
+    out = render_frame(
+        timeline, width=120, height=20, now=at(20), color="none", tz=timezone.utc
+    )
+    plain = strip_ansi(out)
+    task_line = next(line for line in plain.splitlines() if line.startswith("5b936c6b"))
+    assert "█" in task_line and "timeout" in task_line
+    assert "Falhas 1" in plain
+    assert "FALHOU" in plain and "AO VIVO" not in plain
+    assert all(len(line) <= 120 for line in plain.splitlines())
