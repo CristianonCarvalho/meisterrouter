@@ -27,7 +27,7 @@ gh api -H "Accept: application/vnd.github.raw" repos/CristianonCarvalho/meisterr
 > 1. Clona/atualiza o repositório em `~/.local/share/meisterrouter` usando suas credenciais do GitHub.
 > 2. Cria o ambiente virtual Python (`.venv`) e instala as dependências em modo editável.
 > 3. Cria o executável global `meister` em `~/.local/bin/meister`.
-> 4. Se o [Herdr](https://herdr.dev) estiver instalado, vincula o plugin nativamente (`prefix+m` e `prefix+M`).
+> 4. Se o [Herdr](https://herdr.dev) estiver instalado, vincula o plugin (ações do MeisterRouter). Os atalhos de teclado (popup do dashboard, linha do tempo) você cadastra uma vez no `config.toml` do Herdr: veja [Como Plugin Oficial do Herdr](#-5-como-plugin-oficial-do-herdr).
 
 ---
 
@@ -76,9 +76,35 @@ herdr plugin link /caminho/para/meisterrouter
 # Ou se instalado via script:
 herdr plugin link ~/.local/share/meisterrouter
 ```
-**Atalhos no Herdr:**
-- `prefix + m`: Ativa a orquestração autônoma de tarefas no workspace.
-- `prefix + M`: Abre o Dashboard de Telemetria e Custos em TUI (painel overlay).
+O plugin registra as ações `auto-orchestrate`, `classify-task` e `verify-gate` (confira com
+`herdr plugin action list`). Os **atalhos de teclado** ficam no `~/.config/herdr/config.toml`
+(seção `[[keys.command]]`); depois de editar, rode `herdr config check` e
+`herdr server reload-config`. Exemplo com o dashboard e a linha do tempo em **popup** (janela
+modal sobre o layout, sem alterar as abas); troque `meister` pelo caminho completo se ele não
+estiver no `PATH` do Herdr (por exemplo `~/.local/bin/meister`):
+```toml
+[[keys.command]]
+key = "prefix+m"                      # orquestrar
+type = "shell"
+command = "meister herdr-action orchestrate"
+
+[[keys.command]]
+key = "prefix+shift+m"                # dashboard (TUI) em popup
+type = "popup"
+command = "meister dashboard --tui"
+width = "85%"
+height = "85%"
+
+[[keys.command]]
+key = "prefix+t"                      # linha do tempo (Gantt) em popup
+type = "popup"
+command = "meister timeline"
+width = "85%"
+height = "85%"
+```
+Para ter também um atalho direto, sem passar pelo `prefix`, repita os blocos com outra tecla
+(por exemplo `ctrl+alt+shift+m` e `ctrl+alt+t`). Dentro do dashboard em TUI, `t` abre a linha
+do tempo e `q` fecha o popup.
 
 ---
 
@@ -140,6 +166,13 @@ existentes que não pertençam ao MeisterRouter são preservados. Use `--force` 
 sobrescrever arquivos ou hooks existentes. `--no-hooks` continua aceito por
 compatibilidade; sem `--hooks`, nenhum hook é instalado.
 
+`--hooks` também instala os hooks do **Claude Code** em `.claude/`, incluindo o **guard**: ele
+impede que o Claude edite código direto no projeto, porque o método de execução é sempre
+`meister orchestrate` (ou `meister worker`). O modo fica em `.meister/guard_mode`: `block`
+(padrão, recusa a edição), `ask` (pede confirmação) ou `off`. Documentação (`docs/**`, `*.md`,
+`*.mdx`, `*.txt`) é sempre liberada, e os workers do Meister (`MEISTER_IN_PANE=1`) não são afetados.
+Detalhes em `docs/MANUAL_DE_EXECUCAO.md`.
+
 ---
 
 ### 2. Comandos do Jev Decisions
@@ -177,6 +210,14 @@ Retorna JSON tipado com complexidade (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) e o
 
 O portão aceita verificações `gate.commands` próprias e `scope.tolerated_files` para artefatos gerados;
 veja `meister.config.example.yaml` para exemplos Go e Node/pnpm.
+
+Ajustes úteis no `meister.config.yaml` (os padrões estão em `meister/default_config.yaml`):
+- `router.mode`: `jev` (padrão, o Jev escolhe a via de cada tarefa) ou `first` (sempre a primeira via, sem rede).
+- `workers.tier_order[].eligible_classes`: classes (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) que a via aceita; se o Jev
+  recomendar uma via inelegível, o Meister usa a via elegível mais próxima. Por padrão o Sonnet só recebe `ESCALATE`.
+- `workers.tier_order[].credit_usd`: preço em dólar de 1 crédito da via (Copilot: `0.01`), usado no custo.
+- `gate.cache`: o portão guarda só as passagens, por conteúdo do código e dos comandos, e não repete uma
+  verificação idêntica; `gate.cache: false` desliga.
 
 #### Avaliar e Controlar o Loop (`control`):
 ```bash
@@ -261,13 +302,31 @@ apontar a interface a outro diretório de logs sem alterar `MEISTER_LOG_DIR`:
 meister dashboard --log-dir /caminho/para/logs
 ```
 Custos dos workers só são exibidos quando registrados; economia percentual não é
-estimada sem um baseline medido.
+estimada sem um baseline medido. O custo do Copilot vem dos **créditos** informados pelo CLI
+(créditos × `credit_usd`, 1 crédito = US$ 0,01) e não da estimativa por tokens. A tabela de
+tarefas tem a coluna **Run** (cada run com uma cor), com os runs mais novos primeiro.
 
-#### Interface Terminal (TUI Overlay):
+#### Interface Terminal (TUI / popup do Herdr):
 Ideal para uso dentro do terminal ou integrado ao Herdr:
 ```bash
 meister dashboard --tui
 ```
+No Herdr, o atalho de popup do dashboard (veja a seção do plugin) abre essa mesma tela sobre
+o layout; `q` fecha, `o` abre o dashboard web e `t` abre a linha do tempo.
+
+#### Linha do tempo (Gantt) do run:
+```bash
+meister timeline                    # ao vivo: o run mais novo, atualizando sozinho
+meister timeline --once             # imprime um quadro e sai
+meister timeline --run-id 3f9a1c    # um run específico (prefixo de 6+ caracteres)
+meister timeline --all              # todos os runs
+meister timeline --no-color         # sem cores
+```
+Mostra uma barra por fase (worker, gate, integração) de cada tarefa, a via e o modelo reais,
+a espera do Jev numa linha própria e o custo. Somente leitura: não altera o log. Teclas:
+`[` e `]` run mais antigo/mais novo, `l` volta ao ao vivo, `a` um run/todos, `p` pausa, `+` e `-`
+zoom, setas rolam e andam no tempo, `?` ajuda, `q` sai. Também abre em popup no Herdr (`prefix+t`
+no exemplo acima).
 
 ---
 
@@ -296,13 +355,15 @@ meisterrouter/
 │   ├── gate.py                  # Portão de verificação determinística
 │   ├── logger.py                # Gravação atômica de telemetria JSONL
 │   ├── models.py                # Matriz de modelos e cálculo de custos
-│   ├── hooks.py                 # Instalador de hooks Git e Claude
-│   ├── herdr_bridge.py          # Ponte de comunicação e eventos com Herdr IPC
-│   ├── tui.py                   # Dashboard em modo texto interativo para terminal
+│   ├── hooks.py                 # Instalador de hooks Git e Claude (inclui o guard)
+│   ├── report.py / usage.py     # Relatório de custo/tempo e uso (créditos, tokens) por worker
+│   ├── env_setup.py             # Preparo de dependências nos worktrees
+│   ├── timeline*.py, log_tail.py # Linha do tempo (Gantt) em TUI, somente leitura
+│   ├── herdr/                   # Ponte com o Herdr (bridge.py), TUI do dashboard (tui.py), workers
 │   ├── templates/               # Templates injetáveis (CLAUDE.md, CODEX.md, hooks)
 │   └── dashboard/               # Servidor Flask e interface Web
 ├── tests/                       # Suíte de testes unitários com pytest
-├── herdr-plugin.toml            # Manifesto do plugin para Herdr (atalhos prefix+m, prefix+M)
+├── herdr-plugin.toml            # Manifesto do plugin para Herdr (ações; atalhos ficam no config.toml)
 ├── package.json                 # Manifesto do pacote npm / npx
 ├── CLAUDE.md                    # Regras para Claude Code
 ├── CODEX.md                     # Regras para OpenAI Codex
