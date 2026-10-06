@@ -433,7 +433,8 @@ def test_node_installer_uses_yarn_and_unlocked_package_manager(tmp_path, monkeyp
 
     log.unlink()
     (project / "yarn.lock").unlink()
-    (project / "package.json").write_text('{"packageManager":"pnpm@9.0.0"}')
+    # sem lockfile e sem dependências o Meister não instala nada (nada a instalar): o fixture declara uma
+    (project / "package.json").write_text('{"packageManager":"pnpm@9.0.0","dependencies":{"left-pad":"1.3.0"}}')
     assert DeterministicGate(str(project), load_config(str(config))).run_verification_ex().passed
     assert log.read_text().splitlines()[0] == "install"
 
