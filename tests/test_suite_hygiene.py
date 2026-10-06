@@ -11,7 +11,10 @@ from tests.conftest import (
     cleanup_repo_leaks,
     configured_test_timeout,
     find_repo_leaks,
+    meister_is_running,
+    REAL_MEISTER_WORKTREES_DIR,
     snapshot_project_repo,
+    split_external_meister_leaks,
     split_owned_leaks,
     test_watchdog as watchdog,
 )
@@ -105,6 +108,88 @@ def test_without_an_owned_dir_nothing_is_attributed_to_the_test():
     owned, foreign = split_owned_leaks(leaks, RepoSnapshot(refs=frozenset(), worktrees=frozenset()), None)
     assert owned == RepoLeaks(frozenset(), frozenset())
     assert foreign == leaks
+
+
+def test_worktree_inside_real_meister_directory_is_external(tmp_path):
+    real_worktrees_dir = tmp_path / "meister-worktrees"
+    worktree = real_worktrees_dir / "run" / "worker"
+    leaks = RepoLeaks(refs=frozenset(), worktrees=frozenset({str(worktree)}))
+
+    external, remaining = split_external_meister_leaks(leaks, real_worktrees_dir, False)
+
+    assert external == leaks
+    assert remaining == RepoLeaks(frozenset(), frozenset())
+
+
+def test_worktree_outside_real_meister_directory_remains_a_leak(tmp_path):
+    real_worktrees_dir = tmp_path / "meister-worktrees"
+    worktree = tmp_path / "other" / "worker"
+    leaks = RepoLeaks(refs=frozenset(), worktrees=frozenset({str(worktree)}))
+
+    external, remaining = split_external_meister_leaks(leaks, real_worktrees_dir, True)
+
+    assert external == RepoLeaks(frozenset(), frozenset())
+    assert remaining == leaks
+
+
+def test_meister_ref_is_external_when_meister_is_live(tmp_path):
+    leaks = RepoLeaks(refs=frozenset({"refs/meister/archive/x"}), worktrees=frozenset())
+
+    external, remaining = split_external_meister_leaks(leaks, tmp_path, True)
+
+    assert external == leaks
+    assert remaining == RepoLeaks(frozenset(), frozenset())
+
+
+def test_meister_ref_without_live_process_or_external_worktree_remains_a_leak(tmp_path):
+    leaks = RepoLeaks(refs=frozenset({"refs/meister/archive/x"}), worktrees=frozenset())
+
+    external, remaining = split_external_meister_leaks(leaks, tmp_path, False)
+
+    assert external == RepoLeaks(frozenset(), frozenset())
+    assert remaining == leaks
+
+
+def test_meister_ref_is_external_with_external_worktree_even_without_live_process(tmp_path):
+    worktree = tmp_path / "meister-worktrees" / "run" / "worker"
+    leaks = RepoLeaks(
+        refs=frozenset({"refs/meister/archive/x"}),
+        worktrees=frozenset({str(worktree)}),
+    )
+
+    external, remaining = split_external_meister_leaks(
+        leaks, tmp_path / "meister-worktrees", False
+    )
+
+    assert external == leaks
+    assert remaining == RepoLeaks(frozenset(), frozenset())
+
+
+def test_non_meister_ref_remains_a_leak_even_when_meister_is_live(tmp_path):
+    leaks = RepoLeaks(refs=frozenset({"refs/heads/outra"}), worktrees=frozenset())
+
+    external, remaining = split_external_meister_leaks(leaks, tmp_path, True)
+
+    assert external == RepoLeaks(frozenset(), frozenset())
+    assert remaining == leaks
+
+
+def test_real_meister_worktrees_directory_is_not_changed_by_test_environment(monkeypatch):
+    original = REAL_MEISTER_WORKTREES_DIR
+    monkeypatch.setenv("MEISTER_WORKTREES_DIR", "/a/test-specific/worktrees")
+
+    assert REAL_MEISTER_WORKTREES_DIR == original
+
+
+def test_meister_is_running_returns_false_when_process_listing_fails(monkeypatch):
+    import meister.clean
+
+    def fail_to_list_processes():
+        raise RuntimeError("process listing unavailable")
+
+    monkeypatch.setattr(meister.clean, "list_processes", fail_to_list_processes)
+
+    assert meister_is_running() is False
 
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="interval timers are unavailable")

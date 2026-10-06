@@ -5,12 +5,18 @@ import signal
 import subprocess
 import tempfile
 import time
+import warnings
 from contextlib import contextmanager
 from dataclasses import dataclass
 
 import pytest
 
 from tests.parallel_default import default_numprocesses
+
+
+REAL_MEISTER_WORKTREES_DIR = pathlib.Path(
+    os.environ.get("MEISTER_WORKTREES_DIR") or os.path.expanduser("~/.meister/worktrees")
+).resolve()
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -128,6 +134,41 @@ def split_owned_leaks(leaks, after, owned_dir):
     return owned, foreign
 
 
+def split_external_meister_leaks(foreign, real_worktrees_dir, live_meister):
+    """Separate external MeisterRouter activity from leaks that should still fail the test."""
+    base = pathlib.Path(real_worktrees_dir).resolve()
+    external_worktrees = frozenset(
+        worktree for worktree in foreign.worktrees
+        if pathlib.Path(worktree).resolve().is_relative_to(base)
+    )
+    has_meister_refs = any(
+        ref.startswith(("refs/heads/meister/", "refs/meister/"))
+        for ref in foreign.refs
+    )
+    external_refs = frozenset()
+    if has_meister_refs and (external_worktrees or live_meister):
+        external_refs = frozenset(
+            ref for ref in foreign.refs
+            if ref.startswith(("refs/heads/meister/", "refs/meister/"))
+        )
+    external = RepoLeaks(refs=external_refs, worktrees=external_worktrees)
+    remaining = RepoLeaks(
+        refs=foreign.refs - external.refs,
+        worktrees=foreign.worktrees - external.worktrees,
+    )
+    return external, remaining
+
+
+def meister_is_running():
+    """Return whether an active MeisterRouter process is visible."""
+    try:
+        from meister.clean import _active_meister_processes, list_processes
+
+        return bool(_active_meister_processes(list_processes()))
+    except Exception:
+        return False
+
+
 def cleanup_repo_leaks(repo_root, leaks):
     """Remove the given refs and worktrees (callers pass only leaks attributable to the test)."""
     failures = []
@@ -239,6 +280,15 @@ def prevent_project_repo_leaks(request, tmp_path):
 
     owned, foreign = split_owned_leaks(leaks, after, tmp_path)
     failures = cleanup_repo_leaks(repo_root, owned)
+    has_meister_refs = any(
+        ref.startswith(("refs/heads/meister/", "refs/meister/"))
+        for ref in foreign.refs
+    )
+    external, remaining = split_external_meister_leaks(
+        foreign,
+        REAL_MEISTER_WORKTREES_DIR,
+        meister_is_running() if has_meister_refs else False,
+    )
 
     def describe(group):
         return [
@@ -246,15 +296,29 @@ def prevent_project_repo_leaks(request, tmp_path):
             *(f"worktree {worktree}" for worktree in sorted(group.worktrees)),
         ]
 
+    if external.refs or external.worktrees:
+        warnings.warn(
+            "atividade de um MeisterRouter externo durante o teste, ignorada: "
+            + ", ".join(describe(external)),
+            UserWarning,
+        )
+
+    if not owned.refs and not owned.worktrees and not remaining.refs and not remaining.worktrees and not failures:
+        return
+
+    reported = RepoLeaks(
+        refs=owned.refs | remaining.refs,
+        worktrees=owned.worktrees | remaining.worktrees,
+    )
     message = (
-        f"o teste {request.node.nodeid} deixou {', '.join(describe(leaks))} "
+        f"o teste {request.node.nodeid} deixou {', '.join(describe(reported))} "
         "no repositorio real: rode-o num repo temporario"
     )
     if owned.refs or owned.worktrees:
         message += f"; removido (era do proprio teste): {', '.join(describe(owned))}"
-    if foreign.refs or foreign.worktrees:
+    if remaining.refs or remaining.worktrees:
         message += (
-            f"; NAO removido (nao atribuivel ao teste, pode ser de outra execucao): {', '.join(describe(foreign))}"
+            f"; NAO removido (nao atribuivel ao teste): {', '.join(describe(remaining))}"
         )
     if failures:
         message += f"; falha na limpeza: {'; '.join(failures)}"
