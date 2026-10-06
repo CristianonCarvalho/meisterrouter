@@ -20,6 +20,9 @@ def test_init_creates_rules_and_logs_without_installing_hooks_by_default(tmp_pat
     assert (project / ".meister" / "logs").is_dir()
     assert not (project / ".git" / "hooks" / "pre-commit").exists()
     assert "Hooks não foram instalados" in result.output
+    claude_rules = (project / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "## Método de execução (obrigatório)" in claude_rules
+    assert "meister orchestrate" in claude_rules
 
 
 def test_init_preserves_existing_rules_and_force_overwrites(tmp_path):
@@ -126,3 +129,5 @@ def test_architect_template_describes_current_plan_flow():
     assert "meister plan import" in content
     assert "meister orchestrate --plan-file" in content
     assert "meister config show" in content
+    assert "## Método de execução (obrigatório)" in content
+    assert "Não ofereça nem escolha" in content

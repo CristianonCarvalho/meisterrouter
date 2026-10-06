@@ -116,4 +116,9 @@ def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[boo
         json.dump(settings, settings_handle, indent=2, ensure_ascii=False)
         settings_handle.write("\n")
 
-    return True, f"Hooks Claude Code instalados em: {claude_hooks_dir} e {settings_file}"
+    return (
+        True,
+        f"Hooks Claude Code instalados em: {claude_hooks_dir} e {settings_file}\n"
+        "Guard no modo `block` (padrão). Para pedir confirmação a cada edição de código: "
+        "`echo ask > .meister/guard_mode`.",
+    )
