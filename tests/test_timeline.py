@@ -2,7 +2,7 @@ import json
 from datetime import timedelta
 
 from meister.timeline import build_timeline
-from tests.timeline_fixtures import at, ev, parallel_events, phase
+from tests.timeline_fixtures import at, ev, parallel_events, phase, worker_cli_events
 
 
 def _row(timeline, task_id):
@@ -249,3 +249,82 @@ def test_announced_retry_without_a_new_attempt_is_running_then_failed_when_the_r
     row = _row(build_timeline(ended, "r1", at(100)), "t")
     assert row.status == "failed" and row.failure == "sem conclusão"
     assert _spans(row)[-1] == ("wait", at(5.1), at(9))
+
+
+def test_worker_cli_timeout_is_a_failed_task_and_closes_the_run():
+    timeline = build_timeline(worker_cli_events(), "worker_cli", at(20))
+    row = _row(timeline, "5b936c6b64348070")
+    assert len(timeline.rows) == 1
+    assert row.title == "" and row.tier == "copilot_luna"
+    assert row.status == "failed" and "timeout" in row.failure
+    assert _spans(row) == [("worker", at(1), at(8))]
+    assert (timeline.summary.total, timeline.summary.failed) == (1, 1)
+    assert timeline.ended_at == at(10) and timeline.status == "failed"
+    assert timeline.summary.running == 0
+
+
+def test_worker_cli_success_and_failure_statuses():
+    success = [
+        ev("worker_start", "success", 1, tier="copilot_luna"),
+        phase("success", 5, "worker", 4),
+        ev("worker_end", "success", 6, status="done"),
+    ]
+    timeline = build_timeline(success, "r1", at(20))
+    assert _row(timeline, "success").status == "completed"
+    assert timeline.status == "completed" and timeline.ended_at == at(6)
+
+    for worker_status, error in (
+        ("infrastructure_error", "infra falhou"),
+        ("error", "erro do worker"),
+        ("", ""),
+    ):
+        events = [ev("worker_start", "failed", 1, tier="copilot_luna")]
+        terminal = ev("worker_end", "failed", 2, status=worker_status)
+        if error:
+            terminal["error"] = error
+        events.append(terminal)
+        row = _row(build_timeline(events, "r1", at(20)), "failed")
+        assert row.status == "failed" and row.failure == (error or worker_status)
+
+
+def test_worker_cli_open_task_runs_and_stalls_using_existing_timeout():
+    events = [ev("worker_start", "open", 1, tier="copilot_luna")]
+    running = build_timeline(events, "r1", at(20))
+    row = _row(running, "open")
+    assert running.status == row.status == "running"
+    assert _spans(row) == [("worker", at(1), None)]
+    assert row.segments[-1].inferred is True
+
+    stalled = build_timeline(events, "r1", at(5000))
+    assert stalled.status == "stalled"
+    assert _row(stalled, "open").status == "stalled"
+
+
+def test_worker_cli_run_waits_for_every_task_to_finish():
+    events = [
+        ev("worker_start", "done", 1, tier="copilot_luna"),
+        ev("worker_start", "timed_out", 1.5, tier="copilot_luna"),
+        ev("worker_end", "done", 3, status="done"),
+    ]
+    pending = build_timeline(events, "r1", at(10))
+    assert pending.status == "running" and pending.ended_at is None
+    assert pending.summary.completed == 1 and pending.summary.running == 1
+
+    complete = build_timeline(
+        events + [ev("worker_end", "timed_out", 4, status="timeout")], "r1", at(10)
+    )
+    assert complete.status == "failed" and complete.ended_at == at(4)
+    assert (complete.summary.completed, complete.summary.failed) == (1, 1)
+
+
+def test_worker_cli_start_does_not_duplicate_orchestrate_spawn():
+    events = [
+        ev("orchestration_start", "orchestrator", 0, task="plan"),
+        ev("worker_start", "task", 1, tier="copilot_luna"),
+        ev("worker_spawn", "task", 2, tier="copilot_luna"),
+        phase("task", 5, "worker", 3),
+        ev("subtask_completed", "task", 6, tier="copilot_luna"),
+    ]
+    row = _row(build_timeline(events, "r1", at(10)), "task")
+    assert row.attempts == 1 and row.status == "completed"
+    assert _spans(row) == [("worker", at(2), at(5)), ("integrate", at(5), at(6))]
