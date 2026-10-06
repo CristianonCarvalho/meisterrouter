@@ -26,6 +26,7 @@ Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o
       - {name: pytest, run: "{python} -m pytest -q", ok_exit_codes: [0, 5], timeout_seconds: 300, required: true}
   ```
   Faça commits do scaffold (`app/__init__.py` e um teste mínimo) antes das tarefas; sem eles `mypy app` reprova por diretório inexistente. Tarefas que mudam `requirements*.txt` não reinstalam o venv.
+- **Cache do portão:** dentro de um mesmo run, uma aprovação é reaproveitada quando a árvore Git e os comandos/configuração do portão são iguais. Qualquer mudança em arquivo não ignorado, nos comandos, no Python configurado ou na instalação invalida o cache; falhas e erros de infraestrutura nunca são guardados. Desative com `gate.cache: false`. Arquivos ignorados pelo `.gitignore` e estado externo ao repositório (por exemplo, serviços ou variáveis de ambiente) não entram na chave.
 - **Projeto que não é Python/Node/Rust** (Go, Java...): declare o portão no `meister.config.yaml`, por exemplo `gate.commands: [{name: unit, run: "go test ./...", timeout_seconds: 300, required: true}]` (sem shell). Sem isso o portão não detecta teste e reprova; `gate.allow_unverified: true` aceita sem verificar (não recomendado).
 - **Arquivos gerados** (lockfiles, `*.tsbuildinfo`, `.vitest/**`) já são tolerados no escopo; acrescente outros em `scope.tolerated_files` (lista **substitui** a padrão: copie a padrão e some os seus).
 - Contexto para os workers: se quiser, escreva no `AGENTS.md` do **projeto** a stack, o comando de testes e as convenções.

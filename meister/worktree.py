@@ -1491,6 +1491,7 @@ class IntegrationPipeline:
         from meister.gate import VerificationResult
 
         started = time.monotonic()
+        result = None
         try:
             run_ex = getattr(self.gate, "run_verification_ex", None)
             if callable(run_ex):
@@ -1513,6 +1514,8 @@ class IntegrationPipeline:
                 tier=tier or "integration",
                 phase="gate",
                 duration_ms=(time.monotonic() - started) * 1000.0,
+                cached=bool(getattr(result, "cached", False)),
+                saved_seconds=float(getattr(result, "saved_seconds", 0.0)),
             )
 
     def get_integration_diff_summary(self) -> str:

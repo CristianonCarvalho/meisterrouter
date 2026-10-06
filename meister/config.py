@@ -194,6 +194,7 @@ class GateConfig:
     commands: List[GateCommand] = field(default_factory=list)
     allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
     python: Optional[str] = None
+    cache: bool = field(default_factory=lambda: _default_section("gate")["cache"])
 
 
 @dataclass
@@ -551,6 +552,10 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if not isinstance(allow_unverified, bool):
         parse_issues.append(ConfigIssue("error", "gate.allow_unverified", "deve ser booleano"))
         allow_unverified = gate_defaults["allow_unverified"]
+    cache = gate_data.get("cache", gate_defaults["cache"])
+    if not isinstance(cache, bool):
+        parse_issues.append(ConfigIssue("error", "gate.cache", "deve ser booleano"))
+        cache = gate_defaults["cache"]
     raw_commands = gate_data.get("commands", gate_defaults["commands"])
     commands: List[GateCommand] = []
     if not isinstance(raw_commands, list):
@@ -626,6 +631,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         commands=commands,
         allow_unverified=allow_unverified,
         python=python,
+        cache=cache,
     )
 
     return MeisterConfig(
