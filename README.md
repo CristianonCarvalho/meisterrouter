@@ -10,6 +10,8 @@ Ele combina o poder de decisão probabilística do **TypeSafe Jev Decisions API*
 - 🏛️ **Claude Sonnet 5** e **OpenAI Codex** como Arquitetos e Orquestradores Gerais
 - ⚖️ **TypeSafe Jev-1.13** como Máquina de Estados e Portão de Saída
 
+> 📐 **Como o sistema funciona:** veja os [diagramas Mermaid](docs/DIAGRAMAS.md) (visão geral, componentes, sequência do `orchestrate`, roteamento, falhas, gates, estados, worktrees, telemetria, guard e instalação).
+
 ---
 
 ## 🚀 Instalação Rápida
@@ -376,6 +378,7 @@ meisterrouter/
 ├── CODEX.md                     # Regras para OpenAI Codex
 ├── AGENTS.md                    # Diretivas unificadas para agentes
 ├── ARCHITECTURE.md              # Documentação profunda da máquina de estados
+├── docs/DIAGRAMAS.md            # Diagramas Mermaid: componentes, sequência, estados, gates...
 └── pyproject.toml / setup.py    # Pacote Python instalável
 ```
 
