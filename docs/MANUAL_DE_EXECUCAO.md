@@ -15,6 +15,9 @@ Cada release recebe a tag `vX.Y.Z` e uma entrada no `CHANGELOG.md`.
 - **AÇÃO: manter o repositório do MeisterRouter na branch `main`.** O plugin do Herdr roda o código que estiver na pasta; numa branch de trabalho você roda código não mesclado. Atualizar: `git checkout main && git pull`.
 - Plugin do Herdr: `herdr plugin list` deve mostrar `dev.meisterrouter.orchestrator` apontando para a pasta do repo. O daemon sobe com o Herdr; reinicie com `meister daemon --stop` e `meister daemon --start` se atualizar o código.
 
+### Instalação e atalhos automáticos
+`meister setup` automatiza a vinculação do plugin no Herdr, o diagnóstico do ambiente e a configuração de atalhos em `~/.config/herdr/config.toml`. Os atalhos padrão (`prefix+m`, `prefix+shift+m`, `prefix+t`) são inseridos em um bloco gerenciado delimitado; `--direct-keys` inclui os equivalentes `ctrl+alt+*`. Antes de gravar, cria backup com timestamp e valida com `herdr config check`; atalhos existentes do usuário nunca são sobrescritos (conflitos são reportados como aviso). Use `--dry-run` para simular sem alterar arquivos nem executar comandos de estado, e `--project [DIR]` para inicializar regras e hooks em um projeto simultaneamente. Para iniciar a configuração de um projeto com as vias padrão comentadas, use `meister config init` (gera `meister.config.yaml` recusando sobrescrita sem `--force`).
+
 ## 2. Por projeto
 - **AÇÃO: o projeto precisa ser um repositório git com pelo menos um commit** (os workers usam worktrees e a integração termina na `main`).
 - **Arquivos iniciais:** `meister init` (na raiz do projeto) cria `AGENTS.md`, `CLAUDE.md` e `CODEX.md` sem modelos fixos e **nunca sobrescreve** o que já existe (`--force` para sobrescrever). Hooks são opcionais (`--hooks`).
