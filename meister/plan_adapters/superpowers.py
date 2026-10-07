@@ -19,6 +19,7 @@ import sys
 import fnmatch
 from typing import Any
 
+from meister.i18n import t
 from meister.plan import PlanError, register_adapter
 
 # ── Regex helpers ──────────────────────────────────────────────────────────────
@@ -150,8 +151,7 @@ def _warn_generated_files(name: str, body: str, files: list[str], tolerated: lis
     for matcher, command, generated in _GENERATED_FILE_COMMANDS:
         if matcher.search(body) and not _pattern_covers(generated, declared):
             print(
-                f"warning: task {name!r}: o comando {command!r} pode gerar {generated!r}, "
-                "não coberto por Files: ou scope.tolerated_files",
+                t("misc.plan_adapter.generated_not_covered", name=repr(name), command=repr(command), generated=repr(generated)),
                 file=sys.stderr,
             )
 

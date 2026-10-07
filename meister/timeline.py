@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from meister.i18n import t
 from meister.dashboard.metrics import (
     FAILURE_EVENTS,
     LIFECYCLE_EVENTS,
@@ -282,7 +283,7 @@ def _build_row(
             status, failure = "failed", last["reason"]
         end: Optional[datetime] = last["terminal"]
     elif run_end is not None:
-        status, failure, end = "failed", "sem conclusão", run_end
+        status, failure, end = "failed", t("misc.timeline.no_conclusion"), run_end
     else:
         status, end = "running", None
     start = attempts[0]["spawn"]
