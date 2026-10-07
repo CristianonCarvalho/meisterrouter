@@ -114,11 +114,13 @@ def test_failures_and_infrastructure_errors_are_never_cached(tmp_path):
     assert _runs(fail_counter) == 2
 
     timeout_counter = tmp_path / "timeout-counter.txt"
-    timeout_gate = _configured_gate(repo, timeout_counter, timeout=0.1)
+    # 1 s (e não 0,1 s): o comando precisa iniciar o Python e gravar a linha antes do corte; com a máquina
+    # carregada (gates em paralelo) 0,1 s não bastava e o teste contava 1 execução em vez de 2
+    timeout_gate = _configured_gate(repo, timeout_counter, timeout=1.0)
     timeout_gate.config.gate.commands[0].run = [
         sys.executable,
         "-c",
-        "import sys, time; open(sys.argv[1], 'a').write('run\\n'); time.sleep(2)",
+        "import sys, time; open(sys.argv[1], 'a').write('run\\n'); time.sleep(10)",
         str(timeout_counter),
     ]
     infra_first = timeout_gate.run_verification_ex()
