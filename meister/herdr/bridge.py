@@ -22,6 +22,7 @@ import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, WorkerTier, effective_worker_timeouts, load_config
+from meister.gate import summarize_gate_failure
 from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
@@ -853,6 +854,8 @@ class HerdrEventBridge:
 
             attempt_count = 0
             pane_lost_retries_used = 0
+            repair_used = 0
+            original_description = description
 
             while current_tier:
                 attempt_count += 1
@@ -1622,7 +1625,7 @@ class HerdrEventBridge:
                                     self._integration_pipeline.prepare_subtask,
                                     subtask_wt=subtask_wt,
                                     target_files=target_files,
-                                    commit_message=f"subtask({task_id}): {description}",
+                                    commit_message=f"subtask({task_id}): {original_description}",
                                     task_id=task_id,
                                     attempt=attempt_count,
                                     tier=current_tier,
@@ -1678,10 +1681,136 @@ class HerdrEventBridge:
                                 error=int_err,
                             )
                             self.last_failure_reason = int_err
-                            subtask_wt = None
+                            if subtask_wt is not None:
+                                await asyncio.to_thread(
+                                    self._integration_pipeline.wt_mgr.cleanup_worktree,
+                                    subtask_wt.task_id,
+                                    delete_branch=True,
+                                    force=True,
+                                    archive_unmerged=True,
+                                )
+                                subtask_wt = None
                             if active_run_id:
                                 sm.unregister_pane(pane_id)
                             return False
+                        if not ok_int:
+                            err_code = getattr(int_err, "code", None)
+                            reason = extract_rejection_reason(int_err)
+                            gate_summary = summarize_gate_failure(str(int_err))
+                            failed_tests = gate_summary.get("failed_tests", [])
+                            failure_summary = gate_summary.get("excerpt", "")
+
+                            max_repair_attempts = 1
+                            if self.config and hasattr(self.config, "gate"):
+                                max_repair_attempts = getattr(self.config.gate, "repair_attempts", 1)
+
+                            can_repair = (
+                                subtask_wt is not None
+                                and not is_infra_error
+                                and (err_code in ("gate", "scope") or (err_code is None and reason in ("gate", "scope")))
+                                and (repair_used < max_repair_attempts)
+                            )
+
+                            if can_repair:
+                                repair_used += 1
+                                logger.warning(
+                                    "Deterministic gate rejected subtask %s (%s). Attempting repair %d/%d...",
+                                    task_id,
+                                    reason,
+                                    repair_used,
+                                    max_repair_attempts,
+                                )
+                                log_event(
+                                    event_type="gate_repair",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    attempt=attempt_count,
+                                    repair_attempt=repair_used,
+                                    reason=reason,
+                                    tier=current_tier,
+                                    failed_tests=failed_tests,
+                                    failure_summary=failure_summary,
+                                )
+                                log_event(
+                                    event_type="worker_retry",
+                                    run_id=active_run_id,
+                                    task_id=task_id,
+                                    tier=current_tier,
+                                    attempt=attempt_count,
+                                    reason="gate_repair",
+                                    retry=repair_used,
+                                )
+                                repair_parts = [
+                                    "\n\n## REPAIR",
+                                    f"Reason: {reason}",
+                                ]
+                                if failed_tests:
+                                    repair_parts.append(f"Failed tests: {', '.join(failed_tests)}")
+                                    for ft in failed_tests:
+                                        repair_parts.append(f"- {ft}")
+                                else:
+                                    repair_parts.append("Failed tests: []")
+                                repair_parts.append(f"Failure summary:\n{failure_summary}")
+                                repair_parts.append(
+                                    "Instructions: Your previous attempt was rejected by the deterministic gate. "
+                                    "The files from your previous attempt are already in the worktree. "
+                                    "Fix ONLY what is needed so the gate passes; do not undo unrelated changes. "
+                                    "Before finishing, run the whole test suite and make it pass."
+                                )
+                                description = f"{original_description}\n" + "\n".join(repair_parts)
+                                task_dict["description"] = description
+                                if active_run_id:
+                                    try:
+                                        sm.transition_subtask(
+                                            subtask_id,
+                                            to_state=SubtaskState.RETRYING,
+                                            error=f"Gate rejected ({reason}). Repair attempt {repair_used}/{max_repair_attempts}",
+                                        )
+                                    except Exception:
+                                        pass
+                                continue
+
+                            await asyncio.to_thread(
+                                self._integration_pipeline.wt_mgr.cleanup_worktree,
+                                subtask_wt.task_id,
+                                delete_branch=True,
+                                force=True,
+                                archive_unmerged=True,
+                            )
+                            subtask_wt = None
+
+                            logger.warning(
+                                t(
+                                    "engine.bridge.integration_failed",
+                                    task_id=task_id,
+                                    error=int_err,
+                                )
+                            )
+                            short_err = int_err.strip()[:200]
+                            self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
+                            event_kwargs: Dict[str, Any] = {
+                                "event_type": "subtask_rejected",
+                                "run_id": active_run_id,
+                                "task_id": task_id,
+                                "attempt": attempt_count,
+                                "tier": current_tier,
+                                "reason": reason,
+                                "output": short_err,
+                                "error": short_err,
+                                "exit_code": 1,
+                            }
+                            if reason in ("gate", "scope"):
+                                event_kwargs["failed_tests"] = failed_tests
+                                event_kwargs["failure_summary"] = failure_summary
+                            log_event(**event_kwargs)
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                                try:
+                                    sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
+                                except Exception:
+                                    pass
+                            return False
+
                         await asyncio.to_thread(
                             self._integration_pipeline.wt_mgr.cleanup_worktree,
                             subtask_wt.task_id,
@@ -1690,36 +1819,6 @@ class HerdrEventBridge:
                             archive_unmerged=True,
                         )
                         subtask_wt = None
-                        if not ok_int:
-                            logger.warning(
-                                t(
-                                    "engine.bridge.integration_failed",
-                                    task_id=task_id,
-                                    error=int_err,
-                                )
-                            )
-                            reason = extract_rejection_reason(int_err)
-
-                            short_err = int_err.strip()[:200]
-                            self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
-                            log_event(
-                                event_type="subtask_rejected",
-                                run_id=active_run_id,
-                                task_id=task_id,
-                                attempt=attempt_count,
-                                tier=current_tier,
-                                reason=reason,
-                                output=short_err,
-                                error=short_err,
-                                exit_code=1,
-                            )
-                            if active_run_id:
-                                sm.unregister_pane(pane_id)
-                                try:
-                                    sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
-                                except Exception:
-                                    pass
-                            return False
 
                     self.active_workers[pane_id]["status"] = "done"
                     sm.record_harness_success(current_tier)

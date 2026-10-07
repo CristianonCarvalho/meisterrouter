@@ -1664,6 +1664,7 @@ def config_show(config_path, json_format):
                 },
                 "install": cfg.gate.install,
                 "python": cfg.gate.python,
+                "repair_attempts": cfg.gate.repair_attempts,
             },
             "master": {
                 "api_key_env": cfg.master.api_key_env,
@@ -1806,6 +1807,7 @@ def config_show(config_path, json_format):
     click.echo(f"  Install: {cfg.gate.install}")
     click.echo(f"  Python: {cfg.gate.python}")
     click.echo(f"  Allow Unverified: {cfg.gate.allow_unverified}")
+    click.echo(f"  Repair Attempts: {cfg.gate.repair_attempts}")
     click.echo(f"  Docs-only enabled: {cfg.gate.docs_only.enabled}")
     click.echo(f"  Docs-only paths: {', '.join(cfg.gate.docs_only.paths)}")
     for command in cfg.gate.commands:

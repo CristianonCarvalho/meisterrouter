@@ -352,6 +352,7 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
 - `scope.tolerated_files`: tolerated generated artifacts outside `target_files` (the list replaces the default).
 - `gate.cache` (default `true`): the gate caches only successful passes, by code content and commands, and does not repeat
   an identical check; `gate.cache: false` disables it.
+- `gate.repair_attempts` (default `1`; `0` disables): when the deterministic gate or strict scope check rejects a subtask, Meister does not discard the worktree. Instead, it reopens a worker on the same lane and worktree with a REPAIR section containing the rejection reason, failed tests list, and failure summary excerpt. The worker gets up to `repair_attempts` tries to fix collateral breakages before the subtask is archived and rejected.
 - `environment.install_dependencies`: installs Node dependencies in worktrees only when there is something to install.
 
 ---

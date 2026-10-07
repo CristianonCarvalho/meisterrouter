@@ -66,6 +66,7 @@ gate:
   commands: []
   allow_unverified: false
   cache: true
+  repair_attempts: 1  # Tentativas de conserto no mesmo worktree após reprovação no gate/escopo (0 desliga)
   docs_only:
     enabled: false
     paths: ["*.md", "docs/**/*.md", "docs/img/**"]

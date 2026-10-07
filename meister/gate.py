@@ -11,6 +11,7 @@ import hashlib
 import logging
 import ntpath
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -57,6 +58,93 @@ class VerificationResult:
     skipped: List[str] = field(default_factory=list)
     cached: bool = False
     saved_seconds: float = 0.0
+
+
+def summarize_gate_failure(output: str) -> Dict[str, Any]:
+    """Pure function summarizing test/linter failure output into structured diagnostics."""
+    if not isinstance(output, str) or not output.strip():
+        return {"failed_tests": [], "lint_errors": [], "excerpt": ""}
+
+    try:
+        lines = output.splitlines()
+        failed_tests: List[str] = []
+        seen_tests: set[str] = set()
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("FAILED "):
+                rest = stripped[7:].strip()
+                test_id = rest.split(" - ", 1)[0].strip()
+                if test_id and test_id not in seen_tests:
+                    seen_tests.add(test_id)
+                    failed_tests.append(test_id)
+                    if len(failed_tests) >= 20:
+                        break
+
+        lint_errors: List[str] = []
+        seen_lints: set[str] = set()
+        ruff_re = re.compile(r"^.+?:\d+:\d+:\s+[A-Z][A-Za-z0-9_]*\s+.+$")
+        mypy_re = re.compile(r"^.+?:\d+(?::\d+)?:\s+error:\s+.+$")
+
+        for line in lines:
+            stripped = line.strip()
+            if ruff_re.match(stripped) or mypy_re.match(stripped):
+                if stripped not in seen_lints:
+                    seen_lints.add(stripped)
+                    lint_errors.append(stripped)
+                    if len(lint_errors) >= 10:
+                        break
+
+        summary_lines: List[str] = []
+        in_summary = False
+        for line in lines:
+            if "short test summary info" in line:
+                in_summary = True
+                summary_lines.append(line)
+                continue
+            if in_summary:
+                if line.startswith("=") and ("failed" in line or "passed" in line or "error" in line):
+                    summary_lines.append(line)
+                    in_summary = False
+                else:
+                    summary_lines.append(line)
+
+        assertion_lines: List[str] = []
+        for line in lines:
+            if line.startswith("E   ") or line.startswith("E "):
+                assertion_lines.append(line)
+
+        excerpt_parts: List[str] = []
+        if assertion_lines:
+            excerpt_parts.append("\n".join(assertion_lines[:15]))
+        if summary_lines:
+            excerpt_parts.append("\n".join(summary_lines))
+
+        if not excerpt_parts and lint_errors:
+            excerpt_parts.append("\n".join(lint_errors))
+
+        if not excerpt_parts:
+            non_empty = [line for line in lines if line.strip()]
+            excerpt_parts.append("\n".join(non_empty[-15:]))
+
+        excerpt = "\n\n".join(part for part in excerpt_parts if part).strip()
+        if len(excerpt) > 1500:
+            excerpt = excerpt[:1500]
+
+        return {
+            "failed_tests": failed_tests,
+            "lint_errors": lint_errors,
+            "excerpt": excerpt,
+        }
+    except Exception:
+        clean = (output or "").strip()
+        non_empty = [line for line in clean.splitlines() if line.strip()]
+        fallback = "\n".join(non_empty[-15:])[:1500]
+        return {
+            "failed_tests": [],
+            "lint_errors": [],
+            "excerpt": fallback,
+        }
 
 
 class DeterministicGate:
