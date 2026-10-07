@@ -73,14 +73,18 @@ def default_runner(cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 def resolve_meister_path() -> str:
-    """Resolve o caminho absoluto do executável meister."""
-    which_path = shutil.which("meister")
-    if which_path:
-        return os.path.abspath(which_path)
-    if sys.argv and sys.argv[0]:
+    """Resolve o caminho absoluto do executável meister.
+
+    Prefere o executável que está rodando o comando (sem resolver links simbólicos), porque pode haver
+    várias instalações no PATH; sem ele, usa o primeiro `meister` do PATH.
+    """
+    if sys.argv and sys.argv[0] and os.path.basename(sys.argv[0]) == "meister":
         argv_path = os.path.abspath(sys.argv[0])
         if os.path.isfile(argv_path):
             return argv_path
+    which_path = shutil.which("meister")
+    if which_path:
+        return os.path.abspath(which_path)
     return "meister"
 
 
@@ -310,6 +314,8 @@ def write_herdr_config(
         temp_file.flush()
         os.fsync(temp_file.fileno())
         temp_file.close()
+        if original_existed:
+            shutil.copymode(config_path, temp_file.name)  # o arquivo temporário nasce 0600
         os.replace(temp_file.name, config_path)
     except Exception as e:
         if os.path.exists(temp_file.name):

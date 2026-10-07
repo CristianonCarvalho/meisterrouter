@@ -5,6 +5,8 @@ Sem rede, sem herdr real e sem tocar no HOME real.
 """
 
 import shutil
+import stat
+import sys
 from dataclasses import dataclass
 
 
@@ -197,6 +199,27 @@ def test_resolve_meister_path(monkeypatch):
     assert resolve_meister_path() == "/opt/bin/meister"
 
 
+def test_resolve_meister_path_prefers_the_running_executable(monkeypatch, tmp_path):
+    """Com várias instalações no PATH, vale o executável que rodou o comando (e o link não é resolvido)."""
+    real = tmp_path / "repo" / "bin" / "meister"
+    real.parent.mkdir(parents=True)
+    real.write_text("#!/bin/sh\n")
+    link = tmp_path / "local" / "meister"
+    link.parent.mkdir()
+    link.symlink_to(real)
+    monkeypatch.setattr(sys, "argv", [str(link), "setup"])
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/opt/outro/meister")
+    assert resolve_meister_path() == str(link)
+
+
+def test_resolve_meister_path_ignores_argv_that_is_not_meister(monkeypatch, tmp_path):
+    other = tmp_path / "pytest"
+    other.write_text("x")
+    monkeypatch.setattr(sys, "argv", [str(other)])
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/opt/bin/meister")
+    assert resolve_meister_path() == "/opt/bin/meister"
+
+
 # ── Testes de escrita segura e idempotência ───────────────────────────────────
 
 def test_write_herdr_config_creates_backup_and_writes_atomically(tmp_path):
@@ -224,6 +247,17 @@ def test_write_herdr_config_creates_backup_and_writes_atomically(tmp_path):
     # Verifica comandos chamados
     assert ["herdr", "config", "check"] in commands_called
     assert ["herdr", "server", "reload-config"] in commands_called
+
+
+def test_write_herdr_config_preserves_file_permissions(tmp_path):
+    for mode in (0o644, 0o600):
+        cfg_file = tmp_path / f"config{mode:o}.toml"
+        cfg_file.write_text("[general]\n", encoding="utf-8")
+        cfg_file.chmod(mode)
+        merge_res = merge_keys_block("[general]\n", get_desired_bindings("/bin/meister"))
+        ok, _ = write_herdr_config(str(cfg_file), merge_res, runner=lambda cmd: FakeCompletedProcess(0, "", ""))
+        assert ok is True
+        assert stat.S_IMODE(cfg_file.stat().st_mode) == mode
 
 
 def test_write_herdr_config_idempotent_no_new_backup(tmp_path):
