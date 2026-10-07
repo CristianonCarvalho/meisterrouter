@@ -17,6 +17,7 @@ Primeira versão marcada. Consolida o histórico dos PRs #1 a #73 (29/09 a 07/10
 - **Instalação automática:** `meister setup` liga o plugin ao Herdr, grava os atalhos num bloco gerenciado do `config.toml` (com backup e validação), confere o ambiente e, com `--project`, equipa o projeto; `meister config init` gera o `meister.config.yaml` com as vias e a ordem; `bin/install.sh` exige o Herdr e chama o `setup` (#76).
 - **Instalador com versão fixa:** `install.sh --version vN.N.N|latest|main` (ou `MEISTER_VERSION`), por exemplo `curl ... | bash -s -- --version v0.9.0`.
 - **`meister --version`**, fonte única da versão em `meister/__init__.py` e este changelog (#74).
+- **README em inglês** (com o português em `README.pt-BR.md`) para a publicação no marketplace de plugins do Herdr; o aviso de que o plugin sozinho não instala o CLI `meister`; manifesto sem os atalhos que o Herdr não lê.
 - **Documentação:** uso direto (a LLM orquestradora usa o Meister pelas regras e hooks), pré-requisitos (Herdr obrigatório, Superpowers recomendado), página do [formato do plano](docs/FORMATO_DO_PLANO.md) e instalação por `curl` (repositório público); README enxuto (o MeisterRouter é um plugin do Herdr, que é pré-requisito), com a página [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md), capturas da linha do tempo e do dashboard (#75) e diagramas atualizados.
 
 ### Corrigido

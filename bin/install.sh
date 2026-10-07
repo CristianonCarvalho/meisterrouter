@@ -111,7 +111,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || e
 LOCAL_SHARE="${HOME}/.local/share/meisterrouter"
 LOCAL_BIN="${HOME}/.local/bin"
 
-if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ] && [[ "${SCRIPT_DIR}" != *"node_modules"* ]] && [[ "${SCRIPT_DIR}" != *"_npx"* ]]; then
+if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/../setup.py" ] && [[ "${SCRIPT_DIR}/" != *"/node_modules/"* ]] && [[ "${SCRIPT_DIR}/" != *"/_npx/"* ]]; then
     REPO_DIR="$(cd "${SCRIPT_DIR}/.." && pwd -P)"
     if [ "${INSTALL_VERSION}" != "main" ]; then
         echo "⚠️  a versão fixa só vale para a instalação por curl; usando o clone local em ${REPO_DIR}"

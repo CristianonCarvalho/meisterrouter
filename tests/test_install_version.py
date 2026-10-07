@@ -255,9 +255,10 @@ def test_failed_existing_clone_checkout_returns_error(tmp_path):
     assert "pull" not in git_log.read_text(encoding="utf-8")
 
 
-def test_local_clone_is_not_checked_out_or_cloned_for_fixed_version(tmp_path):
+def _run_install_from(tmp_path, parent_parts):
+    """Executa `bash <dir>/bin/install.sh --version v0.9.0` de dentro de um repositório copiado para tmp_path/<parent_parts>."""
     bin_dir, git_log = _make_install_doubles(tmp_path)
-    local_repo = tmp_path / "local-repo"
+    local_repo = tmp_path.joinpath(*parent_parts, "local-repo")
     (local_repo / "bin").mkdir(parents=True)
     (local_repo / "setup.py").write_text("", encoding="utf-8")
     (local_repo / "bin/install.sh").write_text(
@@ -283,9 +284,33 @@ def test_local_clone_is_not_checked_out_or_cloned_for_fixed_version(tmp_path):
         cwd=local_repo,
         env=env,
     )
+    return result, local_repo, git_log
+
+
+def test_local_clone_is_not_checked_out_or_cloned_for_fixed_version(tmp_path):
+    result, local_repo, git_log = _run_install_from(tmp_path, [])
     assert result.returncode == 0, result.stderr
     assert "a versão fixa só vale para a instalação por curl" in result.stdout
-    assert str(local_repo) in result.stdout
+    assert str(local_repo.resolve()) in result.stdout
+    assert not git_log.exists()
+
+
+def test_local_clone_whose_path_merely_contains_npx_is_still_local(tmp_path):
+    """Regressão: um diretório como `tmpab_npx1x` ou `meu_npxprojeto` não é o cache do npx."""
+    result, local_repo, git_log = _run_install_from(tmp_path, ["tmpg2_npx4i", "meu_npxprojeto"])
+    assert result.returncode == 0, result.stderr
+    assert "Copiando arquivos do pacote" not in result.stdout
+    assert f"usando o clone local em {local_repo.resolve()}" in result.stdout
+    assert not git_log.exists()
+
+
+def test_install_from_npx_cache_path_copies_the_package_instead_of_using_it_in_place(tmp_path):
+    """Dentro de `.../_npx/<hash>/node_modules/...` o instalador copia o pacote para o local permanente."""
+    result, _, git_log = _run_install_from(
+        tmp_path, [".npm", "_npx", "abc123", "node_modules", "meisterrouter"]
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Copiando arquivos do pacote" in result.stdout
     assert not git_log.exists()
 
 
