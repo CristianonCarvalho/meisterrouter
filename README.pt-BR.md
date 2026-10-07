@@ -37,7 +37,7 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-O instalador faz tudo sozinho: instala o `meister`, liga o plugin ao Herdr, cadastra os atalhos (num bloco gerenciado do `config.toml`, com backup) e confere o ambiente, mostrando o que ainda falta (CLIs dos workers, chave do Jev). Ele aborta, com a instrução de instalação, se o Herdr não estiver instalado. Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.9.0` (ou `latest`). Pode rodar `meister setup` de novo quando quiser: não repete o que já está pronto (`--dry-run` mostra o que faria).
+O instalador faz tudo sozinho: instala o `meister`, liga o plugin ao Herdr, cadastra os atalhos (num bloco gerenciado do `config.toml`, com backup) e confere o ambiente, mostrando o que ainda falta (CLIs dos workers, chave do Jev). Ele aborta, com a instrução de instalação, se o Herdr não estiver instalado. Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.9.1` (ou `latest`). Pode rodar `meister setup` de novo quando quiser: não repete o que já está pronto (`--dry-run` mostra o que faria).
 
 **A chave do Jev** (opcional, uma vez; só o Jev usa o OpenRouter, os workers rodam nas suas assinaturas):
 ```bash
