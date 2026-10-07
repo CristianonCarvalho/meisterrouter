@@ -222,9 +222,9 @@ def test_copilot_is_first_default_route_and_environment_cannot_change_it(monkeyp
 
     # Verify documentation and source confirm verified CLI status and flags
     repo_root = Path(__file__).resolve().parent.parent
-    readme_content = (repo_root / "README.md").read_text(encoding="utf-8")
-    assert "STATUS: VERIFICADO" in readme_content
-    assert "--allow-all" in readme_content
+    docs_content = (repo_root / "docs" / "INSTALACAO_E_COMANDOS_AVANCADOS.md").read_text(encoding="utf-8")
+    assert "STATUS: VERIFICADO" in docs_content
+    assert "--allow-all" in docs_content
 
     worker_src = (repo_root / "meister" / "worker.py").read_text(encoding="utf-8")
     assert "verificado contra GitHub Copilot CLI" in worker_src
