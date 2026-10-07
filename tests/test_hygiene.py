@@ -58,7 +58,9 @@ def test_requirements_and_setup_alignment():
 def test_documentation_pricing_and_catalog_alignment():
     repo_root = Path(__file__).resolve().parent.parent
     claude_md = (repo_root / "CLAUDE.md").read_text(encoding="utf-8")
-    claude_template = (repo_root / "meister" / "templates" / "CLAUDE.md.template").read_text(encoding="utf-8")
+    claude_template = (
+        repo_root / "meister" / "templates" / "pt-BR" / "CLAUDE.md.template"
+    ).read_text(encoding="utf-8")
     codex_md = (repo_root / "CODEX.md").read_text(encoding="utf-8")
     agents_md = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
 

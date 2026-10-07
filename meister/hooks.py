@@ -15,8 +15,16 @@ TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
 MANAGED_MARKER = "Managed by MeisterRouter"
 
 
+def _language_templates_dir() -> str:
+    from meister.i18n import get_language
+
+    language = get_language()
+    directory = "pt-BR" if language == "pt-BR" else "en"
+    return os.path.join(TEMPLATES_DIR, directory)
+
+
 def _template_content(filename: str) -> str:
-    with open(os.path.join(TEMPLATES_DIR, filename), "r", encoding="utf-8") as template_file:
+    with open(os.path.join(_language_templates_dir(), filename), "r", encoding="utf-8") as template_file:
         return template_file.read()
 
 
@@ -38,24 +46,34 @@ def _write_executable(path: str, content: str) -> None:
 
 
 def install_git_hook(repo_path: str = ".", force: bool = False) -> Tuple[bool, str]:
-    """Instala o hook do MeisterRouter sem substituir hooks alheios por padrão."""
+    """Install the active-language hook without replacing unrelated hooks by default.
+
+    Hook messages are fixed in the installed script; reinstall after changing language.
+    """
+    from meister.i18n import t
+
     git_dir = os.path.join(repo_path, ".git")
     if not os.path.isdir(git_dir):
-        return False, f"O diretório '{repo_path}' não é um repositório Git (.git ausente)."
+        return False, t("templates.hooks.git_not_repo", repo_path=repo_path)
 
     hooks_dir = os.path.join(git_dir, "hooks")
     target_hook = os.path.join(hooks_dir, "pre-commit")
     content = _template_content("git_pre_commit.sh.template")
     if not force and not _is_managed_hook(target_hook, content):
-        return False, f"Hook pre-commit existente preservado (não pertence ao MeisterRouter): {target_hook}"
+        return False, t("templates.hooks.git_foreign", target_hook=target_hook)
 
     os.makedirs(hooks_dir, exist_ok=True)
     _write_executable(target_hook, content)
-    return True, f"Hook Git pre-commit instalado em: {target_hook}"
+    return True, t("templates.hooks.git_installed", target_hook=target_hook)
 
 
 def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[bool, str]:
-    """Instala hooks do Claude Code sem substituir hooks alheios por padrão."""
+    """Install active-language Claude hooks without replacing unrelated hooks by default.
+
+    Hook messages are fixed in the installed scripts; reinstall after changing language.
+    """
+    from meister.i18n import t
+
     claude_dir = os.path.join(target_dir, ".claude")
     claude_hooks_dir = os.path.join(claude_dir, "hooks")
     hook_templates = (
@@ -68,7 +86,7 @@ def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[boo
         content = _template_content(template_name)
         hook_path = os.path.join(claude_hooks_dir, target_name)
         if not force and not _is_managed_hook(hook_path, content):
-            return False, f"Hook existente preservado (não pertence ao MeisterRouter): {hook_path}"
+            return False, t("templates.hooks.claude_foreign", hook_path=hook_path)
         hook_contents.append((hook_path, content))
 
     settings_file = os.path.join(claude_dir, "settings.json")
@@ -78,16 +96,20 @@ def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[boo
             with open(settings_file, "r", encoding="utf-8") as settings_handle:
                 settings = json.load(settings_handle)
         except (OSError, json.JSONDecodeError) as error:
-            return False, f"Configuração existente não foi alterada ({settings_file}): {error}"
+            return False, t(
+                "templates.hooks.settings_unchanged",
+                settings_file=settings_file,
+                error=error,
+            )
         if not isinstance(settings, dict):
-            return False, f"Configuração existente inválida; hooks não instalados: {settings_file}"
+            return False, t("templates.hooks.invalid_settings", settings_file=settings_file)
 
     hooks_cfg = settings.setdefault("hooks", {})
     if not isinstance(hooks_cfg, dict):
-        return False, f"Seção de hooks existente inválida; hooks não instalados: {settings_file}"
+        return False, t("templates.hooks.invalid_section", settings_file=settings_file)
     for event_name in ("UserPromptSubmit", "PreToolUse"):
         if event_name in hooks_cfg and not isinstance(hooks_cfg[event_name], list):
-            return False, f"Configuração existente de {event_name} inválida; hooks não instalados."
+            return False, t("templates.hooks.invalid_event", event_name=event_name)
 
     prompt_config = {
         "type": "command",
@@ -116,9 +138,8 @@ def install_claude_hook(target_dir: str = ".", force: bool = False) -> Tuple[boo
         json.dump(settings, settings_handle, indent=2, ensure_ascii=False)
         settings_handle.write("\n")
 
-    return (
-        True,
-        f"Hooks Claude Code instalados em: {claude_hooks_dir} e {settings_file}\n"
-        "Guard no modo `block` (padrão). Para pedir confirmação a cada edição de código: "
-        "`echo ask > .meister/guard_mode`.",
+    return True, t(
+        "templates.hooks.claude_installed",
+        claude_hooks_dir=claude_hooks_dir,
+        settings_file=settings_file,
     )

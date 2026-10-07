@@ -717,8 +717,10 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
 
     resource = importlib.resources.files("meister").joinpath("default_config.yaml")
     assert resource.is_file()
-    assert 'package_data={"meister": ["default_config.yaml"]}' in open(
-        "setup.py", encoding="utf-8"
+    setup_content = open("setup.py", encoding="utf-8").read()
+    assert '"default_config.yaml", "templates/*/*.template"' in setup_content
+    assert 'meister = ["default_config.yaml", "templates/*/*.template"]' in open(
+        "pyproject.toml", encoding="utf-8"
     ).read()
 
     monkeypatch.chdir(tmp_path)

@@ -62,7 +62,7 @@ def test_runtime_modules_have_no_hardcoded_model_catalog():
 def test_templates_have_no_hardcoded_model_names():
     forbidden = re.compile(r"gpt-6|gemini|haiku|sonnet|opus|\bluna\b|typesafe/jev|claude-", re.IGNORECASE)
     occurrences = []
-    for path in sorted(TEMPLATES_DIR.iterdir()):
+    for path in sorted(TEMPLATES_DIR.rglob("*")):
         if not path.is_file():
             continue
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):

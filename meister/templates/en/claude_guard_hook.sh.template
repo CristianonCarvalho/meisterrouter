@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# MeisterRouter — Claude Code PreToolUse Guard Hook
+# Managed by MeisterRouter
+# Protects against direct code edits via Edit/Write
+# Exit Code 2 blocks tool execution in Claude Code.
+# ==============================================================================
+
+# Workers may edit their assigned task. The override is also useful for exceptions.
+if [ "${MEISTER_IN_PANE}" = "1" ] || [ "${MEISTER_ALLOW_ORCHESTRATOR_EDIT}" = "1" ] || [ -f ".meister/allow_orchestrator" ]; then
+    exit 0
+fi
+
+# The hook may also be run manually, without stdin.
+INPUT=""
+IFS= read -r -t 2 -d '' INPUT || true
+FILE_PATH=""
+if command -v python3 >/dev/null 2>&1 && [ -n "$INPUT" ]; then
+    FILE_PATH=$(printf '%s' "$INPUT" | python3 -c '
+import json
+import sys
+
+try:
+    event = json.load(sys.stdin)
+    tool_input = event.get("tool_input", {})
+    key = "notebook_path" if event.get("tool_name") == "NotebookEdit" else "file_path"
+    path = tool_input.get(key, "")
+    if isinstance(path, str):
+        print(path)
+except (AttributeError, TypeError, ValueError):
+    pass
+' 2>/dev/null) || FILE_PATH=""
+fi
+
+# A missing recognizable path is treated as a code edit.
+IS_DOCUMENTATION=0
+if [ -n "$FILE_PATH" ]; then
+    case "$FILE_PATH" in
+        "$PWD"/*) FILE_PATH=${FILE_PATH#"$PWD"/} ;;
+    esac
+    case "$FILE_PATH" in
+        ./*) FILE_PATH=${FILE_PATH#./} ;;
+    esac
+    case "$FILE_PATH" in
+        docs/*|*.md|*.mdx|*.txt) IS_DOCUMENTATION=1 ;;
+    esac
+    # `docs/../src/app.py` matches `docs/*`; a `..` component never counts as documentation.
+    case "/$FILE_PATH/" in
+        */../*) IS_DOCUMENTATION=0 ;;
+    esac
+fi
+
+if [ "$IS_DOCUMENTATION" = "1" ]; then
+    exit 0
+fi
+
+MODE="block"
+if [ -f ".meister/guard_mode" ]; then
+    MODE=$(awk 'NF { print tolower($1); exit }' .meister/guard_mode)
+fi
+
+case "$MODE" in
+    off)
+        exit 0
+        ;;
+    ask)
+        printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"[MeisterRouter Guard] Direct code editing: the execution method is `meister orchestrate`. Allow this edit?"}}'
+        exit 0
+        ;;
+    *)
+        cat << 'EOF' >&2
+❌ [MeisterRouter Guard] Direct code editing blocked!
+
+You are acting as the Architect. Implement using `meister orchestrate`;
+to request confirmation for each code edit, use `echo ask > .meister/guard_mode`.
+To turn off the guard, use `echo off > .meister/guard_mode`.
+
+(To exceptionally allow direct editing: touch .meister/allow_orchestrator)
+EOF
+        exit 2
+        ;;
+esac
