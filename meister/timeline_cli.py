@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from meister.dashboard.metrics import iter_events, list_runs
+from meister.i18n import t
 from meister.timeline import DEFAULT_STALE_AFTER, build_timeline
 from meister.timeline_view import all_body_line_count, render_all, render_frame, render_waiting
 
@@ -61,16 +62,23 @@ def pick_run(runs: List[Dict[str, Any]], run_id: Optional[str]) -> str:
     ids = [str(run["run_id"]) for run in runs]
     if run_id is None:
         if not ids:
-            raise ValueError("nenhum run disponível")
+            raise ValueError(t("commands.timeline.no_runs"))
         return ids[0]
     if len(run_id) < 6:
-        raise ValueError(f"ID deve ter pelo menos 6 caracteres: {run_id}")
+        raise ValueError(t("commands.timeline.id_min_length", id=run_id))
     matches = [identifier for identifier in ids if identifier.startswith(run_id)]
     if len(matches) == 1:
         return matches[0]
-    detail = "ambíguo" if matches else "inexistente"
-    listing = ", ".join(ids) if ids else "nenhum run disponível"
-    raise ValueError(f"ID {detail}: {run_id}. Runs disponíveis: {listing}")
+    detail = t("commands.timeline.id_ambiguous") if matches else t("commands.timeline.id_missing")
+    listing = ", ".join(ids) if ids else t("commands.timeline.no_runs")
+    raise ValueError(
+        t(
+            "commands.timeline.runs_available",
+            status=detail,
+            id=run_id,
+            runs=listing,
+        )
+    )
 
 
 def once_frame(
@@ -87,12 +95,12 @@ def once_frame(
         if run_id is not None:
             pick_run([], run_id)
         return render_waiting(
-            "aguardando o primeiro run (log ainda não existe)", width=width, color=color
+            t("commands.timeline.waiting_missing_log"), width=width, color=color
         )
     events = list(iter_events(log_file))
     runs = list_runs(events)
     if not runs and (run_id is None or all_runs):
-        return render_waiting("aguardando o primeiro run", width=width, color=color)
+        return render_waiting(t("commands.timeline.waiting_first_run"), width=width, color=color)
     tier_prices, credit_prices = price_tables_from_config()
     stale_after = stale_after_from_config()
     if all_runs:
