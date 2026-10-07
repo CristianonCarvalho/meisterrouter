@@ -6,6 +6,19 @@
 
 set -e
 
+# Verificação prévia do Herdr
+if ! command -v herdr >/dev/null 2>&1; then
+    if [ "${MEISTER_ALLOW_NO_HERDR}" != "1" ]; then
+        echo "❌ [MeisterRouter] Erro: Herdr não encontrado no PATH!"
+        echo "   O Herdr é pré-requisito para o funcionamento do MeisterRouter."
+        echo "   Instale o Herdr com:"
+        echo "     curl -fsSL https://herdr.dev/install.sh | sh"
+        echo "   (Para prosseguir sem o Herdr, execute com MEISTER_ALLOW_NO_HERDR=1)"
+        exit 1
+    fi
+    echo "⚠️  Herdr não encontrado no PATH, continuando devido a MEISTER_ALLOW_NO_HERDR=1."
+fi
+
 # Detecta se está sendo executado a partir de um clone local, de dentro do npx/node_modules ou via curl/pipe
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd -P || echo "")"
 LOCAL_SHARE="${HOME}/.local/share/meisterrouter"
@@ -57,13 +70,12 @@ mkdir -p "${LOCAL_BIN}"
 ln -sf "${REPO_DIR}/.venv/bin/meister" "${LOCAL_BIN}/meister"
 echo "✅ Executável global configurado em: ${LOCAL_BIN}/meister"
 
-# 3. Vincula ao Herdr se instalado
-if command -v herdr &> /dev/null; then
-    echo "🔌 Vinculando MeisterRouter como plugin no Herdr..."
-    herdr plugin link "${REPO_DIR}"
-    echo "✅ Plugin vinculado ao Herdr com sucesso!"
+# 3. Configuração automática e diagnóstico com meister setup
+if [ "${MEISTER_SKIP_SETUP}" != "1" ]; then
+    echo "⚙️  Executando configuração automática (meister setup)..."
+    "${LOCAL_BIN}/meister" setup
 else
-    echo "ℹ️  Herdr não encontrado no PATH. Instale o Herdr (curl -fsSL https://herdr.dev/install.sh | sh) e rode: herdr plugin link ${REPO_DIR}"
+    echo "ℹ️  Configuração ignorada devido a MEISTER_SKIP_SETUP=1."
 fi
 
 # 4. Verificação final
@@ -71,4 +83,4 @@ echo ""
 echo "🎉 Instalação concluída com sucesso!"
 echo "• CLI: $("${LOCAL_BIN}/meister" --help | grep -m1 "MeisterRouter" | sed 's/^[ \t]*//')"
 echo "• Para usar no Herdr: basta abrir o Herdr no seu projeto rodando 'herdr'"
-echo "• Atalhos Herdr (popup do dashboard e linha do tempo): cadastre no config.toml, veja o README"
+echo "• Consulte o relatório do 'meister setup' acima para status e próximos passos"
