@@ -1,32 +1,32 @@
 # Changelog
 
-Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). O projeto usa versionamento semântico e permanece em `0.x` até o contrato (plano JSON, `meister.config.yaml` e eventos do log) estabilizar. Os números `#N` são pull requests.
+This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) format. The project uses semantic versioning and remains at `0.x` until the contract (JSON plan, `meister.config.yaml`, and log events) stabilizes. The `#N` numbers are pull requests.
 
 ## [0.9.0] - 2026-10-07
 
-Primeira versão marcada. Consolida o histórico dos PRs #1 a #73 (29/09 a 07/10/2026).
+First tagged release. Consolidates the history of PRs #1 through #73 (2026-09-29 to 2026-10-07).
 
-### Adicionado
-- **Orquestração:** execução de planos em DAG com worktree por subtarefa, merge `--no-ff` numa branch de integração e fast-forward da `main` só no fim (#1, #4, #6); contrato de plano canônico com adaptador do superpowers (#5); `--resume` que reaproveita tarefas concluídas (#24); retentativa na mesma via quando o pane some (#26); progresso por tarefa e resumo final (#28); `meister plan analyze` e aviso de plano serial (#46); timeout por inatividade com trabalho preservado (#32).
-- **Roteamento:** o Jev escolhe a via inicial de cada subtarefa e é o modo padrão, com proteção contra Jev lento (#13, #17); contexto estruturado para o Jev (#33); `max_parallel` por via (#16); `eligible_classes` por via, uma regra determinística sobre a escolha do Jev (#63).
-- **Configuração:** catálogo de modelos 100% em configuração, com padrões empacotados (#14, #15); validação e exibição das vias, vias desligáveis, Copilot como primeira via (#12, #19).
-- **Gate:** escopo com glob, preparo de ambiente Node e portão configurável (#22); venv do projeto, `{python}` e `ok_exit_codes` (#49); gate pré-merge fora da trava de integração (#47); cache do gate por árvore de arquivos (#66); testes em paralelo com `pytest-xdist` (#64).
-- **Custo e medição:** uso e custo reais dos workers e tempo por fase (#43); `meister report` (#44); custo do Copilot por créditos (`credit_usd`) (#51); preços de modelos atualizados (#50).
-- **Observabilidade:** dashboard agrupado e analítico, com projeto, run, tarefas legíveis, custo, overhead e pico de workers (#35, #39, #41, #45, #53, #54); linha do tempo (Gantt) em TUI, com modo ao vivo, visão de todos os runs, linha do Jev e estado "sem sinal" (#55, #56, #57, #58, #62); suporte a tarefas rodadas por `meister worker` (#73).
-- **Operação:** `meister clean` remove branches antigas com segurança (#34); `meister init` seguro (#20); guard do Claude Code com modos `block`/`ask`/`off` e regra "método de execução = Meister" (#68, #69); manual de execução (#25, #29); diagramas Mermaid (#72) e fluxo ponta a ponta (#18).
-- **Instalação automática:** `meister setup` liga o plugin ao Herdr, grava os atalhos num bloco gerenciado do `config.toml` (com backup e validação), confere o ambiente e, com `--project`, equipa o projeto; `meister config init` gera o `meister.config.yaml` com as vias e a ordem; `bin/install.sh` exige o Herdr e chama o `setup` (#76).
-- **Instalador com versão fixa:** `install.sh --version vN.N.N|latest|main` (ou `MEISTER_VERSION`), por exemplo `curl ... | bash -s -- --version v0.9.0`.
-- **`meister --version`**, fonte única da versão em `meister/__init__.py` e este changelog (#74).
-- **README em inglês** (com o português em `README.pt-BR.md`) para a publicação no marketplace de plugins do Herdr; o aviso de que o plugin sozinho não instala o CLI `meister`; manifesto sem os atalhos que o Herdr não lê.
-- **Plugin do Herdr:** wrapper de entrada (`bin/herdr-meister.sh`) no manifesto `herdr-plugin.toml` para localizar o CLI `meister` (`PATH`, `~/.local/bin`, Homebrew) e exibir notificação de instalação com encerramento 127 quando ausente (e saída 0 silenciosa no startup).
-- **Documentação:** uso direto (a LLM orquestradora usa o Meister pelas regras e hooks), pré-requisitos (Herdr obrigatório, Superpowers recomendado), página do [formato do plano](docs/FORMATO_DO_PLANO.md) e instalação por `curl` (repositório público); README enxuto (o MeisterRouter é um plugin do Herdr, que é pré-requisito), com a página [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md), capturas da linha do tempo e do dashboard (#75) e diagramas atualizados.
+### Added
+- **Orchestration:** running plans as a DAG with a worktree per subtask, `--no-ff` merge into an integration branch, and fast-forward of `main` only at the end (#1, #4, #6); canonical plan contract with a superpowers adapter (#5); `--resume` reuses completed tasks (#24); retry on the same lane when the pane disappears (#26); progress per task and final summary (#28); `meister plan analyze` and serial-plan warning (#46); inactivity timeout with work preserved (#32).
+- **Routing:** Jev chooses the initial lane for each subtask and is the default mode, with protection against a slow Jev (#13, #17); structured context for Jev (#33); `max_parallel` per lane (#16); `eligible_classes` per lane, a deterministic rule governing Jev's choice (#63).
+- **Configuration:** model catalog 100% in configuration, with packaged defaults (#14, #15); lane validation and display, lanes can be disabled, Copilot as the first lane (#12, #19).
+- **Gate:** glob scope, Node environment setup, and configurable gate (#22); project venv, `{python}`, and `ok_exit_codes` (#49); pre-merge gate outside the integration lock (#47); gate cache by file tree (#66); tests in parallel with `pytest-xdist` (#64).
+- **Cost and measurement:** actual worker usage and cost, and time per phase (#43); `meister report` (#44); Copilot cost by credits (`credit_usd`) (#51); updated model prices (#50).
+- **Observability:** grouped, analytical dashboard with project, run, readable tasks, cost, overhead, and peak worker count (#35, #39, #41, #45, #53, #54); Gantt timeline in TUI, with live mode, overview of all runs, Jev lane, and `sem sinal` (no signal) state (#55, #56, #57, #58, #62); support for tasks run by `meister worker` (#73).
+- **Operations:** `meister clean` safely removes old branches (#34); safe `meister init` (#20); Claude Code guard with `block`/`ask`/`off` modes and the "execution method = Meister" rule (#68, #69); execution manual (#25, #29); Mermaid diagrams (#72) and end-to-end flow (#18).
+- **Automatic setup:** `meister setup` connects the plugin to Herdr, writes shortcuts to a managed block in `config.toml` (with backup and validation), checks the environment, and equips the project with `--project`; `meister config init` generates `meister.config.yaml` with the lanes and their order; `bin/install.sh` requires Herdr and calls `setup` (#76).
+- **Version-pinned installer:** `install.sh --version vN.N.N|latest|main` (or `MEISTER_VERSION`), for example `curl ... | bash -s -- --version v0.9.0`.
+- **`meister --version`**, single source of version in `meister/__init__.py` and this changelog (#74).
+- **English README** (with Portuguese in `README.pt-BR.md`) for publication in the Herdr plugin marketplace; notice that the plugin alone does not install the `meister` CLI; manifest without shortcuts that Herdr does not read.
+- **Herdr plugin:** entry wrapper (`bin/herdr-meister.sh`) in the `herdr-plugin.toml` manifest to locate the `meister` CLI (`PATH`, `~/.local/bin`, Homebrew) and display an installation notification with exit code 127 when missing (and silent exit code 0 at startup).
+- **Documentation:** direct usage (the orchestrator LLM uses Meister according to the rules and hooks), prerequisites (Herdr required, Superpowers recommended), [plan format](docs/plan-format.md) page, and `curl` installation (public repository); concise README (MeisterRouter is a Herdr plugin, and Herdr is a prerequisite), with the [Alternative installation and advanced commands](docs/advanced.md) page, timeline and dashboard screenshots (#75), and updated diagrams.
 
-### Corrigido
-- Integração: commits do worker feitos no próprio worktree são integrados (#4); a branch de integração é reconstruída por merge (#6); trabalho rejeitado nunca se perde, inclusive mudanças não commitadas (#60).
-- Detecção de pane desaparecido com o formato real de eventos do Herdr (#10) e vias com disjuntor aberto são puladas (#7).
-- Tarefas sem `target_files` rodam isoladas (#9); rotas `[id]` do Next.js e `--resume` do mesmo run (#31); `Global Constraints` não vaza para cada tarefa (#23); importador do superpowers ignora títulos em blocos de código (#48).
-- `npm install` não roda quando não há nada a instalar (#61); worktrees `prunable` não protegem mais a branch (#37).
-- Dashboard: tabela legível, chamadas do Jev ligadas às tarefas, ordenação e custo com o catálogo atual (#38, #40, #42, #52).
+### Fixed
+- Integration: worker commits made in the worktree itself are integrated (#4); the integration branch is rebuilt by merging (#6); rejected work is never lost, including uncommitted changes (#60).
+- Detection of disappeared panes using the actual Herdr event format (#10), and lanes with an open circuit breaker are skipped (#7).
+- Tasks without `target_files` run in isolation (#9); Next.js `[id]` routes and `--resume` for the same run (#31); `Global Constraints` no longer leak into every task (#23); the superpowers importer ignores titles in code blocks (#48).
+- `npm install` does not run when there is nothing to install (#61); `prunable` worktrees no longer protect the branch (#37).
+- Dashboard: readable table, Jev calls linked to tasks, sorting, and cost using the current catalog (#38, #40, #42, #52).
 
-### Testes e CI
-- Matriz de quedas com 13 pontos de falha e scripts E2E com ferramentas reais (#2, #3, #8, #11, #30); watchdog por teste e guarda contra vazamento de branches (#36); testes independentes do relógio e estabilizados sob carga (#21, #27, #59, #65, #67).
+### Tests and CI
+- Failure matrix with 13 failure points and E2E scripts with real tools (#2, #3, #8, #11, #30); per-test watchdog and guard against branch leaks (#36); clock-independent tests stabilized under load (#21, #27, #59, #65, #67).

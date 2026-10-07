@@ -2,7 +2,7 @@
 
 Esta página reúne o que **não é necessário para o uso diário**. O caminho simples (instalar o Herdr,
 rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orquestradora) está no
-[README](../README.pt-BR.md).
+[README](../../README.pt-BR.md).
 
 - [Instalação alternativa](#instalação-alternativa)
 - [Atalhos do Herdr à mão](#atalhos-do-herdr-à-mão)
@@ -59,7 +59,7 @@ git clone --branch v0.9.0 https://github.com/CristianonCarvalho/meisterrouter.gi
 cd meisterrouter && ./bin/install.sh
 meister --version     # meister 0.9.0 (commit ...)
 ```
-As versões e as notas estão em [Releases](https://github.com/CristianonCarvalho/meisterrouter/releases) e no [`CHANGELOG.md`](../CHANGELOG.md).
+As versões e as notas estão em [Releases](https://github.com/CristianonCarvalho/meisterrouter/releases) e no [`CHANGELOG.md`](../../CHANGELOG.pt-BR.md).
 
 ### Via Node.js / NPM
 ```bash
@@ -230,7 +230,7 @@ meister install-hooks --target . --claude --git   # só os hooks, sem o init
 
 ## Plano e execução à mão (`plan`, `orchestrate`, `--resume`)
 
-No uso direto a sua LLM orquestradora faz isto por você (veja o [README](../README.pt-BR.md)). À mão, o fluxo é:
+No uso direto a sua LLM orquestradora faz isto por você (veja o [README](../../README.pt-BR.md)). À mão, o fluxo é:
 ```bash
 meister plan import plano.md -o plano.json     # Markdown (formato do Superpowers) -> JSON canônico
 meister plan validate plano.json               # confere esquema, dependências e chaves proibidas
@@ -362,7 +362,7 @@ executam o orquestrador devem usar um repositório Git temporário. O job de tes
 20 minutos.
 
 Versionamento: SemVer, `0.x` até o contrato estabilizar. A versão fica em `meister/__init__.py` (e nos literais
-de `package.json` e `herdr-plugin.toml`, conferidos por teste); veja o [`CHANGELOG.md`](../CHANGELOG.md).
+de `package.json` e `herdr-plugin.toml`, conferidos por teste); veja o [`CHANGELOG.md`](../../CHANGELOG.pt-BR.md).
 
 ---
 

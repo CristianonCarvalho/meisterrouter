@@ -9,7 +9,7 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 > [!IMPORTANT]
 > **O Herdr é pré-requisito.** O MeisterRouter roda como plugin dele (abas dos workers, popups e atalhos). Instale o Herdr antes: `curl -fsSL https://herdr.dev/install.sh | sh`.
 
-📐 **Como funciona:** veja os [diagramas](docs/DIAGRAMAS.md) (componentes, sequência, roteamento, falhas, gates, estados e mais).
+📐 **Como funciona:** veja os [diagramas](docs/pt-BR/DIAGRAMAS.md) (componentes, sequência, roteamento, falhas, gates, estados e mais).
 
 ## 👀 Em funcionamento
 
@@ -29,7 +29,7 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 |---|---|---|
 | **Obrigatório** | [Herdr](https://herdr.dev) | O MeisterRouter roda como plugin dele (abas dos workers, popups, atalhos). `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Obrigatório** | Pelo menos uma CLI de IA com assinatura: `copilot`, `codex`, `agy` (Antigravity/Gemini) ou `claude` | São os workers. O `meister setup` mostra quais ele encontrou. |
-| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
+| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
 | **Opcional** | Chave do OpenRouter | Só o **Jev** usa (escolhe a via de cada tarefa). Sem ela, use `router: {mode: first}`. |
 
 ## 🚀 Instalação
@@ -45,7 +45,7 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
 **Cada projeto**, uma vez, dentro dele: `meister setup --project` (cria `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, os hooks e o guard).
 
-Outras formas de instalar (clone, npm, pip) e a versão fixa estão em [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+Outras formas de instalar (clone, npm, pip) e a versão fixa estão em [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
 ## 🛠️ Como usar (direto, sem digitar comandos)
 
@@ -64,9 +64,9 @@ Depois do `meister setup --project`, o projeto passa a ter as regras e os hooks 
 
 5. **Ela revisa as evidências** (testes, diff) e conclui. Commit, push e merge continuam dependendo do seu OK.
 
-Se o Meister não estiver disponível (daemon fora do ar, sem Herdr), a LLM pergunta antes de implementar por outro meio. Se um run falhar, peça para ela rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/MANUAL_DE_EXECUCAO.md)).
+Se o Meister não estiver disponível (daemon fora do ar, sem Herdr), a LLM pergunta antes de implementar por outro meio. Se um run falhar, peça para ela rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md)).
 
-Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? Veja o [formato do plano](docs/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? Veja o [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
 ## 🎛️ Escolher os modelos e a ordem
 
@@ -104,12 +104,12 @@ workers:
 | limitar a via a certas **classes** de tarefa (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (o Jev só manda para a via o que ela aceita) |
 | ignorar o Jev e usar sempre a primeira via | `router.mode: first` |
 
-Atenção: a lista `tier_order` do projeto **substitui** a padrão inteira. Depois de editar, confira com `meister config validate` e `meister models`. Os campos e os demais ajustes (timeouts, gate, escopo) estão em [configuração avançada](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+Atenção: a lista `tier_order` do projeto **substitui** a padrão inteira. Depois de editar, confira com `meister config validate` e `meister models`. Os campos e os demais ajustes (timeouts, gate, escopo) estão em [configuração avançada](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
 
 ## 📚 Mais documentação
 
-- [Formato do plano](docs/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (Superpowers é recomendado, não obrigatório), dependências e paralelismo.
-- [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
-- [Diagramas](docs/DIAGRAMAS.md): componentes, sequência e fluxos.
-- [Manual de execução](docs/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
-- [Modelos e custos](docs/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.md). Versão instalada: `meister --version`.
+- [Formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (Superpowers é recomendado, não obrigatório), dependências e paralelismo.
+- [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
+- [Diagramas](docs/pt-BR/DIAGRAMAS.md): componentes, sequência e fluxos.
+- [Manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
+- [Modelos e custos](docs/pt-BR/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.pt-BR.md). Versão instalada: `meister --version`.

@@ -1,7 +1,7 @@
 # Modelos e custos: tabela de estudo
 
 Atualizada em **2026-10-05**. Serve para estudar e justificar mudanças na escolha de modelos e vias. Os mesmos dados estão em
-[`modelos_e_custos.csv`](modelos_e_custos.csv) (para planilha).
+[`modelos_e_custos.csv`](../modelos_e_custos.csv) (para planilha).
 
 **Fontes:** OpenRouter (API pública `https://openrouter.ai/api/v1/models` e o endpoint do Jev em
 `/api/v1/models/typesafe/jev-1.13/endpoints`) para preços por token; [Artificial Analysis](https://artificialanalysis.ai/leaderboards/models)
