@@ -6,6 +6,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
 - Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.
+- Harness process-group cleanup on worker termination, with PID-identity-checked orphan reaping before retries.
 
 ## [0.9.1] - 2026-10-07
 
