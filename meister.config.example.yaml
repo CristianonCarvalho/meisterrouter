@@ -71,3 +71,16 @@ gate:
   commands: []
   allow_unverified: false
   cache: true
+  # Opcional e desligado por padrão. Só substitui o gate no pré-merge e pós-merge
+  # de mudanças que correspondam a paths; validate_final_integration continua completo.
+  # Uma falha que apenas o gate completo detectaria reprovará o run inteiro no gate final,
+  # em vez de reprovar a tarefa individual.
+  # docs_only:
+  #   enabled: true
+  #   paths: ["*.md", "docs/**/*.md", "docs/img/**"]
+  #   commands:
+  #     - {name: ruff, run: "ruff check .", timeout_seconds: 120, required: true}
+  #     - name: docs
+  #       run: ["{python}", "-m", "pytest", "-q", "tests/test_docs_links.py", "tests/test_hygiene.py", "tests/test_copilot_adapter.py"]
+  #       timeout_seconds: 300
+  #       required: true

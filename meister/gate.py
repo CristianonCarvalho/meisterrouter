@@ -9,6 +9,7 @@ a conclusão com o TypeSafe Jev Decisions API (control_cycle).
 import json
 import hashlib
 import logging
+import ntpath
 import os
 import shlex
 import subprocess
@@ -24,6 +25,28 @@ from meister.env_setup import prepare_environment
 from meister.jev import control_cycle
 
 logger = logging.getLogger(__name__)
+
+
+def is_docs_only_change(changed_files: List[str], patterns: List[str]) -> bool:
+    """Return whether every non-empty, safe relative path matches a docs-only pattern."""
+    if not changed_files or not patterns:
+        return False
+    for path in changed_files:
+        if not isinstance(path, str) or not path:
+            return False
+        normalized = path.replace("\\", "/")
+        if (
+            os.path.isabs(path)
+            or ntpath.isabs(path)
+            or normalized.startswith("/")
+            or ntpath.splitdrive(path)[0]
+            or any(part == ".." for part in normalized.split("/"))
+        ):
+            return False
+    from meister.worktree import scope_violations
+
+    return not scope_violations(changed_files, patterns)
+
 
 @dataclass
 class VerificationResult:
@@ -254,17 +277,21 @@ class DeterministicGate:
         result = self.run_verification_ex(repo_path)
         return result.passed, result.output
 
-    def run_verification_ex(self, repo_path: Optional[str] = None) -> VerificationResult:
+    def run_verification_ex(
+        self,
+        repo_path: Optional[str] = None,
+        docs_only: bool = False,
+    ) -> VerificationResult:
         """Executa verificações ou reutiliza uma aprovação para a mesma árvore e configuração."""
         path = os.path.abspath(repo_path or self.repo_path)
         if not self.config.gate.cache:
-            return self._run_verification_uncached(path)
+            return self._run_verification_uncached(path, docs_only=docs_only)
 
         tree_hash = _worktree_tree_hash(path)
         if tree_hash is None:
             return self._run_verification_uncached(path)
 
-        config_hash = self._verification_config_hash()
+        config_hash = self._verification_config_hash(docs_only=docs_only)
         cache_key = (tree_hash, config_hash)
         with self._pass_cache_lock:
             cached = self._pass_cache.get(cache_key)
@@ -273,7 +300,7 @@ class DeterministicGate:
             return replace(result, cached=True, saved_seconds=elapsed)
 
         started = time.monotonic()
-        result = self._run_verification_uncached(path)
+        result = self._run_verification_uncached(path, docs_only=docs_only)
         elapsed = time.monotonic() - started
         if result.passed and not result.infrastructure_error:
             stored = replace(result, cached=False, saved_seconds=0.0)
@@ -281,7 +308,12 @@ class DeterministicGate:
                 self._pass_cache[cache_key] = (stored, elapsed)
         return result
 
-    def _verification_config_hash(self) -> str:
+    def _verification_config_hash(self, docs_only: bool = False) -> str:
+        selected_commands = (
+            self.config.gate.docs_only.commands
+            if docs_only
+            else self.config.gate.commands
+        )
         commands = [
             {
                 "name": command.name,
@@ -290,9 +322,10 @@ class DeterministicGate:
                 "required": command.required,
                 "ok_exit_codes": command.ok_exit_codes,
             }
-            for command in self.config.gate.commands
+            for command in selected_commands
         ]
         config_data = {
+            "mode": "docs_only" if docs_only else "full",
             "commands": commands,
             "python": self.config.gate.python,
             "install": self.config.gate.install,
@@ -301,10 +334,24 @@ class DeterministicGate:
         serialized = json.dumps(config_data, sort_keys=True, default=str)
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
-    def _run_verification_uncached(self, path: str) -> VerificationResult:
+    def _run_verification_uncached(
+        self,
+        path: str,
+        docs_only: bool = False,
+    ) -> VerificationResult:
         """Executa verificações e distingue falhas de código de falhas de infraestrutura."""
-        if self.config.gate.commands:
-            return self._run_configured_commands(path)
+        selected_commands = (
+            self.config.gate.docs_only.commands
+            if docs_only
+            else self.config.gate.commands
+        )
+        if selected_commands:
+            return self._run_configured_commands(path, commands=selected_commands)
+        if docs_only:
+            return VerificationResult(
+                False,
+                "gate.docs_only.commands está vazio; configure comandos para o gate leve.",
+            )
 
         runner = self.detect_test_runner(path)
         linters = self.detect_linters(path)
@@ -461,7 +508,8 @@ class DeterministicGate:
             )
         return VerificationResult(True, "\n".join(outputs), skipped=skipped)
 
-    def _run_configured_commands(self, path: str) -> VerificationResult:
+    def _run_configured_commands(self, path: str, commands=None) -> VerificationResult:
+        configured_commands = self.config.gate.commands if commands is None else commands
         outputs: List[str] = []
         skipped: List[str] = []
         env = os.environ.copy()
@@ -497,12 +545,12 @@ class DeterministicGate:
             "{python}" in command.run
             if isinstance(command.run, str)
             else any("{python}" in argument for argument in command.run)
-            for command in self.config.gate.commands
+            for command in configured_commands
         )
         if python_warning and uses_python_marker:
             outputs.append(python_warning)
 
-        for command in self.config.gate.commands:
+        for command in configured_commands:
             if isinstance(command.run, str):
                 run = command.run.replace("{python}", shlex.quote(python))
                 argv = shlex.split(run)

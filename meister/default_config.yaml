@@ -65,3 +65,7 @@ gate:
   commands: []
   allow_unverified: false
   cache: true
+  docs_only:
+    enabled: false
+    paths: ["*.md", "docs/**/*.md", "docs/img/**"]
+    commands: []

@@ -426,7 +426,7 @@ def test_prepared_subtasks_are_pure_and_worker_gates_overlap(git_test_repo):
 
     worker_gate_barrier = threading.Barrier(2, timeout=30)
 
-    def concurrent_gate(repo_path, task_id=None, attempt=1, tier=None):
+    def concurrent_gate(repo_path, task_id=None, attempt=1, tier=None, **_kwargs):
         if repo_path != int_info.worktree_path:
             worker_gate_barrier.wait()
         return SimpleNamespace(passed=True, infrastructure_error=False, output="ok")

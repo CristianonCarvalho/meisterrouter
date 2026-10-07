@@ -1313,8 +1313,17 @@ class IntegrationPipeline:
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
         # 2. Gate determinístico por script no worktree do worker
+        changed_files = self.wt_mgr.get_modified_files(
+            subtask_wt.worktree_path,
+            base_ref=subtask_wt.base_commit,
+        )
         worker_result = self._run_gate(
-            subtask_wt.worktree_path, task_id=phase_task_id, attempt=attempt, tier=tier
+            subtask_wt.worktree_path,
+            task_id=phase_task_id,
+            attempt=attempt,
+            tier=tier,
+            changed_files=changed_files,
+            allow_docs_only=True,
         )
         if worker_result.infrastructure_error:
             preserve_message = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
@@ -1441,11 +1450,17 @@ class IntegrationPipeline:
         crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
 
         # 5. Gate determinístico no worktree de integração após o merge
+        changed_files = self.wt_mgr._run_git(
+            ["diff", "--name-only", rollback_sha, "HEAD"],
+            cwd=self.integration_info.worktree_path,
+        ).splitlines()
         integration_result = self._run_gate(
             self.integration_info.worktree_path,
             task_id=prepared.phase_task_id,
             attempt=prepared.attempt,
             tier=prepared.tier,
+            changed_files=changed_files,
+            allow_docs_only=True,
         )
         if integration_result.infrastructure_error:
             self._log_gate_infrastructure_error(subtask_wt.task_id, integration_result.output)
@@ -1487,15 +1502,39 @@ class IntegrationPipeline:
         task_id: Optional[str] = None,
         attempt: int = 1,
         tier: Optional[str] = None,
+        changed_files: Optional[List[str]] = None,
+        allow_docs_only: bool = False,
     ):
+        import inspect
+
         from meister.gate import VerificationResult
+        from meister.gate import is_docs_only_change
 
         started = time.monotonic()
         result = None
+        gate_mode = "full"
         try:
             run_ex = getattr(self.gate, "run_verification_ex", None)
             if callable(run_ex):
-                result = run_ex(repo_path=repo_path)
+                docs_only = (
+                    allow_docs_only
+                    and self.config.gate.docs_only.enabled
+                    and changed_files is not None
+                    and is_docs_only_change(changed_files, self.config.gate.docs_only.paths)
+                )
+                if docs_only:
+                    try:
+                        parameters = inspect.signature(run_ex).parameters.values()
+                        supports_docs_only = any(
+                            parameter.name == "docs_only"
+                            or parameter.kind == inspect.Parameter.VAR_KEYWORD
+                            for parameter in parameters
+                        )
+                    except (TypeError, ValueError):
+                        supports_docs_only = False
+                    docs_only = docs_only and supports_docs_only
+                gate_mode = "docs_only" if docs_only else "full"
+                result = run_ex(repo_path=repo_path, docs_only=True) if docs_only else run_ex(repo_path=repo_path)
                 if isinstance(result, VerificationResult):
                     return result
             legacy = self.gate.run_verification(repo_path=repo_path)
@@ -1516,6 +1555,7 @@ class IntegrationPipeline:
                 duration_ms=(time.monotonic() - started) * 1000.0,
                 cached=bool(getattr(result, "cached", False)),
                 saved_seconds=float(getattr(result, "saved_seconds", 0.0)),
+                gate_mode=gate_mode,
             )
 
     def get_integration_diff_summary(self) -> str:

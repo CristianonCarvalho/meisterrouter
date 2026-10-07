@@ -7,6 +7,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 Primeira versão marcada. Consolida o histórico dos PRs #1 a #73 (29/09 a 07/10/2026).
 
 ### Adicionado
+- `gate.docs_only` opcional e desligado por padrão para mudanças só de documentação, antes e depois do merge; o gate final sempre executa a verificação completa.
 - **Orquestração:** execução de planos em DAG com worktree por subtarefa, merge `--no-ff` numa branch de integração e fast-forward da `main` só no fim (#1, #4, #6); contrato de plano canônico com adaptador do superpowers (#5); `--resume` que reaproveita tarefas concluídas (#24); retentativa na mesma via quando o pane some (#26); progresso por tarefa e resumo final (#28); `meister plan analyze` e aviso de plano serial (#46); timeout por inatividade com trabalho preservado (#32).
 - **Roteamento:** o Jev escolhe a via inicial de cada subtarefa e é o modo padrão, com proteção contra Jev lento (#13, #17); contexto estruturado para o Jev (#33); `max_parallel` por via (#16); `eligible_classes` por via, uma regra determinística sobre a escolha do Jev (#63).
 - **Configuração:** catálogo de modelos 100% em configuração, com padrões empacotados (#14, #15); validação e exibição das vias, vias desligáveis, Copilot como primeira via (#12, #19).

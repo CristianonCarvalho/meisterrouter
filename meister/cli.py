@@ -1629,6 +1629,20 @@ def config_show(config_path, json_format):
                     }
                     for command in cfg.gate.commands
                 ],
+                "docs_only": {
+                    "enabled": cfg.gate.docs_only.enabled,
+                    "paths": cfg.gate.docs_only.paths,
+                    "commands": [
+                        {
+                            "name": command.name,
+                            "required": command.required,
+                            "run": command.run,
+                            "timeout_seconds": command.timeout_seconds,
+                            "ok_exit_codes": command.ok_exit_codes,
+                        }
+                        for command in cfg.gate.docs_only.commands
+                    ],
+                },
                 "install": cfg.gate.install,
                 "python": cfg.gate.python,
             },
@@ -1772,9 +1786,17 @@ def config_show(config_path, json_format):
     click.echo(f"  Install: {cfg.gate.install}")
     click.echo(f"  Python: {cfg.gate.python}")
     click.echo(f"  Allow Unverified: {cfg.gate.allow_unverified}")
+    click.echo(f"  Docs-only enabled: {cfg.gate.docs_only.enabled}")
+    click.echo(f"  Docs-only paths: {', '.join(cfg.gate.docs_only.paths)}")
     for command in cfg.gate.commands:
         click.echo(
             f"  Command {command.name}: {command.run} "
+            f"(timeout={command.timeout_seconds}, required={command.required}, "
+            f"ok_exit_codes={command.ok_exit_codes})"
+        )
+    for command in cfg.gate.docs_only.commands:
+        click.echo(
+            f"  Docs-only command {command.name}: {command.run} "
             f"(timeout={command.timeout_seconds}, required={command.required}, "
             f"ok_exit_codes={command.ok_exit_codes})"
         )
