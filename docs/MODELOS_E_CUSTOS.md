@@ -95,7 +95,7 @@ para custo por tarefa e índice de inteligência. Os preços por token dos dois 
 - **GPT-6.1 Sol low** tem índice 42 por 0,13 por tarefa, contra 41 por 1,24 do Gemini high: candidato a estudar, se estiver disponível pelo Copilot (não verificado).
 - Os modelos baratos de referência têm índice 38 a 42 por 0,06 a 0,37 por tarefa, mas não têm harness no Meister.
 
-## Uso real observado (UFG_TODO, run 2, 2026-10-04)
+## Uso real observado (projeto de teste, run 2, 2026-10-04)
 | Via | Tokens (entrada / saída) | Preço de lista, sem cache | Catálogo (combinado × tokens) | Cobrado de verdade |
 |---|---|---|---|---|
 | `copilot_luna` (9 tarefas) | 2.271.700 / 41.200 | US$ 0,248 | US$ 0,463 | **US$ 0,072** (7,16 créditos) |

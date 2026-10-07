@@ -1,6 +1,6 @@
 OpenAI Codex v0.157.1
 --------
-workdir: /private/tmp/claude-501/-Users-cristianocarvalho-Documents-meisterrouter/690ffac8-21ac-4454-a9c0-e82a84918dc4/scratchpad/cost_samples/repo
+workdir: /tmp/cost_samples/repo
 model: gpt-6-luna
 provider: openai
 approval: never

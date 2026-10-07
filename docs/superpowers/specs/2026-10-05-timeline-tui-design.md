@@ -60,7 +60,7 @@ em andamento), `inferred` (verdadeiro quando a fase atual foi deduzida).
 
 `summary`: `total`, `completed`, `failed`, `running`, `peak_parallel`, `avg_parallel`, `cost_usd`.
 
-**Regras de derivação** (confirmadas no log real do UFG_TODO):
+**Regras de derivação** (confirmadas no log real de um projeto de teste):
 - Total, lotes, ordem e títulos vêm de `plan_parsed` (`task_ids`, `task_titles`); dependências do
   `depends_on` do plano em `orchestration_start`. Sem `plan_parsed` (logs antigos), as tarefas são as
   que têm ciclo de vida de worker, na ordem natural dos ids.
@@ -179,7 +179,7 @@ Terminal sem cor ou estreito → modo monocromático ou aviso, nunca erro.
 
 ## Verificação real
 
-`meister timeline --once` no log do UFG_TODO (somente leitura, `stat` do log antes e depois),
+`meister timeline --once` no log de um projeto de teste (somente leitura, `stat` do log antes e depois),
 conferindo duração, concluídas e custo contra o dashboard e o `meister report`. Depois, ver um run
 real ao vivo numa tab do Herdr com 3 workers paralelos (gasta alguns créditos do Copilot; o usuário é
 avisado antes).

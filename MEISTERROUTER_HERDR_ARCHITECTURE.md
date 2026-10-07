@@ -220,7 +220,7 @@ curl -fsSL https://herdr.dev/install.sh | sh
 pip install meisterrouter
 
 # 3. Vincular o MeisterRouter como Plugin no Herdr (1 comando)
-herdr plugin link /Users/cristianocarvalho/Documents/meisterrouter
+herdr plugin link ~/.local/share/meisterrouter
 # ou quando publicado no GitHub:
 # herdr plugin install cristianocarvalho/meisterrouter
 
@@ -258,6 +258,6 @@ gantt
 ```
 
 ### Entregáveis Técnicos Imediatos:
-1. **[`meister/herdr/client.py`](file:///Users/cristianocarvalho/Documents/meisterrouter/meister/herdr/client.py):** Cliente assíncrono para o socket UNIX do Herdr (`HERDR_SOCKET_PATH`), com suporte a `agent.prompt`, `pane.split` e assinatura de `pane.agent_status_changed`.
-2. **[`herdr-plugin.toml`](file:///Users/cristianocarvalho/Documents/meisterrouter/herdr-plugin.toml):** Manifesto de plugin do Herdr registrando ações de classificação, verificação determinística e o dashboard.
-3. **[`meister/herdr/bridge.py`](file:///Users/cristianocarvalho/Documents/meisterrouter/meister/herdr/bridge.py):** Ponte de eventos que conecta o ciclo de vida dos agentes no Herdr às decisões do Jev (`meister.jev`).
+1. **[`meister/herdr/client.py`](https://github.com/CristianonCarvalho/meisterrouter/blob/main/meister/herdr/client.py):** Cliente assíncrono para o socket UNIX do Herdr (`HERDR_SOCKET_PATH`), com suporte a `agent.prompt`, `pane.split` e assinatura de `pane.agent_status_changed`.
+2. **[`herdr-plugin.toml`](https://github.com/CristianonCarvalho/meisterrouter/blob/main/herdr-plugin.toml):** Manifesto de plugin do Herdr registrando ações de classificação, verificação determinística e o dashboard.
+3. **[`meister/herdr/bridge.py`](https://github.com/CristianonCarvalho/meisterrouter/blob/main/meister/herdr/bridge.py):** Ponte de eventos que conecta o ciclo de vida dos agentes no Herdr às decisões do Jev (`meister.jev`).
