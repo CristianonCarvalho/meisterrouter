@@ -1,74 +1,78 @@
 # 🔮 MeisterRouter
 
-**Plugin do [Herdr](https://herdr.dev) que distribui as tarefas de um plano pelas suas assinaturas de CLIs de IA e coordena tudo de forma determinística.**
+🌐 **English** · [Português (Brasil)](README.pt-BR.md)
 
-Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planejar. O MeisterRouter distribui as tarefas entre o **GitHub Copilot**, o **Codex**, o **Antigravity (Gemini)** e o **Claude**, cada uma num worktree próprio e numa aba visível do Herdr. Cada resultado passa por um **gate determinístico** (testes e lint) e só então é integrado; a `main` só avança por fast-forward no fim. O único componente não determinístico é o **Jev** (OpenRouter), que escolhe a via inicial de cada tarefa e julga o resultado.
+**A [Herdr](https://herdr.dev) plugin that distributes a plan's tasks across your AI CLI subscriptions and coordinates everything deterministically.**
+
+You pick an **orchestrator LLM** (for example Claude Code) to plan the work. MeisterRouter spreads the tasks over **GitHub Copilot**, **Codex**, **Antigravity (Gemini)** and **Claude**, each one in its own git worktree and in a visible Herdr tab. Every result goes through a **deterministic gate** (tests and lint) and only then is integrated; `main` only moves, by fast-forward, at the very end. The only non-deterministic component is **Jev** (via OpenRouter), which picks the starting lane for each task and judges the outcome.
 
 > [!IMPORTANT]
-> **O Herdr é pré-requisito.** O MeisterRouter roda como plugin dele (abas dos workers, popups e atalhos). Instale o Herdr antes: `curl -fsSL https://herdr.dev/install.sh | sh`.
+> **Herdr is a prerequisite**, and the plugin is not enough on its own. MeisterRouter is a Herdr plugin **plus a Python CLI (`meister`)**. `herdr plugin install` registers the plugin but does **not** install the CLI, so its actions fail until `meister` is on your `PATH`. Use the one-line installer below, which installs both.
 
-📐 **Como funciona:** veja os [diagramas](docs/DIAGRAMAS.md) (componentes, sequência, roteamento, falhas, gates, estados e mais).
+📐 **How it works:** see the [diagrams](docs/DIAGRAMAS.md) (components, sequence, routing, failures, gates, states and more; in Portuguese).
 
-## 👀 Em funcionamento
+> Heads-up: the CLI messages and most of the documentation under `docs/` are currently in Portuguese. This README is in English.
 
-**Linha do tempo** (`prefix+t` no Herdr): uma barra por tarefa e por fase (worker, gate, integração), a via de cada uma, a linha do Jev e o custo, ao vivo.
+## 👀 See it working
 
-![Linha do tempo de um run com 4 tarefas, ao vivo](docs/img/timeline.gif)
+**Timeline** (`prefix+t` in Herdr): one bar per task and per phase (worker, gate, integration), the lane of each one, the Jev line and the cost, live.
 
-**Dashboard** (`prefix+shift+m` no Herdr, ou `meister dashboard` em `http://localhost:5050`): métricas por run, custo, overhead e a tabela de tarefas.
+![Live timeline of a run with 4 tasks](docs/img/timeline.gif)
 
-![Dashboard web com as métricas e as tarefas de um run](docs/img/dashboard-web.png)
+**Dashboard** (`prefix+shift+m` in Herdr, or `meister dashboard` at `http://localhost:5050`): per-run metrics, cost, overhead and the task table.
 
-> As imagens usam um run **de demonstração** (dados sintéticos) gerado pelos próprios renderizadores do MeisterRouter; nenhum projeto real aparece nelas.
+![Web dashboard with the metrics and tasks of a run](docs/img/dashboard-web.png)
 
-## ✅ Pré-requisitos
+> The images use a **demo run** (synthetic data) produced by MeisterRouter's own renderers; no real project appears in them.
 
-| | O quê | Para quê |
+## ✅ Prerequisites
+
+| | What | What for |
 |---|---|---|
-| **Obrigatório** | [Herdr](https://herdr.dev) | O MeisterRouter roda como plugin dele (abas dos workers, popups, atalhos). `curl -fsSL https://herdr.dev/install.sh \| sh` |
-| **Obrigatório** | Pelo menos uma CLI de IA com assinatura: `copilot`, `codex`, `agy` (Antigravity/Gemini) ou `claude` | São os workers. O `meister setup` mostra quais ele encontrou. |
-| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
-| **Opcional** | Chave do OpenRouter | Só o **Jev** usa (escolhe a via de cada tarefa). Sem ela, use `router: {mode: first}`. |
+| **Required** | [Herdr](https://herdr.dev) | MeisterRouter runs as a plugin of it (worker tabs, popups, shortcuts). `curl -fsSL https://herdr.dev/install.sh \| sh` |
+| **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
+| **Recommended** | An orchestrator LLM with planning, for example **Claude Code** with the [Superpowers](https://github.com/obra/superpowers) plugin | It talks to you, writes the plan in the [plan format](docs/FORMATO_DO_PLANO.md) and triggers Meister. Superpowers is optional: without it the plan only has to follow that format. |
+| **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
 
-## 🚀 Instalação
+## 🚀 Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-O instalador faz tudo sozinho: instala o `meister`, liga o plugin ao Herdr, cadastra os atalhos (num bloco gerenciado do `config.toml`, com backup) e confere o ambiente, mostrando o que ainda falta (CLIs dos workers, chave do Jev). Ele aborta, com a instrução de instalação, se o Herdr não estiver instalado. Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.9.0` (ou `latest`). Pode rodar `meister setup` de novo quando quiser: não repete o que já está pronto (`--dry-run` mostra o que faria).
+The installer does everything for you: installs `meister`, links the plugin to Herdr, registers the shortcuts (in a managed block of Herdr's `config.toml`, with a backup) and checks your environment, listing what is still missing (worker CLIs, Jev key). It aborts, with install instructions, if Herdr is not installed. To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.0` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
 
-**A chave do Jev** (opcional, uma vez; só o Jev usa o OpenRouter, os workers rodam nas suas assinaturas):
+**The Jev key** (optional, once; only Jev uses OpenRouter, the workers run on your own subscriptions):
 ```bash
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
-**Cada projeto**, uma vez, dentro dele: `meister setup --project` (cria `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, os hooks e o guard).
+**Each project**, once, from inside it: `meister setup --project` (creates `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, the hooks and the guard).
 
-Outras formas de instalar (clone, npm, pip) e a versão fixa estão em [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md) (Portuguese).
 
-## 🛠️ Como usar (direto, sem digitar comandos)
+## 🛠️ How to use (directly, no commands to type)
 
-Depois do `meister setup --project`, o projeto passa a ter as regras e os hooks que **ensinam a sua LLM orquestradora a usar o Meister**. Você não digita `meister plan` nem `meister orchestrate`:
+After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
 
-1. **Abra a sua LLM orquestradora** (Claude Code ou Codex) no projeto, dentro do Herdr.
-2. **Peça em linguagem natural**, por exemplo: *"quero um filtro de busca por data na tela de pedidos"*. Com o Superpowers, ela conversa com você, desenha a solução e escreve o plano.
-3. **Ela faz o resto**: importa e valida o plano, e executa com o Meister. O `CLAUDE.md` e o hook de prompt (`UserPromptSubmit`) dizem a ela que o método de execução é sempre o Meister, e o **guard** (`PreToolUse`) recusa qualquer edição direta de código, então ela delega.
-4. **Você acompanha** no Herdr: cada worker abre numa aba visível, e os atalhos mostram o resto:
+1. **Open your orchestrator LLM** (Claude Code or Codex) in the project, inside Herdr.
+2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. With Superpowers it talks to you, designs the solution and writes the plan.
+3. **It does the rest**: imports and validates the plan, then runs it with Meister. `CLAUDE.md` and the prompt hook (`UserPromptSubmit`) tell it that the execution method is always Meister, and the **guard** (`PreToolUse`) refuses any direct code edit, so it delegates.
+4. **You follow along** in Herdr: each worker opens in a visible tab, and the shortcuts show the rest:
 
-| Atalho | O que abre |
+| Shortcut | Opens |
 |---|---|
-| `prefix+m` | Inicia a orquestração no workspace |
-| `prefix+shift+m` | Dashboard em popup |
-| `prefix+t` | Linha do tempo (Gantt) em popup |
+| `prefix+m` | Starts the orchestration in the workspace |
+| `prefix+shift+m` | Dashboard popup |
+| `prefix+t` | Timeline (Gantt) popup |
 
-5. **Ela revisa as evidências** (testes, diff) e conclui. Commit, push e merge continuam dependendo do seu OK.
+5. **It reviews the evidence** (tests, diff) and wraps up. Commit, push and merge still depend on your approval.
 
-Se o Meister não estiver disponível (daemon fora do ar, sem Herdr), a LLM pergunta antes de implementar por outro meio. Se um run falhar, peça para ela rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/MANUAL_DE_EXECUCAO.md)).
+If Meister is unavailable (daemon down, no Herdr), the LLM asks before implementing by other means. If a run fails, ask it to run again: tasks already completed are skipped (what to do for each failure is in the [execution manual](docs/MANUAL_DE_EXECUCAO.md), in Portuguese).
 
-Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? Veja o [formato do plano](docs/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+Want to review or write a plan by hand, or run the commands yourself? See the [plan format](docs/FORMATO_DO_PLANO.md) and the [advanced commands](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md) (both in Portuguese).
 
-## 🎛️ Escolher os modelos e a ordem
+## 🎛️ Choose the models and their order
 
-Cada **via** é uma assinatura (CLI) com um modelo. A **ordem** é a cadeia de fallback, sempre para a frente: se a primeira via falhar ou esgotar a cota, o Meister passa para a próxima. Veja o que está ativo:
+Each **lane** is a subscription (CLI) with a model. The **order** is the fallback chain, always moving forward: if the first lane fails or runs out of quota, Meister moves to the next. See what is active:
 ```bash
 meister models
 ```
@@ -79,35 +83,40 @@ meister models
   3  claude_sonnet            claude           sonnet                       $4.000  ligada
   4  codex_luna               codex            gpt-6-luna                   $0.200  desligada
 ```
-Para mudar, crie o arquivo do projeto com as vias padrão e edite:
+(Column labels are in Portuguese: `ligada` = on, `desligada` = off, `CUSTO/1M` = cost per 1M tokens.) To change them, create the project file with the default lanes and edit it:
 ```bash
-meister config init        # grava meister.config.yaml (vias, ordem e comentários)
+meister config init        # writes meister.config.yaml (lanes, order and comments)
 ```
 ```yaml
 router:
-  mode: jev                # jev escolhe a via inicial de cada tarefa; first = sempre a primeira (sem rede)
+  mode: jev                # jev picks the starting lane of each task; first = always the first lane (no network)
 workers:
-  tier_order:              # a ORDEM destas linhas é a cadeia de fallback
+  tier_order:              # the ORDER of these lines is the fallback chain
     - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
     - {name: codex_luna, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
     - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
     - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
 ```
-(O `meister models` lista as vias desligadas por último; elas não entram na cadeia.)
+(`meister models` lists disabled lanes last; they are not part of the chain.)
 
-| Para... | Faça |
+| To... | Do this |
 |---|---|
-| mudar a **ordem** | reordene as linhas de `tier_order` |
-| **ligar ou desligar** uma via | `enabled: true` ou `enabled: false` |
-| limitar a via a certas **classes** de tarefa (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (o Jev só manda para a via o que ela aceita) |
-| ignorar o Jev e usar sempre a primeira via | `router.mode: first` |
+| change the **order** | reorder the lines of `tier_order` |
+| **enable or disable** a lane | `enabled: true` or `enabled: false` |
+| restrict a lane to certain task **classes** (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (Jev only sends the lane what it accepts) |
+| ignore Jev and always use the first lane | `router.mode: first` |
 
-Atenção: a lista `tier_order` do projeto **substitui** a padrão inteira. Depois de editar, confira com `meister config validate` e `meister models`. Os campos e os demais ajustes (timeouts, gate, escopo) estão em [configuração avançada](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+Note: the project's `tier_order` list **replaces** the default one entirely. After editing, check it with `meister config validate` and `meister models`. The fields and the remaining settings (timeouts, gate, scope) are in [advanced configuration](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
 
-## 📚 Mais documentação
+## 📚 More documentation
 
-- [Formato do plano](docs/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (Superpowers é recomendado, não obrigatório), dependências e paralelismo.
-- [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
-- [Diagramas](docs/DIAGRAMAS.md): componentes, sequência e fluxos.
-- [Manual de execução](docs/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
-- [Modelos e custos](docs/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.md). Versão instalada: `meister --version`.
+All of these pages are in Portuguese for now.
+- [Plan format](docs/FORMATO_DO_PLANO.md): how to write or review a plan (Superpowers is recommended, not required), dependencies and parallelism.
+- [Alternative install and advanced commands](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md): other ways to install, shortcuts by hand, `plan`/`orchestrate` by hand, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, dashboard and timeline options, advanced configuration, tests and project layout.
+- [Diagrams](docs/DIAGRAMAS.md): components, sequence and flows.
+- [Execution manual](docs/MANUAL_DE_EXECUCAO.md): what to do in each situation and how to recover from failures.
+- [Models and costs](docs/MODELOS_E_CUSTOS.md) and the [CHANGELOG](CHANGELOG.md). Installed version: `meister --version`.
+
+## License
+
+[MIT](LICENSE)

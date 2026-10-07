@@ -2,7 +2,7 @@
 
 Esta página reúne o que **não é necessário para o uso diário**. O caminho simples (instalar o Herdr,
 rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orquestradora) está no
-[README](../README.md).
+[README](../README.pt-BR.md).
 
 - [Instalação alternativa](#instalação-alternativa)
 - [Atalhos do Herdr à mão](#atalhos-do-herdr-à-mão)
@@ -224,7 +224,7 @@ meister install-hooks --target . --claude --git   # só os hooks, sem o init
 
 ## Plano e execução à mão (`plan`, `orchestrate`, `--resume`)
 
-No uso direto a sua LLM orquestradora faz isto por você (veja o [README](../README.md)). À mão, o fluxo é:
+No uso direto a sua LLM orquestradora faz isto por você (veja o [README](../README.pt-BR.md)). À mão, o fluxo é:
 ```bash
 meister plan import plano.md -o plano.json     # Markdown (formato do Superpowers) -> JSON canônico
 meister plan validate plano.json               # confere esquema, dependências e chaves proibidas
