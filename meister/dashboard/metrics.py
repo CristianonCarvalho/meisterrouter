@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
+from meister.i18n import t
 
 # Eventos do ciclo de vida de um worker/tarefa. So ids que tem pelo menos um deles contam como TAREFA:
 # ids so de `classify`/`route_decision`/`control` (hash de logs antigos, julgamento final) nao sao tarefas.
@@ -209,7 +210,7 @@ def list_runs(
             and row["_last_event_at"] is not None
             and now - row["_last_event_at"] > timedelta(seconds=stale_after_s)
         ):
-            row["status"] = "sem sinal"
+            row["status"] = t("reports.status_stalled")
         row.pop("_sort_at")
         row.pop("_last_event_at")
         row.pop("_has_end")
@@ -451,11 +452,11 @@ def query_events(
 ) -> Dict[str, Any]:
     """Filter, sort and paginate event dictionaries."""
     if not 1 <= limit <= 500:
-        raise ValueError("limit deve estar entre 1 e 500")
+        raise ValueError(t("reports.events_limit_range"))
     if offset < 0:
-        raise ValueError("offset deve ser maior ou igual a zero")
+        raise ValueError(t("reports.events_offset_nonnegative"))
     if order not in {"asc", "desc"}:
-        raise ValueError("order deve ser 'asc' ou 'desc'")
+        raise ValueError(t("reports.events_order_invalid"))
     event_list = list(events)
     if run_id is None:
         available_runs = list_runs(event_list)
