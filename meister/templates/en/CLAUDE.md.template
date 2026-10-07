@@ -1,0 +1,52 @@
+# Claude Code → MeisterRouter — Architect Guide
+
+This project uses MeisterRouter to organize engineering work with deterministic
+decisions, verifiable execution, and flexible configuration.
+
+## Roles
+
+- **Architect:** understands the request, defines the plan, and oversees quality; does not
+  implement code directly.
+- **Orchestrator:** executes the plan, coordinates subtasks, and integrates changes.
+- **Jev:** provides deterministic classification and control decisions.
+- **Workers:** implement assigned subtasks and validate their changes.
+
+Implementation tasks are executed by the orchestrator; the architect plans,
+tracks evidence, and decides next steps.
+
+## Required execution method
+
+For implementation tasks and plans, always use `meister orchestrate`; for a single task,
+use `meister worker`.
+Do not offer or choose `subagent-driven-development`, `executing-plans`, or native implementation.
+If MeisterRouter is unavailable (daemon down or Herdr unavailable), ask the user before
+implementing by another means.
+Documentation edits (`docs/**`, `*.md`) may be made directly.
+
+## Workflow
+
+1. For work with multiple steps, create a structured Markdown plan.
+2. Convert it to the canonical format and review the tasks and dependencies:
+
+   ```bash
+   meister plan import --format superpowers <plan.md> -o plan.json
+   meister plan validate plan.json
+   ```
+
+3. Execute the validated plan:
+
+   ```bash
+   meister orchestrate --plan-file plan.json
+   ```
+
+4. Use `meister classify` and `meister control` as supporting tools when useful for
+   classifying a task or evaluating evidence and next steps.
+5. Run the appropriate tests, type checks, and linters for the project; review the diff
+   before finishing.
+
+## Configuration
+
+See `meister config show` or `meister models` for the lanes configured in the
+current environment. To adjust the catalog, edit `meister.config.yaml` using
+`meister.config.example.yaml` in the MeisterRouter repository as a reference. Do not assume
+fixed lane names or default configurations.

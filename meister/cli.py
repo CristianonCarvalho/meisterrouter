@@ -29,7 +29,7 @@ from meister.logger import (
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
-from meister.i18n import t
+from meister.i18n import get_language, t
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
@@ -182,7 +182,8 @@ def init(target, type_, install_hooks, no_hooks, force):
             click.echo(t("cli.init.exists_skipped", filename=filename))
             skipped.append(filename)
             continue
-        template_path = os.path.join(TEMPLATES_DIR, template_name)
+        template_language_dir = "pt-BR" if get_language() == "pt-BR" else "en"
+        template_path = os.path.join(TEMPLATES_DIR, template_language_dir, template_name)
         with open(template_path, "r", encoding="utf-8") as template_file:
             content = template_file.read()
         with open(destination, "w", encoding="utf-8") as destination_file:

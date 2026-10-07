@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# MeisterRouter Git Pre-Commit Gate
+# Managed by MeisterRouter
+# ==============================================================================
+set -e
+
+echo "🔮 [MeisterRouter] Running deterministic pre-commit checks..."
+
+# 1. Get a summary of staged changes
+DIFF_SUMMARY=$(git diff --cached --stat | tr '\n' ' ')
+if [ -z "$DIFF_SUMMARY" ]; then
+    echo "ℹ️ [MeisterRouter] No staged files changed. Proceeding."
+    exit 0
+fi
+
+# 2. Run automatic test checks if the project supports them
+TEST_RESULT="pass"
+
+if [ -f "package.json" ]; then
+    echo "📦 [MeisterRouter] Node/JS project detected. Running quick tests..."
+    if grep -q '"test"' package.json; then
+        npm test || TEST_RESULT="fail"
+    fi
+elif [ -f "pytest.ini" ] || [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
+    echo "🐍 [MeisterRouter] Python project detected. Running pytest..."
+    pytest -q || TEST_RESULT="fail"
+elif [ -f "Cargo.toml" ]; then
+    echo "🦀 [MeisterRouter] Rust project detected. Running cargo test..."
+    cargo test -q || TEST_RESULT="fail"
+fi
+
+if [ "$TEST_RESULT" = "fail" ]; then
+    echo "❌ [MeisterRouter] Deterministic checks failed! Blocking commit (fail-closed)."
+    exit 1
+fi
+
+echo "🚀 [MeisterRouter] Deterministic checks completed successfully."
+exit 0

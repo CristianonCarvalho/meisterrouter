@@ -209,10 +209,13 @@ def _guard_exit_code(tmp_path, file_path):
 
     from meister.hooks import TEMPLATES_DIR
 
-    script = os.path.join(TEMPLATES_DIR, "claude_guard_hook.sh.template")
+    script = os.path.join(TEMPLATES_DIR, "pt-BR", "claude_guard_hook.sh.template")
     event = {"tool_name": "Edit", "tool_input": {"file_path": file_path}}
+    env = dict(os.environ)
+    env.pop("MEISTER_IN_PANE", None)
+    env.pop("MEISTER_ALLOW_ORCHESTRATOR_EDIT", None)
     return subprocess.run(
-        ["bash", script], input=json.dumps(event), text=True, cwd=tmp_path,
+        ["bash", script], input=json.dumps(event), text=True, cwd=tmp_path, env=env,
         capture_output=True, timeout=10,
     ).returncode
 

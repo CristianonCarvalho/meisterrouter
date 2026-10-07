@@ -110,7 +110,10 @@ def test_claude_hook_installer_preserves_foreign_hook_unless_forced(tmp_path):
 
 
 def test_agents_template_has_universal_worker_directive():
-    template = (Path(__file__).resolve().parents[1] / "meister" / "templates" / "AGENTS.md.template")
+    template = (
+        Path(__file__).resolve().parents[1]
+        / "meister" / "templates" / "pt-BR" / "AGENTS.md.template"
+    )
     template = template.read_text(encoding="utf-8").lower()
 
     assert "meister worker" not in template
@@ -123,7 +126,10 @@ def test_agents_template_has_universal_worker_directive():
 
 
 def test_architect_template_describes_current_plan_flow():
-    template = Path(__file__).resolve().parents[1] / "meister" / "templates" / "CLAUDE.md.template"
+    template = (
+        Path(__file__).resolve().parents[1]
+        / "meister" / "templates" / "pt-BR" / "CLAUDE.md.template"
+    )
     content = template.read_text(encoding="utf-8")
 
     assert "meister plan import" in content
