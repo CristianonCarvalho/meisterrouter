@@ -12,6 +12,18 @@ Ele combina o poder de decisão probabilística do **TypeSafe Jev Decisions API*
 
 > 📐 **Como o sistema funciona:** veja os [diagramas Mermaid](docs/DIAGRAMAS.md) (visão geral, componentes, sequência do `orchestrate`, roteamento, falhas, gates, estados, worktrees, telemetria, guard e instalação).
 
+## 👀 Em funcionamento
+
+**Linha do tempo** (`meister timeline`, atalho `prefix+t` no Herdr): uma barra por tarefa e por fase (worker, gate, integração), a via de cada uma, a linha do Jev e o custo, atualizando ao vivo.
+
+![Linha do tempo de um run com 4 tarefas, ao vivo](docs/img/timeline.gif)
+
+**Dashboard** (`meister dashboard`, `http://localhost:5050`): métricas por run, custo, overhead e a tabela de tarefas.
+
+![Dashboard web com as métricas e as tarefas de um run](docs/img/dashboard-web.png)
+
+> As imagens usam um run **de demonstração** (dados sintéticos), gerado pelos próprios renderizadores do MeisterRouter; nenhum projeto real aparece nelas.
+
 ---
 
 ## 🚀 Instalação Rápida
