@@ -906,16 +906,17 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
 @click.option("--result-file", default=None, help=t("cli.run_task.result_file_help"))
 def run_task(task_file, result_file):
     """Safely and atomically run a task described in a task.json file."""
-    from meister.worker import execute_task_file
-    try:
-        res = execute_task_file(task_file, result_file=result_file)
-        status = res.get("status", "done")
-        click.echo(t("cli.run_task.finished", status=status))
-        if res.get("modified_files"):
-            click.echo(t("cli.worker.modified_files", files=res["modified_files"]))
-    except Exception as e:
-        click.echo(t("cli.run_task.failed", error=e), err=True)
-        sys.exit(1)
+    from meister.worker import execute_task_file, install_termination_handlers
+    with install_termination_handlers():
+        try:
+            res = execute_task_file(task_file, result_file=result_file)
+            status = res.get("status", "done")
+            click.echo(t("cli.run_task.finished", status=status))
+            if res.get("modified_files"):
+                click.echo(t("cli.worker.modified_files", files=res["modified_files"]))
+        except Exception as e:
+            click.echo(t("cli.run_task.failed", error=e), err=True)
+            sys.exit(1)
 
 
 @main.command("daemon", help=t("cli.daemon.help"))

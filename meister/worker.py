@@ -18,13 +18,17 @@ import logging
 import subprocess
 import shlex
 import signal
-from typing import Optional, List, Dict, Any, Tuple
+import threading
+from contextlib import contextmanager
+from typing import Optional, List, Dict, Any, Tuple, Iterator
 from meister.logger import log_event
 from meister.usage import finalize_usage, parse_for_harness
 from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 _UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
+_termination_handlers_depth = 0
+_previous_termination_handlers: Dict[int, Any] = {}
 
 
 def _is_pane_gone(event: dict, pane_id: str) -> bool:
@@ -187,6 +191,100 @@ def kill_process_tree(pgid_or_pid: int, is_pgid: bool = True) -> None:
             os.kill(pgid_or_pid, signal.SIGKILL)
     except (OSError, ProcessLookupError, PermissionError):
         pass
+
+
+def process_start_signature(pid: int) -> Optional[str]:
+    """Return the OS-reported start time for a PID, or None when it cannot be verified."""
+    try:
+        result = subprocess.run(
+            ["ps", "-o", "lstart=", "-p", str(pid)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    signature = result.stdout.strip()
+    return signature if result.returncode == 0 and signature else None
+
+
+def reap_harness(pid_file: str) -> str:
+    """Terminate a recorded harness process group only when its PID identity is verified."""
+    status = "no_file"
+    try:
+        data = read_atomic_json(pid_file)
+        if data is None:
+            return status
+        pid = data.get("pid")
+        pgid = data.get("pgid")
+        recorded_start = data.get("start")
+        if (
+            not isinstance(pid, int)
+            or pid <= 0
+            or not isinstance(pgid, int)
+            or pgid <= 0
+            or not isinstance(recorded_start, str)
+            or not recorded_start
+        ):
+            return status
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            status = "gone"
+        except PermissionError:
+            status = "mismatch"
+        else:
+            current_start = process_start_signature(pid)
+            if current_start is None or current_start != recorded_start:
+                status = "mismatch"
+            else:
+                kill_process_tree(pgid, is_pgid=True)
+                status = "killed"
+    except Exception:
+        status = "no_file"
+    finally:
+        try:
+            os.remove(pid_file)
+        except OSError:
+            pass
+    return status
+
+
+@contextmanager
+def install_termination_handlers() -> Iterator[None]:
+    """Convert worker termination signals into exceptions so cleanup finally blocks run."""
+    global _termination_handlers_depth, _previous_termination_handlers
+    if threading.current_thread() is not threading.main_thread():
+        yield
+        return
+
+    if _termination_handlers_depth == 0:
+        handled_signals = (
+            int(signal.SIGTERM),
+            int(signal.SIGHUP),
+            int(signal.SIGINT),
+        )
+        _previous_termination_handlers = {
+            sig: signal.getsignal(sig) for sig in handled_signals
+        }
+
+        def terminate(signum: int, _frame: Any) -> None:
+            if signum == signal.SIGINT:
+                raise KeyboardInterrupt
+            raise SystemExit(128 + signum)
+
+        for sig in handled_signals:
+            signal.signal(sig, terminate)
+    _termination_handlers_depth += 1
+    try:
+        yield
+    finally:
+        _termination_handlers_depth -= 1
+        if _termination_handlers_depth == 0:
+            for sig, handler in _previous_termination_handlers.items():
+                signal.signal(sig, handler)
+            _previous_termination_handlers = {}
 
 
 class UnknownTierError(ValueError):
@@ -420,6 +518,7 @@ class HarnessWorker:
         extra_instructions: Optional[str] = None,
         timeout: float = _UNBOUNDED_WORKER_TIMEOUT,
         env: Optional[Dict[str, str]] = None,
+        harness_pid_file: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute task via local agent harness and track changes on disk."""
         if not self.cli_binary:
@@ -491,6 +590,16 @@ class HarnessWorker:
                 text=True,
                 bufsize=1,
             )
+            if harness_pid_file:
+                write_atomic_json(
+                    harness_pid_file,
+                    {
+                        "pid": process.pid,
+                        "pgid": os.getpgid(process.pid),
+                        "start": process_start_signature(process.pid),
+                        "cwd": self.cwd,
+                    },
+                )
 
             if isinstance(process.stdout, list):
                 for line in process.stdout:
@@ -522,13 +631,23 @@ class HarnessWorker:
                         capture_line(line)
                 exit_code = process.wait(timeout=timeout) if hasattr(process, "wait") else 0
         except (subprocess.TimeoutExpired, TimeoutError) as te:
-            if process is not None and hasattr(process, "pid") and isinstance(process.pid, int):
-                kill_process_tree(process.pid, is_pgid=True)
             raise TimeoutError(
                 t("engine.worker.hard_timeout", harness=self.harness, timeout=timeout)
             ) from te
         except Exception as e:
             raise RuntimeError(t("engine.worker.execution_error", harness=self.harness, error=e)) from e
+        finally:
+            if process is not None and hasattr(process, "pid") and isinstance(process.pid, int):
+                kill_process_tree(process.pid, is_pgid=True)
+                try:
+                    process.wait(timeout=1)
+                except (subprocess.TimeoutExpired, OSError):
+                    pass
+            if harness_pid_file:
+                try:
+                    os.remove(harness_pid_file)
+                except FileNotFoundError:
+                    pass
 
         captured_output = "".join(output_lines)
         readable_output, parsed_usage = parse_for_harness(self.harness, captured_output)
@@ -1075,6 +1194,15 @@ def execute_task_file(
     task_file: str,
     result_file: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Execute a task file with termination handlers scoped to the worker process."""
+    with install_termination_handlers():
+        return _execute_task_file(task_file, result_file=result_file)
+
+
+def _execute_task_file(
+    task_file: str,
+    result_file: Optional[str] = None,
+) -> Dict[str, Any]:
     """Lê contrato task.json, executa worker isolado e grava result.json atômico (Achados #7, #8, #11, #29)."""
     task_data = read_atomic_json(task_file)
     if not task_data:
@@ -1111,7 +1239,13 @@ def execute_task_file(
     timeout = float(raw_timeout) if raw_timeout is not None else _configured_worker_ceiling(worker, model)
 
     try:
-        res = worker.run_task(task=task, target_files=target_files, timeout=timeout)
+        harness_pid_file = f"{os.path.splitext(task_file)[0]}.harness.json"
+        res = worker.run_task(
+            task=task,
+            target_files=target_files,
+            timeout=timeout,
+            harness_pid_file=harness_pid_file,
+        )
         res["task_id"] = task_id
         if resolved_res_file:
             write_atomic_json(resolved_res_file, res)

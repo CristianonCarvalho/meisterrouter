@@ -1019,6 +1019,7 @@ async def test_bridge_idle_timeout_is_not_reported_as_pane_loss(tmp_path, monkey
         and "encerrou prematuramente" in event.get("error", "")
         for event in events
     )
+    assert not any(event.get("event_type") == "harness_reaped" for event in events)
     client.send_interrupt.assert_awaited_once_with("pane-timeout")
 
 
