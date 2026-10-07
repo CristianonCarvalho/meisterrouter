@@ -21,45 +21,50 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 
 > As imagens usam um run **de demonstração** (dados sintéticos) gerado pelos próprios renderizadores do MeisterRouter; nenhum projeto real aparece nelas.
 
+## ✅ Pré-requisitos
+
+| | O quê | Para quê |
+|---|---|---|
+| **Obrigatório** | [Herdr](https://herdr.dev) | O MeisterRouter roda como plugin dele (abas dos workers, popups, atalhos). `curl -fsSL https://herdr.dev/install.sh \| sh` |
+| **Obrigatório** | Pelo menos uma CLI de IA com assinatura: `copilot`, `codex`, `agy` (Antigravity/Gemini) ou `claude` | São os workers. O `meister setup` mostra quais ele encontrou. |
+| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
+| **Opcional** | Chave do OpenRouter | Só o **Jev** usa (escolhe a via de cada tarefa). Sem ela, use `router: {mode: first}`. |
+
 ## 🚀 Instalação
 
-**1. Herdr** (se ainda não tiver): `curl -fsSL https://herdr.dev/install.sh | sh`
-
-**2. MeisterRouter** (o repositório é privado; precisa da [GitHub CLI](https://cli.github.com/) logada, `gh auth status`):
 ```bash
-gh api -H "Accept: application/vnd.github.raw" repos/CristianonCarvalho/meisterrouter/contents/bin/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-O instalador faz o resto sozinho: instala o `meister`, liga o plugin ao Herdr, cadastra os atalhos (num bloco gerenciado do `config.toml`, com backup) e confere o ambiente, mostrando o que ainda falta (CLIs dos workers, chave do Jev). Pode rodar `meister setup` de novo quando quiser: ele não repete o que já está pronto (`--dry-run` mostra o que faria).
+O instalador faz tudo sozinho: instala o `meister`, liga o plugin ao Herdr, cadastra os atalhos (num bloco gerenciado do `config.toml`, com backup) e confere o ambiente, mostrando o que ainda falta (CLIs dos workers, chave do Jev). Ele aborta, com a instrução de instalação, se o Herdr não estiver instalado. Pode rodar `meister setup` de novo quando quiser: não repete o que já está pronto (`--dry-run` mostra o que faria).
 
-**3. A chave do Jev**, uma vez (só o Jev usa o OpenRouter; os workers rodam nas suas assinaturas):
+**A chave do Jev** (opcional, uma vez; só o Jev usa o OpenRouter, os workers rodam nas suas assinaturas):
 ```bash
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
-Sem chave, defina `router: {mode: first}` (veja [modelos e ordem](#-escolher-os-modelos-e-a-ordem)): a primeira via é escolhida sem rede.
+**Cada projeto**, uma vez, dentro dele: `meister setup --project` (cria `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, os hooks e o guard).
 
-**4. Cada projeto**, uma vez, dentro dele: `meister setup --project` (cria `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, os hooks e o guard).
+Outras formas de instalar (clone, npm, pip) e a versão fixa estão em [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
-Outras formas de instalar (clone manual, npm, pip) estão em [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+## 🛠️ Como usar (direto, sem digitar comandos)
 
-## 🛠️ Uso
+Depois do `meister setup --project`, o projeto passa a ter as regras e os hooks que **ensinam a sua LLM orquestradora a usar o Meister**. Você não digita `meister plan` nem `meister orchestrate`:
 
-**1. Planeje** com a sua LLM orquestradora (plano em Markdown no formato do `superpowers:writing-plans`) e converta:
-```bash
-meister plan import plano.md -o plano.json
-```
-**2. Execute:**
-```bash
-meister orchestrate --plan-file plano.json     # ou prefix+m no Herdr
-```
-Os workers abrem em abas do Herdr e você acompanha ao vivo. Se algo falhar, rode o mesmo comando: as tarefas já concluídas são puladas e o run continua de onde parou (o que fazer em cada falha está no [manual de execução](docs/MANUAL_DE_EXECUCAO.md)).
-
-**3. Acompanhe** pelos atalhos do Herdr:
+1. **Abra a sua LLM orquestradora** (Claude Code ou Codex) no projeto, dentro do Herdr.
+2. **Peça em linguagem natural**, por exemplo: *"quero um filtro de busca por data na tela de pedidos"*. Com o Superpowers, ela conversa com você, desenha a solução e escreve o plano.
+3. **Ela faz o resto**: importa e valida o plano, e executa com o Meister. O `CLAUDE.md` e o hook de prompt (`UserPromptSubmit`) dizem a ela que o método de execução é sempre o Meister, e o **guard** (`PreToolUse`) recusa qualquer edição direta de código, então ela delega.
+4. **Você acompanha** no Herdr: cada worker abre numa aba visível, e os atalhos mostram o resto:
 
 | Atalho | O que abre |
 |---|---|
 | `prefix+m` | Inicia a orquestração no workspace |
 | `prefix+shift+m` | Dashboard em popup |
 | `prefix+t` | Linha do tempo (Gantt) em popup |
+
+5. **Ela revisa as evidências** (testes, diff) e conclui. Commit, push e merge continuam dependendo do seu OK.
+
+Se o Meister não estiver disponível (daemon fora do ar, sem Herdr), a LLM pergunta antes de implementar por outro meio. Se um run falhar, peça para ela rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/MANUAL_DE_EXECUCAO.md)).
+
+Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? Veja o [formato do plano](docs/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
 ## 🎛️ Escolher os modelos e a ordem
 
@@ -101,7 +106,8 @@ Atenção: a lista `tier_order` do projeto **substitui** a padrão inteira. Depo
 
 ## 📚 Mais documentação
 
-- [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
+- [Formato do plano](docs/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (Superpowers é recomendado, não obrigatório), dependências e paralelismo.
+- [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
 - [Diagramas](docs/DIAGRAMAS.md): componentes, sequência e fluxos.
 - [Manual de execução](docs/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
 - [Modelos e custos](docs/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.md). Versão instalada: `meister --version`.
