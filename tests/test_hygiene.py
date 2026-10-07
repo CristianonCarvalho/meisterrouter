@@ -159,7 +159,8 @@ def test_model_table_matches_catalog():
     repo_root = Path(__file__).resolve().parent.parent
     catalog = yaml.safe_load((repo_root / "meister" / "default_config.yaml").read_text(encoding="utf-8"))
     rows = list(csv.DictReader((repo_root / "docs" / "modelos_e_custos.csv").open(encoding="utf-8")))
-    assert (repo_root / "docs" / "MODELOS_E_CUSTOS.md").is_file()
+    assert (repo_root / "docs" / "models-and-costs.md").is_file()
+    assert (repo_root / "docs" / "pt-BR" / "MODELOS_E_CUSTOS.md").is_file()
 
     for tier in catalog["workers"]["tier_order"]:
         matching = [
