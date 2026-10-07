@@ -5,35 +5,35 @@ min_herdr_version = "0.7.0"
 description = "Distributes a plan's tasks across your AI CLI subscriptions (Copilot, Codex, Gemini, Claude) with a deterministic test gate. Requires the meister CLI: see the README to install it."
 platforms = ["linux", "macos"]
 
-# Comando executado assim que o servidor Herdr inicializa
+# Comando executado assim que o servidor Herdr inicializa (chama o wrapper sh)
 [[startup]]
-command = ["meister", "daemon", "--start"]
+command = ["sh", "bin/herdr-meister.sh", "daemon", "--start"]
 
-# Ações acessíveis via menu ou atalhos do Herdr
+# Ações acessíveis via menu ou atalhos do Herdr (usam o wrapper para achar o meister ou orientar)
 [[actions]]
 id = "classify-task"
 title = "MeisterRouter: Classificar Tarefa no Pane Ativo"
 contexts = ["workspace", "pane"]
-command = ["meister", "herdr-action", "classify"]
+command = ["sh", "bin/herdr-meister.sh", "herdr-action", "classify"]
 
 [[actions]]
 id = "verify-gate"
 title = "MeisterRouter: Executar Portão Determinístico"
 contexts = ["workspace"]
-command = ["meister", "herdr-action", "verify"]
+command = ["sh", "bin/herdr-meister.sh", "herdr-action", "verify"]
 
 [[actions]]
 id = "auto-orchestrate"
 title = "MeisterRouter: Iniciar Orquestração Multi-Agente"
 contexts = ["workspace"]
-command = ["meister", "herdr-action", "orchestrate"]
+command = ["sh", "bin/herdr-meister.sh", "herdr-action", "orchestrate"]
 
-# Painel Dashboard do MeisterRouter integrado como Overlay no Herdr
+# Painel Dashboard do MeisterRouter integrado como Overlay no Herdr (wrapper aguarda tecla se interativo)
 [[panes]]
 id = "dashboard"
 title = "MeisterRouter Telemetry & Cost Dashboard"
 placement = "overlay"
-command = ["meister", "dashboard", "--tui"]
+command = ["sh", "bin/herdr-meister.sh", "dashboard", "--tui"]
 
 # Os atalhos de teclado (prefix+m, prefix+shift+m, prefix+t) não fazem parte do manifesto: o Herdr os lê do
 # config.toml do usuário, e o `meister setup` os grava lá (bloco gerenciado, com backup).
