@@ -2,6 +2,10 @@
 
 Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/). O projeto usa versionamento semântico e permanece em `0.x` até o contrato (plano JSON, `meister.config.yaml` e eventos do log) estabilizar. Os números `#N` são pull requests.
 
+## [Unreleased]
+
+- Alicerce de internacionalização (`en` padrão, `pt-BR` configurável), códigos de motivo para rejeições no pipeline e catraca de literais acentuados.
+
 ## [0.9.1] - 2026-10-07
 
 Versão de ajustes, instalação e documentação depois da 0.9.0 (PRs #78 a #87).

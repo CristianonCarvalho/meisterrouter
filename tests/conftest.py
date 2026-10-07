@@ -352,3 +352,15 @@ def block_network_and_stub_jev(monkeypatch):
 
     monkeypatch.setattr("requests.post", blocked_post)
     monkeypatch.setattr("meister.herdr.bridge.classify_task", deterministic_classify_task)
+
+
+@pytest.fixture(autouse=True)
+def default_test_language(monkeypatch):
+    """Keep test suite in Portuguese during transition, with clean cache."""
+    from meister.i18n import reset_language_cache
+
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    yield
+    reset_language_cache()
+

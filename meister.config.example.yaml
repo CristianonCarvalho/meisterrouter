@@ -4,6 +4,7 @@
 # edite este arquivo. Haiku foi removido por decisão do usuário.
 
 version: "1.0"
+language: en  # Idioma das mensagens e relatórios (en ou pt-BR)
 master:
   provider: openrouter
   model: typesafe/jev-1.13

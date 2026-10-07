@@ -78,6 +78,17 @@ def _show_version(ctx: click.Context, param: click.Parameter, value: bool) -> No
         ctx.exit()
 
 
+def _load_cli_config(*args: Any, **kwargs: Any):
+    """`load_config` com o idioma aplicado; repassa os argumentos exatamente como o chamador os deu."""
+    cfg = load_config(*args, **kwargs)
+    from meister.i18n import set_language
+
+    # MEISTER_LANG tem precedência sobre o idioma do arquivo de configuração (inclusive de um -c explícito)
+    if not os.environ.get("MEISTER_LANG"):
+        set_language(cfg.language)
+    return cfg
+
+
 def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, Any]:
     usage = result.get("usage") if isinstance(result, dict) else None
     usage = usage if isinstance(usage, dict) else {}
@@ -558,7 +569,7 @@ def install_hooks(target, git, claude):
 @click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
 def models(config_path):
     """Imprime as vias e os custos definidos na configuração."""
-    cfg = load_config(config_path=config_path)
+    cfg = _load_cli_config(config_path=config_path)
     click.echo(f"Origem da configuração: {cfg.config_source}")
     click.echo(f"{'#':>3}  {'NOME':<24} {'HARNESS':<16} {'MODELO':<28} {'CUSTO/1M':>10}  STATUS")
     tiers = [
@@ -623,7 +634,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
 
     target_files = [f.strip() for f in files.split(",")] if files else None
     resolved_cwd = os.path.abspath(cwd or os.getcwd())
-    cfg = load_config(config_path=config_path, cwd=resolved_cwd)
+    cfg = _load_cli_config(config_path=config_path, cwd=resolved_cwd)
     valid_tiers = [tier.name for tier in cfg.workers.tier_order]
     if model is None:
         if not valid_tiers:
@@ -1032,7 +1043,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 pass
 
         async def _run_loop():
-            cfg = load_config(config_path)
+            cfg = _load_cli_config(config_path)
             client = get_herdr_client(socket_path=socket_path)
             bridge = HerdrEventBridge(config=cfg, client=client)
 
@@ -1131,7 +1142,7 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
         return
 
     elif norm_id in ["orchestrate", "auto-orchestrate"]:
-        cfg = load_config(config_path)
+        cfg = _load_cli_config(config_path)
         client = get_herdr_client(socket_path=socket_path)
         bridge = HerdrEventBridge(config=cfg, client=client)
 
@@ -1246,7 +1257,7 @@ def orchestrate(
             pass
         task = canonical_json(validated)
 
-    cfg = load_config(config_path)
+    cfg = _load_cli_config(config_path)
     from meister.config import validate_config
     issues = validate_config(cfg)
     errors = [iss for iss in issues if iss.level == "error"]
@@ -1588,17 +1599,20 @@ def config_group():
 @click.option("--json", "json_format", is_flag=True, default=False, help="Exibe configuração em formato JSON estável")
 def config_show(config_path, json_format):
     """Exibe a configuração ativa do MeisterRouter."""
-    cfg = load_config(config_path)
+    cfg = _load_cli_config(config_path)
+
+    from meister.i18n import get_language
 
     active_overrides = {
         k: os.environ[k]
         for k in sorted(os.environ.keys())
-        if k == "MEISTER_CONFIG_PATH"
+        if k in ("MEISTER_CONFIG_PATH", "MEISTER_LANG")
     }
 
     if json_format:
         data = {
             "active_env_overrides": active_overrides,
+            "language": get_language(),
             "architect": {
                 "effort": cfg.architect.effort,
                 "harness": cfg.architect.harness,
@@ -1710,6 +1724,7 @@ def config_show(config_path, json_format):
         return
 
     click.echo(f"Origem: {cfg.config_source}\n")
+    click.echo(f"Language: {get_language()}\n")
     click.echo("Variáveis de ambiente (overrides ativos):")
     if active_overrides:
         for k, v in sorted(active_overrides.items()):
@@ -1808,7 +1823,7 @@ def config_validate(config_path):
     """Valida a configuração do MeisterRouter."""
     from meister.config import validate_config
     try:
-        cfg = load_config(config_path)
+        cfg = _load_cli_config(config_path)
     except FileNotFoundError as e:
         click.echo(f"ERRO: {e}", err=True)
         sys.exit(2)

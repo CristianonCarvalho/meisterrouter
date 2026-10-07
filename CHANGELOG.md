@@ -2,6 +2,10 @@
 
 This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) format. The project uses semantic versioning and remains at `0.x` until the contract (JSON plan, `meister.config.yaml`, and log events) stabilizes. The `#N` numbers are pull requests.
 
+## [Unreleased]
+
+- Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
+
 ## [0.9.1] - 2026-10-07
 
 Hardening, installation and documentation release after 0.9.0 (PRs #78 to #87).
