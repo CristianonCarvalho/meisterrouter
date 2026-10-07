@@ -1136,18 +1136,27 @@ async def test_bridge_zero_idle_timeout_disables_idle_protection(tmp_path, monke
 async def test_bridge_zero_max_runtime_disables_runtime_ceiling(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.01")
-    config = _timeout_test_config(tmp_path, idle=0.03, maximum=0, retries=0)
+    # idle folgado (0,8 s, como no teste vizinho, e nao 30 ms): sob carga o laco pode atrasar mais que 30 ms entre duas leituras e o
+    # timeout por inatividade disparava antes da atividade registrada. O fim do worker e por contagem de leituras
+    # (atividade continua), nao por relogio; o que o teste prova e que max_runtime=0 nao vira teto imediato.
+    config = _timeout_test_config(tmp_path, idle=0.8, maximum=0, retries=0)
     client = AsyncMock()
-    client.read_pane.side_effect = lambda _pane: str(time.monotonic())
+    reads = []
+
+    def read_pane(_pane):
+        reads.append(1)
+        return f"tick-{len(reads)}"
+
+    client.read_pane.side_effect = read_pane
     bridge = HerdrEventBridge(config=config, client=client)
 
     async def finish_worker(tier_name, task_context=None, **kwargs):
-        asyncio.get_running_loop().call_later(
-            0.45,
-            write_atomic_json,
-            task_context["result_file"],
-            {"status": "done", "modified_files": []},
-        )
+        async def write_result_after_polls():
+            while len(reads) < 4:  # o laco do bridge le o painel a cada ~0,2 s
+                await asyncio.sleep(0.005)
+            write_atomic_json(task_context["result_file"], {"status": "done", "modified_files": []})
+
+        asyncio.get_running_loop().create_task(write_result_after_polls())
         return "pane-no-runtime-limit", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = finish_worker
