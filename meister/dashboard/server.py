@@ -15,6 +15,7 @@ from meister.dashboard.metrics import (
     list_runs,
     query_events,
 )
+from meister.i18n import get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.report import compute_run_report
 from meister.timeline_cli import stale_after_from_config
@@ -45,6 +46,32 @@ def project_from_log(log_file: str, project_root: Optional[str] = None) -> Dict[
 
 def _read_events() -> List[Dict[str, Any]]:
     return list(iter_events(get_log_file()))
+
+
+def _dashboard_messages() -> Dict[str, str]:
+    keys = (
+        "project", "telemetry", "select_run", "view_mode", "grouped", "analytical",
+        "selected_run", "tasks", "task", "status", "lane", "attempts", "duration",
+        "failure", "classification", "jev_calls", "events", "jev_calls_heading",
+        "route_results", "classification_by_task", "classification_by_call",
+        "jev_latency_cost", "by_lane", "time_by_phase", "event_filters",
+        "all_tasks", "all_events", "all_lanes", "search", "filter", "sort_newest",
+        "sort_oldest", "date_time", "event_type", "previous", "next", "page_status",
+        "not_measured", "known_cost_comment", "task_word", "task_word_plural",
+        "in_progress", "running", "not_reported", "all_runs", "all_runs_sum", "no_run_found", "run_id",
+        "started", "classifications", "completed", "failures", "reused",
+        "average_duration", "completed_only", "jev_cost", "worker_cost",
+        "select_a_run", "unknown_cost_tasks", "reported_estimated_cost",
+        "orchestrator_overhead", "wall_clock", "worker", "worker_peak",
+        "worker_sum", "classify_without_task", "average_latency", "cost_usd",
+        "task_completed", "task_completed_one", "task_completed_many", "average",
+        "tokens", "credits", "empty_data", "view_events", "no_tasks",
+        "no_matching_events", "page", "log_read", "log_size", "log_not_created",
+        "other_logs_not_read", "full_json", "attempt", "cost", "elapsed",
+        "payload_size", "unknown_status", "stalled_status", "status_completed",
+        "status_failed", "status_reused", "status_running",
+    )
+    return {key: t(f"reports.dashboard.{key}") for key in keys}
 
 
 def _price_tables() -> Tuple[Dict[str, float], Dict[str, float]]:
@@ -103,7 +130,11 @@ def compute_metrics(events: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    return render_template(
+        "index.html",
+        messages=_dashboard_messages(),
+        language=get_language(),
+    )
 
 
 @app.route("/api/meta")
@@ -184,7 +215,7 @@ def _query_int(name: str, default: int) -> int:
     try:
         return int(value)
     except ValueError as exc:
-        raise ValueError(f"{name} deve ser um inteiro") from exc
+        raise ValueError(t("reports.events_integer", name=name)) from exc
 
 
 @app.route("/api/events")
@@ -216,8 +247,8 @@ def start_server(
     """Start the dashboard and report the exact log file it will read."""
     if log_dir:
         os.environ["MEISTER_LOG_DIR"] = os.path.abspath(log_dir)
-    print(f"🚀 [MeisterRouter] Dashboard iniciado em http://{host}:{port}")
-    print(f"📁 Lendo eventos de: {get_log_file()}")
+    print(t("reports.dashboard.server_started", host=host, port=port))
+    print(t("reports.dashboard.reading_events", path=get_log_file()))
     app.run(host=host, port=port, debug=False)
 
 

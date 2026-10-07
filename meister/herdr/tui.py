@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, Tuple, List
 
 from meister.logger import read_events
 from meister.dashboard.server import compute_metrics
+from meister.i18n import t
 
 
 # ANSI Color & Formatting Constants
@@ -118,7 +119,7 @@ def render_tui_dashboard(session_state: Optional[Dict[str, Any]] = None,
     lines.append(f"{CYAN}╠{'═' * (width - 2)}╣{RESET}")
 
     # Section 4: Key Shortcuts & Controls
-    shortcuts = "[Q] fechar overlay | [O] abrir dashboard web | [T] linha do tempo"
+    shortcuts = t("reports.tui.shortcuts")
     lines.append(f"{CYAN}║{RESET} {DIM}{shortcuts:^{inner_width}}{RESET} {CYAN}║{RESET}")
     lines.append(f"{CYAN}╚{'═' * (width - 2)}╝{RESET}")
 

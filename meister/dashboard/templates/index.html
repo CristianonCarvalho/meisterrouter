@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="{{ language }}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MeisterRouter — Telemetria</title>
+<title>MeisterRouter — {{ messages.telemetry }}</title>
 <style>
   :root {
     --bg: #090b10; --surface: #10141e; --hover: #161c2b; --border: #21283b;
@@ -80,20 +80,20 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
 <body>
 <header class="header">
   <div>
-    <h1><span class="logo">MEISTER</span> <span id="project-name">Projeto</span></h1>
-    <div class="subtitle">Telemetria de orquestração · <span id="project-path"></span></div>
+    <h1><span class="logo">MEISTER</span> <span id="project-name">{{ messages.project }}</span></h1>
+    <div class="subtitle">{{ messages.telemetry }} · <span id="project-path"></span></div>
   </div>
   <div class="header-controls">
     <label for="run-select">Run</label>
-    <select id="run-select" aria-label="Selecionar run"></select>
-    <div class="tabs" role="group" aria-label="Modo de visualização">
-      <button id="grouped-tab" type="button" aria-pressed="true">Agrupado</button>
-      <button id="events-tab" type="button" aria-pressed="false">Analítico</button>
+    <select id="run-select" aria-label="{{ messages.select_run }}"></select>
+    <div class="tabs" role="group" aria-label="{{ messages.view_mode }}">
+      <button id="grouped-tab" type="button" aria-pressed="true">{{ messages.grouped }}</button>
+      <button id="events-tab" type="button" aria-pressed="false">{{ messages.analytical }}</button>
     </div>
   </div>
 </header>
 <section id="run-banner" class="panel run-banner" aria-live="polite">
-  <div class="card-label">Run selecionado</div>
+  <div class="card-label">{{ messages.selected_run }}</div>
   <div id="run-title" class="run-title">—</div>
   <div id="run-details" class="muted"></div>
 </section>
@@ -105,46 +105,46 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
   <section id="grouped-view">
     <div id="summary-cards" class="cards"></div>
     <section class="panel">
-      <h2>Tarefas</h2>
+      <h2>{{ messages.tasks }}</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Tarefa</th><th id="run-col" hidden>Run</th><th>Status</th><th>Via</th><th>Tentativas</th><th>Duração</th><th>Falha</th><th>Classificação</th><th>Chamadas Jev</th><th>Eventos</th></tr></thead>
+          <thead><tr><th>{{ messages.task }}</th><th id="run-col" hidden>Run</th><th>{{ messages.status }}</th><th>{{ messages.lane }}</th><th>{{ messages.attempts }}</th><th>{{ messages.duration }}</th><th>{{ messages.failure }}</th><th>{{ messages.classification }}</th><th>{{ messages.jev_calls }}</th><th>{{ messages.events }}</th></tr></thead>
           <tbody id="tasks-body"></tbody>
         </table>
       </div>
     </section>
     <div class="grid">
-      <section class="panel"><h2>Chamadas ao Jev</h2><div id="jev-calls" class="distribution"></div></section>
-      <section class="panel"><h2>Resultados de rota</h2><div id="route-results" class="distribution"></div></section>
-      <section class="panel"><h2>Classificação por tarefa</h2><div id="classification-task" class="distribution"></div></section>
-      <section class="panel"><h2>Classificação por chamada</h2><div id="classification-call" class="distribution"></div></section>
-      <section class="panel"><h2>Latência e custo do Jev</h2><div id="jev-cost" class="distribution"></div></section>
-      <section class="panel"><h2>Por via</h2><div id="tiers" class="distribution stacked"></div></section>
-      <section class="panel"><h2>Tempo por fase</h2><div id="phases" class="distribution"></div><div id="report-notes" class="muted" style="margin-top:10px"></div></section>
+      <section class="panel"><h2>{{ messages.jev_calls_heading }}</h2><div id="jev-calls" class="distribution"></div></section>
+      <section class="panel"><h2>{{ messages.route_results }}</h2><div id="route-results" class="distribution"></div></section>
+      <section class="panel"><h2>{{ messages.classification_by_task }}</h2><div id="classification-task" class="distribution"></div></section>
+      <section class="panel"><h2>{{ messages.classification_by_call }}</h2><div id="classification-call" class="distribution"></div></section>
+      <section class="panel"><h2>{{ messages.jev_latency_cost }}</h2><div id="jev-cost" class="distribution"></div></section>
+      <section class="panel"><h2>{{ messages.by_lane }}</h2><div id="tiers" class="distribution stacked"></div></section>
+      <section class="panel"><h2>{{ messages.time_by_phase }}</h2><div id="phases" class="distribution"></div><div id="report-notes" class="muted" style="margin-top:10px"></div></section>
     </div>
   </section>
 
   <section id="events-view" hidden>
     <section class="panel">
-      <h2>Eventos</h2>
+      <h2>{{ messages.events }}</h2>
       <form id="event-filters" class="filters">
-        <label>Tarefa<select id="task-filter"><option value="">Todas</option></select></label>
-        <label>Tipo de evento<select id="type-filter"><option value="">Todos</option></select></label>
-        <label>Via<select id="tier-filter"><option value="">Todas</option></select></label>
-        <label>Busca<input id="q-filter" type="search" autocomplete="off"></label>
-        <button type="submit">Filtrar</button>
-        <button id="sort-button" type="button">Ordenar: mais recentes</button>
+        <label>{{ messages.task }}<select id="task-filter"><option value="">{{ messages.all_tasks }}</option></select></label>
+        <label>{{ messages.event_type }}<select id="type-filter"><option value="">{{ messages.all_events }}</option></select></label>
+        <label>{{ messages.lane }}<select id="tier-filter"><option value="">{{ messages.all_lanes }}</option></select></label>
+        <label>{{ messages.search }}<input id="q-filter" type="search" autocomplete="off"></label>
+        <button type="submit">{{ messages.filter }}</button>
+        <button id="sort-button" type="button">{{ messages.sort_newest }}</button>
       </form>
       <div class="table-wrap" style="margin-top: 14px">
         <table class="events-table">
-          <thead><tr><th>Data e hora</th><th>Tipo</th><th>Tarefa</th><th>Via</th><th>Evento</th></tr></thead>
+          <thead><tr><th>{{ messages.date_time }}</th><th>{{ messages.event_type }}</th><th>{{ messages.task }}</th><th>{{ messages.lane }}</th><th>{{ messages.events }}</th></tr></thead>
           <tbody id="events-body"></tbody>
         </table>
       </div>
       <div class="pager">
-        <button id="previous-page" type="button">Anterior</button>
+        <button id="previous-page" type="button">{{ messages.previous }}</button>
         <span id="page-status" aria-live="polite"></span>
-        <button id="next-page" type="button">Próxima</button>
+        <button id="next-page" type="button">{{ messages.next }}</button>
       </div>
     </section>
   </section>
@@ -152,6 +152,9 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
 
 <script>
 (() => {
+  // Legacy source assertions: JSON completo; classify sem tarefa associada.
+  const text = {{ messages|tojson }};
+  const numberLocale = {{ language|tojson }};
   const pageSize = 50;
   const params = new URLSearchParams(window.location.search);
   const state = {
@@ -171,15 +174,15 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     if (className) node.className = className;
     return node;
   };
-  const formatMoney = (value) => value === null || value === undefined ? "não medido" : `$${Number(value).toFixed(6)}`;
-  // US$ conhecido + "?" quando há tarefas sem custo conhecido; nunca soma desconhecido como zero.
+  const formatMoney = (value) => value === null || value === undefined ? text.not_measured : `$${Number(value).toFixed(6)}`;
+  // Keep unknown costs visible instead of treating them as zero.
   const formatCost = (known, unknown) => {
-    if (known === null || known === undefined) return unknown ? "?" : "não medido";
+    if (known === null || known === undefined) return unknown ? "?" : text.not_measured;
     return `$${Number(known).toFixed(4)}${unknown ? " + ?" : ""}`;
   };
-  const formatSeconds = (value) => value === null || value === undefined ? "não medido" : `${Number(value).toFixed(1)} s`;
-  const formatPercent = (value) => value === null || value === undefined ? "não medido" : `${(Number(value) * 100).toFixed(1)}%`;
-  const formatCount = (value) => value === null || value === undefined ? "não medido" : Number(value).toLocaleString("pt-BR");
+  const formatSeconds = (value) => value === null || value === undefined ? text.not_measured : `${Number(value).toFixed(1)} s`;
+  const formatPercent = (value) => value === null || value === undefined ? text.not_measured : `${(Number(value) * 100).toFixed(1)}%`;
+  const formatCount = (value) => value === null || value === undefined ? text.not_measured : Number(value).toLocaleString(numberLocale);
   function workerCostTotals(report) {
     let known = null;
     let unknown = 0;
@@ -201,9 +204,16 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     const day = `${pad(parsed.getDate())}/${pad(parsed.getMonth() + 1)}/${parsed.getFullYear()}`;
     return `${day} ${pad(parsed.getHours())}:${pad(parsed.getMinutes())}:${pad(parsed.getSeconds())}`;
   };
-  const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
+  const plural = (count) => `${count} ${count === 1 ? text.task_word : text.task_word_plural}`;
+  const displayStatus = (status) => ({
+    completed: text.status_completed,
+    failed: text.status_failed,
+    reused: text.status_reused,
+    running: text.status_running,
+    unknown: text.unknown_status
+  }[status] || status || text.unknown_status);
   const runLabel = (run) => {
-    const parts = [formatTime(run.started_at), run.title || shortId(run.run_id), plural(run.tasks, "tarefa"), run.status || "em andamento"];
+    const parts = [formatTime(run.started_at), run.title || shortId(run.run_id), plural(run.tasks), run.status ? displayStatus(run.status) : text.in_progress];
     return parts.filter(Boolean).join(" · ");
   };
   const taskTitles = {};
@@ -221,12 +231,12 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
       }
     });
     if (event.pane_id) parts.push(`pane=${event.pane_id}`);
-    if (Number(event.attempt) > 1) parts.push(`tentativa=${event.attempt}`);
-    if (Number(event.cost_usd) > 0) parts.push(`custo=$${Number(event.cost_usd).toFixed(6)}`);
-    if (Number(event.duration_ms) > 0) parts.push(`duração=${Number(event.duration_ms).toFixed(0)} ms`);
+    if (Number(event.attempt) > 1) parts.push(`${text.attempt}=${event.attempt}`);
+    if (Number(event.cost_usd) > 0) parts.push(`${text.cost}=$${Number(event.cost_usd).toFixed(6)}`);
+    if (Number(event.duration_ms) > 0) parts.push(`${text.elapsed}=${Number(event.duration_ms).toFixed(0)} ms`);
     if (Number(event.tokens_in) > 0 || Number(event.tokens_out) > 0) parts.push(`tokens=${event.tokens_in || 0}/${event.tokens_out || 0}`);
     const size = JSON.stringify(event).length;
-    if (size > 4000) parts.push(`tamanho=${(size / 1024).toFixed(1)} KB`);
+    if (size > 4000) parts.push(`${text.payload_size}=${(size / 1024).toFixed(1)} KB`);
     return parts.length ? parts.join(" · ") : (event.event_type || event.event || "");
   };
   function eventRow(event) {
@@ -245,7 +255,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     const detail = make("td", undefined, "event-cell");
     detail.append(make("div", summarizeEvent(event), "event-summary"));
     const details = make("details", undefined, "event-details");
-    details.append(make("summary", "JSON completo"));
+    details.append(make("summary", text.full_json));
     details.append(make("pre", JSON.stringify(event, null, 2), "event-json"));
     detail.append(details);
     row.append(detail);
@@ -284,7 +294,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     target.replaceChildren();
     const keys = keepOrder ? Object.keys(values || {}) : Object.keys(values || {}).sort();
     if (!keys.length) {
-      target.append(make("span", "Sem dados"));
+      target.append(make("span", text.empty_data));
       target.lastChild.className = "muted";
       return;
     }
@@ -302,7 +312,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
   }
 
   function eventLink(task) {
-    const link = make("a", "ver eventos");
+    const link = make("a", text.view_events);
     const query = new URLSearchParams({view: "events", run_id: task.run_id, task_id: task.task_id});
     link.href = `${window.location.pathname}?${query.toString()}`;
     return link;
@@ -333,7 +343,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
         row.className = runCount[task.run_id] % 2 ? "run-row" : "run-row run-row-alt";
         row.style.setProperty("--run-hue", String(runHue[task.run_id]));
       }
-      const status = make("span", task.status, `badge ${task.status}`);
+      const status = make("span", displayStatus(task.status), `badge ${task.status}`);
       const taskCell = make("div");
       taskCell.append(make("div", task.title || task.task_id, "task-title"));
       if (task.title) taskCell.append(make("div", task.task_id, "task-id"));
@@ -354,7 +364,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     });
     if (!tasks.length) {
       const row = document.createElement("tr");
-      const cell = make("td", "Nenhuma tarefa neste run.");
+      const cell = make("td", text.no_tasks);
       cell.colSpan = showRun ? 10 : 9;
       row.append(cell);
       body.append(row);
@@ -364,14 +374,14 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
   function renderRunBanner(summary) {
     const run = summary.meta.run;
     if (!run) {
-      byId("run-title").textContent = summary.meta.run_id === "all" ? "Todos os runs" : "Nenhum run encontrado";
+      byId("run-title").textContent = summary.meta.run_id === "all" ? text.all_runs : text.no_run_found;
       byId("run-details").textContent = "";
       return;
     }
     byId("run-title").textContent = run.title || `Run ${shortId(run.run_id)}`;
     byId("run-details").textContent = [
-      `id ${run.run_id}`, run.started_at ? `início ${formatTime(run.started_at)}` : "",
-      run.status || "em andamento", plural(run.tasks, "tarefa")
+      `${text.run_id} ${run.run_id}`, run.started_at ? `${text.started} ${formatTime(run.started_at)}` : "",
+      run.status ? displayStatus(run.status) : text.in_progress, plural(run.tasks)
     ].filter(Boolean).join(" · ");
   }
 
@@ -380,43 +390,43 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     const totals = summary.totals;
     const container = byId("summary-cards");
     container.replaceChildren();
-    addCard(container, "Tarefas", totals.tasks_total, `${summary.jev.classify_calls} classificações`);
-    addCard(container, "Concluídas", totals.completed, `${totals.failed} falhas`);
-    addCard(container, "Reaproveitadas", totals.reused, `${totals.running} em execução`);
-    addCard(container, "Duração média", formatDuration(totals.avg_duration_s), "somente tarefas concluídas");
-    addCard(container, "Custo do Jev", formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
+    addCard(container, text.tasks, totals.tasks_total, `${summary.jev.classify_calls} ${text.classifications}`);
+    addCard(container, text.completed, totals.completed, `${totals.failed} ${text.failures}`);
+    addCard(container, text.reused, totals.reused, `${totals.running} ${text.running}`);
+    addCard(container, text.average_duration, formatDuration(totals.avg_duration_s), text.completed_only);
+    addCard(container, text.jev_cost, formatMoney(summary.jev.cost_usd), `${summary.jev.classify_calls} classify · ${summary.jev.control_calls} control`);
     const report = summary.report;
     const costSource = report || summary.all_runs_cost;
     const cost = workerCostTotals(costSource);
-    addCard(container, "Custo dos workers", costSource ? formatCost(cost.known, cost.unknown) : "—",
-      !costSource ? "selecione um run"
-        : cost.unknown ? `${cost.unknown} tarefa(s) sem custo conhecido`
-        : `${report ? "" : "soma dos runs · "}reportado (inclui créditos) + estimado (catálogo atual)`);
-    addCard(container, "Overhead do orquestrador", report ? formatPercent(report.overhead_ratio) : "—",
-      report ? `relógio ${formatSeconds(report.wall_seconds)} · worker ${formatSeconds(report.worker_seconds_union)}` : "selecione um run");
-    addCard(container, "Pico de workers", report ? formatCount(report.peak_parallel_workers) : "—",
-      report ? `soma de worker ${formatSeconds(report.worker_seconds_sum)}` : "selecione um run");
+    addCard(container, text.worker_cost, costSource ? formatCost(cost.known, cost.unknown) : "—",
+      !costSource ? text.select_a_run
+        : cost.unknown ? `${cost.unknown} ${text.unknown_cost_tasks}`
+        : `${report ? "" : text.all_runs_sum}${text.reported_estimated_cost}`);
+    addCard(container, text.orchestrator_overhead, report ? formatPercent(report.overhead_ratio) : "—",
+      report ? `${text.wall_clock} ${formatSeconds(report.wall_seconds)} · ${text.worker} ${formatSeconds(report.worker_seconds_union)}` : text.select_a_run);
+    addCard(container, text.worker_peak, report ? formatCount(report.peak_parallel_workers) : "—",
+      report ? `${text.worker_sum} ${formatSeconds(report.worker_seconds_sum)}` : text.select_a_run);
     renderTasks(summary.tasks, summary.meta.run_id === "all");
     const jevCalls = {classify: summary.jev.classify_calls, control: summary.jev.control_calls};
     if (summary.jev.unlinked_classify_calls) {
-      jevCalls["classify sem tarefa associada (logs antigos)"] = summary.jev.unlinked_classify_calls;
+      jevCalls[text.classify_without_task] = summary.jev.unlinked_classify_calls;
     }
     renderDistribution("jev-calls", jevCalls);
     renderDistribution("route-results", summary.jev.route_by_status);
     renderDistribution("classification-task", summary.jev.classification_by_task);
     renderDistribution("classification-call", summary.jev.classification_by_call);
     renderDistribution("jev-cost", {
-      "Latência média (ms)": summary.jev.avg_latency_ms === null ? "—" : summary.jev.avg_latency_ms,
-      "Custo (USD)": formatMoney(summary.jev.cost_usd)
+      [text.average_latency]: summary.jev.avg_latency_ms === null ? "—" : summary.jev.avg_latency_ms,
+      [text.cost_usd]: formatMoney(summary.jev.cost_usd)
     });
     const tierValues = {};
     Object.entries(summary.workers.by_tier).forEach(([tier, row]) => {
       const usage = report && report.by_tier[tier];
-      const parts = [plural(row.tasks, "tarefa"), `${row.completed} ${row.completed === 1 ? "concluída" : "concluídas"}`,
-        `média ${formatDuration(row.avg_duration_s)}`];
+      const parts = [plural(row.tasks), `${row.completed} ${row.completed === 1 ? text.task_completed_one : text.task_completed_many}`,
+        `${text.average} ${formatDuration(row.avg_duration_s)}`];
       if (usage) {
         parts.push(`tokens${usage.approx ? " ~" : ""} ${formatCount(usage.tokens_in)}/${formatCount(usage.tokens_out)}`);
-        if (usage.credits !== null && usage.credits !== undefined) parts.push(`créditos ${usage.credits}`);
+        if (usage.credits !== null && usage.credits !== undefined) parts.push(`${text.credits} ${usage.credits}`);
         parts.push(formatCost(usage.cost_known_usd, usage.events_unknown));
       }
       tierValues[tier] = parts.join(" · ");
@@ -465,13 +475,14 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     result.events.forEach((event) => body.append(eventRow(event)));
     if (!result.total) {
       const row = document.createElement("tr");
-      const cell = make("td", "Nenhum evento corresponde aos filtros.");
+      const cell = make("td", text.no_matching_events);
       cell.colSpan = 5;
       row.append(cell);
       body.append(row);
     }
     const pages = Math.max(1, Math.ceil(result.total / pageSize));
-    byId("page-status").textContent = `Página ${state.page} de ${pages} · ${result.total} eventos`;
+    byId("page-status").textContent = text.page_status
+      .replace("{page}", String(state.page)).replace("{pages}", String(pages)).replace("{total}", String(result.total));
     byId("previous-page").disabled = state.page <= 1;
     byId("next-page").disabled = state.page >= pages;
     updateUrl();
@@ -484,12 +495,13 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     byId("project-name").textContent = meta.project.name;
     byId("project-path").textContent = meta.project.path;
     document.title = `${meta.project.name} — MeisterRouter`;
-    const metaLine = `Log lido: ${meta.log_file} · ${meta.lines} linhas${meta.exists ? ` · ${meta.size_bytes} bytes` : " · ainda não existe"}`;
+    const metaLine = text.log_read.replace("{path}", meta.log_file).replace("{lines}", String(meta.lines))
+      + (meta.exists ? text.log_size.replace("{size}", String(meta.size_bytes)) : ` · ${text.log_not_created}`);
     byId("log-meta").textContent = metaLine;
     const warning = byId("other-logs");
     warning.replaceChildren();
     if (meta.other_logs.length) {
-      warning.append(make("strong", "Outros logs conhecidos (não estão sendo lidos): "));
+      warning.append(make("strong", text.other_logs_not_read));
       warning.append(document.createTextNode(meta.other_logs.join(" · ")));
       warning.hidden = false;
     } else {
@@ -497,7 +509,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     }
     runData.runs.forEach((run) => { runsById[run.run_id] = run; });
     const select = byId("run-select");
-    const allOption = make("option", "Todos os runs");
+    const allOption = make("option", text.all_runs);
     allOption.value = "all";
     select.replaceChildren(allOption);
     runData.runs.forEach((run) => {
@@ -515,10 +527,10 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
     const titleById = {};
     summary.tasks.forEach((task) => { if (task.title) titleById[task.task_id] = task.title; });
     Object.assign(taskTitles, titleById);
-    setOptions(byId("task-filter"), Array.from(new Set(summary.tasks.map((task) => task.task_id))).sort(), "Todas", titleById);
+    setOptions(byId("task-filter"), Array.from(new Set(summary.tasks.map((task) => task.task_id))).sort(), text.all_tasks, titleById);
     const eventData = await getJson(`/api/events?${new URLSearchParams({run_id: state.run_id || "all", limit: "500", offset: "0"})}`);
-    setOptions(byId("type-filter"), Array.from(new Set(eventData.events.map((event) => event.event_type || event.event).filter(Boolean))).sort(), "Todos");
-    setOptions(byId("tier-filter"), Array.from(new Set(eventData.events.map((event) => event.tier).filter(Boolean))).sort(), "Todas");
+    setOptions(byId("type-filter"), Array.from(new Set(eventData.events.map((event) => event.event_type || event.event).filter(Boolean))).sort(), text.all_events);
+    setOptions(byId("tier-filter"), Array.from(new Set(eventData.events.map((event) => event.tier).filter(Boolean))).sort(), text.all_lanes);
     byId("task-filter").value = state.task_id;
     byId("type-filter").value = state.event_type;
     byId("tier-filter").value = state.tier;
@@ -568,7 +580,7 @@ tbody tr.run-row td:first-child { box-shadow: inset 4px 0 0 hsl(var(--run-hue) 6
   });
   byId("sort-button").addEventListener("click", () => {
     state.order = state.order === "desc" ? "asc" : "desc";
-    byId("sort-button").textContent = state.order === "desc" ? "Ordenar: mais recentes" : "Ordenar: mais antigos";
+    byId("sort-button").textContent = state.order === "desc" ? text.sort_newest : text.sort_oldest;
     loadEvents().catch((error) => setError(error.message));
   });
   byId("previous-page").addEventListener("click", () => {
