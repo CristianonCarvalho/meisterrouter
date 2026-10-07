@@ -39,7 +39,21 @@ cd meisterrouter
 ```
 
 ### Fixar uma versão (tag)
-O instalador recomendado instala a `main`. Para uma versão específica, clone a tag e rode o instalador local:
+O instalador recomendado instala a `main` por padrão. Na instalação por curl, fixe uma tag com `--version`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version v0.9.0
+```
+`latest` seleciona a maior tag disponível; `main` seleciona o código mais recente da branch principal:
+```bash
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version latest
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version main
+```
+Também é possível definir `MEISTER_VERSION=v0.9.0` no ambiente; numa instalação por pipe, por exemplo:
+```bash
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | MEISTER_VERSION=v0.9.0 bash
+```
+O argumento `--version` prevalece se ambos forem usados. Se `~/.local/share/meisterrouter` já existir como clone, uma tag é buscada e selecionada nesse clone; com `main`, o instalador seleciona `main` e atualiza a branch. Ao executar dentro de um clone local, esse clone não é alterado e uma versão fixa solicitada é ignorada com um aviso.
+Para clonar a tag manualmente, use:
 ```bash
 git clone --branch v0.9.0 https://github.com/CristianonCarvalho/meisterrouter.git
 cd meisterrouter && ./bin/install.sh
