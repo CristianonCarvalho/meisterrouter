@@ -10,6 +10,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from meister.i18n import t
+
 
 class CleanError(RuntimeError):
     """Raised when cleanup cannot safely inspect or modify a repository."""
@@ -17,6 +19,42 @@ class CleanError(RuntimeError):
 
 class CleanBusyError(CleanError):
     """Raised when an active MeisterRouter process prevents cleanup."""
+
+
+SITUATION_MERGED = "merged"
+SITUATION_EQUIVALENT = "equivalent"
+SITUATION_ARCHIVED = "archived"
+SITUATION_UNMERGED = "unmerged"
+
+ACTION_IN_USE = "in_use"
+ACTION_KEEP_REQUESTED = "keep_requested"
+ACTION_KEEP_UNMERGED = "keep_unmerged"
+ACTION_ARCHIVE_DELETE = "archive_delete"
+ACTION_DELETE = "delete"
+ACTION_IN_USE_OR_KEEP = "in_use_or_keep"
+ACTION_CHANGED = "changed"
+ACTION_ARCHIVE_FAILED = "archive_failed"
+ACTION_DELETE_FAILED = "delete_failed"
+ACTION_DELETED = "deleted"
+
+_SITUATION_MESSAGES = {
+    SITUATION_MERGED: "commands.clean.situation_merged",
+    SITUATION_EQUIVALENT: "commands.clean.situation_equivalent",
+    SITUATION_ARCHIVED: "commands.clean.situation_archived",
+    SITUATION_UNMERGED: "commands.clean.situation_unmerged",
+}
+_ACTION_MESSAGES = {
+    ACTION_IN_USE: "commands.clean.action_in_use",
+    ACTION_KEEP_REQUESTED: "commands.clean.action_keep",
+    ACTION_KEEP_UNMERGED: "commands.clean.action_unmerged",
+    ACTION_ARCHIVE_DELETE: "commands.clean.action_archive_delete",
+    ACTION_DELETE: "commands.clean.action_delete",
+    ACTION_IN_USE_OR_KEEP: "commands.clean.action_in_use_or_keep",
+    ACTION_CHANGED: "commands.clean.action_changed",
+    ACTION_ARCHIVE_FAILED: "commands.clean.action_archive_failed",
+    ACTION_DELETE_FAILED: "commands.clean.action_delete_failed",
+    ACTION_DELETED: "commands.clean.action_deleted",
+}
 
 
 @dataclass
@@ -27,6 +65,8 @@ class BranchPlan:
     action: str
     commits: List[str] = field(default_factory=list)
     tip: str = ""
+    situation_code: str = ""
+    action_code: str = ""
 
 
 @dataclass
@@ -53,7 +93,7 @@ def _git(repo: str, *args: str, check: bool = True) -> str:
     )
     if check and result.returncode:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise CleanError(f"git {' '.join(args)} falhou: {detail}")
+        raise CleanError(t("commands.clean.git_failed", args=" ".join(args), detail=detail))
     return result.stdout.strip()
 
 
@@ -66,7 +106,7 @@ def resolve_repository(path: str) -> str:
         check=False,
     )
     if result.returncode:
-        raise CleanError(f"Não é um repositório Git: {os.path.abspath(path)}")
+        raise CleanError(t("commands.clean.not_git_repo", path=os.path.abspath(path)))
     return os.path.realpath(result.stdout.strip())
 
 
@@ -86,8 +126,8 @@ def resolve_base(repo: str, requested: Optional[str]) -> str:
         if result.returncode == 0:
             return candidate
     if requested:
-        raise CleanError(f"Branch base inexistente: {requested}")
-    raise CleanError("Branch base inexistente: não há 'main' nem 'master'. Use --base BRANCH.")
+        raise CleanError(t("commands.clean.base_missing", branch=requested))
+    raise CleanError(t("commands.clean.base_missing_default"))
 
 
 def list_processes() -> List[ProcessInfo]:
@@ -99,7 +139,7 @@ def list_processes() -> List[ProcessInfo]:
         check=False,
     )
     if result.returncode:
-        raise CleanError(f"Não foi possível inspecionar processos: {result.stderr.strip()}")
+        raise CleanError(t("commands.clean.process_inspection_failed", error=result.stderr.strip()))
     processes = []
     for line in result.stdout.splitlines():
         fields = line.strip().split(None, 1)
@@ -164,25 +204,31 @@ def _branch_names(repo: str) -> List[str]:
 
 def classify_branch(repo: str, base: str, branch: str) -> Tuple[int, str, List[str], str]:
     """Return ahead count, classification, displayed commits, and tip SHA."""
+    ahead, situation_code, commits, tip = _classify_branch_code(repo, base, branch)
+    return ahead, t(_SITUATION_MESSAGES[situation_code]), commits, tip
+
+
+def _classify_branch_code(repo: str, base: str, branch: str) -> Tuple[int, str, List[str], str]:
+    """Classify a branch with stable codes for internal decisions."""
     ahead = int(_git(repo, "rev-list", "--count", f"{base}..{branch}"))
     tip = _git(repo, "rev-parse", branch)
     if ahead == 0:
-        return ahead, "merged", [], tip
+        return ahead, SITUATION_MERGED, [], tip
 
     cherry = _git(repo, "cherry", base, branch)
     if not any(line.startswith("+") for line in cherry.splitlines()):
-        return ahead, "equivalente", [], tip
+        return ahead, SITUATION_EQUIVALENT, [], tip
 
     archived = _git(
         repo, "for-each-ref", "--contains", tip, "--format=%(refname)", "refs/meister/archive"
     )
     if archived:
-        return ahead, "arquivada", [], tip
+        return ahead, SITUATION_ARCHIVED, [], tip
 
     commits = _git(
         repo, "log", "--oneline", "--format=%h %s", f"{base}..{branch}"
     ).splitlines()[:5]
-    return ahead, "UNMERGED", commits, tip
+    return ahead, SITUATION_UNMERGED, commits, tip
 
 
 def plan_cleanup(
@@ -203,19 +249,30 @@ def plan_cleanup(
 
     plans = []
     for branch in _branch_names(root):
-        ahead, situation, commits, tip = classify_branch(root, base_branch, branch)
+        ahead, situation_code, commits, tip = _classify_branch_code(root, base_branch, branch)
         run_suffix = branch.split("/", 2)[-1]
         if branch in protected:
-            action = "mantida (branch em uso)"
+            action_code = ACTION_IN_USE
         elif any(run_suffix.startswith(prefix) for prefix in keep):
-            action = "mantida (--keep)"
-        elif situation == "UNMERGED" and not archive_and_delete:
-            action = "mantida (não integrada)"
-        elif situation == "UNMERGED":
-            action = "arquivar e apagar"
+            action_code = ACTION_KEEP_REQUESTED
+        elif situation_code == SITUATION_UNMERGED and not archive_and_delete:
+            action_code = ACTION_KEEP_UNMERGED
+        elif situation_code == SITUATION_UNMERGED:
+            action_code = ACTION_ARCHIVE_DELETE
         else:
-            action = "apagar"
-        plans.append(BranchPlan(branch, ahead, situation, action, commits, tip))
+            action_code = ACTION_DELETE
+        plans.append(
+            BranchPlan(
+                branch,
+                ahead,
+                t(_SITUATION_MESSAGES[situation_code]),
+                t(_ACTION_MESSAGES[action_code]),
+                commits,
+                tip,
+                situation_code,
+                action_code,
+            )
+        )
 
     archive_refs = _git(
         root, "for-each-ref", "--format=%(refname)", "refs/meister/archive"
@@ -243,7 +300,7 @@ def _create_archive_ref(repo: str, branch: str, tip: str, now: Optional[int] = N
         check=False,
     )
     if result.returncode:
-        raise CleanError(f"Falha ao criar ref de arquivo {ref}: {result.stderr.strip()}")
+        raise CleanError(t("commands.clean.archive_ref_failed", ref=ref, error=result.stderr.strip()))
     return ref
 
 
@@ -290,11 +347,11 @@ def apply_cleanup(
 ) -> Dict[str, Any]:
     """Apply safe deletions, creating archive refs before deleting unmerged branches."""
     if not plan.apply:
-        raise CleanError("O plano está em simulação; gere-o com apply=True para aplicar.")
+        raise CleanError(t("commands.clean.simulation_apply_error"))
     process_list = list_processes() if processes is None else list(processes)
     active = _active_meister_processes(process_list)
     if active and not force_busy:
-        raise CleanBusyError("Há um processo MeisterRouter em execução; use --force-busy para ignorar.")
+        raise CleanBusyError(t("commands.clean.busy"))
 
     # Registros de worktrees cuja pasta nao existe mais: o git recusa apagar a branch enquanto eles existirem.
     _git(plan.repo, "worktree", "prune")
@@ -302,28 +359,37 @@ def apply_cleanup(
     failures: List[str] = []
     for branch in plan.branches:
         if _is_protected(plan, branch, keep):
-            branch.action = "mantida (branch em uso ou --keep)"
+            branch.action_code = ACTION_IN_USE_OR_KEEP
+            branch.action = t(_ACTION_MESSAGES[branch.action_code])
             continue
         try:
-            current_ahead, current_situation, _, current_tip = classify_branch(
+            current_ahead, current_situation_code, _, current_tip = _classify_branch_code(
                 plan.repo, plan.base, branch.branch
             )
         except CleanError as exc:
-            branch.action = "mantida (branch alterada)"
+            branch.action_code = ACTION_CHANGED
+            branch.action = t(_ACTION_MESSAGES[branch.action_code])
             failures.append(str(exc))
             continue
-        if current_tip != branch.tip or current_situation != branch.situation or current_ahead != branch.ahead:
-            branch.action = "mantida (branch alterada)"
-            failures.append(f"A branch {branch.branch} mudou desde o planejamento; nenhuma remoção foi feita.")
+        if (
+            current_tip != branch.tip
+            or current_situation_code != branch.situation_code
+            or current_ahead != branch.ahead
+        ):
+            branch.action_code = ACTION_CHANGED
+            branch.action = t(_ACTION_MESSAGES[branch.action_code])
+            failures.append(t("commands.clean.branch_changed", branch=branch.branch))
             continue
-        if branch.situation == "UNMERGED":
+        if branch.situation_code == SITUATION_UNMERGED:
             if not archive_and_delete:
-                branch.action = "mantida (não integrada)"
+                branch.action_code = ACTION_KEEP_UNMERGED
+                branch.action = t(_ACTION_MESSAGES[branch.action_code])
                 continue
             try:
                 _create_archive_ref(plan.repo, branch.branch, branch.tip)
             except CleanError as exc:
-                branch.action = "mantida (falha ao arquivar)"
+                branch.action_code = ACTION_ARCHIVE_FAILED
+                branch.action = t(_ACTION_MESSAGES[branch.action_code])
                 failures.append(str(exc))
                 continue
         result = subprocess.run(
@@ -333,10 +399,18 @@ def apply_cleanup(
             check=False,
         )
         if result.returncode:
-            branch.action = "falha ao apagar"
-            failures.append(f"Falha ao apagar {branch.branch}: {result.stderr.strip()}")
+            branch.action_code = ACTION_DELETE_FAILED
+            branch.action = t(_ACTION_MESSAGES[branch.action_code])
+            failures.append(
+                t(
+                    "commands.clean.branch_delete_failed",
+                    branch=branch.branch,
+                    error=result.stderr.strip(),
+                )
+            )
             continue
-        branch.action = "apagada"
+        branch.action_code = ACTION_DELETED
+        branch.action = t(_ACTION_MESSAGES[branch.action_code])
         deleted.append(branch.branch)
 
     _git(plan.repo, "worktree", "prune")
@@ -364,10 +438,11 @@ def render_result(plan: CleanupPlan, result: Optional[Dict[str, Any]] = None, js
     rows = [asdict(branch) for branch in plan.branches]
     for row in rows:
         if row["branch"] in deleted:
-            row["action"] = "apagada"
+            row["action_code"] = ACTION_DELETED
+            row["action"] = t(_ACTION_MESSAGES[ACTION_DELETED])
     # Na simulacao nada e apagado: contar as que SERIAM apagadas para o resumo nao dar a entender o contrario.
     would_delete = 0 if plan.apply else sum(
-        1 for row in rows if row["action"] in ("apagar", "arquivar e apagar")
+        1 for row in rows if row["action_code"] in (ACTION_DELETE, ACTION_ARCHIVE_DELETE)
     )
     summary = {
         "avaliadas": len(rows),
@@ -387,30 +462,46 @@ def render_result(plan: CleanupPlan, result: Optional[Dict[str, Any]] = None, js
     if applied["failures"]:
         payload["falhas"] = applied["failures"]
     if not plan.apply:
-        payload["mensagem_simulacao"] = (
-            f"Nada foi alterado. Para aplicar: meister clean --repo {shlex.quote(plan.repo)} --apply"
+        payload["mensagem_simulacao"] = t(
+            "commands.clean.simulation_message",
+            repo=shlex.quote(plan.repo),
         )
     if json_format:
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2)
 
-    lines = ["BRANCH  AHEAD  SITUACAO  ACAO"]
     for row in rows:
-        lines.append(f"{row['branch']}  {row['ahead']}  {row['situation']}  {row['action']}")
+        row["situation"] = t(_SITUATION_MESSAGES[row.pop("situation_code")])
+        row["action"] = t(_ACTION_MESSAGES[row.pop("action_code")])
+
+    lines = [
+        f"{t('commands.clean.branch')}  {t('commands.clean.ahead')}  "
+        f"{t('commands.clean.situation')}  {t('commands.clean.action')}"
+    ]
+    for row in rows:
+        lines.append(
+            f"{row['branch']}  {row['ahead']}  {row['situation']}  {row['action']}"
+        )
         for commit in row["commits"]:
             lines.append(f"  {commit}")
     deleted_label = (
-        f"{summary['seriam_apagadas']} seriam apagadas"
+        t("commands.clean.would_delete", count=summary["seriam_apagadas"])
         if not plan.apply
-        else f"{summary['apagadas']} apagadas"
+        else t("commands.clean.deleted", count=summary["apagadas"])
     )
     lines.append(
-        "Resumo: "
-        f"{summary['avaliadas']} avaliadas, {deleted_label}, "
-        f"{summary['mantidas']} mantidas, {summary['runs_fechados']} runs fechados, "
-        f"{summary['refs_arquivo_preservadas']} refs de arquivo preservadas."
+        t(
+            "commands.clean.summary",
+            evaluated=summary["avaliadas"],
+            deleted_label=deleted_label,
+            kept=summary["mantidas"],
+            runs=summary["runs_fechados"],
+            refs=summary["refs_arquivo_preservadas"],
+        )
     )
     if applied["failures"]:
-        lines.extend(f"Erro: {failure}" for failure in applied["failures"])
+        lines.extend(t("commands.clean.error", error=failure) for failure in applied["failures"])
     if not plan.apply:
-        lines.append(f"Nada foi alterado. Para aplicar: meister clean --repo {shlex.quote(plan.repo)} --apply")
+        lines.append(
+            t("commands.clean.simulation_message", repo=shlex.quote(plan.repo))
+        )
     return "\n".join(lines)

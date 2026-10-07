@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
+from meister.i18n import t
+
 try:
     import tomllib
 except ImportError:
@@ -95,7 +97,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
             key="prefix+m",
             type="shell",
             command=f"{meister_path} herdr-action orchestrate",
-            description="MeisterRouter: orquestrar ciclo autônomo",
+            description=t("commands.setup.binding_orchestrate"),
         ),
         KeyBinding(
             key="prefix+shift+m",
@@ -103,7 +105,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
             command=f"{meister_path} dashboard --tui",
             width="85%",
             height="85%",
-            description="MeisterRouter: dashboard TUI",
+            description=t("commands.setup.binding_dashboard"),
         ),
         KeyBinding(
             key="prefix+t",
@@ -111,7 +113,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
             command=f"{meister_path} timeline",
             width="85%",
             height="85%",
-            description="MeisterRouter: linha do tempo (Gantt)",
+            description=t("commands.setup.binding_timeline"),
         ),
     ]
 
@@ -121,7 +123,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
                 key="ctrl+alt+m",
                 type="shell",
                 command=f"{meister_path} herdr-action orchestrate",
-                description="MeisterRouter: orquestrar ciclo autônomo (direto)",
+                description=t("commands.setup.binding_orchestrate_direct"),
             ),
             KeyBinding(
                 key="ctrl+alt+shift+m",
@@ -129,7 +131,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
                 command=f"{meister_path} dashboard --tui",
                 width="85%",
                 height="85%",
-                description="MeisterRouter: dashboard TUI (direto)",
+                description=t("commands.setup.binding_dashboard_direct"),
             ),
             KeyBinding(
                 key="ctrl+alt+t",
@@ -137,7 +139,7 @@ def get_desired_bindings(meister_path: str, direct_keys: bool = False) -> list[K
                 command=f"{meister_path} timeline",
                 width="85%",
                 height="85%",
-                description="MeisterRouter: linha do tempo (Gantt) (direto)",
+                description=t("commands.setup.binding_timeline_direct"),
             ),
         ])
 
@@ -292,7 +294,7 @@ def write_herdr_config(
         runner = default_runner
 
     if not merge_result.changed:
-        return True, "sem mudanças"
+        return True, t("commands.setup.no_changes")
 
     parent_dir = os.path.dirname(os.path.abspath(config_path))
     os.makedirs(parent_dir, exist_ok=True)
@@ -323,14 +325,16 @@ def write_herdr_config(
                 os.remove(temp_file.name)
             except Exception:
                 pass
-        return False, f"Falha na escrita atômica do arquivo: {e}"
+        return False, t("commands.setup.atomic_write_failed", error=e)
 
     # Validação com herdr config check
     check_proc = runner(["herdr", "config", "check"])
     check_rc = getattr(check_proc, "returncode", 1)
     if check_rc != 0:
         check_msg = (
-            getattr(check_proc, "stderr", "") or getattr(check_proc, "stdout", "") or "herdr config check falhou"
+            getattr(check_proc, "stderr", "")
+            or getattr(check_proc, "stdout", "")
+            or t("commands.setup.config_check_default")
         ).strip()
         if original_existed:
             with open(config_path, "wb") as f:
@@ -338,7 +342,7 @@ def write_herdr_config(
         else:
             if os.path.exists(config_path):
                 os.remove(config_path)
-        return False, f"Validação 'herdr config check' falhou ({check_msg}). Conteúdo original restaurado."
+        return False, t("commands.setup.config_check_failed", message=check_msg)
 
     # Recarrega o servidor Herdr
     reload_proc = runner(["herdr", "server", "reload-config"])
@@ -347,9 +351,9 @@ def write_herdr_config(
         reload_msg = (
             getattr(reload_proc, "stderr", "") or getattr(reload_proc, "stdout", "") or ""
         ).strip()
-        return True, f"Configuração aplicada, mas servidor Herdr não pôde ser recarregado ({reload_msg})"
+        return True, t("commands.setup.reload_warning", message=reload_msg)
 
-    return True, "Configuração atualizada e recarregada com sucesso no Herdr"
+    return True, t("commands.setup.config_reloaded")
 
 
 def ensure_herdr_plugin(
@@ -369,23 +373,23 @@ def ensure_herdr_plugin(
     list_proc = runner(["herdr", "plugin", "list"])
     list_stdout = getattr(list_proc, "stdout", "") or ""
     if "dev.meisterrouter.orchestrator" in list_stdout:
-        return "ok", "Plugin dev.meisterrouter.orchestrator já vinculado no Herdr"
+        return "ok", t("commands.setup.plugin_linked")
 
     if dry_run:
         if manifest_path.exists():
-            return "ok", f"[simulação] Vincularia plugin a partir de {repo_root}"
-        return "aviso", "herdr-plugin.toml não encontrado na raiz do repositório"
+            return "ok", t("commands.setup.plugin_would_link", path=repo_root)
+        return "aviso", t("commands.setup.plugin_manifest_missing")
 
     if not manifest_path.exists():
-        return "aviso", "herdr-plugin.toml não encontrado na raiz; instale a partir do repositório clonado"
+        return "aviso", t("commands.setup.plugin_manifest_missing_clone")
 
     link_proc = runner(["herdr", "plugin", "link", str(repo_root)])
     link_rc = getattr(link_proc, "returncode", 1)
     if link_rc == 0:
-        return "ok", "Plugin dev.meisterrouter.orchestrator vinculado com sucesso no Herdr"
+        return "ok", t("commands.setup.plugin_link_success")
 
     err_msg = (getattr(link_proc, "stderr", "") or getattr(link_proc, "stdout", "") or "").strip()
-    return "erro", f"Falha ao vincular plugin no Herdr: {err_msg}"
+    return "erro", t("commands.setup.plugin_link_failed", error=err_msg)
 
 
 # ── Diagnósticos ──────────────────────────────────────────────────────────────
@@ -412,18 +416,20 @@ def get_default_pid_file() -> str:
 def check_python() -> DiagnosticItem:
     v = sys.version_info
     if v >= (3, 9):
-        return DiagnosticItem("python", "ok", f"Python {v.major}.{v.minor}.{v.micro} (>= 3.9)")
-    return DiagnosticItem("python", "erro", f"Python {v.major}.{v.minor}.{v.micro} incompatível (exige >= 3.9)")
+        version = f"{v.major}.{v.minor}.{v.micro}"
+        return DiagnosticItem("python", "ok", t("commands.setup.python_compatible", version=version))
+    version = f"{v.major}.{v.minor}.{v.micro}"
+    return DiagnosticItem("python", "erro", t("commands.setup.python_incompatible", version=version))
 
 
 def check_herdr() -> DiagnosticItem:
     path = shutil.which("herdr")
     if path:
-        return DiagnosticItem("herdr", "ok", f"Herdr encontrado em {path}")
+        return DiagnosticItem("herdr", "ok", t("commands.setup.herdr_found", path=path))
     return DiagnosticItem(
         "herdr",
         "erro",
-        "Herdr não encontrado no PATH. Instale com: curl -fsSL https://herdr.dev/install.sh | sh",
+        t("commands.setup.herdr_missing"),
     )
 
 
@@ -434,10 +440,10 @@ def check_daemon() -> DiagnosticItem:
             with open(pid_file, "r", encoding="utf-8") as f:
                 pid = int(f.read().strip())
             if is_pid_alive(pid):
-                return DiagnosticItem("daemon", "ok", f"Daemon ativo (PID: {pid})")
+                return DiagnosticItem("daemon", "ok", t("commands.setup.daemon_active", pid=pid))
         except Exception:
             pass
-    return DiagnosticItem("daemon", "aviso", "Daemon não está rodando (sobe junto com o Herdr)")
+    return DiagnosticItem("daemon", "aviso", t("commands.setup.daemon_inactive"))
 
 
 def check_worker_clis(cfg: Any = None) -> list[DiagnosticItem]:
@@ -464,7 +470,12 @@ def check_worker_clis(cfg: Any = None) -> list[DiagnosticItem]:
                 DiagnosticItem(
                     "worker_cli",
                     "ok",
-                    f"CLI do harness '{tier.harness}' ({tier.name}) encontrada: {bin_path}",
+                    t(
+                        "commands.setup.worker_found",
+                        harness=tier.harness,
+                        tier=tier.name,
+                        path=bin_path,
+                    ),
                 )
             )
         else:
@@ -472,7 +483,7 @@ def check_worker_clis(cfg: Any = None) -> list[DiagnosticItem]:
                 DiagnosticItem(
                     "worker_cli",
                     "aviso",
-                    f"CLI do harness '{tier.harness}' ({tier.name}) não encontrada no PATH",
+                    t("commands.setup.worker_missing", harness=tier.harness, tier=tier.name),
                 )
             )
     return items
@@ -498,17 +509,17 @@ def check_openrouter_key(cfg: Any = None) -> DiagnosticItem:
         has_key = False
 
     if has_key:
-        return DiagnosticItem("openrouter_key", "ok", "OPENROUTER_API_KEY configurada")
+        return DiagnosticItem("openrouter_key", "ok", t("commands.setup.openrouter_configured"))
     if mode == "first":
         return DiagnosticItem(
             "openrouter_key",
             "ok",
-            "OPENROUTER_API_KEY ausente, mas router.mode é 'first' (Jev não é utilizado)",
+            t("commands.setup.openrouter_not_needed"),
         )
     return DiagnosticItem(
         "openrouter_key",
         "aviso",
-        "OPENROUTER_API_KEY ausente (o Jev não funcionará; use router.mode: first)",
+        t("commands.setup.openrouter_missing"),
     )
 
 
@@ -527,89 +538,33 @@ def check_config_validity(cfg: Any = None) -> list[DiagnosticItem]:
         if errors:
             for err in errors:
                 items.append(
-                    DiagnosticItem("config", "erro", f"Configuração ({source}) [erro {err.path}]: {err.message}")
+                    DiagnosticItem(
+                        "config",
+                        "erro",
+                        t("commands.setup.config_error", source=source, path=err.path, message=err.message),
+                    )
                 )
         elif warnings:
             for w in warnings:
                 items.append(
-                    DiagnosticItem("config", "aviso", f"Configuração ({source}) [aviso {w.path}]: {w.message}")
+                    DiagnosticItem(
+                        "config",
+                        "aviso",
+                        t("commands.setup.config_warning", source=source, path=w.path, message=w.message),
+                    )
                 )
         else:
-            items.append(DiagnosticItem("config", "ok", f"Configuração ativa válida ({source})"))
+            items.append(DiagnosticItem("config", "ok", t("commands.setup.config_valid", source=source)))
         return items
     except Exception as e:
-        return [DiagnosticItem("config", "erro", f"Erro ao carregar configuração: {e}")]
+        return [DiagnosticItem("config", "erro", t("commands.setup.config_load_failed", error=e))]
 
 
 # ── meister config init ────────────────────────────────────────────────────────
 
 def generate_config_yaml_content() -> str:
     """Gera o conteúdo de meister.config.yaml com apenas router e workers.tier_order."""
-    return """# meister.config.yaml — Configuração local do MeisterRouter para este projeto.
-#
-# A lista workers.tier_order abaixo SUBSTITUI a lista padrão inteira.
-# Para conferir as vias ativas e custos: meister models
-# Para validar este arquivo: meister config validate
-
-router:
-  # router.mode: jev escolhe a via inicial via Decisions API (OpenRouter);
-  # router.mode: first ignora o Jev e usa a 1ª via ativa da lista abaixo, sem chamadas de rede.
-  mode: jev
-  timeout_seconds: 10
-  max_attempts: 2
-  unavailable_cooldown_seconds: 300
-  context_max_chars: 4000
-
-workers:
-  # A ordem define a cadeia de fallback (sempre para a frente).
-  # enabled: false desliga uma via do roteamento automático.
-  # eligible_classes restringe as classes (SMALL, MEDIUM, HIGH, ESCALATE) que o Jev pode atribuir à via.
-  tier_order:
-    - name: copilot_luna
-      harness: copilot
-      model: gpt-6-luna
-      cost_per_m_tokens: 0.20
-      credit_usd: 0.01
-      max_retries: 2
-      best_for:
-        - small_edits
-        - single_file
-        - css_fixes
-        - unit_test_additions
-
-    - name: codex_luna
-      harness: codex
-      model: gpt-6-luna
-      enabled: false
-      cost_per_m_tokens: 0.20
-      max_retries: 2
-      best_for:
-        - small_edits
-        - single_file
-        - css_fixes
-        - unit_test_additions
-
-    - name: agy_gemini_flash
-      harness: agy
-      model: gemini-3.8-flash-high
-      cost_per_m_tokens: 1.50
-      max_retries: 2
-      best_for:
-        - deep_reasoning
-        - complex_algorithms
-        - hard_bugs
-
-    - name: claude_sonnet
-      harness: claude
-      model: sonnet
-      cost_per_m_tokens: 4.00
-      max_retries: 1
-      best_for:
-        - architectural_recovery
-        - systemic_regressions
-      eligible_classes:
-        - ESCALATE
-"""
+    return t("commands.setup.config_template")
 
 
 # ── Execução de meister setup ─────────────────────────────────────────────────
@@ -646,40 +601,55 @@ def run_setup(
             with open(cfg_path, "r", encoding="utf-8") as f:
                 existing_text = f.read()
         except Exception as e:
-            echo(f"Aviso ao ler {cfg_path}: {e}")
+            echo(t("commands.setup.read_warning", path=cfg_path, error=e))
 
     meister_path = resolve_meister_path()
     desired = get_desired_bindings(meister_path, direct_keys=direct_keys)
     merge_result = merge_keys_block(existing_text, desired)
 
     shortcuts_status = "ok"
-    shortcuts_msg = f"Atalhos do Herdr configurados ({', '.join(b.key for b in desired)})"
+    shortcuts_msg = t(
+        "commands.setup.shortcuts_configured",
+        keys=", ".join(b.key for b in desired),
+    )
 
     if dry_run:
-        echo(f"🔍 [Simulação] Verificando atalhos em {cfg_path}:")
+        echo(t("commands.setup.dry_run_shortcuts", path=cfg_path))
         for b in desired:
             action = merge_result.actions.get(b.key, "added")
             if action == "already":
-                echo(f"  ⏭️ Atalho '{b.key}': já configurado ({merge_result.details.get(b.key, '')})")
+                echo(
+                    t(
+                        "commands.setup.shortcut_already",
+                        shortcut=b.key,
+                        command=merge_result.details.get(b.key, ""),
+                    )
+                )
             elif action == "conflict":
-                echo(f"  ⚠️ Conflito no atalho '{b.key}': vinculado a outro comando ({merge_result.details.get(b.key, '')})")
+                echo(
+                    t(
+                        "commands.setup.shortcut_conflict",
+                        shortcut=b.key,
+                        command=merge_result.details.get(b.key, ""),
+                    )
+                )
             else:
-                echo(f"  ➕ Atalho '{b.key}': seria adicionado ao bloco gerenciado")
+                echo(t("commands.setup.shortcut_would_add", shortcut=b.key))
 
         if merge_result.changed:
             added_bindings = [b for b in desired if merge_result.actions.get(b.key) == "added"]
-            echo("\nBloco que seria gravado no config.toml do Herdr:")
+            echo(t("commands.setup.block_would_write"))
             echo(render_bindings_block(added_bindings))
         else:
-            echo("\nNenhuma alteração necessária no config.toml do Herdr.")
+            echo(t("commands.setup.no_shortcut_changes"))
 
         if merge_result.conflict:
             shortcuts_status = "aviso"
-            shortcuts_msg = f"Atalhos do Herdr possuem conflito não sobrescrito: {', '.join(merge_result.conflict)}"
+            shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
     else:
         if merge_result.conflict:
             shortcuts_status = "aviso"
-            shortcuts_msg = f"Atalhos do Herdr possuem conflito não sobrescrito: {', '.join(merge_result.conflict)}"
+            shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
 
         if merge_result.changed:
             write_ok, write_msg = write_herdr_config(cfg_path, merge_result, runner=runner)
@@ -688,12 +658,17 @@ def run_setup(
                 shortcuts_msg = write_msg
             else:
                 if shortcuts_status != "aviso":
-                    shortcuts_msg = f"Atalhos do Herdr atualizados com sucesso ({', '.join(b.key for b in desired if merge_result.actions.get(b.key) == 'added')})"
+                    shortcuts_msg = t(
+                        "commands.setup.shortcuts_updated",
+                        keys=", ".join(
+                            b.key for b in desired if merge_result.actions.get(b.key) == "added"
+                        ),
+                    )
 
     # 4. Projeto
     if project_path is not None:
         if dry_run:
-            echo(f"🔍 [Simulação] Inicializaria projeto em '{project_path}' com hooks (--project)")
+            echo(t("commands.setup.dry_run_project", path=project_path))
         else:
             if init_project_fn is not None:
                 init_project_fn(project_path)
@@ -739,7 +714,7 @@ def run_setup(
 
     # 6. Relatório final em português
     echo("\n" + "=" * 80)
-    echo("Relatório do MeisterRouter Setup")
+    echo(t("commands.setup.report_title"))
     echo("=" * 80)
     for sym, msg in report_items:
         echo(f"{sym} {msg}")
@@ -749,14 +724,13 @@ def run_setup(
     if direct_keys:
         keys_summary += ", ctrl+alt+m, ctrl+alt+shift+m, ctrl+alt+t"
 
-    echo("Próximos passos:")
-    echo("  1. Abra o Herdr (herdr)")
-    echo("  2. meister orchestrate --plan-file plano.json")
-    echo(f"  3. Atalhos: {keys_summary}")
+    echo(t("commands.setup.next_steps"))
+    echo(t("commands.setup.open_herdr"))
+    echo(t("commands.setup.run_plan"))
+    echo(t("commands.setup.shortcuts_summary", keys=keys_summary))
 
     if project_path is None:
-        echo("\nDica: para equipar um projeto: meister setup --project")
+        echo(t("commands.setup.project_tip"))
 
     has_error = any(sym == "✗" for sym, _ in report_items)
     return 1 if has_error else 0
-

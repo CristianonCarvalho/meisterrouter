@@ -9,6 +9,7 @@ import subprocess
 from typing import Tuple
 
 from meister.config import MeisterConfig
+from meister.i18n import t
 
 
 def _node_install_command(path: str) -> list[str]:
@@ -73,7 +74,7 @@ def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
     else:
         return True, ""
     if not command:
-        return False, "Não foi possível determinar o comando de instalação Node"
+        return False, t("commands.env.node_command_unknown")
 
     # pnpm and npm use their shared global stores/caches by default; do not redirect them per worktree.
     try:
@@ -87,8 +88,17 @@ def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
             shell=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return False, f"Falha ao preparar ambiente com {' '.join(command)}: {exc}"
+        return False, t(
+            "commands.env.prepare_failed",
+            command=" ".join(command),
+            error=exc,
+        )
     output = ((result.stdout or "") + ("\n" + result.stderr if result.stderr else "")).strip()
     if result.returncode:
-        return False, f"Instalação {' '.join(command)} falhou (rc={result.returncode}): {output}"
+        return False, t(
+            "commands.env.install_failed",
+            command=" ".join(command),
+            code=result.returncode,
+            output=output,
+        )
     return True, output

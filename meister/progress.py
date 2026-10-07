@@ -8,6 +8,8 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, TextIO
 
+from meister.i18n import t
+
 
 def format_duration(seconds: float) -> str:
     """Format elapsed seconds for concise, stable CLI output."""
@@ -26,7 +28,12 @@ def _event_name(record: Dict[str, Any]) -> str:
 
 
 def _short_reason(record: Dict[str, Any]) -> str:
-    reason = str(record.get("error") or record.get("reason") or record.get("output") or "erro desconhecido")
+    reason = str(
+        record.get("error")
+        or record.get("reason")
+        or record.get("output")
+        or t("commands.progress.unknown_error")
+    )
     reason = " ".join(reason.split())
     return reason if len(reason) <= 120 else reason[:117] + "..."
 
@@ -41,9 +48,11 @@ def format_event_line(
     task_id = str(record.get("task_id") or "")
     if event == "plan_parsed":
         run_id = str(record.get("run_id") or "")
-        return (
-            f"Plano: {int(record.get('total') or 0)} tarefas em "
-            f"{int(record.get('batches') or 0)} lotes (run {run_id[:8]})"
+        return t(
+            "commands.progress.plan",
+            tasks=int(record.get("total") or 0),
+            batches=int(record.get("batches") or 0),
+            run_id=run_id[:8],
         )
     if task_number is None or total is None:
         return None
@@ -51,32 +60,55 @@ def format_event_line(
     prefix = f"[{task_number}/{total}] {task_id}"
     tier = str(record.get("tier") or "-")
     if event == "worker_spawn":
-        return f"{prefix} iniciada em {tier}"
+        return t("commands.progress.started", prefix=prefix, tier=tier)
     if event == "subtask_completed":
-        return f"{prefix} concluida em {tier} ({record.get('duration') or '-'})"
+        return t(
+            "commands.progress.completed",
+            prefix=prefix,
+            tier=tier,
+            duration=record.get("duration") or "-",
+        )
     if event == "subtask_reused":
         source_run_id = str(record.get("source_run_id") or "")
-        return f"{prefix} reaproveitada do run {source_run_id[:8]}"
+        return t("commands.progress.reused", prefix=prefix, run_id=source_run_id[:8])
     if event == "worker_retry":
         retry = record.get("retry", record.get("attempt", 1))
         maximum = record.get("max_retries", record.get("max_attempts", retry))
         if record.get("reason") == "timeout":
-            return f"{prefix} timeout; retentativa {retry}/{maximum} em {tier}"
-        return f"{prefix} pane perdido; retentativa {retry}/{maximum} em {tier}"
+            return t(
+                "commands.progress.retry_timeout",
+                prefix=prefix,
+                retry=retry,
+                maximum=maximum,
+                tier=tier,
+            )
+        return t(
+            "commands.progress.retry_lost",
+            prefix=prefix,
+            retry=retry,
+            maximum=maximum,
+            tier=tier,
+        )
     if event == "worker_timeout":
         seconds = f"{float(record.get('seconds') or 0):g}"
         if record.get("kind") == "idle":
-            timeout = f"timeout por inatividade ({seconds} s)"
+            timeout = t("commands.progress.timeout_idle", seconds=seconds)
         else:
-            timeout = f"excedeu o teto de {seconds} s"
+            timeout = t("commands.progress.timeout_max", seconds=seconds)
         action = str(record.get("action") or "avaliando trabalho")
-        return f"{prefix} {timeout} em {tier}; {action}"
+        return t(
+            "commands.progress.timeout",
+            prefix=prefix,
+            timeout=timeout,
+            tier=tier,
+            action=action,
+        )
     if event == "quota_error":
         next_tier = record.get("next_tier") or record.get("next_via")
         suffix = f"; tentando {next_tier}" if next_tier else ""
-        return f"{prefix} cota esgotada em {tier}{suffix}"
+        return t("commands.progress.quota", prefix=prefix, tier=tier, suffix=suffix)
     if event in {"subtask_rejected", "worker_error", "gate_infrastructure_error"}:
-        return f"{prefix} FALHOU: {_short_reason(record)}"
+        return t("commands.progress.failed", prefix=prefix, reason=_short_reason(record))
     return None
 
 
@@ -123,8 +155,15 @@ def render_summary(
     failed = sum(1 for row in subtasks if row.get("status") == "FAILED")
     reused = sum(1 for was_reused, _ in reused_rows.values() if was_reused)
     lines = [
-        f"Resumo do run {run_id[:8]}: {total} tarefas | {completed} concluidas | "
-        f"{failed} falhou | {reused} reaproveitadas | tempo total {format_duration(elapsed_total)}"
+        t(
+            "commands.progress.summary",
+            run_id=run_id[:8],
+            total=total,
+            completed=completed,
+            failed=failed,
+            reused=reused,
+            duration=format_duration(elapsed_total),
+        )
     ]
 
     for row in subtasks:
@@ -132,13 +171,13 @@ def render_summary(
         status = str(row.get("status") or "PENDING")
         was_reused, source_run_id = reused_rows[step_id]
         if was_reused:
-            display_status = "reaproveitada"
+            display_status = t("commands.progress.status_reused")
             duration = "-"
         elif status == "COMPLETED":
-            display_status = "concluida"
+            display_status = t("commands.progress.status_completed")
             duration = format_duration(durations[step_id]) if step_id in durations else "-"
         elif status == "FAILED":
-            display_status = "FALHOU"
+            display_status = t("commands.progress.status_failed")
             duration = format_duration(durations[step_id]) if step_id in durations else "-"
         else:
             display_status = status.lower()
@@ -148,7 +187,9 @@ def render_summary(
         if was_reused and source_run_id:
             detail = f"  run {source_run_id[:8]}"
         elif status == "FAILED":
-            error = " ".join(str(row.get("error_message") or "erro desconhecido").split())
+            error = " ".join(
+                str(row.get("error_message") or t("commands.progress.unknown_error")).split()
+            )
             detail = f"  {error[:120]}"
         lines.append(f"  {step_id:<12} {display_status:<13} {tier:<14} {duration:>8}{detail}")
 
@@ -157,9 +198,9 @@ def render_summary(
     if not run_record:
         run_completed = total > 0 and completed + reused == total and failed == 0
     if run_completed:
-        lines.append("Concluido: a main foi atualizada.")
+        lines.append(t("commands.progress.completed_main"))
     else:
-        lines.append("Proximo passo: corrija a causa e rode o mesmo comando (ou --resume se editou o plano).")
+        lines.append(t("commands.progress.next_step"))
     return "\n".join(lines)
 
 
