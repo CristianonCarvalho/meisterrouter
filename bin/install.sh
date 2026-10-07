@@ -137,11 +137,20 @@ else
 
         if [ -d "${REPO_DIR}/.git" ]; then
             if [ "${INSTALL_VERSION}" = "main" ]; then
-                if ! git -C "${REPO_DIR}" checkout --quiet main; then
-                    echo "❌ [MeisterRouter] Erro: não foi possível selecionar main em ${REPO_DIR}." >&2
-                    exit 1
+                if git -C "${REPO_DIR}" show-ref --verify --quiet refs/heads/main; then
+                    if ! git -C "${REPO_DIR}" checkout --quiet main; then
+                        echo "❌ [MeisterRouter] Erro: não foi possível selecionar main em ${REPO_DIR}." >&2
+                        exit 1
+                    fi
+                    git -C "${REPO_DIR}" pull --quiet 2>/dev/null || true
+                else
+                    # clone raso de uma tag (--version vN.N.N) não tem a branch main: busca e cria
+                    if ! git -C "${REPO_DIR}" fetch --depth=1 origin "+refs/heads/main:refs/remotes/origin/main" \
+                        || ! git -C "${REPO_DIR}" checkout --quiet -b main origin/main; then
+                        echo "❌ [MeisterRouter] Erro: não foi possível voltar para main em ${REPO_DIR}." >&2
+                        exit 1
+                    fi
                 fi
-                git -C "${REPO_DIR}" pull --quiet 2>/dev/null || true
             else
                 if ! git -C "${REPO_DIR}" fetch --depth=1 origin "refs/tags/${INSTALL_VERSION}:refs/tags/${INSTALL_VERSION}"; then
                     echo "❌ [MeisterRouter] Erro: não foi possível buscar a tag ${INSTALL_VERSION}." >&2

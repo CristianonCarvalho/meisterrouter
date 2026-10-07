@@ -100,6 +100,12 @@ fi
 if [ "$1" = "-C" ] && [ "${FAIL_CHECKOUT:-0}" = "1" ] && [ "$3" = "checkout" ]; then
     exit 1
 fi
+if [ "$1" = "-C" ] && [ "$3" = "show-ref" ] && [ "${NO_LOCAL_MAIN:-0}" = "1" ]; then
+    exit 1
+fi
+if [ "$1" = "-C" ] && [ "$3" = "fetch" ] && [ "${FAIL_FETCH:-0}" = "1" ]; then
+    exit 1
+fi
 exit 0
 """,
         encoding="utf-8",
@@ -311,3 +317,41 @@ def test_install_script_help_and_invalid_version_exit_codes(tmp_path):
     assert invalid_result.returncode == 2
     assert "versão inválida" in invalid_result.stderr
     assert not git_log.exists()
+
+
+def _existing_clone(tmp_path):
+    repo = tmp_path / "home" / ".local/share/meisterrouter"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "setup.py").write_text("", encoding="utf-8")
+
+
+def test_default_main_on_existing_clone_with_local_main_checks_out_and_pulls(tmp_path):
+    bin_dir, git_log = _make_install_doubles(tmp_path)
+    _existing_clone(tmp_path)
+    result = _run_piped_install([], _install_env(tmp_path, bin_dir, git_log))
+    assert result.returncode == 0, result.stderr
+    calls = git_log.read_text(encoding="utf-8")
+    assert "checkout --quiet main" in calls
+    assert "pull --quiet" in calls
+    assert "checkout --quiet -b main" not in calls
+
+
+def test_default_main_on_tag_clone_without_local_main_fetches_and_creates_main(tmp_path):
+    """Voltar de uma tag para a main: o clone raso da tag não tem a branch main."""
+    bin_dir, git_log = _make_install_doubles(tmp_path)
+    _existing_clone(tmp_path)
+    result = _run_piped_install([], _install_env(tmp_path, bin_dir, git_log, NO_LOCAL_MAIN=1))
+    assert result.returncode == 0, result.stderr
+    calls = git_log.read_text(encoding="utf-8")
+    assert "fetch --depth=1 origin +refs/heads/main:refs/remotes/origin/main" in calls
+    assert "checkout --quiet -b main origin/main" in calls
+
+
+def test_returning_to_main_fails_clearly_when_fetch_fails(tmp_path):
+    bin_dir, git_log = _make_install_doubles(tmp_path)
+    _existing_clone(tmp_path)
+    result = _run_piped_install(
+        [], _install_env(tmp_path, bin_dir, git_log, NO_LOCAL_MAIN=1, FAIL_FETCH=1)
+    )
+    assert result.returncode == 1
+    assert "não foi possível voltar para main" in result.stderr
