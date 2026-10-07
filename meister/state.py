@@ -17,6 +17,7 @@ import time
 import sqlite3
 import hashlib
 import logging
+from meister.i18n import t
 from enum import Enum
 from datetime import datetime, timezone
 from contextlib import contextmanager
@@ -94,15 +95,15 @@ def task_fingerprint(step: Dict[str, Any], steps_by_id: Dict[str, Dict[str, Any]
         if step_id in cache:
             return cache[step_id]
         if step_id in visiting:
-            raise ValueError(f"Ciclo detectado nas dependências de {step_id!r}")
+            raise ValueError(t("engine.state.cycle", step_id=step_id))
         current = steps_by_id.get(step_id)
         if current is None:
-            raise ValueError(f"Dependência desconhecida: {step_id!r}")
+            raise ValueError(t("engine.state.unknown_dependency", step_id=step_id))
 
         visiting.add(step_id)
         dependencies = current.get("depends_on") or []
         if not isinstance(dependencies, list) or not all(isinstance(dep, str) for dep in dependencies):
-            raise ValueError(f"Dependências inválidas para {step_id!r}")
+            raise ValueError(t("engine.state.invalid_dependencies", step_id=step_id))
         dependency_fingerprints = [fingerprint(dep) for dep in sorted(dependencies)]
         visiting.remove(step_id)
 
@@ -119,7 +120,7 @@ def task_fingerprint(step: Dict[str, Any], steps_by_id: Dict[str, Dict[str, Any]
 
     requested_id = str(step.get("id") or step.get("step_id") or "")
     if requested_id not in steps_by_id:
-        raise ValueError(f"Tarefa desconhecida: {requested_id!r}")
+        raise ValueError(t("engine.state.unknown_task", task_id=requested_id))
     return fingerprint(requested_id)
 
 
@@ -344,7 +345,7 @@ class StateManager:
             cursor.execute("SELECT * FROM runs WHERE run_id = ?", (source_run_id,))
             row = cursor.fetchone()
             if row is None:
-                raise StateError(f"Run '{source_run_id}' não encontrado")
+                raise StateError(t("engine.state.run_missing", run_id=source_run_id))
             metadata = json.loads(row["metadata_json"] or "{}")
             metadata["superseded_by"] = replacement_run_id
             cursor.execute(
@@ -368,14 +369,19 @@ class StateManager:
             cursor.execute("SELECT * FROM runs WHERE run_id = ?", (run_id,))
             row = cursor.fetchone()
             if not row:
-                raise StateError(f"Run '{run_id}' não encontrado")
+                raise StateError(t("engine.state.run_missing", run_id=run_id))
 
             current_state = RunState(row["state"])
             if to_state_enum != current_state:
                 valid_next = VALID_RUN_TRANSITIONS.get(current_state, set())
                 if to_state_enum not in valid_next:
                     raise InvalidStateTransitionError(
-                        f"Transição inválida para Run '{run_id}': de {current_state.value} para {to_state_enum.value}"
+                        t(
+                            "engine.state.invalid_run_transition",
+                            run_id=run_id,
+                            current=current_state.value,
+                            target=to_state_enum.value,
+                        )
                     )
 
             now = utc_now_iso()
@@ -499,14 +505,19 @@ class StateManager:
             cursor.execute("SELECT * FROM subtasks WHERE subtask_id = ?", (subtask_id,))
             row = cursor.fetchone()
             if not row:
-                raise StateError(f"Subtask '{subtask_id}' não encontrada")
+                raise StateError(t("engine.state.subtask_missing", subtask_id=subtask_id))
 
             current_state = SubtaskState(row["status"])
             if to_state_enum != current_state:
                 valid_next = VALID_SUBTASK_TRANSITIONS.get(current_state, set())
                 if to_state_enum not in valid_next:
                     raise InvalidStateTransitionError(
-                        f"Transição inválida para Subtask '{subtask_id}': de {current_state.value} para {to_state_enum.value}"
+                        t(
+                            "engine.state.invalid_subtask_transition",
+                            subtask_id=subtask_id,
+                            current=current_state.value,
+                            target=to_state_enum.value,
+                        )
                     )
 
             now = utc_now_iso()
@@ -557,10 +568,14 @@ class StateManager:
             cursor.execute("SELECT * FROM subtasks WHERE subtask_id = ?", (subtask_id,))
             row = cursor.fetchone()
             if row is None:
-                raise StateError(f"Subtask '{subtask_id}' não encontrada")
+                raise StateError(t("engine.state.subtask_missing", subtask_id=subtask_id))
             if row["status"] != SubtaskState.PENDING.value:
                 raise InvalidStateTransitionError(
-                    f"Somente subtasks PENDING podem ser adotadas: '{subtask_id}' está {row['status']}"
+                    t(
+                        "engine.state.subtask_adoption_pending_only",
+                        subtask_id=subtask_id,
+                        status=row["status"],
+                    )
                 )
             result_json = json.dumps(
                 {"resumed_from": {"run_id": source_run_id, "subtask_id": source_subtask_id}},

@@ -8,6 +8,7 @@ from statistics import median
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from meister.dashboard.metrics import clip_title, compute_summary, event_type, list_runs
+from meister.i18n import t
 
 
 def _timestamp(value: Any) -> Optional[datetime]:
@@ -113,9 +114,9 @@ def compute_run_report(
             interval_union, peak_parallel_workers = _interval_metrics(intervals)
             worker_seconds_union = round(interval_union, 3)
         else:
-            notes.append("worker_phase sem timestamp: união e paralelismo não medidos")
+            notes.append(t("reports.note_worker_timestamp_missing"))
     else:
-        notes.append("run sem worker_phase (log anterior à E1): tempo por fase não medido")
+        notes.append(t("reports.note_legacy_run_phases_missing"))
 
     setup_durations = [
         _number(event.get("duration_ms"))
@@ -130,7 +131,7 @@ def compute_run_report(
         event_type(event) == "worktree_setup_ok" and not event.get("run_id")
         for event in all_events
     ):
-        notes.append("setup não ligável à tarefa/run: evento sem run_id ignorado")
+        notes.append(t("reports.note_setup_without_run"))
 
     started_at = run.get("started_at")
     ended_at = run.get("ended_at")
@@ -141,7 +142,7 @@ def compute_run_report(
     else:
         event_times = [instant for instant in (_event_time(event) for event in selected) if instant]
         finish_time = max(event_times) if event_times else None
-        notes.append("run sem orchestration_end: relógio medido até o último evento")
+        notes.append(t("reports.note_run_end_missing"))
     wall_seconds = (
         round(max(0.0, (finish_time - start_time).total_seconds()), 3)
         if start_time and finish_time else None
@@ -165,7 +166,7 @@ def compute_run_report(
         if len(tiers) > 1 and len({tier for tier in tiers if tier is not None}) > 1
     )
     rejections = Counter(
-        str(event.get("reason") or "não informado")
+        str(event.get("reason") or t("reports.not_reported"))
         for event in selected if event_type(event) == "subtask_rejected"
     )
     retries = sum(event_type(event) == "worker_retry" for event in selected)
@@ -257,9 +258,7 @@ def compute_run_report(
         row["cost_known_usd"] = round(sum(known_costs), 6) if known_costs else None
     for tier in sorted(credited_tiers):
         notes.append(
-            f"custo de {tier} calculado por créditos × US$ "
-            f"{credits_prices[tier]:g} (cobrança); "
-            "a estimativa de catálogo não foi usada"
+            t("reports.note_credit_cost", tier=tier, price=f"{credits_prices[tier]:g}")
         )
 
     return {
@@ -333,12 +332,12 @@ def compute_group_report(name: str, reports: List[Dict[str, Any]]) -> Dict[str, 
             "n_runs": len(reports),
             "n_measured": len(values),
         }
-    warnings = ["n=1: sem mediana confiável"] if len(reports) == 1 else []
+    warnings = [t("reports.single_run_median_warning")] if len(reports) == 1 else []
     return {"name": name, "n_runs": len(reports), "metrics": metrics, "notes": warnings}
 
 
 def render_report(data: Dict[str, Any], output_format: str) -> str:
-    """Render a report as stable JSON, Markdown, or aligned Portuguese text."""
+    """Render a report as stable JSON, Markdown, or aligned text."""
     if output_format == "json":
         return json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True)
 
@@ -347,7 +346,7 @@ def render_report(data: Dict[str, Any], output_format: str) -> str:
     if output_format == "markdown":
         lines = []
         if groups:
-            lines.extend(["## Grupos", "", "| Grupo | Métrica | Mediana | Mínimo | Máximo | n medidos / n |",
+            lines.extend([f"## {t('reports.groups')}", "", f"| {t('reports.group')} | {t('reports.metric')} | {t('reports.median')} | {t('reports.minimum')} | {t('reports.maximum')} | {t('reports.measured_runs')} |",
                           "|---|---|---:|---:|---:|---:|"])
             for group in groups:
                 for metric, values in group["metrics"].items():
@@ -356,11 +355,11 @@ def render_report(data: Dict[str, Any], output_format: str) -> str:
                         f"{values['max']} | {values['n_measured']} / {values['n_runs']} |"
                     )
                 for note in group["notes"]:
-                    lines.append(f"| {group['name']} | Aviso | {note} |  |  |  |")
+                    lines.append(f"| {group['name']} | {t('reports.warning')} | {note} |  |  |  |")
             lines.append("")
         if reports:
-            headers = ["Métrica"] + [str(report["run_id"]) for report in reports]
-            lines.extend(["## Runs", "", "| " + " | ".join(headers) + " |",
+            headers = [t("reports.metric")] + [str(report["run_id"]) for report in reports]
+            lines.extend([f"## {t('reports.runs')}", "", "| " + " | ".join(headers) + " |",
                           "|" + "|".join(["---"] * len(headers)) + "|"])
             for label, values in _run_rows(reports):
                 lines.append("| " + " | ".join([label, *values]) + " |")
@@ -368,27 +367,27 @@ def render_report(data: Dict[str, Any], output_format: str) -> str:
 
     lines = []
     if groups:
-        lines.extend(["Grupos:", "Grupo | Métrica | Mediana | Mínimo | Máximo | n medidos/n"])
+        lines.extend([f"{t('reports.groups')}:", f"{t('reports.group')} | {t('reports.metric')} | {t('reports.median')} | {t('reports.minimum')} | {t('reports.maximum')} | {t('reports.measured_runs_compact')}"])
         for group in groups:
             for metric, values in group["metrics"].items():
                 lines.append(
                     f"{group['name']} | {metric} | {values['median']} | {values['min']} | "
                     f"{values['max']} | {values['n_measured']}/{values['n_runs']}"
                 )
-            lines.extend(f"{group['name']} | Aviso: {note}" for note in group["notes"])
+            lines.extend(f"{group['name']} | {t('reports.warning')}: {note}" for note in group["notes"])
     if reports:
         rows = _run_rows(reports)
-        headers = ["Métrica", *[str(report["run_id"]) for report in reports]]
+        headers = [t("reports.metric"), *[str(report["run_id"]) for report in reports]]
         matrix = [headers] + [[label, *values] for label, values in rows]
         widths = [max(len(row[index]) for row in matrix) for index in range(len(headers))]
-        lines.extend(["Runs:", "  ".join(value.ljust(widths[i]) for i, value in enumerate(headers))])
+        lines.extend([f"{t('reports.runs')}:", "  ".join(value.ljust(widths[i]) for i, value in enumerate(headers))])
         lines.extend("  ".join(value.ljust(widths[i]) for i, value in enumerate(row)) for row in matrix[1:])
     return "\n".join(lines)
 
 
 def _money(value: Optional[float], unknown: int = 0) -> str:
     if value is None:
-        return "?" if unknown else "não medido"
+        return "?" if unknown else t("reports.not_measured")
     amount = f"US$ {value:.4f}"
     return f"{amount} + ?" if unknown else amount
 
@@ -399,46 +398,46 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
     def add(label: str, values: List[str]) -> None:
         rows.append((label, values))
 
-    add("Título", [_clip(report["title"]) or "não medido" for report in reports])
-    add("Status", [str(report["status"] or ("em andamento" if not report["ended"] else "não informado"))
+    add(t("reports.title"), [_clip(report["title"]) or t("reports.not_measured") for report in reports])
+    add(t("reports.status"), [str(report["status"] or (t("reports.in_progress") if not report["ended"] else t("reports.not_reported")))
                    for report in reports])
-    add("Tarefas (total/concluídas/falhas/reaproveitadas)", [
+    add(t("reports.tasks_total_completed_failed_reused"), [
         "{total}/{completed}/{failed}/{reused}".format(**report["tasks"]) for report in reports
     ])
-    add("Relógio (s)", [_display(report["wall_seconds"]) for report in reports])
-    add("Worker soma (s)", [_display(report["worker_seconds_sum"]) for report in reports])
-    add("Worker união (s)", [_display(report["worker_seconds_union"]) for report in reports])
+    add(t("reports.wall_clock_seconds"), [_display(report["wall_seconds"]) for report in reports])
+    add(t("reports.worker_sum_seconds"), [_display(report["worker_seconds_sum"]) for report in reports])
+    add(t("reports.worker_union_seconds"), [_display(report["worker_seconds_union"]) for report in reports])
     for phase in ("worker", "gate", "integrate", "lock_wait", "merge", "setup"):
-        add(f"Fase {phase} (s)", [_display(report["phase_seconds"][phase]) for report in reports])
-    add("Overhead", [_display_percent(report["overhead_ratio"]) for report in reports])
-    add("Pico workers", [_display(report["peak_parallel_workers"]) for report in reports])
+        add(t("reports.phase_seconds", phase=phase), [_display(report["phase_seconds"][phase]) for report in reports])
+    add(t("reports.overhead"), [_display_percent(report["overhead_ratio"]) for report in reports])
+    add(t("reports.peak_workers"), [_display(report["peak_parallel_workers"]) for report in reports])
     for key, label in (
-        ("spawns", "Spawns"), ("retries", "Retentativas"), ("escalations", "Escaladas"),
-        ("timeouts", "Timeouts"), ("quota_errors", "Erros de cota"), ("worker_errors", "Erros worker"),
+        ("spawns", t("reports.spawns")), ("retries", t("reports.retries")), ("escalations", t("reports.escalations")),
+        ("timeouts", t("reports.timeouts")), ("quota_errors", t("reports.quota_errors")), ("worker_errors", t("reports.worker_errors")),
     ):
         add(label, [str(report["attempts"][key]) for report in reports])
-    add("Rejeições por motivo", [
+    add(t("reports.rejections_by_reason"), [
         ", ".join(f"{reason}: {count}" for reason, count in report["attempts"]["rejections_by_reason"].items())
-        or "nenhuma" for report in reports
+        or t("reports.none") for report in reports
     ])
     add("Jev (chamadas classify/control)", [
         f"{report['jev']['classify_calls']}/{report['jev']['control_calls']}" for report in reports
     ])
-    add("Custo Jev", [_money(report["jev"]["cost_usd"]) for report in reports])
-    add("Latência média Jev (ms)", [_display(report["jev"]["avg_latency_ms"]) for report in reports])
+    add(t("reports.jev_cost"), [_money(report["jev"]["cost_usd"]) for report in reports])
+    add(t("reports.jev_average_latency_ms"), [_display(report["jev"]["avg_latency_ms"]) for report in reports])
     tiers = sorted({tier for report in reports for tier in report["by_tier"]})
     for tier in tiers:
-        add(f"{tier} tarefas concluídas", [
+        add(t("reports.tier_completed_tasks", tier=tier), [
             str(report["by_tier"].get(tier, {}).get("completed", 0)) for report in reports
         ])
         for metric, label in (
             ("tokens_in", "tokens in"), ("tokens_out", "tokens out"),
-            ("tokens_total", "tokens"), ("credits", "créditos"),
+            ("tokens_total", "tokens"), ("credits", t("reports.credits")),
         ):
             add(f"{tier} {label}", [
                 _display(report["by_tier"].get(tier, {}).get(metric)) for report in reports
             ])
-        add(f"{tier} créditos (US$)", [
+        add(t("reports.tier_credits_usd", tier=tier), [
             _money(report["by_tier"].get(tier, {}).get("credits_usd"))
             for report in reports
         ])
@@ -451,10 +450,10 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
         ] if all(tier in report["by_tier"] for report in reports) else [
             _tier_cost_cell(report, tier) for report in reports
         ])
-        add(f"{tier} eventos custo desconhecido", [
+        add(t("reports.tier_unknown_cost_events", tier=tier), [
             str(report["by_tier"].get(tier, {}).get("events_unknown", 0)) for report in reports
         ])
-        add(f"{tier} aproximado", [
+        add(t("reports.tier_approximate", tier=tier), [
             "~" if report["by_tier"].get(tier, {}).get("approx") else "" for report in reports
         ])
     return rows
@@ -463,19 +462,19 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
 def _tier_cost_cell(report: Dict[str, Any], tier: str) -> str:
     row = report["by_tier"].get(tier)
     if row is None:
-        return "não medido"
+        return t("reports.not_measured")
     return _money(row["cost_known_usd"], row["events_unknown"])
 
 
 def _clip(text: Any, size: int = 48) -> str:
-    """Título curto para a tabela (o JSON mantém o título inteiro)."""
+    """Short table title (JSON keeps the full title)."""
     text = str(text or "")
     return text if len(text) <= size else text[: size - 1] + "…"
 
 
 def _display(value: Any) -> str:
-    return "não medido" if value is None else str(value)
+    return t("reports.not_measured") if value is None else str(value)
 
 
 def _display_percent(value: Optional[float]) -> str:
-    return "não medido" if value is None else f"{value:.1%}"
+    return t("reports.not_measured") if value is None else f"{value:.1%}"

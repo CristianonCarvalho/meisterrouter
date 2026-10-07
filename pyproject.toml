@@ -39,6 +39,9 @@ meister = "meister.cli:main"
 [tool.setuptools.dynamic]
 version = {attr = "meister.__version__"}
 
+[tool.setuptools.package-data]
+meister = ["default_config.yaml", "templates/*/*.template"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

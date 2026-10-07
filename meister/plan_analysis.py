@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
+from meister.i18n import t
 
 
 def _normalized_files(task: Dict[str, Any]) -> Set[str]:
@@ -152,18 +153,29 @@ def analyze_plan(tasks: Sequence[Dict[str, Any]], max_workers: int) -> Dict[str,
 
     warnings: List[str] = []
     if task_count >= 3 and batch_count == task_count:
-        warning = f"plano totalmente serial ({task_count} tarefas em {batch_count} lotes)"
+        warning = t(
+            "commands.plan.serial_warning",
+            tasks=task_count,
+            batches=batch_count,
+        )
         if by_file_estimate["rounds"] < rounds:
-            warning += f"; a análise por arquivo daria {by_file_estimate['rounds']} passos"
+            warning += t(
+                "commands.plan.file_estimate_warning",
+                rounds=by_file_estimate["rounds"],
+            )
         warnings.append(warning)
     if unscoped_tasks:
         warnings.append(
-            "tarefas sem target_files rodam isoladas: " + ", ".join(unscoped_tasks)
+            t("commands.plan.unscoped_warning", tasks=", ".join(unscoped_tasks))
         )
     for item in hot_files:
         if len(item["tasks"]) >= 3:
             warnings.append(
-                f"arquivo quente {item['file']} declarado por {len(item['tasks'])} tarefas"
+                t(
+                    "commands.plan.hot_file_warning",
+                    file=item["file"],
+                    count=len(item["tasks"]),
+                )
             )
 
     return {
@@ -190,7 +202,11 @@ def serial_plan_warning(tasks: Sequence[Dict[str, Any]]) -> Optional[str]:
             return None
         batches = build_subtask_dag(tasks).get_execution_batches()
         if len(batches) == len(tasks):
-            return f"plano totalmente serial ({len(tasks)} tarefas em {len(batches)} lotes)"
+            return t(
+                "commands.plan.serial_warning",
+                tasks=len(tasks),
+                batches=len(batches),
+            )
     except Exception:
         return None
     return None
@@ -199,58 +215,77 @@ def serial_plan_warning(tasks: Sequence[Dict[str, Any]]) -> Optional[str]:
 def format_analysis_table(analysis: Dict[str, Any], max_workers: int) -> str:
     """Render an analysis as a plain-text Portuguese report."""
     lines = [
-        "Análise do plano",
+        t("commands.plan.title"),
         (
-            f"Tarefas: {analysis['tasks']} | Lotes: {analysis['batch_count']} | "
-            f"Largura máxima: {analysis['max_width']}"
+            t(
+                "commands.plan.metrics",
+                tasks=analysis["tasks"],
+                batches=analysis["batch_count"],
+                width=analysis["max_width"],
+            )
         ),
-        f"Passos sequenciais (até {max_workers} workers): {analysis['rounds']}",
+        t("commands.plan.rounds", workers=max_workers, rounds=analysis["rounds"]),
         f"Serial ratio: {analysis['serial_ratio']:.2f}",
-        "Lotes:",
+        t("commands.plan.batches"),
     ]
     if analysis["batches"]:
         lines.extend(
-            f"  Lote {index}: {', '.join(batch)}"
+            t("commands.plan.batch", index=index, tasks=", ".join(batch))
             for index, batch in enumerate(analysis["batches"], start=1)
         )
     else:
-        lines.append("  (nenhum)")
+        lines.append(t("commands.plan.none"))
 
     path = analysis["critical_path"]
     lines.extend(
         [
-            f"Caminho crítico ({path['length']} tarefas): "
-            + (" → ".join(path["tasks"]) if path["tasks"] else "(nenhum)"),
-            "Por que não paralelo:",
+            t(
+                "commands.plan.critical_path",
+                length=path["length"],
+                tasks=" → ".join(path["tasks"]) if path["tasks"] else "(nenhum)",
+            ),
+            t("commands.plan.why_not_parallel"),
         ]
     )
     if not analysis["why_not_parallel"]:
-        lines.append("  (nenhum)")
+        lines.append(t("commands.plan.none"))
     for item in analysis["why_not_parallel"]:
-        detail = f"{item['kind']}: {', '.join(item['with']) or '(nenhum)'}"
+        detail = t(
+            "commands.plan.reason",
+            kind=item["kind"],
+            tasks=", ".join(item["with"]) or "(nenhum)",
+        )
         if item["kind"] == "file_conflict":
-            detail += f" (arquivos: {', '.join(item['files'])})"
+            detail = t(
+                "commands.plan.file_conflict",
+                kind=item["kind"],
+                tasks=", ".join(item["with"]) or "(nenhum)",
+                files=", ".join(item["files"]),
+            )
         lines.append(f"  {item['task']}: {detail}")
 
-    lines.append("Arquivos quentes:")
+    lines.append(t("commands.plan.hot_files"))
     if analysis["hot_files"]:
         lines.extend(
             f"  {item['file']}: {', '.join(item['tasks'])}"
             for item in analysis["hot_files"]
         )
     else:
-        lines.append("  (nenhum)")
+        lines.append(t("commands.plan.none"))
 
-    lines.append("Tarefas sem escopo:")
-    lines.append("  " + (", ".join(analysis["unscoped_tasks"]) or "(nenhuma)"))
+    lines.append(t("commands.plan.unscoped_tasks"))
+    lines.append("  " + (", ".join(analysis["unscoped_tasks"]) or t("commands.plan.none_feminine").strip()))
     estimate = analysis["by_file_estimate"]
     lines.append(
-        "Estimativa por arquivo (ignora dependência semântica): "
-        f"{estimate['batch_count']} lotes; {estimate['rounds']} passos"
+        t(
+            "commands.plan.file_estimate",
+            batches=estimate["batch_count"],
+            rounds=estimate["rounds"],
+        )
     )
-    lines.append("Avisos:")
+    lines.append(t("commands.plan.warnings"))
     if analysis["warnings"]:
         lines.extend(f"  - {warning}" for warning in analysis["warnings"])
     else:
-        lines.append("  (nenhum)")
+        lines.append(t("commands.plan.none"))
     return "\n".join(lines)

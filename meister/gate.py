@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from meister.config import MeisterConfig, load_config
 from meister.env_setup import prepare_environment
 from meister.jev import control_cycle
+from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ class DeterministicGate:
             python = configured if os.path.isabs(configured) else os.path.join(self.repo_path, configured)
             python = os.path.abspath(python)
             if not os.path.isfile(python) or not os.access(python, os.X_OK):
-                raise FileNotFoundError(f"gate.python não encontrado: {python}")
+                raise FileNotFoundError(t("engine.gate.python_missing", path=python))
             return python, None
 
         bin_dir = "Scripts" if os.name == "nt" else "bin"
@@ -87,10 +88,7 @@ class DeterministicGate:
                 return python, None
 
         python = sys.executable
-        warning = (
-            f"[AVISO] usando o Python do Meister ({python}); "
-            "crie .venv na raiz do projeto ou defina gate.python"
-        )
+        warning = t("engine.gate.worker_python_fallback", path=python)
         return python, warning
 
     def _project_python_bin(self, python: str) -> Optional[str]:
@@ -350,7 +348,7 @@ class DeterministicGate:
         if docs_only:
             return VerificationResult(
                 False,
-                "gate.docs_only.commands está vazio; configure comandos para o gate leve.",
+                t("engine.gate.docs_commands_empty"),
             )
 
         runner = self.detect_test_runner(path)
@@ -381,13 +379,12 @@ class DeterministicGate:
             if self.config.gate.allow_unverified:
                 return VerificationResult(
                     True,
-                    install_prefix + "[UNVERIFIED] nenhuma verificação configurada ou detectada",
+                    install_prefix + t("engine.gate.unverified"),
                 )
             return VerificationResult(
                 False,
                 install_prefix
-                + "Nenhum teste ou linter detectado. Configure gate.commands no meister.config.yaml "
-                "(ou gate.allow_unverified: true).",
+                +                 t("engine.gate.no_checks"),
             )
 
         python: Optional[str] = None
@@ -397,7 +394,7 @@ class DeterministicGate:
                 python, python_warning = self._resolve_python()
             except OSError as exc:
                 return VerificationResult(
-                    False, f"[PYTHON] executável indisponível: {exc}", infrastructure_error=True
+                    False, t("engine.gate.python_unavailable", error=exc), infrastructure_error=True
                 )
 
         outputs: List[str] = [install_prefix.rstrip()] if install_prefix else []
@@ -418,7 +415,7 @@ class DeterministicGate:
             elif linter == "eslint":
                 cmd = [os.path.join(local_bin, "eslint"), "."]
                 if not os.path.isfile(cmd[0]):
-                    message = f"[SKIPPED ESLINT] binário local não encontrado: {cmd[0]}"
+                    message = t("engine.gate.eslint_skipped", path=cmd[0])
                     outputs.append(message)
                     skipped.append(message)
                     continue
@@ -445,7 +442,7 @@ class DeterministicGate:
                 )
             except OSError as exc:
                 return VerificationResult(
-                    False, f"[{linter.upper()}] executável indisponível: {exc}",
+                    False, t("engine.gate.runner_unavailable", runner=linter.upper(), error=exc),
                     infrastructure_error=True, skipped=skipped
                 )
 
@@ -456,7 +453,7 @@ class DeterministicGate:
             elif runner == "vitest":
                 cmd = [os.path.join(local_bin, "vitest"), "run"]
                 if not os.path.isfile(cmd[0]):
-                    message = f"[SKIPPED VITEST] binário local não encontrado: {cmd[0]}"
+                    message = t("engine.gate.vitest_skipped", path=cmd[0])
                     outputs.append(message)
                     skipped.append(message)
                     cmd = []
@@ -487,7 +484,7 @@ class DeterministicGate:
                             and proc.returncode == 5
                             and not self._has_python_test_files(path)
                         ):
-                            message = "[SKIPPED PYTEST] nenhum teste coletado"
+                            message = t("engine.gate.pytest_skipped")
                             outputs.append(message)
                             skipped.append(message)
                         else:
@@ -498,7 +495,7 @@ class DeterministicGate:
                     )
                 except OSError as exc:
                     return VerificationResult(
-                        False, f"[{runner}] executável indisponível: {exc}",
+                        False, t("engine.gate.runner_unavailable", runner=runner, error=exc),
                         infrastructure_error=True, skipped=skipped
                     )
 
@@ -521,7 +518,7 @@ class DeterministicGate:
         except OSError as exc:
             return VerificationResult(
                 False,
-                f"[PYTHON] executável indisponível: {exc}",
+                t("engine.gate.python_unavailable", error=exc),
                 infrastructure_error=True,
                 skipped=skipped,
             )
@@ -571,7 +568,7 @@ class DeterministicGate:
                 outputs.append(detail)
                 return VerificationResult(False, "\n".join(outputs), infrastructure_error=True, skipped=skipped)
             except OSError as exc:
-                detail = f"[{command.name}] executável indisponível: {exc}"
+                detail = t("engine.gate.runner_unavailable", runner=command.name, error=exc)
                 outputs.append(detail)
                 return VerificationResult(False, "\n".join(outputs), infrastructure_error=True, skipped=skipped)
             combined = ((proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")).strip()
@@ -579,12 +576,20 @@ class DeterministicGate:
             if proc.returncode in command.ok_exit_codes:
                 if proc.returncode != 0:
                     outputs.append(
-                        f"[NOTE {command.name}] rc={proc.returncode} aceito por ok_exit_codes"
+                        t(
+                            "engine.gate.accepted_exit_code",
+                            name=command.name,
+                            code=proc.returncode,
+                        )
                     )
             elif command.required:
                 return VerificationResult(False, "\n".join(outputs), skipped=skipped)
             else:
-                warning = f"[WARN {command.name}] comando opcional falhou (rc={proc.returncode})"
+                warning = t(
+                    "engine.gate.optional_command_failed",
+                    name=command.name,
+                    code=proc.returncode,
+                )
                 outputs.append(warning)
                 skipped.append(warning)
         return VerificationResult(True, "\n".join(outputs), skipped=skipped)
@@ -616,7 +621,7 @@ class DeterministicGate:
             model=model,
         )
         if not test_passed and res.get("action") == "COMPLETE":
-            logger.warning("Jev returned COMPLETE with failing tests. Overriding to RETRY via deterministic gate.")
+            logger.warning(t("engine.gate.jev_override"))
             res["action"] = "RETRY"
             res["override_reason"] = "Hard deterministic gate: test_passed is False"
         return res

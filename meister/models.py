@@ -3,6 +3,7 @@
 import logging
 from typing import Optional
 
+from meister.i18n import t
 from meister.config import MeisterConfig, load_config
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def estimate_cost(
     config = config or load_config()
     key = model_key.casefold().strip()
     if not key:
-        logger.debug("Não há chave de via para estimar o custo")
+        logger.debug(t("misc.models.no_lane_key"))
         return 0.0
 
     tiers = [*config.workers.tier_order, *config.workers.disabled]

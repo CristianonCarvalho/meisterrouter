@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, tzinfo
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from meister.i18n import t
 from meister.timeline import TaskRow, Timeline
 
 MIN_WIDTH = 80
@@ -48,13 +49,16 @@ VIA_COLORS: Tuple[RGB, ...] = (
     (240, 120, 180),
 )
 GLYPHS = {"worker": "█", "gate": "▓", "integrate": "▒", "lock_wait": "░", "wait": "·"}
-PHASE_LABEL = {
-    "worker": "worker",
-    "gate": "gate",
-    "integrate": "integração",
-    "lock_wait": "fila",
-    "wait": "espera",
+PHASE_LABEL_KEYS = {
+    "integrate": "reports.timeline.phase_integrate",
+    "lock_wait": "reports.timeline.phase_lock_wait",
+    "wait": "reports.timeline.phase_wait",
 }
+
+
+def _phase_label(phase: str) -> str:
+    key = PHASE_LABEL_KEYS.get(phase)
+    return t(key) if key else phase
 
 
 def strip_ansi(text: str) -> str:
@@ -165,7 +169,7 @@ def _stalled_duration_text(seconds: float) -> str:
     total = max(0, int(seconds))
     days, remainder = divmod(total, 86400)
     if days:
-        return f"{days} {'dia' if days == 1 else 'dias'}"
+        return t("reports.timeline.day" if days == 1 else "reports.timeline.days", count=days)
     hours, remainder = divmod(remainder, 3600)
     minutes, seconds_left = divmod(remainder, 60)
     if hours:
@@ -285,9 +289,9 @@ def _info_pieces(
             ),
         ]
     elif row.status == "reused":
-        pieces = [("↺ reaproveitada", PALETTE["dim"], False)]
+        pieces = [(t("reports.timeline.reused"), PALETTE["dim"], False)]
     elif row.status == "failed":
-        pieces = [(f"✖ {row.failure or 'falhou'}", PALETTE["fail"], True)]
+        pieces = [(f"✖ {row.failure or t('reports.timeline.failed')}", PALETTE["fail"], True)]
     elif row.status == "stalled":
         elapsed = (
             max(0.0, (now - timeline.stalled_since).total_seconds())
@@ -295,18 +299,18 @@ def _info_pieces(
             else 0.0
         )
         pieces = [
-            (f"⚠ sem sinal há {_stalled_duration_text(elapsed)}", PALETTE["stalled"], True)
+            (t("reports.timeline.stalled_for", duration=_stalled_duration_text(elapsed)), PALETTE["stalled"], True)
         ]
     elif row.status == "running":
         phase = row.segments[-1].phase if row.segments else "worker"
         pieces = [
             ("▶ ", PALETTE["live"], False),
-            (PHASE_LABEL.get(phase, phase), PALETTE.get(phase, PALETTE["text"]), False),
+            (_phase_label(phase), PALETTE.get(phase, PALETTE["text"]), False),
         ]
     else:
         done = {item.task_id for item in timeline.rows if item.status in ("completed", "reused")}
         waiting_on = [dependency for dependency in row.depends_on if dependency not in done]
-        text = "… aguardando " + ", ".join(waiting_on) if waiting_on else "… na fila"
+        text = t("reports.timeline.waiting_on", dependencies=", ".join(waiting_on)) if waiting_on else t("reports.timeline.queued")
         pieces = [(text, PALETTE["dim"], False)]
     if retry:
         pieces.append((retry, PALETTE["retry"], True))
@@ -325,20 +329,20 @@ def _info_pieces(
 
 def _badge(timeline: Timeline, view: View, tick: int) -> Tuple[str, RGB, bool]:
     if view.paused:
-        return "⏸ PAUSADO", PALETTE["paused"], True
+        return t("reports.timeline.paused"), PALETTE["paused"], True
     if timeline.status == "running":
-        return "▶ AO VIVO", PALETTE["live"], tick % 2 == 0
+        return t("reports.timeline.live"), PALETTE["live"], tick % 2 == 0
     if timeline.status == "stalled":
-        return "⚠ SEM SINAL", PALETTE["stalled"], True
+        return t("reports.timeline.no_signal"), PALETTE["stalled"], True
     if not view.live:
         return "⏸ REPLAY", PALETTE["replay"], True
     if timeline.status == "completed":
-        return "✔ CONCLUÍDO", PALETTE["done"], True
-    return "✖ FALHOU", PALETTE["fail"], True
+        return t("reports.timeline.completed"), PALETTE["done"], True
+    return t("reports.timeline.failed_upper"), PALETTE["fail"], True
 
 
 def _clock(moment: Optional[datetime], tz: Optional[tzinfo]) -> str:
-    return moment.astimezone(tz).strftime("%H:%M:%S") if moment else "agora"
+    return moment.astimezone(tz).strftime("%H:%M:%S") if moment else t("reports.timeline.now")
 
 
 def render_waiting(message: str, *, width: int, color: str = "none") -> str:
@@ -421,7 +425,7 @@ def _render_jev_line(
                 cells[index] = "━"
         cells[last] = "◆"
 
-    # o custo vai no rótulo (a coluna de info é estreita e cortaria o valor)
+    # Keep cost in the label because the info column is too narrow.
     label = _fit(f"jev · US$ {timeline.jev.cost_usd:.4f}", LABEL_W)
     info = f"{timeline.jev.classify_count} classify · {timeline.jev.control_count} control"
     pieces: List[Piece] = [(label, JEV, False), (" ", None, False)]
@@ -448,7 +452,7 @@ def render_frame(
     interactive: bool = True,
 ) -> str:
     if width < MIN_WIDTH:
-        return f"Terminal estreito: use pelo menos {MIN_WIDTH} colunas (atual: {width})."
+        return t("reports.timeline.narrow_terminal", minimum=MIN_WIDTH, width=width)
     view = view or View()
     painter = Painter(color)
     via_index = via_index or {}
@@ -491,19 +495,18 @@ def render_frame(
     progress.append(("░" * (PROGRESS_W - done_cells), dim, False))
     cost = f"US$ {summary.cost_usd:.4f}" if summary.cost_usd is not None else "US$ ?"
     summary_pieces: List[Piece] = [
-        (" Concluídas ", dim, False),
+        (f" {t('reports.timeline.completed_plural')} ", dim, False),
         *progress,
         (f" {summary.completed}/{summary.total}", text_color, True),
         (
-            f"   Rodando {summary.running} (pico {summary.peak_parallel} · "
-            f"média {summary.avg_parallel:.1f})",
+            t("reports.timeline.running_summary", running=summary.running, peak=summary.peak_parallel, average=f"{summary.avg_parallel:.1f}"),
             text_color,
             False,
         ),
-        (f"   Falhas {summary.failed}", PALETTE["fail"] if summary.failed else dim, False),
+        (t("reports.timeline.failures", count=summary.failed), PALETTE["fail"] if summary.failed else dim, False),
     ]
     if summary.stalled:
-        summary_pieces.append((f"   Sem sinal {summary.stalled}", PALETTE["stalled"], False))
+        summary_pieces.append((t("reports.timeline.no_signal_count", count=summary.stalled), PALETTE["stalled"], False))
     summary_pieces.append((f"   {cost}", text_color, False))
     lines.append(painter.line(summary_pieces, width))
     lines.append(painter.paint("─" * width, dim))
@@ -562,15 +565,15 @@ def render_frame(
     for phase in ("worker", "gate", "integrate", "lock_wait", "wait"):
         legend += [
             (GLYPHS[phase], PALETTE[phase], False),
-            (f" {PHASE_LABEL[phase]}  ", dim, False),
+            (f" {_phase_label(phase)}  ", dim, False),
         ]
     if hidden:
-        legend.append((f"  ↓ {hidden} mais (↑/↓)", PALETTE["retry"], False))
+        legend.append((t("reports.timeline.hidden_rows", count=hidden), PALETTE["retry"], False))
     lines.append(painter.line([(" ", None, False), *legend], width))
     keys = (
-        " [ ] run   l ao vivo   p pausa   +/- zoom   ←/→ tempo   ↑/↓ linhas   ? ajuda   q sair"
+        t("reports.timeline.frame_controls")
         if interactive
-        else f" Gerado às {_clock(now, tz)} · use `meister timeline` para o modo interativo"
+        else t("reports.timeline.generated", time=_clock(now, tz))
     )
     lines.append(painter.line([(keys, dim, False)], width))
     return "\n".join(lines[: max(0, height)])
@@ -578,10 +581,10 @@ def render_frame(
 
 def _all_badge(timelines: Sequence[Timeline], view: View, tick: int) -> Tuple[str, RGB, bool]:
     if view.paused:
-        return "⏸ PAUSADO", PALETTE["paused"], True
+        return t("reports.timeline.paused"), PALETTE["paused"], True
     if any(timeline.status == "running" for timeline in timelines):
-        return "▶ AO VIVO", PALETTE["live"], tick % 2 == 0
-    return "≡ VISÃO GERAL", PALETTE["replay"], True
+        return t("reports.timeline.live"), PALETTE["live"], tick % 2 == 0
+    return t("reports.timeline.overview"), PALETTE["replay"], True
 
 
 def _run_duration(timeline: Timeline, now: datetime) -> str:
@@ -610,7 +613,7 @@ def render_all(
     interactive: bool = True,
 ) -> str:
     if width < MIN_WIDTH:
-        return f"Terminal estreito: use pelo menos {MIN_WIDTH} colunas (atual: {width})."
+        return t("reports.timeline.narrow_terminal", minimum=MIN_WIDTH, width=width)
     view = view or View()
     painter = Painter(color)
     via_index = via_index or {}
@@ -624,14 +627,14 @@ def render_all(
     known_costs = [item.cost_usd for item in summary if item.cost_usd is not None]
     cost = f"US$ {sum(known_costs):.4f}" if known_costs else "US$ ?"
     badge, badge_color, badge_bold = _all_badge(timelines, view, tick)
-    left = _fit(f"  MEISTER  {project}   todos os runs ({len(timelines)})", width - len(badge) - 1)
+    left = _fit(t("reports.timeline.all_runs", project=project, count=len(timelines)), width - len(badge) - 1)
     summary_pieces: List[Piece] = [
-        (f" Concluídas {completed}/{total}", text_color, True),
-        (f"   Rodando {running}", PALETTE["live"] if running else dim, False),
-        (f"   Falhas {failed}", PALETTE["fail"] if failed else dim, False),
+        (t("reports.timeline.completed_count", completed=completed, total=total), text_color, True),
+        (t("reports.timeline.running_count", count=running), PALETTE["live"] if running else dim, False),
+        (t("reports.timeline.failures", count=failed), PALETTE["fail"] if failed else dim, False),
     ]
     if stalled:
-        summary_pieces.append((f"   Sem sinal {stalled}", PALETTE["stalled"], False))
+        summary_pieces.append((t("reports.timeline.no_signal_count", count=stalled), PALETTE["stalled"], False))
     summary_pieces.append((f"   {cost}", text_color, False))
     lines = [
         painter.line(
@@ -652,15 +655,15 @@ def render_all(
         span = max((now_eff - t0).total_seconds(), 1.0)
         bar_width = max(1, width - LABEL_W - INFO_W - 2)
         run_badge = (
-            ("▶ AO VIVO", PALETTE["live"], tick % 2 == 0)
+            (t("reports.timeline.live"), PALETTE["live"], tick % 2 == 0)
             if timeline.status == "running"
             else (
-                ("⚠ SEM SINAL", PALETTE["stalled"], True)
+                (t("reports.timeline.no_signal"), PALETTE["stalled"], True)
                 if timeline.status == "stalled"
                 else (
-                    ("✔ CONCLUÍDO", PALETTE["done"], True)
+                    (t("reports.timeline.completed"), PALETTE["done"], True)
                     if timeline.status == "completed"
-                    else ("✖ FALHOU", PALETTE["fail"], True)
+                    else (t("reports.timeline.failed_upper"), PALETTE["fail"], True)
                 )
             )
         )
@@ -682,7 +685,7 @@ def render_all(
                 else 0.0
             )
             details = (
-                f"{status} · último evento há {_stalled_duration_text(elapsed)}  "
+                t("reports.timeline.last_event_ago", status=status, duration=_stalled_duration_text(elapsed)) + "  "
                 f"{timeline.summary.completed}/{timeline.summary.total}  {run_cost}"
             )
         else:
@@ -756,18 +759,17 @@ def render_all(
     for phase in ("worker", "gate", "integrate", "lock_wait", "wait"):
         legend += [
             (GLYPHS[phase], PALETTE[phase], False),
-            (f" {PHASE_LABEL[phase]}  ", dim, False),
+            (f" {_phase_label(phase)}  ", dim, False),
         ]
     if hidden_above or hidden_below:
         legend.append(
-            (f"  ↑ {hidden_above} acima ↓ {hidden_below} abaixo", PALETTE["retry"], False)
+            (t("reports.timeline.hidden_runs", above=hidden_above, below=hidden_below), PALETTE["retry"], False)
         )
     lines.append(painter.line(legend, width))
     keys = (
-        " a run selecionado   [ / ] sair e navegar   l ao vivo   p pausa   "
-        "zoom e tempo: só em um run   ↑/↓ rolar   ? ajuda   q sair"
+        t("reports.timeline.all_controls")
         if interactive
-        else f" Gerado às {_clock(now, tz)} · use `meister timeline` para o modo interativo"
+        else t("reports.timeline.generated", time=_clock(now, tz))
     )
     lines.append(painter.line([(keys, dim, False)], width))
     return "\n".join(lines[:height])

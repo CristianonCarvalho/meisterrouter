@@ -52,7 +52,7 @@ class ConfigIssue:
 
 
 def ensure_meister_dir(root_or_cwd: str) -> str:
-    """Garante que o diretório .meister existe com .gitignore contendo '*' para nunca poluir o git (Achado #4, E2E-4)."""
+    """Ensure .meister exists with a .gitignore containing '*' so git stays clean (Finding #4, E2E-4)."""
     m_dir = os.path.join(root_or_cwd, ".meister")
     os.makedirs(m_dir, exist_ok=True)
     gi = os.path.join(m_dir, ".gitignore")
@@ -223,7 +223,7 @@ class MeisterConfig:
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     gate: GateConfig = field(default_factory=GateConfig)
-    config_source: str = "padrao (meister/default_config.yaml)"
+    config_source: str = field(default_factory=lambda: t("reports.config.default_source"))
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
 
 
@@ -248,12 +248,12 @@ def _parse_gate_commands(
 ) -> List[GateCommand]:
     commands: List[GateCommand] = []
     if not isinstance(raw_commands, list):
-        parse_issues.append(ConfigIssue("error", path_prefix, "deve ser uma lista"))
+        parse_issues.append(ConfigIssue("error", path_prefix, t("reports.config.expected_list")))
         return commands
     for index, item in enumerate(raw_commands):
         prefix = f"{path_prefix}[{index}]"
         if not isinstance(item, dict):
-            parse_issues.append(ConfigIssue("error", prefix, "deve ser um objeto"))
+            parse_issues.append(ConfigIssue("error", prefix, t("reports.config.expected_object")))
             continue
         name = item.get("name")
         run = item.get("run")
@@ -262,13 +262,13 @@ def _parse_gate_commands(
         ok_exit_codes = item.get("ok_exit_codes", [0])
         valid = True
         if not isinstance(name, str) or not name.strip():
-            parse_issues.append(ConfigIssue("error", f"{prefix}.name", "nome não pode ser vazio"))
+            parse_issues.append(ConfigIssue("error", f"{prefix}.name", t("reports.config.name_required")))
             valid = False
         if not (
             isinstance(run, str) and bool(run.strip())
             or isinstance(run, list) and bool(run) and all(isinstance(arg, str) and bool(arg) for arg in run)
         ):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.run", "deve ser string ou lista de strings não vazia"))
+            parse_issues.append(ConfigIssue("error", f"{prefix}.run", t("reports.config.run_required")))
             valid = False
         if (
             isinstance(timeout, bool)
@@ -276,11 +276,11 @@ def _parse_gate_commands(
             or not math.isfinite(timeout)
             or timeout <= 0
         ):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.timeout_seconds", "deve ser número > 0"))
+            parse_issues.append(ConfigIssue("error", f"{prefix}.timeout_seconds", t("reports.config.positive_number")))
             timeout = 300
             valid = False
         if not isinstance(required, bool):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.required", "deve ser booleano"))
+            parse_issues.append(ConfigIssue("error", f"{prefix}.required", t("reports.config.expected_boolean")))
             required = True
             valid = False
         if (
@@ -292,7 +292,7 @@ def _parse_gate_commands(
                 ConfigIssue(
                     "error",
                     f"{prefix}.ok_exit_codes",
-                    "deve ser uma lista não vazia de inteiros (booleanos não são aceitos)",
+                    t("reports.config.exit_codes_required"),
                 )
             )
             ok_exit_codes = [0]
@@ -309,7 +309,7 @@ def _parse_gate_commands(
     for index, name in enumerate(names):
         if name in names[:index]:
             parse_issues.append(
-                ConfigIssue("error", f"{path_prefix}[{index}].name", f"nome repetido: {name!r}")
+                ConfigIssue("error", f"{path_prefix}[{index}].name", t("reports.config.duplicate_name", name=repr(name)))
             )
     return commands
 
@@ -367,7 +367,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                 ConfigIssue(
                     level="error",
                     path=path,
-                    message=f"Campo '{key}' tem tipo inválido: {value!r}",
+                    message=t("reports.config.invalid_field_type", field=key, value=repr(value)),
                 )
             )
             return default_router[key]
@@ -387,13 +387,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     retry_data = data.get("retry", {})
     if not isinstance(retry_data, dict):
-        parse_issues.append(ConfigIssue("error", "retry", "retry deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "retry", t("reports.config.retry_object")))
         retry_data = {}
     retry_defaults = _default_section("retry")
     pane_lost_attempts = retry_data.get("pane_lost_attempts", retry_defaults["pane_lost_attempts"])
     if isinstance(pane_lost_attempts, bool) or not isinstance(pane_lost_attempts, int):
         parse_issues.append(
-            ConfigIssue("error", "retry.pane_lost_attempts", "deve ser um inteiro >= 0")
+            ConfigIssue("error", "retry.pane_lost_attempts", t("reports.config.nonnegative_integer"))
         )
         pane_lost_attempts = retry_defaults["pane_lost_attempts"]
     pane_lost_backoff = retry_data.get(
@@ -405,7 +405,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         or not math.isfinite(pane_lost_backoff)
     ):
         parse_issues.append(
-            ConfigIssue("error", "retry.pane_lost_backoff_seconds", "deve ser número >= 0")
+            ConfigIssue("error", "retry.pane_lost_backoff_seconds", t("reports.config.nonnegative_number"))
         )
         pane_lost_backoff = retry_defaults["pane_lost_backoff_seconds"]
     retry = RetryConfig(
@@ -428,7 +428,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     workers_data = data["workers"]
     worker_defaults = _default_section("workers")
     if not isinstance(workers_data, dict):
-        parse_issues.append(ConfigIssue("error", "workers", "workers deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "workers", t("reports.config.workers_object")))
         workers_data = worker_defaults
 
     def worker_timeout(value: Any, path: str, default: float) -> float:
@@ -439,7 +439,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             or value < 0
         ):
             parse_issues.append(
-                ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                ConfigIssue("error", path, t("reports.config.finite_nonnegative_number", value=repr(value)))
             )
             return default
         return float(value)
@@ -478,8 +478,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                             ConfigIssue(
                                 "error",
                                 f"workers.tier_order[{i}].credit_usd",
-                                "deve ser número finito > 0 (booleanos não são aceitos), "
-                                f"recebido: {raw_credit_usd!r}",
+                                t("reports.config.finite_positive_number", value=repr(raw_credit_usd)),
                             )
                         )
                     else:
@@ -498,7 +497,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                         ConfigIssue(
                             "error",
                             f"workers.tier_order[{i}].eligible_classes",
-                            "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                            t("reports.config.eligible_classes"),
                         )
                     )
                 else:
@@ -529,8 +528,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                             level="error",
                             path=f"workers.tier_order[{i}].max_parallel",
                             message=(
-                                "Campo 'max_parallel' deve ser um inteiro >= 1 (booleanos não são aceitos), "
-                                f"recebido: {raw_max_parallel!r}"
+                                t("reports.config.max_parallel_integer", value=repr(raw_max_parallel))
                             ),
                         )
                     )
@@ -539,7 +537,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                         ConfigIssue(
                             level="error",
                             path=f"workers.tier_order[{i}].enabled",
-                            message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {raw_enabled!r}",
+                            message=t("reports.config.enabled_boolean", value=repr(raw_enabled)),
                         )
                     )
                     enabled_val = bool(raw_enabled)
@@ -570,7 +568,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                         ConfigIssue(
                             level="error",
                             path=f"workers.tier_order[{i}].enabled",
-                            message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                            message=t("reports.config.enabled_boolean", value=repr(tier.enabled)),
                         )
                     )
                 if tier.enabled:
@@ -600,24 +598,24 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     scope_data = data.get("scope", {})
     if not isinstance(scope_data, dict):
-        parse_issues.append(ConfigIssue("error", "scope", "scope deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "scope", t("reports.config.scope_object")))
         scope_data = {}
     tolerated_files = scope_data.get("tolerated_files", _default_section("scope")["tolerated_files"])
     if not isinstance(tolerated_files, list) or any(not isinstance(item, str) for item in tolerated_files):
-        parse_issues.append(ConfigIssue("error", "scope.tolerated_files", "deve ser uma lista de strings"))
+        parse_issues.append(ConfigIssue("error", "scope.tolerated_files", t("reports.config.string_list")))
         tolerated_files = _default_section("scope")["tolerated_files"]
     scope = ScopeConfig(tolerated_files=list(tolerated_files))
 
     environment_data = data.get("environment", {})
     if not isinstance(environment_data, dict):
-        parse_issues.append(ConfigIssue("error", "environment", "environment deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "environment", t("reports.config.environment_object")))
         environment_data = {}
     install_dependencies = environment_data.get(
         "install_dependencies", _default_section("environment")["install_dependencies"]
     )
     if not isinstance(install_dependencies, bool):
         parse_issues.append(
-            ConfigIssue("error", "environment.install_dependencies", "deve ser booleano")
+            ConfigIssue("error", "environment.install_dependencies", t("reports.config.expected_boolean"))
         )
         install_dependencies = _default_section("environment")["install_dependencies"]
     install_timeout = environment_data.get(
@@ -630,7 +628,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         or install_timeout <= 0
     ):
         parse_issues.append(
-            ConfigIssue("error", "environment.install_timeout_seconds", "deve ser número > 0")
+            ConfigIssue("error", "environment.install_timeout_seconds", t("reports.config.positive_number"))
         )
         install_timeout = _default_section("environment")["install_timeout_seconds"]
     environment = EnvironmentConfig(
@@ -640,35 +638,35 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     gate_data = data.get("gate", {})
     if not isinstance(gate_data, dict):
-        parse_issues.append(ConfigIssue("error", "gate", "gate deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "gate", t("reports.config.gate_object")))
         gate_data = {}
     gate_defaults = _default_section("gate")
     install = gate_data.get("install", gate_defaults["install"])
     if install is not None and (not isinstance(install, str) or not install.strip()):
-        parse_issues.append(ConfigIssue("error", "gate.install", "deve ser string não vazia ou nulo"))
+        parse_issues.append(ConfigIssue("error", "gate.install", t("reports.config.string_or_null")))
         install = gate_defaults["install"]
     python = gate_data.get("python", gate_defaults["python"])
     if python is not None and (not isinstance(python, str) or not python.strip()):
-        parse_issues.append(ConfigIssue("error", "gate.python", "deve ser string não vazia ou nulo"))
+        parse_issues.append(ConfigIssue("error", "gate.python", t("reports.config.string_or_null")))
         python = gate_defaults["python"]
     allow_unverified = gate_data.get("allow_unverified", gate_defaults["allow_unverified"])
     if not isinstance(allow_unverified, bool):
-        parse_issues.append(ConfigIssue("error", "gate.allow_unverified", "deve ser booleano"))
+        parse_issues.append(ConfigIssue("error", "gate.allow_unverified", t("reports.config.expected_boolean")))
         allow_unverified = gate_defaults["allow_unverified"]
     cache = gate_data.get("cache", gate_defaults["cache"])
     if not isinstance(cache, bool):
-        parse_issues.append(ConfigIssue("error", "gate.cache", "deve ser booleano"))
+        parse_issues.append(ConfigIssue("error", "gate.cache", t("reports.config.expected_boolean")))
         cache = gate_defaults["cache"]
     raw_commands = gate_data.get("commands", gate_defaults["commands"])
     commands = _parse_gate_commands(raw_commands, "gate.commands", parse_issues)
     docs_only_data = gate_data.get("docs_only", {})
     if not isinstance(docs_only_data, dict):
-        parse_issues.append(ConfigIssue("error", "gate.docs_only", "deve ser um objeto"))
+        parse_issues.append(ConfigIssue("error", "gate.docs_only", t("reports.config.expected_object")))
         docs_only_data = {}
     docs_only_defaults = gate_defaults["docs_only"]
     docs_only_enabled = docs_only_data.get("enabled", docs_only_defaults["enabled"])
     if not isinstance(docs_only_enabled, bool):
-        parse_issues.append(ConfigIssue("error", "gate.docs_only.enabled", "deve ser booleano"))
+        parse_issues.append(ConfigIssue("error", "gate.docs_only.enabled", t("reports.config.expected_boolean")))
         docs_only_enabled = docs_only_defaults["enabled"]
     raw_paths = docs_only_data.get("paths", docs_only_defaults["paths"])
     docs_only_paths = raw_paths
@@ -689,7 +687,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             ConfigIssue(
                 "error",
                 "gate.docs_only.paths",
-                "deve ser uma lista não vazia de caminhos relativos sem componente '..'",
+                t("reports.config.relative_paths_required"),
             )
         )
         docs_only_paths = docs_only_defaults["paths"]
@@ -700,11 +698,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     )
     if docs_only_enabled and not docs_only_commands:
         parse_issues.append(
-            ConfigIssue(
-                "error",
-                "gate.docs_only.commands",
-                "obrigatório quando enabled",
-            )
+            ConfigIssue("error", "gate.docs_only.commands", t("reports.config.required_when_enabled"))
         )
     docs_only = DocsOnlyGateConfig(
         enabled=docs_only_enabled,
@@ -773,7 +767,7 @@ def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) ->
 
     if not target_path:
         cfg = MeisterConfig()
-        cfg.config_source = "padrao (meister/default_config.yaml)"
+        cfg.config_source = t("reports.config.default_source")
         return cfg
 
     with open(target_path, "r", encoding="utf-8") as f:
@@ -785,9 +779,9 @@ def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) ->
 
 
 def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
-    """Valida um objeto MeisterConfig retornando lista de ConfigIssue (erros e avisos).
+    """Validate a MeisterConfig object and return its ConfigIssue list (errors and warnings).
 
-    Sem levantar exceção. A configuração padrão sem arquivo e sem env resulta em 0 erros.
+    Does not raise exceptions. The default configuration with no file or env has 0 errors.
     """
     issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
 
@@ -815,12 +809,12 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             or value < 0
         ) and not any(issue.path == path for issue in issues):
             issues.append(
-                ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                ConfigIssue("error", path, t("reports.config.finite_nonnegative_number", value=repr(value)))
             )
 
     if config.workers.idle_timeout_seconds == 0 and config.workers.max_runtime_seconds == 0:
         issues.append(
-            ConfigIssue("warning", "workers", "sem proteção contra worker travado (timeouts de inatividade e runtime desativados)")
+            ConfigIssue("warning", "workers", t("reports.config.worker_timeouts_disabled"))
         )
 
     # Erros
@@ -829,14 +823,14 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     ):
         if not any(issue.path == "retry.pane_lost_attempts" for issue in issues):
             issues.append(
-                ConfigIssue("error", "retry.pane_lost_attempts", "deve ser um inteiro >= 0")
+                ConfigIssue("error", "retry.pane_lost_attempts", t("reports.config.nonnegative_integer"))
             )
     elif config.retry.pane_lost_attempts < 0:
         issues.append(
             ConfigIssue(
                 "error",
                 "retry.pane_lost_attempts",
-                f"deve ser >= 0 ({config.retry.pane_lost_attempts})",
+                t("reports.config.nonnegative_value", value=config.retry.pane_lost_attempts),
             )
         )
 
@@ -848,7 +842,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
         if not any(issue.path == "retry.pane_lost_backoff_seconds" for issue in issues):
             issues.append(
                 ConfigIssue(
-                    "error", "retry.pane_lost_backoff_seconds", "deve ser número >= 0"
+                    "error", "retry.pane_lost_backoff_seconds", t("reports.config.nonnegative_number")
                 )
             )
     elif config.retry.pane_lost_backoff_seconds < 0:
@@ -856,7 +850,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             ConfigIssue(
                 "error",
                 "retry.pane_lost_backoff_seconds",
-                f"deve ser >= 0 ({config.retry.pane_lost_backoff_seconds})",
+                t("reports.config.nonnegative_value", value=config.retry.pane_lost_backoff_seconds),
             )
         )
 
@@ -865,7 +859,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             ConfigIssue(
                 level="error",
                 path="router.mode",
-                message=f"router.mode inválido: '{config.router.mode}'. Valores válidos: first, jev",
+                message=t("reports.config.invalid_router_mode", mode=config.router.mode),
             )
         )
 
@@ -888,16 +882,16 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="error",
                         path=path,
-                        message=f"Campo '{path.rsplit('.', 1)[1]}' tem tipo inválido: {value!r}",
+                        message=t("reports.config.invalid_field_type", field=path.rsplit(".", 1)[1], value=repr(value)),
                     )
                 )
             continue
         if path == "router.timeout_seconds" and value <= 0:
-            message = f"router.timeout_seconds deve ser > 0 ({value})"
+            message = t("reports.config.router_timeout_positive", value=value)
         elif path == "router.max_attempts" and value < 1:
-            message = f"router.max_attempts deve ser >= 1 ({value})"
+            message = t("reports.config.router_attempts_positive", value=value)
         elif path == "router.unavailable_cooldown_seconds" and value < 0:
-            message = f"router.unavailable_cooldown_seconds não pode ser negativo ({value})"
+            message = t("reports.config.router_cooldown_nonnegative", value=value)
         else:
             continue
         issues.append(ConfigIssue(level="error", path=path, message=message))
@@ -910,7 +904,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     "error",
                     "router.context_max_chars",
-                    "deve ser um inteiro >= 500 (booleanos não são aceitos)",
+                    t("reports.config.context_integer"),
                 )
             )
     elif config.router.context_max_chars < 500:
@@ -918,7 +912,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             ConfigIssue(
                 "error",
                 "router.context_max_chars",
-                f"deve ser >= 500 ({config.router.context_max_chars})",
+                t("reports.config.context_minimum", value=config.router.context_max_chars),
             )
         )
 
@@ -929,7 +923,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path="workers.tier_order",
-                    message="tier_order efetivo está vazio (todas as vias estão desabilitadas)",
+                    message=t("reports.config.no_enabled_lanes"),
                 )
             )
         else:
@@ -937,7 +931,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path="workers.tier_order",
-                    message="tier_order efetivo está vazio (nenhuma via configurada)",
+                    message=t("reports.config.no_lanes_configured"),
                 )
             )
 
@@ -957,7 +951,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         "error",
                         path,
-                        "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                        t("reports.config.eligible_classes"),
                     )
                 )
         if tier.credit_usd is not None and (
@@ -972,8 +966,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         "error",
                         path,
-                        "deve ser número finito > 0 (booleanos não são aceitos), "
-                        f"recebido: {tier.credit_usd!r}",
+                        t("reports.config.finite_positive_number", value=repr(tier.credit_usd)),
                     )
                 )
         for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
@@ -987,14 +980,14 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 path = f"workers.tier_order[{i}].{field_name}"
                 if not any(issue.path == path for issue in issues):
                     issues.append(
-                        ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                        ConfigIssue("error", path, t("reports.config.finite_nonnegative_number", value=repr(value)))
                     )
         if tier.idle_timeout_seconds == 0 and tier.max_runtime_seconds == 0:
             issues.append(
                 ConfigIssue(
                     "warning",
                     f"workers.tier_order[{i}]",
-                    "sem proteção contra worker travado nesta via",
+                    t("reports.config.lane_timeouts_disabled"),
                 )
             )
         if not tier.name or not tier.name.strip():
@@ -1002,7 +995,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.tier_order[{i}].name",
-                    message="Nome da via não pode ser vazio",
+                    message=t("reports.config.lane_name_required"),
                 )
             )
         elif tier.name in seen_names:
@@ -1010,7 +1003,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.tier_order[{i}].name",
-                    message=f"Nome de via repetido: '{tier.name}'",
+                    message=t("reports.config.lane_name_duplicate", name=tier.name),
                 )
             )
         else:
@@ -1030,7 +1023,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         "error",
                         path,
-                        "deve ser uma lista de strings contendo apenas SMALL, MEDIUM, HIGH ou ESCALATE",
+                        t("reports.config.eligible_classes"),
                     )
                 )
         if tier.credit_usd is not None and (
@@ -1045,8 +1038,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         "error",
                         path,
-                        "deve ser número finito > 0 (booleanos não são aceitos), "
-                        f"recebido: {tier.credit_usd!r}",
+                        t("reports.config.finite_positive_number", value=repr(tier.credit_usd)),
                     )
                 )
         for field_name in ("idle_timeout_seconds", "max_runtime_seconds"):
@@ -1060,14 +1052,14 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 path = f"workers.disabled[{j}].{field_name}"
                 if not any(issue.path == path for issue in issues):
                     issues.append(
-                        ConfigIssue("error", path, f"deve ser número finito >= 0 (booleanos não são aceitos), recebido: {value!r}")
+                        ConfigIssue("error", path, t("reports.config.finite_nonnegative_number", value=repr(value)))
                     )
         if tier.idle_timeout_seconds == 0 and tier.max_runtime_seconds == 0:
             issues.append(
                 ConfigIssue(
                     "warning",
                     f"workers.disabled[{j}]",
-                    "sem proteção contra worker travado nesta via",
+                    t("reports.config.lane_timeouts_disabled"),
                 )
             )
         if not tier.name or not tier.name.strip():
@@ -1075,7 +1067,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.disabled[{j}].name",
-                    message="Nome da via não pode ser vazio",
+                    message=t("reports.config.lane_name_required"),
                 )
             )
         elif tier.name in seen_names:
@@ -1083,7 +1075,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.disabled[{j}].name",
-                    message=f"Nome de via repetido: '{tier.name}'",
+                    message=t("reports.config.lane_name_duplicate", name=tier.name),
                 )
             )
         else:
@@ -1096,7 +1088,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.tier_order[{i}].max_retries",
-                    message=f"max_retries não pode ser negativo ({tier.max_retries})",
+                    message=t("reports.config.retries_nonnegative", value=tier.max_retries),
                 )
             )
     for j, tier in enumerate(config.workers.disabled):
@@ -1105,7 +1097,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.disabled[{j}].max_retries",
-                    message=f"max_retries não pode ser negativo ({tier.max_retries})",
+                    message=t("reports.config.retries_nonnegative", value=tier.max_retries),
                 )
             )
 
@@ -1125,8 +1117,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                             level="error",
                             path=path,
                             message=(
-                                "Campo 'max_parallel' deve ser um inteiro >= 1 (booleanos não são aceitos), "
-                                f"recebido: {tier.max_parallel!r}"
+                                t("reports.config.max_parallel_integer", value=repr(tier.max_parallel))
                             ),
                         )
                     )
@@ -1135,7 +1126,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="error",
                         path=path,
-                        message=f"max_parallel deve ser >= 1 ({tier.max_parallel})",
+                        message=t("reports.config.max_parallel_minimum", value=tier.max_parallel),
                     )
                 )
 
@@ -1145,7 +1136,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             ConfigIssue(
                 level="error",
                 path="concurrency.max_parallel_workers",
-                message=f"concurrency.max_parallel_workers deve ser >= 1 ({config.concurrency.max_parallel_workers})",
+                message=t("reports.config.parallel_workers_minimum", value=config.concurrency.max_parallel_workers),
             )
         )
 
@@ -1155,7 +1146,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             ConfigIssue(
                 level="error",
                 path="architect.effort",
-                message=f"architect.effort inválido: '{config.architect.effort}'. Valores válidos: {', '.join(sorted(VALID_ARCHITECT_EFFORTS))}",
+                message=t("reports.config.invalid_architect_effort", effort=config.architect.effort, values=", ".join(sorted(VALID_ARCHITECT_EFFORTS))),
             )
         )
 
@@ -1168,7 +1159,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="error",
                         path=path_str,
-                        message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                        message=t("reports.config.enabled_boolean", value=repr(tier.enabled)),
                     )
                 )
     for j, tier in enumerate(config.workers.disabled):
@@ -1179,7 +1170,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="error",
                         path=path_str,
-                        message=f"Campo 'enabled' deve ser booleano (true/false), recebido: {tier.enabled!r}",
+                        message=t("reports.config.enabled_boolean", value=repr(tier.enabled)),
                     )
                 )
 
@@ -1194,7 +1185,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="warning",
                     path="router.mode",
-                    message="OPENROUTER_API_KEY ausente; sem chave, o roteamento cai na primeira via",
+                    message=t("reports.config.openrouter_key_missing"),
                 )
             )
 
@@ -1205,7 +1196,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.tier_order[{i}].harness",
-                    message="harness 'native' foi removido; declare codex, agy, claude ou copilot",
+                    message=t("reports.config.native_harness_removed"),
                 )
             )
             continue
@@ -1218,7 +1209,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="warning",
                         path=f"workers.tier_order[{i}].harness",
-                        message=f"Harness '{h}' desconhecido e não encontrado no PATH nem como arquivo executável",
+                        message=t("reports.config.unknown_harness", harness=h),
                     )
                 )
 
@@ -1229,7 +1220,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="warning",
                         path=f"workers.tier_order[{i}].harness",
-                        message="Executável 'claude' não encontrado no PATH",
+                        message=t("reports.config.executable_not_found", executable="claude"),
                     )
                 )
         elif h in ("copilot", "github-copilot"):
@@ -1238,7 +1229,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     ConfigIssue(
                         level="warning",
                         path=f"workers.tier_order[{i}].harness",
-                        message="Executável 'copilot' não encontrado no PATH",
+                        message=t("reports.config.executable_not_found", executable="copilot"),
                     )
                 )
 
@@ -1248,7 +1239,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="warning",
                     path=f"workers.tier_order[{i}].model",
-                    message=f"model vazio na via com harness '{h}'",
+                    message=t("reports.config.empty_model", harness=h),
                 )
             )
 
@@ -1258,7 +1249,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="info",
                     path=f"workers.tier_order[{i}].best_for",
-                    message="Campo 'best_for' preenchido nao influencia o roteamento",
+                    message=t("reports.config.best_for_ignored"),
                 )
             )
         if tier.cost_per_m_tokens != 0.0 and config.router.mode == "first":
@@ -1266,7 +1257,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="info",
                     path=f"workers.tier_order[{i}].cost_per_m_tokens",
-                    message="Campo 'cost_per_m_tokens' preenchido nao influencia o roteamento",
+                    message=t("reports.config.cost_ignored"),
                 )
             )
 
@@ -1276,7 +1267,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 ConfigIssue(
                     level="error",
                     path=f"workers.disabled[{i}].harness",
-                    message="harness 'native' foi removido; declare codex, agy, claude ou copilot",
+                    message=t("reports.config.native_harness_removed"),
                 )
             )
 
@@ -1302,7 +1293,7 @@ def effective_worker_timeouts(
             or not math.isfinite(value)
             or value < 0
         ):
-            raise ValueError(f"{label} deve ser número finito >= 0")
+            raise ValueError(t("reports.config.finite_nonnegative_label", label=label))
         return float(value)
 
     idle = task.get("idle_timeout_seconds")

@@ -21,29 +21,17 @@ import pytest
 
 ACCENT_RE = re.compile(r"[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]")
 
-# Current baseline counts per file (generated in Phase 0).
-# These numbers may only decrease over time, never increase.
+# Current baseline counts per file (regenerated after the phase 1 translation: 350 -> 30 lines).
+# These numbers may only decrease over time, never increase. What remains is intentional:
+#   jev.py (23) and cli.py (3): text sent to the Jev Decisions API (changing it could change classifications);
+#   bridge.py (2) and worktree.py (1): legacy Portuguese fallback for plain-text messages (the logic uses CodedMessage.code);
+#   setup_cmd.py (1): the marker of the managed block already written into users' Herdr config.toml (must not change).
 BASELINE: dict[str, int] = {
-    "meister/clean.py": 8,
-    "meister/cli.py": 92,
-    "meister/config.py": 39,
-    "meister/env_setup.py": 2,
-    "meister/gate.py": 10,
-    "meister/herdr/bridge.py": 16,
-    "meister/herdr/workers.py": 1,
-    "meister/hooks.py": 8,
+    "meister/cli.py": 3,
+    "meister/herdr/bridge.py": 2,
     "meister/jev.py": 23,
-    "meister/models.py": 1,
-    "meister/plan_adapters/superpowers.py": 1,
-    "meister/plan_analysis.py": 7,
-    "meister/report.py": 27,
-    "meister/setup_cmd.py": 33,
-    "meister/state.py": 10,
-    "meister/timeline.py": 1,
-    "meister/timeline_cli.py": 5,
-    "meister/timeline_view.py": 10,
-    "meister/worker.py": 10,
-    "meister/worktree.py": 46,
+    "meister/setup_cmd.py": 1,
+    "meister/worktree.py": 1,
 }
 
 
