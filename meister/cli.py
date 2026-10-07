@@ -2,6 +2,7 @@
 meister.cli — Interface de linha de comando (CLI) do MeisterRouter.
 
 Comandos:
+  setup          Instalação automática, vinculação do plugin Herdr e configuração de atalhos
   init           Inicializa o MeisterRouter em um projeto (gera CLAUDE.md, CODEX.md, AGENTS.md e hooks)
   classify       Classifica uma tarefa via TypeSafe Jev Decisions API
   control        Avalia progresso determinístico e decide próxima ação do ciclo
@@ -232,6 +233,53 @@ def init(target, type_, install_hooks, no_hooks, force):
         click.echo("Hooks não foram instalados; use --hooks para solicitá-los.")
     if no_hooks:
         click.echo("--no-hooks foi aceito por compatibilidade e não altera a opção --hooks.")
+
+
+@main.command("setup")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Executa apenas simulação sem escrever arquivos ou executar comandos de estado.",
+)
+@click.option(
+    "--direct-keys",
+    is_flag=True,
+    default=False,
+    help="Adiciona atalhos diretos (ctrl+alt+m, ctrl+alt+shift+m, ctrl+alt+t).",
+)
+@click.option(
+    "--herdr-config",
+    "herdr_config_path",
+    default=None,
+    help="Caminho alternativo para o arquivo config.toml do Herdr.",
+)
+@click.option(
+    "--project",
+    "project_path",
+    is_flag=False,
+    flag_value=".",
+    default=None,
+    help="Inicializa regras e hooks em um projeto (padrão: diretório atual).",
+)
+@click.pass_context
+def setup(ctx, dry_run, direct_keys, herdr_config_path, project_path):
+    """Instalação automática, vinculação do plugin Herdr e configuração de atalhos."""
+    from meister.setup_cmd import run_setup
+
+    def _init_proj(p):
+        ctx.invoke(init, target=p, type_="all", install_hooks=True, no_hooks=False, force=False)
+
+    exit_code = run_setup(
+        dry_run=dry_run,
+        direct_keys=direct_keys,
+        herdr_config_path=herdr_config_path,
+        project_path=project_path,
+        echo=click.echo,
+        init_project_fn=_init_proj,
+    )
+    if exit_code != 0:
+        sys.exit(exit_code)
 
 
 @main.command("classify")
@@ -1754,6 +1802,41 @@ def config_validate(config_path):
         sys.exit(2)
 
 
+@config_group.command("init")
+@click.option(
+    "--path",
+    "-p",
+    "target_path",
+    default=None,
+    help="Caminho para o arquivo meister.config.yaml (padrão: ./meister.config.yaml)",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Sobrescreve arquivo existente se já houver.",
+)
+def config_init(target_path, force):
+    """Inicializa um arquivo meister.config.yaml com router e workers para o projeto."""
+    from meister.setup_cmd import generate_config_yaml_content
+
+    resolved_path = os.path.abspath(target_path or os.path.join(os.getcwd(), "meister.config.yaml"))
+    if os.path.exists(resolved_path) and not force:
+        click.echo(
+            f"Erro: o arquivo '{resolved_path}' já existe. Use --force para sobrescrever.",
+            err=True,
+        )
+        sys.exit(1)
+
+    content = generate_config_yaml_content()
+    os.makedirs(os.path.dirname(resolved_path), exist_ok=True)
+    with open(resolved_path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    click.echo(f"✅ Arquivo de configuração gerado em: {resolved_path}")
+
+
 # Aliases para compatibilidade caso chamados diretamente
 @main.command("clean")
 @click.option("--repo", "repo_path", default=".", show_default=True, help="Repositório Git a limpar")
@@ -1810,6 +1893,7 @@ def clean(repo_path, base, apply_changes, archive_and_delete, keep, close_stale_
 
 
 cmd_init = init
+cmd_setup = setup
 cmd_classify = classify
 cmd_control = control
 cmd_dashboard = dashboard
