@@ -6,6 +6,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 - Alicerce de internacionalização (`en` padrão, `pt-BR` configurável), códigos de motivo para rejeições no pipeline e catraca de literais acentuados.
 - Laço de reparo do gate determinístico (`gate.repair_attempts`) e preservação do diagnóstico da rejeição de subtarefas.
+- Encerramento do grupo do harness na saída do worker e recolha de órfãos com validação da identidade do PID antes de retentativas.
 
 ## [0.9.1] - 2026-10-07
 

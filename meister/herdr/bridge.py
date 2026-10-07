@@ -46,6 +46,7 @@ from meister.jev_context import build_jev_context
 from meister.worker import (
     write_atomic_json,
     read_atomic_json,
+    reap_harness,
     WorkerInfrastructureError,
     ensure_meister_dir,
 )
@@ -260,6 +261,27 @@ class HerdrEventBridge:
 
         # Reactive pane exit notification events: pane_id -> asyncio.Event (Achado #10)
         self._exit_events: Dict[str, asyncio.Event] = {}
+
+    def _reap_worker_harness(
+        self,
+        task_context: Dict[str, Any],
+        task_id: str,
+        attempt: int,
+    ) -> str:
+        task_file = task_context.get("task_file")
+        if not isinstance(task_file, str) or not task_file:
+            return "no_file"
+        pid_file = f"{os.path.splitext(task_file)[0]}.harness.json"
+        status = reap_harness(pid_file)
+        if status == "killed":
+            logger.info(t("orphan.reaped", task_id=task_id, attempt=attempt))
+            log_event(
+                event_type="harness_reaped",
+                task_id=task_id,
+                attempt=attempt,
+                status=status,
+            )
+        return status
 
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
@@ -1014,6 +1036,7 @@ class HerdrEventBridge:
                     self._exit_events[pane_id] = exit_event
                     self.active_workers[pane_id] = {
                         "task_id": task_id,
+                        "attempt": attempt_count,
                         "current_tier": current_tier,
                         "status": "running",
                         "subtask": task_dict,
@@ -1075,6 +1098,7 @@ class HerdrEventBridge:
                                         pass
                                     break
                             infra_error = t("engine.bridge.worker_pane_exited", pane_id=pane_id)
+                            self._reap_worker_harness(task_dict, task_id, attempt_count)
                             break
 
                         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
@@ -1122,6 +1146,7 @@ class HerdrEventBridge:
                                                     pass
                                                 break
                                         infra_error = t("engine.bridge.worker_pane_disappeared", pane_id=pane_id)
+                                        self._reap_worker_harness(task_dict, task_id, attempt_count)
                                         break
                                 except Exception:
                                     pass
@@ -1199,6 +1224,7 @@ class HerdrEventBridge:
 
                     timeout_message = ""
                     if timeout_kind:
+                        self._reap_worker_harness(task_dict, task_id, attempt_count)
                         seconds_label = f"{timeout_seconds:g}"
                         if timeout_kind == "idle":
                             timeout_message = t(
@@ -1443,6 +1469,7 @@ class HerdrEventBridge:
                             infra_error is not None
                             and pane_lost_retries_used < self.config.retry.pane_lost_attempts
                         ):
+                            self._reap_worker_harness(task_dict, task_id, attempt_count)
                             pane_lost_retries_used += 1
                             base_backoff = self.config.retry.pane_lost_backoff_seconds
                             backoff_exponent = pane_lost_retries_used - 1
@@ -2012,6 +2039,14 @@ class HerdrEventBridge:
 
             if not pane_id and not tab_id:
                 continue
+
+            worker_info = self.active_workers.get(pane_id, {}) if pane_id else {}
+            worker_context = worker_info.get("subtask", {})
+            self._reap_worker_harness(
+                worker_context if isinstance(worker_context, dict) else {},
+                str(worker_info.get("task_id") or ""),
+                int(worker_info.get("attempt") or 0),
+            )
 
             # 1. Encerra o grupo de processos do worker órfão
             if self.client is not None and self.client.is_connected and pane_id:
