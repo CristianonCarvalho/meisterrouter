@@ -26,10 +26,12 @@ import subprocess
 import uuid
 import time
 import hashlib
+from pathlib import Path
 from typing import Any, Optional
 
 import click
 
+from meister import __version__
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import (
@@ -46,6 +48,33 @@ from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+
+
+def _version_string() -> str:
+    package_dir = Path(__file__).resolve().parent
+    if not (package_dir.parent / ".git").exists():
+        return f"meister {__version__}"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=package_dir,
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=2,
+        )
+        commit = result.stdout.strip()
+    except Exception:
+        return f"meister {__version__}"
+    if not commit:
+        return f"meister {__version__}"
+    return f"meister {__version__} (commit {commit})"
+
+
+def _show_version(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    if value:
+        click.echo(_version_string())
+        ctx.exit()
 
 
 def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, Any]:
@@ -97,6 +126,14 @@ def get_herdr_client(socket_path: Optional[str] = None) -> Optional[HerdrSocketC
 @click.group(
     name="meister",
     help="MeisterRouter — Autonomous Multi-Model Orchestration Engine for Claude Code & Codex",
+)
+@click.option(
+    "--version",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_show_version,
+    help="Exibe a versão instalada e sai.",
 )
 def main():
     """Ponto de entrada principal da CLI do MeisterRouter."""

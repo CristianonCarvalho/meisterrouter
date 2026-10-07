@@ -18,7 +18,8 @@ def test_pyproject_toml_configuration():
 
     # Project metadata
     assert data["project"]["name"] == "meisterrouter"
-    assert data["project"]["version"] == "1.0.0"
+    assert "version" in data["project"]["dynamic"]
+    assert data["tool"]["setuptools"]["dynamic"]["version"] == {"attr": "meister.__version__"}
     assert data["project"]["scripts"]["meister"] == "meister.cli:main"
 
     deps = data["project"]["dependencies"]

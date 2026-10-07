@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "meisterrouter"
-version = "1.0.0"
+dynamic = ["version"]
 description = "Multi-Model Autonomous Orchestration Framework for Claude Code & OpenAI Codex"
 authors = [
     { name = "Cristiano Carvalho" }
@@ -34,6 +34,9 @@ dev = [
 
 [project.scripts]
 meister = "meister.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "meister.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
