@@ -2,6 +2,12 @@
 
 Para quem usa o MeisterRouter num projeto. Atualizado em 2026-10-02 (main até o PR #28). Itens marcados **AÇÃO** exigem algo seu; os marcados **(temporário)** deixam de ser necessários quando a correção indicada for mesclada, e então a linha é removida. O diagrama do fluxo está em [FLUXO_MEISTERROUTER.md](FLUXO_MEISTERROUTER.md).
 
+## Versões e releases
+O versionamento segue SemVer; usamos `0.x` até o contrato estabilizar.
+A versão é alterada em `meister/__init__.py` e nos literais de `package.json` e `herdr-plugin.toml`, verificados pelo teste de sincronia.
+Cada release recebe a tag `vX.Y.Z` e uma entrada no `CHANGELOG.md`.
+`meister --version` mostra a versão instalada.
+
 ## 1. Uma vez por máquina
 - **Instalação:** o `meister` já está instalado (modo editável a partir do repositório). Em outra máquina: `git clone`, `python3 -m venv .venv && .venv/bin/pip install -e .`, `herdr plugin link <pasta do repo>`.
 - **AÇÃO: chave do OpenRouter** (para o Jev): `~/.meister/.env` com `OPENROUTER_API_KEY=...`. Hoje o Jev a encontra por acaso no `.env` do repositório do MeisterRouter; em outra máquina, sem esse arquivo, o Jev fica indisponível e o roteamento cai na primeira via (com aviso).
