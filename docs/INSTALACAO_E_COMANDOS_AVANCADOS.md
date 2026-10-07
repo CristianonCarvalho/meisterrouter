@@ -1,14 +1,15 @@
 # Instalação alternativa e comandos avançados
 
 Esta página reúne o que **não é necessário para o uso diário**. O caminho simples (instalar o Herdr,
-instalar o MeisterRouter, rodar `meister setup` e `meister orchestrate`) está no [README](../README.md).
+rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orquestradora) está no
+[README](../README.md).
 
 - [Instalação alternativa](#instalação-alternativa)
 - [Atalhos do Herdr à mão](#atalhos-do-herdr-à-mão)
 - [A chave do OpenRouter](#a-chave-do-openrouter)
 - [Equipar um projeto (`init`, hooks e guard)](#equipar-um-projeto-init-hooks-e-guard)
 - [Comandos que o `orchestrate` já usa por você](#comandos-que-o-orchestrate-já-usa-por-você) (`classify`, `control`, `worker`)
-- [`orchestrate`: retomar um run](#orchestrate-retomar-um-run)
+- [Plano e execução à mão (`plan`, `orchestrate`, `--resume`)](#plano-e-execução-à-mão-plan-orchestrate---resume)
 - [Limpar branches antigas (`clean`)](#limpar-branches-antigas-clean)
 - [Dashboard e linha do tempo: opções](#dashboard-e-linha-do-tempo-opções)
 - [Configuração avançada](#configuração-avançada)
@@ -24,32 +25,32 @@ O instalador recomendado (`bin/install.sh`) clona o repositório em `~/.local/sh
 `.venv`, instala o pacote em modo editável, cria o executável `~/.local/bin/meister` e roda `meister setup`.
 Estas são as outras formas de chegar ao mesmo resultado.
 
-> [!NOTE]
-> O repositório é **privado**: o `curl` público sem autenticação retorna `404 Not Found`. Use a GitHub CLI
-> (`gh auth status` deve estar logado) ou uma chave SSH.
-
 ### Clone manual (Git / SSH)
 ```bash
-# Via GitHub CLI:
-gh repo clone CristianonCarvalho/meisterrouter
+# Via HTTPS:
+git clone https://github.com/CristianonCarvalho/meisterrouter.git
 cd meisterrouter
 ./bin/install.sh
 
-# Ou via Git SSH:
+# Ou via SSH:
 git clone git@github.com:CristianonCarvalho/meisterrouter.git
 cd meisterrouter
 ./bin/install.sh
 ```
 
-### Com `curl` (só se o repositório for público)
+### Fixar uma versão (tag)
+O instalador recomendado instala a `main`. Para uma versão específica, clone a tag e rode o instalador local:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
+git clone --branch v0.9.0 https://github.com/CristianonCarvalho/meisterrouter.git
+cd meisterrouter && ./bin/install.sh
+meister --version     # meister 0.9.0 (commit ...)
 ```
+As versões e as notas estão em [Releases](https://github.com/CristianonCarvalho/meisterrouter/releases) e no [`CHANGELOG.md`](../CHANGELOG.md).
 
 ### Via Node.js / NPM
 ```bash
-# Instalação global a partir do repositório privado via SSH:
-npm install -g git+ssh://git@github.com/CristianonCarvalho/meisterrouter.git
+# Instalação global direto do GitHub:
+npm install -g git+https://github.com/CristianonCarvalho/meisterrouter.git
 
 # Ou diretamente no diretório clonado:
 npm install -g .
@@ -58,7 +59,7 @@ O runner Node.js em `bin/cli.js` gerencia o runtime e o bootstrap do Python.
 
 ### Manual com Python (pip / venv)
 ```bash
-git clone git@github.com:CristianonCarvalho/meisterrouter.git
+git clone https://github.com/CristianonCarvalho/meisterrouter.git
 cd meisterrouter
 python3 -m venv .venv
 source .venv/bin/activate
@@ -198,8 +199,6 @@ meister worker --model codex_luna --task "Corrigir tooltip overflow" --files "sr
 
 ### Outros comandos de apoio
 ```bash
-meister plan validate plano.json        # valida o JSON canônico de um plano
-meister plan analyze plano.json         # paralelismo previsto (e aviso de plano serial)
 meister report [--run-id ID] [--format table|json|markdown]   # custo, tempo e tentativas por run (somente leitura)
 meister replay RUN_ID [--json]          # replay e auditoria determinística dos eventos de um run
 meister config show | validate          # exibe e valida a configuração ativa
@@ -209,13 +208,19 @@ meister install-hooks --target . --claude --git   # só os hooks, sem o init
 
 ---
 
-## `orchestrate`: retomar um run
+## Plano e execução à mão (`plan`, `orchestrate`, `--resume`)
 
+No uso direto a sua LLM orquestradora faz isto por você (veja o [README](../README.md)). À mão, o fluxo é:
 ```bash
-meister orchestrate --plan-file plano.json
-meister orchestrate --plan-file plano.json --quiet      # sem o progresso e o resumo
+meister plan import plano.md -o plano.json     # Markdown (formato do Superpowers) -> JSON canônico
+meister plan validate plano.json               # confere esquema, dependências e chaves proibidas
+meister plan analyze plano.json                # paralelismo previsto e aviso de plano serial
+meister orchestrate --plan-file plano.json     # executa; --quiet suprime o progresso e o resumo
 ```
-O comando mostra o progresso de cada tarefa e um resumo final em stderr; a frase de resultado continua em
+O formato do Markdown, as regras de `Files:`/`Depends on:` e o JSON canônico estão em
+[`FORMATO_DO_PLANO.md`](FORMATO_DO_PLANO.md). `plan import` aceita `--deps sequential|files` e `--allow-unscoped`.
+
+O `orchestrate` mostra o progresso de cada tarefa e um resumo final em stderr; a frase de resultado continua em
 stdout. Para reaproveitar as tarefas concluídas de um run anterior depois de editar o plano, use `--resume`
 (escolhe o run FAILED/RUNNING elegível mais recente do mesmo diretório) ou informe o identificador:
 ```bash
@@ -226,7 +231,7 @@ Só são retomadas tarefas com descrição e dependências inalteradas, commit e
 `--resume`, o plano inteiro é executado e o Meister avisa quando há um run anterior que pode ser reaproveitado.
 
 Também aceita `--task '<texto ou JSON do plano>'` e `-c <config.yaml>`; o formato legado (texto livre) exige
-`--allow-freeform` e não valida dependências nem esquema.
+`--allow-freeform` e não valida dependências nem esquema. Dentro do Herdr, `prefix+m` inicia a orquestração.
 
 ---
 
