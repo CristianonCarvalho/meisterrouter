@@ -14,7 +14,9 @@ Primeira versão marcada. Consolida o histórico dos PRs #1 a #73 (29/09 a 07/10
 - **Custo e medição:** uso e custo reais dos workers e tempo por fase (#43); `meister report` (#44); custo do Copilot por créditos (`credit_usd`) (#51); preços de modelos atualizados (#50).
 - **Observabilidade:** dashboard agrupado e analítico, com projeto, run, tarefas legíveis, custo, overhead e pico de workers (#35, #39, #41, #45, #53, #54); linha do tempo (Gantt) em TUI, com modo ao vivo, visão de todos os runs, linha do Jev e estado "sem sinal" (#55, #56, #57, #58, #62); suporte a tarefas rodadas por `meister worker` (#73).
 - **Operação:** `meister clean` remove branches antigas com segurança (#34); `meister init` seguro (#20); guard do Claude Code com modos `block`/`ask`/`off` e regra "método de execução = Meister" (#68, #69); manual de execução (#25, #29); diagramas Mermaid (#72) e fluxo ponta a ponta (#18).
-- **`meister --version`**, fonte única da versão em `meister/__init__.py` e este changelog.
+- **Instalação automática:** `meister setup` liga o plugin ao Herdr, grava os atalhos num bloco gerenciado do `config.toml` (com backup e validação), confere o ambiente e, com `--project`, equipa o projeto; `meister config init` gera o `meister.config.yaml` com as vias e a ordem; `bin/install.sh` exige o Herdr e chama o `setup` (#76).
+- **`meister --version`**, fonte única da versão em `meister/__init__.py` e este changelog (#74).
+- **Documentação:** README enxuto (o MeisterRouter é um plugin do Herdr, que é pré-requisito), com a página [Instalação alternativa e comandos avançados](docs/INSTALACAO_E_COMANDOS_AVANCADOS.md), capturas da linha do tempo e do dashboard (#75) e diagramas atualizados.
 
 ### Corrigido
 - Integração: commits do worker feitos no próprio worktree são integrados (#4); a branch de integração é reconstruída por merge (#6); trabalho rejeitado nunca se perde, inclusive mudanças não commitadas (#60).

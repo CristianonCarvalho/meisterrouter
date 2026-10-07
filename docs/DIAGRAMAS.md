@@ -467,19 +467,24 @@ flowchart TD
 
 ## 11. Instalação e integração com o Herdr
 
+O Herdr é pré-requisito. O instalador chama o `meister setup`, que faz o resto e é seguro rodar de novo.
+
 ```mermaid
 flowchart TD
+  H["Herdr instalado<br/>(pré-requisito)"] --> I1
   subgraph INS["Uma vez por máquina"]
-    I1["bin/install.sh<br/>(gh api | bash, clone ou npm)"] --> I2["clona em ~/.local/share/meisterrouter<br/>cria .venv e instala o pacote"]
+    I1["bin/install.sh<br/>aborta se não achar o herdr"] --> I2["clona em ~/.local/share/meisterrouter<br/>cria .venv e instala o pacote"]
     I2 --> I3["symlink ~/.local/bin/meister"]
-    I3 --> I4["herdr plugin link<br/>registra ações e inicia o daemon"]
-    I5["~/.config/herdr/config.toml<br/>[[keys.command]]: atalhos"] --> I6["herdr config check<br/>herdr server reload-config"]
+    I3 --> I4["meister setup"]
+    I4 --> S1["herdr plugin link<br/>só se o plugin ainda não estiver ligado"]
+    I4 --> S2["atalhos: bloco gerenciado no config.toml<br/>backup, herdr config check, reload;<br/>nunca sobrescreve atalhos seus"]
+    I4 --> S3["diagnóstico: Python, daemon, CLIs dos workers,<br/>chave do Jev e configuração"]
     I7["OPENROUTER_API_KEY<br/>(só o Jev usa)"]
   end
   subgraph PRJ["Uma vez por projeto"]
-    P1["meister init --target projeto"] --> P2["CLAUDE.md, CODEX.md, AGENTS.md<br/>.meister/logs"]
-    P1 -- "--hooks" --> P3["hook Git pre-commit<br/>hooks do Claude e guard em .claude/"]
-    P4["meister.config.yaml<br/>(opcional) vias, gate, escopo"]
+    P1["meister setup --project"] --> P2["CLAUDE.md, CODEX.md, AGENTS.md<br/>.meister/logs"]
+    P1 --> P3["hook Git pre-commit<br/>hooks do Claude e guard em .claude/"]
+    P4["meister config init<br/>(opcional): vias e ordem"]
   end
   subgraph USO["No dia a dia (Herdr)"]
     U1["prefix+m<br/>orquestrar"]
@@ -487,7 +492,7 @@ flowchart TD
     U3["prefix+t<br/>linha do tempo em popup"]
     U4["tabs dos workers<br/>visíveis em tempo real"]
   end
-  I4 --> PRJ
-  I6 --> USO
+  S1 --> PRJ
+  S2 --> USO
   PRJ --> USO
 ```
