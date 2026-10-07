@@ -1,21 +1,4 @@
-"""
-meister.cli — Interface de linha de comando (CLI) do MeisterRouter.
-
-Comandos:
-  setup          Instalação automática, vinculação do plugin Herdr e configuração de atalhos
-  init           Inicializa o MeisterRouter em um projeto (gera CLAUDE.md, CODEX.md, AGENTS.md e hooks)
-  classify       Classifica uma tarefa via TypeSafe Jev Decisions API
-  control        Avalia progresso determinístico e decide próxima ação do ciclo
-  dashboard      Inicia o servidor web local de telemetria ou TUI overlay
-  install-hooks  Instala hooks no Git (pre-commit) e Claude Code
-  models         Exibe a tabela comparativa de inteligência e custos
-  test           Testa a conexão com a API de decisões do OpenRouter
-  daemon         Gerencia o ciclo de vida do daemon do MeisterRouter para Herdr
-  herdr-action   Executa ações integradas do plugin Herdr (classify, verify, orchestrate)
-  orchestrate    Inicia o ciclo de orquestração autônoma multi-agente
-  worker         Inicia instância de worker do MeisterRouter
-  clean          Limpa branches temporárias antigas do MeisterRouter
-"""
+"""Command-line interface for MeisterRouter."""
 
 import os
 import sys
@@ -46,6 +29,7 @@ from meister.logger import (
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
+from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
@@ -108,7 +92,7 @@ def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, An
 
 
 def is_pid_alive(pid: int) -> bool:
-    """Verifica se um processo com o PID fornecido está ativo."""
+    """Return whether a process with the given PID is active."""
     if pid <= 0:
         return False
     try:
@@ -119,7 +103,7 @@ def is_pid_alive(pid: int) -> bool:
 
 
 def get_default_pid_file() -> str:
-    """Retorna o caminho padrão do arquivo PID do daemon."""
+    """Return the default daemon PID file path."""
     env_pid = os.environ.get("MEISTER_PID_FILE")
     if env_pid:
         return env_pid
@@ -137,7 +121,7 @@ def get_herdr_client(socket_path: Optional[str] = None) -> Optional[HerdrSocketC
 
 @click.group(
     name="meister",
-    help="MeisterRouter — Autonomous Multi-Model Orchestration Engine for Claude Code & Codex",
+    help=t("cli.main.help"),
 )
 @click.option(
     "--version",
@@ -145,21 +129,21 @@ def get_herdr_client(socket_path: Optional[str] = None) -> Optional[HerdrSocketC
     is_eager=True,
     expose_value=False,
     callback=_show_version,
-    help="Exibe a versão instalada e sai.",
+    help=t("cli.version.help"),
 )
 def main():
-    """Ponto de entrada principal da CLI do MeisterRouter."""
+    """MeisterRouter CLI entry point."""
     pass
 
 
-@main.command("init")
-@click.option("--target", "-t", default=".", help="Diretório do projeto de destino (default: atual)")
+@main.command("init", help=t("cli.init.help"))
+@click.option("--target", "-t", default=".", help=t("cli.init.target_help"))
 @click.option(
     "--type",
     "type_",
     type=click.Choice(["all", "claude", "codex"]),
     default="all",
-    help="Quais regras gerar",
+    help=t("cli.init.type_help"),
 )
 @click.option(
     "--hooks",
@@ -167,36 +151,35 @@ def main():
     is_flag=True,
     default=False,
     help=(
-        "Instala hooks do Git e do Claude. O pre-commit resume alterações em stage e "
-        "executa automaticamente os testes disponíveis (npm test, pytest ou cargo test)."
+        t("cli.init.hooks_help")
     ),
 )
 @click.option(
     "--no-hooks",
     is_flag=True,
     default=False,
-    help="Opção legada sem efeito; hooks não são instalados por padrão.",
+    help=t("cli.init.no_hooks_help"),
 )
-@click.option("--force", is_flag=True, default=False, help="Sobrescreve arquivos e hooks existentes.")
+@click.option("--force", is_flag=True, default=False, help=t("cli.init.force_help"))
 def init(target, type_, install_hooks, no_hooks, force):
-    """Inicializa as regras do MeisterRouter em um projeto existente."""
+    """Initialize MeisterRouter rules in an existing project."""
     target_dir = os.path.abspath(target or ".")
-    click.echo(f"🔮 [MeisterRouter] Inicializando regras em: {target_dir}")
+    click.echo(t("cli.init.start", target=target_dir))
     os.makedirs(target_dir, exist_ok=True)
     created = []
     skipped = []
 
     rule_files = []
     if type_ in ["all", "claude"]:
-        rule_files.append(("CLAUDE.md.template", "CLAUDE.md", "para Claude Code"))
+        rule_files.append(("CLAUDE.md.template", "CLAUDE.md", t("cli.init.claude_description")))
     if type_ in ["all", "codex"]:
-        rule_files.append(("CODEX.md.template", "CODEX.md", "para Codex"))
-    rule_files.append(("AGENTS.md.template", "AGENTS.md", "diretivas universais para agentes"))
+        rule_files.append(("CODEX.md.template", "CODEX.md", t("cli.init.codex_description")))
+    rule_files.append(("AGENTS.md.template", "AGENTS.md", t("cli.init.agents_description")))
     for template_name, filename, description in rule_files:
         destination = os.path.join(target_dir, filename)
         existed = os.path.exists(destination)
         if existed and not force:
-            click.echo(f"  ⏭️ {filename} já existe (não sobrescrito; use --force)")
+            click.echo(t("cli.init.exists_skipped", filename=filename))
             skipped.append(filename)
             continue
         template_path = os.path.join(TEMPLATES_DIR, template_name)
@@ -204,8 +187,8 @@ def init(target, type_, install_hooks, no_hooks, force):
             content = template_file.read()
         with open(destination, "w", encoding="utf-8") as destination_file:
             destination_file.write(content)
-        action = "Sobrescrito" if existed else "Criado"
-        click.echo(f"  ✅ {action} {filename} ({description})")
+        action = t("cli.init.overwritten") if existed else t("cli.init.created")
+        click.echo(t("cli.init.file_created", action=action, filename=filename, description=description))
         created.append(filename)
 
     # 4. Cria diretório local .meister com .gitignore para logs
@@ -215,55 +198,55 @@ def init(target, type_, install_hooks, no_hooks, force):
     os.makedirs(local_meister, exist_ok=True)
     if not logs_existed:
         created.append(".meister/logs/")
-        click.echo("  ✅ Criado diretório de telemetria local (.meister/logs/)")
+        click.echo(t("cli.init.logs_created"))
 
     # 5. Instala hooks se solicitado
     if install_hooks:
         ok_git, msg_git = install_git_hook(target_dir, force=force)
         if ok_git:
-            click.echo(f"  ✅ {msg_git}")
+            click.echo(t("cli.init.hook_created", message=msg_git))
             created.append("hook Git pre-commit")
         else:
-            click.echo(f"  ⏭️ {msg_git}")
+            click.echo(t("cli.init.hook_skipped", message=msg_git))
             skipped.append("hook Git pre-commit")
 
         ok_claude, msg_claude = install_claude_hook(target_dir, force=force)
         if ok_claude:
-            click.echo(f"  ✅ {msg_claude}")
+            click.echo(t("cli.init.hook_created", message=msg_claude))
             created.append("hooks Claude Code")
         else:
-            click.echo(f"  ⏭️ {msg_claude}")
+            click.echo(t("cli.init.hook_skipped", message=msg_claude))
             skipped.append("hooks Claude Code")
 
-    summary_created = ", ".join(created) if created else "nenhum item"
-    summary_skipped = ", ".join(skipped) if skipped else "nenhum item"
-    click.echo(f"\nResumo: criados/instalados: {summary_created}; pulados: {summary_skipped}.")
+    summary_created = ", ".join(created) if created else t("cli.init.no_items")
+    summary_skipped = ", ".join(skipped) if skipped else t("cli.init.no_items")
+    click.echo(t("cli.init.summary", created=summary_created, skipped=summary_skipped))
     if skipped:
-        click.echo("Use --force para sobrescrever arquivos de regras e hooks existentes.")
+        click.echo(t("cli.init.force_hint"))
     if not install_hooks:
-        click.echo("Hooks não foram instalados; use --hooks para solicitá-los.")
+        click.echo(t("cli.init.hooks_not_installed"))
     if no_hooks:
-        click.echo("--no-hooks foi aceito por compatibilidade e não altera a opção --hooks.")
+        click.echo(t("cli.init.no_hooks_compatibility"))
 
 
-@main.command("setup")
+@main.command("setup", help=t("cli.setup.help"))
 @click.option(
     "--dry-run",
     is_flag=True,
     default=False,
-    help="Executa apenas simulação sem escrever arquivos ou executar comandos de estado.",
+    help=t("cli.setup.dry_run_help"),
 )
 @click.option(
     "--direct-keys",
     is_flag=True,
     default=False,
-    help="Adiciona atalhos diretos (ctrl+alt+m, ctrl+alt+shift+m, ctrl+alt+t).",
+    help=t("cli.setup.direct_keys_help"),
 )
 @click.option(
     "--herdr-config",
     "herdr_config_path",
     default=None,
-    help="Caminho alternativo para o arquivo config.toml do Herdr.",
+    help=t("cli.setup.herdr_config_help"),
 )
 @click.option(
     "--project",
@@ -271,11 +254,11 @@ def init(target, type_, install_hooks, no_hooks, force):
     is_flag=False,
     flag_value=".",
     default=None,
-    help="Inicializa regras e hooks em um projeto (padrão: diretório atual).",
+    help=t("cli.setup.project_help"),
 )
 @click.pass_context
 def setup(ctx, dry_run, direct_keys, herdr_config_path, project_path):
-    """Instalação automática, vinculação do plugin Herdr e configuração de atalhos."""
+    """Install MeisterRouter, link the Herdr plugin, and configure shortcuts."""
     from meister.setup_cmd import run_setup
 
     def _init_proj(p):
@@ -293,13 +276,13 @@ def setup(ctx, dry_run, direct_keys, herdr_config_path, project_path):
         sys.exit(exit_code)
 
 
-@main.command("classify")
-@click.option("--context", "-c", required=True, help="Descrição da tarefa para o Jev")
-@click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
-@click.option("--run-id", default=None, help="Correlation ID da execução")
-@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+@main.command("classify", help=t("cli.classify.help"))
+@click.option("--context", "-c", required=True, help=t("cli.classify.context_help"))
+@click.option("--model", "-m", default=None, help=t("cli.common.model_help"))
+@click.option("--run-id", default=None, help=t("cli.common.run_id_help"))
+@click.option("--task-id", default=None, help=t("cli.common.task_id_help"))
 def classify(context, model, run_id, task_id):
-    """Executa a classificação de complexidade da tarefa."""
+    """Classify task complexity."""
     try:
         cfg = load_config()
         result = classify_task(
@@ -311,37 +294,37 @@ def classify(context, model, run_id, task_id):
         )
         click.echo(json.dumps(result, ensure_ascii=False, indent=2))
     except Exception as e:
-        sys.stderr.write(f"Erro no classify: {e}\n")
+        sys.stderr.write(t("cli.classify.error", error=e) + "\n")
         sys.exit(1)
 
 
-@main.command("control")
-@click.option("--diff-summary", "-d", required=True, help="Resumo do diff gerado")
+@main.command("control", help=t("cli.control.help"))
+@click.option("--diff-summary", "-d", required=True, help=t("cli.control.diff_summary_help"))
 @click.option(
     "--test-result",
     "-r",
     required=True,
     type=click.Choice(["pass", "fail", "unknown"]),
-    help="Resultado dos testes",
+    help=t("cli.control.test_result_help"),
 )
-@click.option("--attempts", "-a", type=int, default=1, help="Número de tentativas acumuladas")
+@click.option("--attempts", "-a", type=int, default=1, help=t("cli.control.attempts_help"))
 @click.option(
     "--security-sensitive",
     "-s",
     is_flag=True,
     default=False,
-    help="Se altera código sensível à segurança",
+    help=t("cli.control.security_sensitive_help"),
 )
-@click.option("--model", "-m", default=None, help="Sobrescrever modelo Jev padrão")
-@click.option("--run-id", default=None, help="Correlation ID da execução")
-@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+@click.option("--model", "-m", default=None, help=t("cli.common.model_help"))
+@click.option("--run-id", default=None, help=t("cli.common.run_id_help"))
+@click.option("--task-id", default=None, help=t("cli.common.task_id_help"))
 @click.option(
     "--close-worker/--no-close-worker",
     default=True,
-    help="Fechar automaticamente o terminal do worker no Herdr se aprovado (COMPLETE)",
+    help=t("cli.control.close_worker_help"),
 )
 def control(diff_summary, test_result, attempts, security_sensitive, model, run_id, task_id, close_worker):
-    """Executa a decisão de controle do loop do agente."""
+    """Run the agent loop control decision."""
     try:
         cfg = load_config()
         result = control_cycle(
@@ -369,7 +352,7 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
                         async def _close(p):
                             await client.close_pane(p)
                         asyncio.run(_close(p_id))
-                        click.echo(f"🧹 [MeisterRouter] Terminal do worker ({p_id}) fechado automaticamente após aprovação.")
+                        click.echo(t("cli.control.pane_closed", pane_id=p_id))
                     state_mgr.unregister_pane(p_id)
             except Exception as e:
                 logger.debug("Could not auto-close registered worker panes: %s", e)
@@ -384,23 +367,23 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
                         async def _close_legacy():
                             await client.close_pane(pane_id)
                         asyncio.run(_close_legacy())
-                        click.echo(f"🧹 [MeisterRouter] Terminal do worker ({pane_id}) fechado automaticamente após aprovação.")
+                        click.echo(t("cli.control.pane_closed", pane_id=pane_id))
                     os.remove(active_pane_file)
                 except Exception as e:
                     logger.debug("Could not auto-close legacy worker pane: %s", e)
 
     except Exception as e:
-        sys.stderr.write(f"Erro no control: {e}\n")
+        sys.stderr.write(t("cli.control.error", error=e) + "\n")
         sys.exit(1)
 
 
-@main.command("dashboard")
-@click.option("--port", "-p", type=int, default=5050, help="Porta do dashboard (default: 5050)")
-@click.option("--host", default="127.0.0.1", help="Host do dashboard (default: 127.0.0.1)")
-@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help="Diretório dos logs de telemetria")
-@click.option("--tui", is_flag=True, default=False, help="Inicia overlay TUI no Herdr")
+@main.command("dashboard", help=t("cli.dashboard.help"))
+@click.option("--port", "-p", type=int, default=5050, help=t("cli.dashboard.port_help"))
+@click.option("--host", default="127.0.0.1", help=t("cli.dashboard.host_help"))
+@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help=t("cli.common.telemetry_log_dir_help"))
+@click.option("--tui", is_flag=True, default=False, help=t("cli.dashboard.tui_help"))
 def dashboard(port, host, log_dir, tui):
-    """Inicia o servidor de telemetria local ou TUI overlay."""
+    """Start the local telemetry server or TUI overlay."""
     if tui:
         from meister.herdr.tui import run_tui_loop
         run_tui_loop()
@@ -409,10 +392,10 @@ def dashboard(port, host, log_dir, tui):
         start_server(host=host, port=port, log_dir=log_dir)
 
 
-@main.command("report")
-@click.option("--run-id", "run_ids", multiple=True, help="Run a incluir (pode repetir; aceita prefixo único >= 6 chars)")
-@click.option("--group", "groups", multiple=True, metavar="NOME=ID,ID,...", help="Grupo de runs para comparar")
-@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help="Diretório com orchestration_log.jsonl")
+@main.command("report", help=t("cli.report.help"))
+@click.option("--run-id", "run_ids", multiple=True, help=t("cli.report.run_id_help"))
+@click.option("--group", "groups", multiple=True, metavar="NOME=ID,ID,...", help=t("cli.report.group_help"))
+@click.option("--log-dir", type=click.Path(file_okay=False), default=None, help=t("cli.common.orchestration_log_dir_help"))
 @click.option(
     "--format",
     "output_format",
@@ -421,18 +404,18 @@ def dashboard(port, host, log_dir, tui):
     show_default=True,
 )
 def report(run_ids, groups, log_dir, output_format):
-    """Compara custo, tempo e tentativas sem modificar o log."""
+    """Compare cost, duration, and attempts without modifying the log."""
     from meister.dashboard.metrics import iter_events, list_runs
     from meister.report import compute_group_report, compute_run_report, render_report
 
     if not run_ids and not groups:
-        raise click.UsageError("informe ao menos um --run-id ou --group")
+        raise click.UsageError(t("cli.report.require_run_or_group"))
     log_file = (
         os.path.join(os.path.abspath(log_dir), "orchestration_log.jsonl")
         if log_dir is not None else get_log_file()
     )
     if not os.path.isfile(log_file):
-        click.echo(f"Erro: arquivo de log não encontrado: {log_file}", err=True)
+        click.echo(t("cli.common.log_not_found", path=log_file), err=True)
         raise click.exceptions.Exit(2)
 
     events = list(iter_events(log_file))
@@ -441,27 +424,27 @@ def report(run_ids, groups, log_dir, output_format):
 
     def resolve(identifier):
         if len(identifier) < 6:
-            raise ValueError(f"ID deve ter pelo menos 6 caracteres: {identifier}")
+            raise ValueError(t("cli.report.short_id", identifier=identifier))
         matches = [run for run in available_ids if run.startswith(identifier)]
         if len(matches) == 1:
             return matches[0]
-        detail = "ambíguo" if matches else "inexistente"
-        listing = ", ".join(available_ids) if available_ids else "nenhum run disponível"
-        raise ValueError(f"ID {detail}: {identifier}. Runs disponíveis: {listing}")
+        detail = t("cli.report.ambiguous") if matches else t("cli.report.missing")
+        listing = ", ".join(available_ids) if available_ids else t("cli.report.no_runs")
+        raise ValueError(t("cli.report.unresolved_id", detail=detail, identifier=identifier, listing=listing))
 
     try:
         resolved_runs = [resolve(identifier) for identifier in run_ids]
         resolved_groups = []
         for group in groups:
             if "=" not in group:
-                raise ValueError(f"grupo inválido (esperado NOME=ID,ID,...): {group}")
+                raise ValueError(t("cli.report.invalid_group", group=group))
             name, raw_ids = group.split("=", 1)
             identifiers = [item.strip() for item in raw_ids.split(",") if item.strip()]
             if not name.strip() or not identifiers:
-                raise ValueError(f"grupo inválido ou vazio: {group}")
+                raise ValueError(t("cli.report.empty_group", group=group))
             resolved_groups.append((name.strip(), [resolve(identifier) for identifier in identifiers]))
     except ValueError as error:
-        click.echo(f"Erro: {error}", err=True)
+        click.echo(t("cli.common.error", error=error), err=True)
         raise click.exceptions.Exit(2)
 
     cfg = load_config()
@@ -492,23 +475,19 @@ def report(run_ids, groups, log_dir, output_format):
     click.echo(render_report(data, output_format))
 
 
-@main.command("timeline")
-@click.option(
-    "--run-id",
-    default=None,
-    help="Run a exibir (prefixo de pelo menos 6 caracteres); padrão: o mais novo",
-)
+@main.command("timeline", help=t("cli.timeline.help"))
+@click.option("--run-id", default=None, help=t("cli.timeline.run_id_help"))
 @click.option(
     "--log-dir",
     type=click.Path(file_okay=False),
     default=None,
-    help="Diretório com orchestration_log.jsonl",
+    help=t("cli.common.orchestration_log_dir_help"),
 )
-@click.option("--once", is_flag=True, default=False, help="Imprime um quadro e sai (sem modo interativo)")
-@click.option("--all", "all_runs", is_flag=True, default=False, help="Exibe todos os runs")
-@click.option("--no-color", is_flag=True, default=False, help="Desliga as cores")
+@click.option("--once", is_flag=True, default=False, help=t("cli.timeline.once_help"))
+@click.option("--all", "all_runs", is_flag=True, default=False, help=t("cli.timeline.all_help"))
+@click.option("--no-color", is_flag=True, default=False, help=t("cli.timeline.no_color_help"))
 def timeline_command(run_id, log_dir, once, all_runs, no_color):
-    """Linha do tempo (Gantt) colorida das tarefas de um run, somente leitura."""
+    """Read-only, colorized Gantt timeline of a run's tasks."""
     import shutil
     from datetime import datetime, timezone
 
@@ -517,10 +496,10 @@ def timeline_command(run_id, log_dir, once, all_runs, no_color):
     from meister.timeline_view import detect_color
 
     if all_runs and run_id is not None:
-        raise click.UsageError("use --all ou --run-id, não os dois")
+        raise click.UsageError(t("cli.timeline.all_or_run_id"))
     if not once:
         if not sys.stdin.isatty() or not sys.stdout.isatty():
-            raise click.UsageError("o modo interativo precisa de um terminal (TTY): use --once")
+            raise click.UsageError(t("cli.timeline.tty_required"))
         from meister.timeline_app import run_interactive
 
         log_file = resolve_log_file(log_dir)
@@ -528,7 +507,7 @@ def timeline_command(run_id, log_dir, once, all_runs, no_color):
         try:
             run_interactive(log_file, run_id=run_id, color=color, all_runs=all_runs)
         except ValueError as error:
-            click.echo(f"Erro: {error}", err=True)
+            click.echo(t("cli.common.error", error=error), err=True)
             raise click.exceptions.Exit(2)
         return
     log_file = resolve_log_file(log_dir)
@@ -545,49 +524,49 @@ def timeline_command(run_id, log_dir, once, all_runs, no_color):
             all_runs=all_runs,
         )
     except ValueError as error:
-        click.echo(f"Erro: {error}", err=True)
+        click.echo(t("cli.common.error", error=error), err=True)
         raise click.exceptions.Exit(2)
     click.echo(frame)
 
 
-@main.command("install-hooks")
-@click.option("--target", "-t", default=".", help="Diretório do repositório")
-@click.option("--git", is_flag=True, default=False, help="Instalar Git pre-commit hook")
-@click.option("--claude", is_flag=True, default=False, help="Instalar Claude Code hook")
+@main.command("install-hooks", help=t("cli.hooks.help"))
+@click.option("--target", "-t", default=".", help=t("cli.common.repository_dir_help"))
+@click.option("--git", is_flag=True, default=False, help=t("cli.hooks.git_help"))
+@click.option("--claude", is_flag=True, default=False, help=t("cli.hooks.claude_help"))
 def install_hooks(target, git, claude):
-    """Instala hooks no Git ou Claude."""
+    """Install hooks for Git or Claude Code."""
     target_dir = os.path.abspath(target or ".")
     if git or not claude:
         ok, msg = install_git_hook(target_dir)
-        click.echo(f"[{'OK' if ok else 'ERRO'}] {msg}")
+        click.echo(f"[{'OK' if ok else t('cli.config.level.error')}] {msg}")
     if claude:
         ok, msg = install_claude_hook(target_dir)
-        click.echo(f"[{'OK' if ok else 'ERRO'}] {msg}")
+        click.echo(f"[{'OK' if ok else t('cli.config.level.error')}] {msg}")
 
 
-@main.command("models")
-@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+@main.command("models", help=t("cli.models.help"))
+@click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 def models(config_path):
-    """Imprime as vias e os custos definidos na configuração."""
+    """Print configured lanes and their costs."""
     cfg = _load_cli_config(config_path=config_path)
-    click.echo(f"Origem da configuração: {cfg.config_source}")
-    click.echo(f"{'#':>3}  {'NOME':<24} {'HARNESS':<16} {'MODELO':<28} {'CUSTO/1M':>10}  STATUS")
+    click.echo(t("cli.models.config_source", source=cfg.config_source))
+    click.echo(f"{'#':>3}  {t('cli.models.name'):<24} {t('cli.models.harness'):<16} {t('cli.models.model'):<28} {t('cli.models.cost_per_m') :>10}  {t('cli.models.status')}")
     tiers = [
         *((tier, True) for tier in cfg.workers.tier_order),
         *((tier, False) for tier in cfg.workers.disabled),
     ]
     for position, (tier, enabled) in enumerate(tiers, 1):
-        status = "ligada" if enabled else "desligada"
+        status = t("cli.models.enabled") if enabled else t("cli.models.disabled")
         click.echo(
             f"{position:>3}  {tier.name:<24} {tier.harness:<16} {tier.model:<28} "
             f"${tier.cost_per_m_tokens:.3f}  {status}"
         )
 
 
-@main.command("test")
+@main.command("test", help=t("cli.test.help"))
 def test():
-    """Testa a conectividade com o OpenRouter Decisions API."""
-    click.echo("🔌 Testando conexão com TypeSafe Decisions API (via OpenRouter)...")
+    """Test connectivity to the OpenRouter Decisions API."""
+    click.echo(t("cli.test.start"))
     try:
         res = call_decisions(
             state={"test_key": "conectar_meisterrouter"},
@@ -602,26 +581,26 @@ def test():
                 }
             }
         )
-        click.echo("✅ Conexão estabelecida com sucesso!")
-        click.echo(f"Resposta do Jev: {json.dumps(res.get('answers'), ensure_ascii=False, indent=2)}")
+        click.echo(t("cli.test.success"))
+        click.echo(t("cli.test.answer", answer=json.dumps(res.get('answers'), ensure_ascii=False, indent=2)))
     except Exception as e:
-        click.echo(f"❌ Falha no teste de conexão: {e}")
+        click.echo(t("cli.test.failure", error=e))
         sys.exit(1)
 
 
-@main.command("worker")
-@click.option("--model", "-m", default=None, help="Nome de uma via configurada")
-@click.option("--task", "-t", default=None, help="Tarefa de código para execução direta")
-@click.option("--files", "-f", default=None, help="Arquivos alvo separados por vírgula")
-@click.option("--cwd", default=None, help="Diretório de trabalho")
-@click.option("--pane/--no-pane", "pane", default=None, help="Abrir terminal lateral no Herdr em vez de tab")
-@click.option("--tab/--no-tab", "tab", default=True, help="Abrir aba dedicada visível no Herdr sem roubar foco (Achado #13, E2E-9)")
-@click.option("--split", is_flag=True, default=False, help="Forçar abertura em split pane lateral em vez de tab")
-@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-@click.option("--run-id", default=None, help="Correlation ID da execução")
-@click.option("--task-id", default=None, help="ID determinístico da tarefa")
+@main.command("worker", help=t("cli.worker.help"))
+@click.option("--model", "-m", default=None, help=t("cli.worker.model_help"))
+@click.option("--task", "-t", default=None, help=t("cli.worker.task_help"))
+@click.option("--files", "-f", default=None, help=t("cli.worker.files_help"))
+@click.option("--cwd", default=None, help=t("cli.common.cwd_help"))
+@click.option("--pane/--no-pane", "pane", default=None, help=t("cli.worker.pane_help"))
+@click.option("--tab/--no-tab", "tab", default=True, help=t("cli.worker.tab_help"))
+@click.option("--split", is_flag=True, default=False, help=t("cli.worker.split_help"))
+@click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
+@click.option("--run-id", default=None, help=t("cli.common.run_id_help"))
+@click.option("--task-id", default=None, help=t("cli.common.task_id_help"))
 def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_id):
-    """Inicia worker nativo do MeisterRouter."""
+    """Start a native MeisterRouter worker."""
     from meister.worker import (
         execute_worker_task,
         run_worker_interactive_loop,
@@ -638,13 +617,13 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
     valid_tiers = [tier.name for tier in cfg.workers.tier_order]
     if model is None:
         if not valid_tiers:
-            raise click.UsageError("Nenhuma via configurada em workers.tier_order")
+            raise click.UsageError(t("cli.worker.no_lanes"))
         model = valid_tiers[0]
     elif model.casefold() not in {name.casefold() for name in [*valid_tiers, *(t.name for t in cfg.workers.disabled)]}:
         listing = ", ".join(valid_tiers)
         if cfg.workers.disabled:
-            listing += " (desligadas, só por escolha explícita: " + ", ".join(t.name for t in cfg.workers.disabled) + ")"
-        raise click.UsageError(f"Via desconhecida '{model}'. Vias válidas: {listing}")
+            listing += t("cli.worker.disabled_lanes", lanes=", ".join(t.name for t in cfg.workers.disabled))
+        raise click.UsageError(t("cli.worker.unknown_lane", model=model, listing=listing))
     ensure_meister_dir(resolved_cwd)
 
     if task:
@@ -719,7 +698,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
             try:
                 if should_spawn_in_herdr:
                     if use_split_pane:
-                        click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para terminal lateral no Herdr...")
+                        click.echo(t("cli.worker.dispatch_pane", model=model))
                         res = run_worker_in_herdr_pane(
                             model=model,
                             task=task,
@@ -730,7 +709,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                             task_id=resolved_task_id,
                         )
                     else:
-                        click.echo(f"🔮 [MeisterRouter] Despachando worker ({model}) para aba dedicada no Herdr...")
+                        click.echo(t("cli.worker.dispatch_tab", model=model))
                         res = run_worker_in_herdr_tab(
                             model=model,
                             task=task,
@@ -743,7 +722,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                         )
                 else:
                     # Execução direta (dentro do pane recém-aberto ou se o Herdr não estiver rodando ou --no-pane)
-                    click.echo(f"MeisterRouter worker starting task with tier/model: {model}")
+                    click.echo(t("cli.worker.starting_task", model=model))
                     res = execute_worker_task(model=model, task=task, target_files=target_files, cwd=worker_cwd, config_path=config_path)
             finally:
                 if not in_pane:
@@ -777,7 +756,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                         **usage_fields,
                         status=status,
                     )
-                click.echo(f"❌ [MeisterRouter] Worker terminou com status: {status}", err=True)
+                click.echo(t("cli.worker.ended_with_status", status=status), err=True)
                 sys.exit(1)
 
             if not in_pane:
@@ -820,33 +799,33 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
 
                 if not ok_int:
                     pipeline.abort_integration()
-                    click.echo(f"❌ [MeisterRouter] Falha no portão/merge de integração: {int_err}", err=True)
+                    click.echo(t("cli.worker.integration_failed", error=int_err), err=True)
                     sys.exit(1)
 
                 passed, out = pipeline.validate_final_integration()
                 if not passed:
                     pipeline.abort_integration()
-                    click.echo(f"❌ [MeisterRouter] Portão de qualidade falhou antes do fast-forward:\n{out}", err=True)
+                    click.echo(t("cli.worker.quality_gate_failed", output=out), err=True)
                     sys.exit(1)
 
                 ok_ff, ff_msg = pipeline.apply_fast_forward()
                 if not ok_ff:
                     pipeline.abort_integration()
-                    click.echo(f"❌ [MeisterRouter] Falha no fast-forward da main: {ff_msg}", err=True)
+                    click.echo(t("cli.worker.fast_forward_failed", message=ff_msg), err=True)
                     sys.exit(1)
 
             where = "Herdr pane" if (should_spawn_in_herdr and use_split_pane) else "Herdr tab" if should_spawn_in_herdr else "worker"
-            click.echo(f"Worker task finished in {where}. Status: {status}")
+            click.echo(t("cli.worker.task_finished", where=where, status=status))
             if res.get("modified_files"):
-                click.echo(f"Modified files: {res['modified_files']}")
+                click.echo(t("cli.worker.modified_files", files=res["modified_files"]))
 
             # Se estiver rodando dentro de um pane criado pelo Herdr, grava o arquivo de resultado para o pai
             if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 write_atomic_json(result_file, res)
-                click.echo("\n🏁 [Worker] Código gerado com sucesso.")
-                click.echo("ℹ️ Aguardando verificação determinística e aprovação do orquestrador (meister control)...")
+                click.echo(t("cli.worker.generated_successfully"))
+                click.echo(t("cli.worker.awaiting_approval"))
 
             return
 
@@ -868,7 +847,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     status="infrastructure_error",
                     error=str(e),
                 )
-            click.echo(f"❌ [MeisterRouter] Erro de infraestrutura no worker ({e}). Abortando sem escalar tier.", err=True)
+            click.echo(t("cli.worker.infrastructure_error", error=e), err=True)
             sys.exit(2)
 
         except TimeoutError as e:
@@ -889,7 +868,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     status="timeout",
                     error=str(e),
                 )
-            click.echo(f"❌ [MeisterRouter] Timeout no worker do Herdr ({e}). Reexecução direta bloqueada para evitar trabalho duplicado.", err=True)
+            click.echo(t("cli.worker.timeout", error=e), err=True)
             sys.exit(1)
         except Exception as e:
             if subtask_wt is not None and wt_mgr is not None:
@@ -909,44 +888,44 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     status="error",
                     error=str(e),
                 )
-            click.echo(f"❌ [MeisterRouter] Falha ao despachar worker ({e}).", err=True)
+            click.echo(t("cli.worker.dispatch_failed", error=e), err=True)
             if run_id and in_pane:
                 runs_dir = os.path.join(resolved_cwd, ".meister", "runs")
                 result_file = os.path.join(runs_dir, f"{run_id}.json")
                 write_atomic_json(result_file, {"status": "error", "error": str(e)})
-                click.echo("\n❌ [Worker] Falha na execução da tarefa. Terminal mantido para inspeção de erro.")
+                click.echo(t("cli.worker.task_failed_terminal_kept"))
             sys.exit(1)
     else:
-        click.echo(f"MeisterRouter worker starting with tier/model: {model}")
+        click.echo(t("cli.worker.starting", model=model))
         run_worker_interactive_loop(model=model, cwd=cwd)
 
 
-@main.command("run-task")
+@main.command("run-task", help=t("cli.run_task.help"))
 @click.argument("task_file", type=click.Path(exists=True))
-@click.option("--result-file", default=None, help="Caminho alternativo para o arquivo de resultado")
+@click.option("--result-file", default=None, help=t("cli.run_task.result_file_help"))
 def run_task(task_file, result_file):
-    """Executa uma tarefa descrita em um arquivo task.json de forma segura e atômica."""
+    """Safely and atomically run a task described in a task.json file."""
     from meister.worker import execute_task_file
     try:
         res = execute_task_file(task_file, result_file=result_file)
         status = res.get("status", "done")
-        click.echo(f"Task finished. Status: {status}")
+        click.echo(t("cli.run_task.finished", status=status))
         if res.get("modified_files"):
-            click.echo(f"Modified files: {res['modified_files']}")
+            click.echo(t("cli.worker.modified_files", files=res["modified_files"]))
     except Exception as e:
-        click.echo(f"Task failed: {e}", err=True)
+        click.echo(t("cli.run_task.failed", error=e), err=True)
         sys.exit(1)
 
 
-@main.command("daemon")
-@click.option("--start", is_flag=True, default=False, help="Inicia o daemon do MeisterRouter para Herdr")
-@click.option("--stop", is_flag=True, default=False, help="Para o daemon em execução")
-@click.option("--status", is_flag=True, default=False, help="Verifica o status de execução do daemon")
-@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-@click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
-@click.option("--pid-file", default=None, help="Caminho alternativo para o arquivo PID")
+@main.command("daemon", help=t("cli.daemon.help"))
+@click.option("--start", is_flag=True, default=False, help=t("cli.daemon.start_help"))
+@click.option("--stop", is_flag=True, default=False, help=t("cli.daemon.stop_help"))
+@click.option("--status", is_flag=True, default=False, help=t("cli.daemon.status_help"))
+@click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
+@click.option("--socket-path", default=None, help=t("cli.daemon.socket_path_help"))
+@click.option("--pid-file", default=None, help=t("cli.daemon.pid_file_help"))
 def daemon(start, stop, status, config_path, socket_path, pid_file):
-    """Gerencia o ciclo de vida do daemon do MeisterRouter."""
+    """Manage the MeisterRouter daemon lifecycle."""
     resolved_pid = pid_file or get_default_pid_file()
 
     if status:
@@ -1093,15 +1072,15 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
     click.echo("Specify --start, --stop, or --status. Use meister daemon --help for more information.")
 
 
-@main.command("herdr-action")
+@main.command("herdr-action", help=t("cli.herdr_action.help"))
 @click.argument("action_id")
-@click.option("--workspace-id", default=None, help="ID do workspace no Herdr")
-@click.option("--pane-id", default=None, help="ID do pane ativo no Herdr")
-@click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
-@click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
-@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+@click.option("--workspace-id", default=None, help=t("cli.herdr_action.workspace_id_help"))
+@click.option("--pane-id", default=None, help=t("cli.herdr_action.pane_id_help"))
+@click.option("--task", "-t", default=None, help=t("cli.common.direct_task_help"))
+@click.option("--socket-path", default=None, help=t("cli.daemon.socket_path_help"))
+@click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_path):
-    """Executa ações registradas pelo plugin Herdr."""
+    """Run actions registered by the Herdr plugin."""
     norm_id = action_id.lower().strip()
 
     if norm_id in ["classify", "classify-task"]:
@@ -1156,35 +1135,35 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
         try:
             success = asyncio.run(_run())
         except Exception as e:
-            click.echo(f"Orchestration cycle encountered error: {e}", err=True)
+            click.echo(t("cli.orchestration.error", error=e), err=True)
             sys.exit(1)
 
         if success:
-            click.echo("Orchestration cycle completed successfully.")
+            click.echo(t("cli.orchestration.success"))
         else:
-            click.echo("Orchestration cycle failed or incomplete.", err=True)
+            click.echo(t("cli.orchestration.failure"), err=True)
             sys.exit(1)
         return
 
     else:
         click.echo(
-            f"Error: Unknown Herdr action '{action_id}'. Supported actions: classify, verify, orchestrate.",
+            t("cli.herdr_action.unknown", action_id=action_id),
             err=True,
         )
         sys.exit(1)
 
 
-@main.command("orchestrate")
+@main.command("orchestrate", help=t("cli.orchestrate.help"))
 @click.argument("resume_id", required=False)
-@click.option("--workspace-id", default=None, help="ID do workspace no Herdr (auto-detectado se omitido)")
-@click.option("--architect-pane-id", default=None, help="ID do pane do arquiteto (auto-detectado se omitido)")
-@click.option("--task", "-t", default=None, help="Instrução ou tarefa para orquestração direta")
-@click.option("--plan-file", default=None, help="Caminho para arquivo JSON de plano canônico (.json)")
-@click.option("--allow-freeform", is_flag=True, default=False, help="Aceitar formatos legados (pipe, markdown, texto livre) — sem validação de esquema")
-@click.option("--resume", "resume_enabled", is_flag=True, default=False, help="Retomar tarefas concluídas de um run anterior; opcionalmente informe RUN_ID")
-@click.option("--socket-path", default=None, help="Caminho do UNIX domain socket do Herdr")
-@click.option("--config", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-@click.option("--quiet", "-q", is_flag=True, default=False, help="Desliga o progresso e o resumo do run")
+@click.option("--workspace-id", default=None, help=t("cli.orchestrate.workspace_id_help"))
+@click.option("--architect-pane-id", default=None, help=t("cli.orchestrate.architect_pane_id_help"))
+@click.option("--task", "-t", default=None, help=t("cli.common.direct_task_help"))
+@click.option("--plan-file", default=None, help=t("cli.orchestrate.plan_file_help"))
+@click.option("--allow-freeform", is_flag=True, default=False, help=t("cli.orchestrate.allow_freeform_help"))
+@click.option("--resume", "resume_enabled", is_flag=True, default=False, help=t("cli.orchestrate.resume_help"))
+@click.option("--socket-path", default=None, help=t("cli.daemon.socket_path_help"))
+@click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
+@click.option("--quiet", "-q", is_flag=True, default=False, help=t("cli.orchestrate.quiet_help"))
 def orchestrate(
     resume_id,
     workspace_id,
@@ -1197,11 +1176,11 @@ def orchestrate(
     config_path,
     quiet,
 ):
-    """Inicia o ciclo de orquestração autônoma multi-agente."""
+    """Start the autonomous multi-agent orchestration cycle."""
     from meister.plan import load_plan, PlanError, canonical_json
 
     if resume_id and not resume_enabled:
-        click.echo("Erro: informe RUN_ID somente junto com --resume.", err=True)
+        click.echo(t("cli.orchestrate.resume_id_requires_resume"), err=True)
         sys.exit(2)
     resume_source = resume_id if resume_id else ("auto" if resume_enabled else None)
 
@@ -1211,16 +1190,16 @@ def orchestrate(
             with open(plan_file, "r", encoding="utf-8") as fh:
                 raw_plan_text = fh.read()
         except OSError as exc:
-            click.echo(f"Erro ao ler --plan-file {plan_file!r}: {exc}", err=True)
+            click.echo(t("cli.orchestrate.read_plan_failed", path=plan_file, error=exc), err=True)
             sys.exit(1)
         try:
             validated_tasks = load_plan(raw_plan_text, allow_freeform=allow_freeform)
         except PlanError as exc:
-            click.echo("Erro: plano inválido:", err=True)
+            click.echo(t("cli.orchestrate.invalid_plan"), err=True)
             for msg in exc.messages:
                 click.echo(f"  • {msg}", err=True)
             click.echo(
-                "\nFormato esperado: JSON array de objetos com chaves id, description, target_files, depends_on.",
+                t("cli.orchestrate.expected_plan_format"),
                 err=True,
             )
             sys.exit(2)
@@ -1229,7 +1208,7 @@ def orchestrate(
 
             warning = serial_plan_warning(validated_tasks)
             if warning:
-                click.echo(f"Aviso: {warning} — veja `meister plan analyze`", err=True)
+                click.echo(t("cli.orchestrate.serial_plan_warning", warning=warning), err=True)
         except Exception:
             pass
         # Use canonical JSON as the task text so run_id is stable
@@ -1239,11 +1218,11 @@ def orchestrate(
         try:
             validated = load_plan(task, allow_freeform=False)
         except PlanError as exc:
-            click.echo("Erro: --task não é um plano JSON canônico válido:", err=True)
+            click.echo(t("cli.orchestrate.invalid_task_plan"), err=True)
             for msg in exc.messages:
                 click.echo(f"  • {msg}", err=True)
             click.echo(
-                "\nUse --allow-freeform para formatos legados (lista markdown, pipe, texto livre).",
+                t("cli.orchestrate.allow_freeform_hint"),
                 err=True,
             )
             sys.exit(2)
@@ -1252,7 +1231,7 @@ def orchestrate(
 
             warning = serial_plan_warning(validated)
             if warning:
-                click.echo(f"Aviso: {warning} — veja `meister plan analyze`", err=True)
+                click.echo(t("cli.orchestrate.serial_plan_warning", warning=warning), err=True)
         except Exception:
             pass
         task = canonical_json(validated)
@@ -1263,11 +1242,11 @@ def orchestrate(
     errors = [iss for iss in issues if iss.level == "error"]
     warnings = [iss for iss in issues if iss.level == "warning"]
     for w in warnings:
-        click.echo(f"AVISO [{w.path}]: {w.message}", err=True)
+        click.echo(t("cli.common.warning_path", path=w.path, message=w.message), err=True)
     if errors:
-        click.echo("Erro: configuração inválida:", err=True)
+        click.echo(t("cli.orchestrate.invalid_config"), err=True)
         for err in errors:
-            click.echo(f"  • [{err.path}] {err.message}", err=True)
+            click.echo(t("cli.orchestrate.config_error", path=err.path, message=err.message), err=True)
         sys.exit(2)
 
     if resume_source is None and task:
@@ -1283,8 +1262,12 @@ def orchestrate(
                 if subtask["status"] == "COMPLETED" and subtask.get("integrated_sha")
             )
             click.echo(
-                f"Run {candidate['run_id']} ({candidate['state']}) tem {completed_count} "
-                "tarefas concluidas reaproveitaveis; use --resume"
+                t(
+                    "cli.orchestrate.resume_hint",
+                    run_id=candidate["run_id"],
+                    state=candidate["state"],
+                    count=completed_count,
+                )
             )
 
     client = get_herdr_client(socket_path=socket_path)
@@ -1326,13 +1309,13 @@ def orchestrate(
 
     if cycle_error is not None:
         if isinstance(cycle_error, ResumeRequestError):
-            click.echo(f"Erro: {cycle_error}", err=True)
+            click.echo(t("cli.common.error", error=cycle_error), err=True)
         else:
-            click.echo(f"Orchestration cycle encountered error: {cycle_error}", err=True)
+            click.echo(t("cli.orchestration.error", error=cycle_error), err=True)
     elif success:
-        click.echo("Orchestration cycle completed successfully.")
+        click.echo(t("cli.orchestration.success"))
     else:
-        click.echo("Orchestration cycle failed or incomplete.", err=True)
+        click.echo(t("cli.orchestration.failure"), err=True)
 
     if reporter is not None and reporter.run_id:
         click.echo(
@@ -1351,11 +1334,11 @@ def orchestrate(
         sys.exit(1)
 
 
-@main.command("replay")
+@main.command("replay", help=t("cli.replay.help"))
 @click.argument("run_id")
-@click.option("--json", "json_format", is_flag=True, default=False, help="Exibe eventos em formato JSON puro")
+@click.option("--json", "json_format", is_flag=True, default=False, help=t("cli.replay.json_help"))
 def replay(run_id: str, json_format: bool):
-    """Replay e auditoria determinística dos eventos de uma execução pelo run_id (Achado #32)."""
+    """Replay and deterministically audit events for a run ID."""
     events = get_events_by_run_id(run_id)
 
     if not events:
@@ -1364,31 +1347,40 @@ def replay(run_id: str, json_format: bool):
             sm = StateManager()
             run_record = sm.get_run(run_id)
             if not run_record:
-                click.echo(f"Erro: Nenhuma execução encontrada com run_id '{run_id}'.", err=True)
+                click.echo(t("cli.replay.run_not_found", run_id=run_id), err=True)
                 sys.exit(1)
             subtasks = sm.get_subtasks(run_id)
             if json_format:
                 click.echo(json.dumps({"run": run_record, "subtasks": subtasks}, indent=2, ensure_ascii=False))
                 return
-            click.echo(f"\n🔮 [MeisterRouter] Replay da Execução: {run_id} (via SQLite)")
-            click.echo(f"Tarefa: {run_record.get('task_prompt')}")
-            click.echo(f"Status: {run_record.get('state')}")
-            click.echo("Subtasks:")
+            click.echo(t("cli.replay.sqlite_title", run_id=run_id))
+            click.echo(t("cli.replay.task", task=run_record.get("task_prompt")))
+            click.echo(t("cli.replay.status", status=run_record.get("state")))
+            click.echo(t("cli.replay.subtasks"))
             for st in subtasks:
                 click.echo(f"  • {st.get('subtask_id')}: status={st.get('status')} tier={st.get('assigned_tier')} attempts={st.get('attempts')}")
             return
         except Exception:
-            click.echo(f"Erro: Nenhuma execução encontrada com run_id '{run_id}'.", err=True)
+            click.echo(t("cli.replay.run_not_found", run_id=run_id), err=True)
             sys.exit(1)
 
     if json_format:
         click.echo(json.dumps(events, indent=2, ensure_ascii=False))
         return
 
-    # Formatação amigável de linha do tempo
-    click.echo(f"\n🔮 [MeisterRouter] Replay da Execução: {run_id}")
+    # Render a readable timeline.
+    click.echo(t("cli.replay.title", run_id=run_id))
     click.echo("=" * 80)
-    click.echo(f"{'TIMESTAMP':<24} | {'EVENTO':<18} | {'TIER':<12} | {'TASK ID':<12} | {'DETALHES'}")
+    click.echo(
+        t(
+            "cli.replay.table_header",
+            timestamp=t("cli.replay.timestamp"),
+            event=t("cli.replay.event"),
+            tier=t("cli.replay.tier"),
+            task_id=t("cli.replay.task_id"),
+            details=t("cli.replay.details"),
+        )
+    )
     click.echo("-" * 80)
 
     total_cost = 0.0
@@ -1414,7 +1406,7 @@ def replay(run_id: str, json_format: bool):
         if ev.get("duration_ms"):
             info_parts.append(f"{ev.get('duration_ms')}ms")
         if cost_source == "unknown":
-            info_parts.append("custo ?")
+            info_parts.append(t("cli.replay.unknown_cost"))
         elif cost > 0 or cost_source in ("reported", "estimated"):
             info_parts.append(f"${cost:.6f}")
         if ev.get("classification"):
@@ -1436,50 +1428,57 @@ def replay(run_id: str, json_format: bool):
         total_display = f"${total_cost:.6f} + ?"
     else:
         total_display = f"${total_cost:.6f}"
-    unknown_label = "evento" if unknown_cost_events == 1 else "eventos"
+    unknown_label = t(
+        "cli.replay.unknown_event" if unknown_cost_events == 1 else "cli.replay.unknown_events"
+    )
     click.echo(
-        f"📊 Total de eventos: {len(events)} | Custo total: {total_display} "
-        f"| {unknown_cost_events} {unknown_label} sem custo conhecido\n"
+        t(
+            "cli.replay.total",
+            count=len(events),
+            cost=total_display,
+            unknown_count=unknown_cost_events,
+            unknown_label=unknown_label,
+        )
     )
 
 
 # ── plan subcommand group ──────────────────────────────────────────────────────
 
-@main.group("plan")
+@main.group("plan", help=t("cli.plan.help"))
 def plan_group():
-    """Gerencia planos canônicos de orquestração (importar, validar)."""
+    """Manage canonical orchestration plans (import and validate)."""
 
 
-@plan_group.command("validate")
+@plan_group.command("validate", help=t("cli.plan.validate.help"))
 @click.argument("plan_json", type=click.Path(exists=True, readable=True))
 def plan_validate(plan_json):
-    """Valida um arquivo JSON de plano canônico e imprime os erros encontrados.
+    """Validate a canonical plan JSON file and print any errors.
 
-    PLAN_JSON: caminho para o arquivo .json a validar.
+    PLAN_JSON: path to the .json file to validate.
     """
     from meister.plan import load_plan, PlanError
     try:
         with open(plan_json, "r", encoding="utf-8") as fh:
             raw = fh.read()
     except OSError as exc:
-        click.echo(f"Erro ao ler {plan_json!r}: {exc}", err=True)
+        click.echo(t("cli.common.read_failed", path=plan_json, error=exc), err=True)
         sys.exit(1)
     try:
         tasks = load_plan(raw)
     except PlanError as exc:
-        click.echo(f"Plano inválido: {plan_json}", err=True)
+        click.echo(t("cli.plan.invalid", path=plan_json), err=True)
         for msg in exc.messages:
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
-    click.echo(f"✅ Plano válido: {len(tasks)} tarefas em {plan_json}")
+    click.echo(t("cli.plan.valid", count=len(tasks), path=plan_json))
 
 
-@plan_group.command("analyze")
+@plan_group.command("analyze", help=t("cli.plan.analyze.help"))
 @click.argument("plan_json", type=click.Path(exists=True, readable=True))
 @click.option("--max-workers", type=click.IntRange(min=1), default=None)
-@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", show_default=True)
+@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table", show_default=True, help=t("cli.plan.analyze.format_help"))
 def plan_analyze(plan_json, max_workers, fmt):
-    """Analisa o paralelismo previsto de um plano canônico."""
+    """Analyze the expected parallelism of a canonical plan."""
     from meister.plan import PlanError, load_plan
     from meister.plan_analysis import analyze_plan, format_analysis_table
 
@@ -1487,12 +1486,12 @@ def plan_analyze(plan_json, max_workers, fmt):
         with open(plan_json, "r", encoding="utf-8") as fh:
             raw = fh.read()
     except OSError as exc:
-        click.echo(f"Erro ao ler {plan_json!r}: {exc}", err=True)
+        click.echo(t("cli.common.read_failed", path=plan_json, error=exc), err=True)
         sys.exit(1)
     try:
         tasks = load_plan(raw)
     except PlanError as exc:
-        click.echo(f"Plano inválido: {plan_json}", err=True)
+        click.echo(t("cli.plan.invalid", path=plan_json), err=True)
         for msg in exc.messages:
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
@@ -1506,38 +1505,38 @@ def plan_analyze(plan_json, max_workers, fmt):
         click.echo(format_analysis_table(analysis, max_workers))
 
 
-@plan_group.command("import")
+@plan_group.command("import", help=t("cli.plan.import.help"))
 @click.argument("plan_md", type=click.Path(exists=True, readable=True))
 @click.option("--format", "fmt", default="superpowers", show_default=True,
-              help="Formato do plano de entrada (ex: superpowers)")
+              help=t("cli.plan.import.format_help"))
 @click.option("-o", "--output", "output_path", default=None,
-              help="Caminho de saída .json (padrão: stdout)")
+              help=t("cli.plan.import.output_help"))
 @click.option("--deps", default="sequential", show_default=True,
               type=click.Choice(["sequential", "files"]),
-              help="Estratégia de resolução de dependências")
+              help=t("cli.plan.import.deps_help"))
 @click.option("--allow-unscoped", is_flag=True, default=False,
-              help="Permitir tarefas sem Files: (target_files vazio)")
+              help=t("cli.plan.import.allow_unscoped_help"))
 def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
-    """Converte um arquivo de plano (markdown) para JSON canônico.
+    """Convert a Markdown plan to canonical JSON.
 
-    PLAN_MD: caminho para o arquivo de plano no formato de entrada.
+    PLAN_MD: path to the plan file in the input format.
 
-    Imprime a tabela de tarefas (id, arquivos, dependências) para revisão
-    humana antes de executar com 'meister orchestrate --plan-file'.
+    Print the task table (id, files, dependencies) for human review before
+    running with 'meister orchestrate --plan-file'.
     """
     import meister.plan_adapters  # noqa: F401 — ensure all adapters are registered
     from meister.plan import ADAPTERS, PlanError, canonical_json, validate_tasks
 
     if fmt not in ADAPTERS:
-        known = ", ".join(sorted(ADAPTERS.keys())) or "(nenhum)"
-        click.echo(f"Erro: formato desconhecido {fmt!r}. Adaptadores disponíveis: {known}", err=True)
+        known = ", ".join(sorted(ADAPTERS.keys())) or t("cli.plan.none")
+        click.echo(t("cli.plan.unknown_format", format=fmt, adapters=known), err=True)
         sys.exit(1)
 
     try:
         with open(plan_md, "r", encoding="utf-8") as fh:
             text = fh.read()
     except OSError as exc:
-        click.echo(f"Erro ao ler {plan_md!r}: {exc}", err=True)
+        click.echo(t("cli.common.read_failed", path=plan_md, error=exc), err=True)
         sys.exit(1)
 
     try:
@@ -1554,24 +1553,29 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
             tasks = adapter_fn(text, deps=deps, allow_unscoped=allow_unscoped)
         validate_tasks(tasks)
     except PlanError as exc:
-        click.echo(f"Erro ao converter plano ({fmt}):", err=True)
+        click.echo(t("cli.plan.convert_failed", format=fmt), err=True)
         for msg in exc.messages:
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
 
     # Print human-readable table
-    header = f"{'id':<12} {'arquivos':<50} {'depends_on'}"
+    header = t(
+        "cli.plan.import.table_header",
+        id=t("cli.plan.import.id"),
+        files=t("cli.plan.import.files"),
+        depends_on="depends_on",
+    )
     separator = "-" * max(len(header), 80)
     click.echo(separator)
     click.echo(header)
     click.echo(separator)
     for task in tasks:
-        files_str = ", ".join(task.get("target_files") or []) or "(nenhum)"
+        files_str = ", ".join(task.get("target_files") or []) or t("cli.plan.none")
         deps_str = ", ".join(task.get("depends_on") or []) or "—"
         tid = task.get("id", "?")
         click.echo(f"{tid:<12} {files_str:<50} {deps_str}")
     click.echo(separator)
-    click.echo(f"{len(tasks)} tarefas importadas de {plan_md!r} (formato: {fmt}, deps: {deps})")
+    click.echo(t("cli.plan.imported", count=len(tasks), path=plan_md, format=fmt, deps=deps))
 
     # Serialize canonical JSON
     out = canonical_json(tasks)
@@ -1579,9 +1583,9 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
         try:
             with open(output_path, "w", encoding="utf-8") as fh:
                 fh.write(out)
-            click.echo(f"Plano salvo em {output_path!r}")
+            click.echo(t("cli.plan.saved", path=output_path))
         except OSError as exc:
-            click.echo(f"Erro ao escrever {output_path!r}: {exc}", err=True)
+            click.echo(t("cli.common.write_failed", path=output_path, error=exc), err=True)
             sys.exit(1)
     else:
         click.echo(out)
@@ -1589,16 +1593,16 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
 
 # ── config subcommand group ───────────────────────────────────────────────────
 
-@main.group("config")
+@main.group("config", help=t("cli.config.help"))
 def config_group():
-    """Gerencia e valida a configuração do MeisterRouter."""
+    """Manage and validate the MeisterRouter configuration."""
 
 
-@config_group.command("show")
-@click.option("--config-path", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
-@click.option("--json", "json_format", is_flag=True, default=False, help="Exibe configuração em formato JSON estável")
+@config_group.command("show", help=t("cli.config.show.help"))
+@click.option("--config-path", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
+@click.option("--json", "json_format", is_flag=True, default=False, help=t("cli.config.json_help"))
 def config_show(config_path, json_format):
-    """Exibe a configuração ativa do MeisterRouter."""
+    """Show the active MeisterRouter configuration."""
     cfg = _load_cli_config(config_path)
 
     from meister.i18n import get_language
@@ -1617,7 +1621,7 @@ def config_show(config_path, json_format):
                 "effort": cfg.architect.effort,
                 "harness": cfg.architect.harness,
                 "model": cfg.architect.model,
-                "note": "(declarado; ainda nao conectado a nenhum fluxo)",
+                "note": t("cli.config.architect_note"),
                 "prompt_template": cfg.architect.prompt_template,
             },
             "concurrency": {
@@ -1723,14 +1727,14 @@ def config_show(config_path, json_format):
         click.echo(json.dumps(data, indent=2, sort_keys=True, ensure_ascii=False))
         return
 
-    click.echo(f"Origem: {cfg.config_source}\n")
+    click.echo(t("cli.config.source", source=cfg.config_source) + "\n")
     click.echo(f"Language: {get_language()}\n")
-    click.echo("Variáveis de ambiente (overrides ativos):")
+    click.echo(t("cli.config.env_overrides"))
     if active_overrides:
         for k, v in sorted(active_overrides.items()):
             click.echo(f"  {k}={v}")
     else:
-        click.echo("  (nenhuma)")
+        click.echo(t("cli.config.none"))
 
     click.echo("\nMaster:")
     click.echo(f"  Provider: {cfg.master.provider}")
@@ -1749,52 +1753,52 @@ def config_show(config_path, json_format):
     click.echo(f"  Pane Lost Attempts: {cfg.retry.pane_lost_attempts}")
     click.echo(f"  Pane Lost Backoff Seconds: {cfg.retry.pane_lost_backoff_seconds}")
 
-    click.echo("\nArquiteto / Planejador:")
+    click.echo("\n" + t("cli.config.architect_heading"))
     click.echo(f"  Harness: {cfg.architect.harness}")
     click.echo(f"  Model: {cfg.architect.model}")
     click.echo(f"  Effort: {cfg.architect.effort}")
-    click.echo("  (declarado; ainda nao conectado a nenhum fluxo)")
+    click.echo(t("cli.config.architect_note_indented"))
 
-    click.echo("\nVias ativas (tier_order):")
-    click.echo(f"  Timeout por inatividade (segundos): {cfg.workers.idle_timeout_seconds}")
-    click.echo(f"  Runtime máximo (segundos): {cfg.workers.max_runtime_seconds}")
+    click.echo("\n" + t("cli.config.enabled_lanes"))
+    click.echo(t("cli.config.idle_timeout", seconds=cfg.workers.idle_timeout_seconds))
+    click.echo(t("cli.config.max_runtime", seconds=cfg.workers.max_runtime_seconds))
     if cfg.workers.tier_order:
-        header = f"  {'Pos':<4} {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.position'):<4} {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
-        for i, t in enumerate(cfg.workers.tier_order):
-            max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
-            idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
-            max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
-            credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
-            eligible_classes = ",".join(t.eligible_classes) or "-"
-            click.echo(f"  {i + 1:<4} {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+        for i, tier in enumerate(cfg.workers.tier_order):
+            max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
+            idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
+            max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
+            credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
+            eligible_classes = ",".join(tier.eligible_classes) or "-"
+            click.echo(f"  {i + 1:<4} {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
-        click.echo("  (nenhuma via ativa)")
+        click.echo(t("cli.config.no_enabled_lanes"))
 
-    click.echo("\nVias desabilitadas:")
+    click.echo("\n" + t("cli.config.disabled_lanes"))
     if cfg.workers.disabled:
-        header = f"  {'Nome':<16} {'Harness':<12} {'Modelo':<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
-        for t in cfg.workers.disabled:
-            max_parallel = "-" if t.max_parallel is None else str(t.max_parallel)
-            idle_timeout = "-" if t.idle_timeout_seconds is None else str(t.idle_timeout_seconds)
-            max_runtime = "-" if t.max_runtime_seconds is None else str(t.max_runtime_seconds)
-            credit_usd = "-" if t.credit_usd is None else f"{t.credit_usd:g}"
-            eligible_classes = ",".join(t.eligible_classes) or "-"
-            click.echo(f"  {t.name:<16} {t.harness:<12} {t.model:<24} {t.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+        for tier in cfg.workers.disabled:
+            max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
+            idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
+            max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
+            credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
+            eligible_classes = ",".join(tier.eligible_classes) or "-"
+            click.echo(f"  {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
-        click.echo("  (nenhuma)")
+        click.echo(t("cli.config.none"))
 
-    click.echo("\nConcorrência:")
+    click.echo("\n" + t("cli.config.concurrency"))
     click.echo(f"  Parallel Tasks: {cfg.concurrency.parallel_tasks}")
     click.echo(f"  Max Parallel Workers: {cfg.concurrency.max_parallel_workers}")
     click.echo(f"  Layout Strategy: {cfg.concurrency.layout_strategy}")
     click.echo(f"  Isolation Mode: {cfg.concurrency.isolation_mode}\n")
-    click.echo("Escopo:")
+    click.echo(t("cli.config.scope"))
     click.echo(f"  Tolerated Files: {', '.join(cfg.scope.tolerated_files)}")
-    click.echo("\nAmbiente:")
+    click.echo("\n" + t("cli.config.environment"))
     click.echo(f"  Install Dependencies: {cfg.environment.install_dependencies}")
     click.echo(f"  Install Timeout Seconds: {cfg.environment.install_timeout_seconds}")
     click.echo("\nGate:")
@@ -1817,51 +1821,51 @@ def config_show(config_path, json_format):
         )
 
 
-@config_group.command("validate")
-@click.option("--config-path", "-c", "config_path", default=None, help="Caminho para arquivo config.yaml")
+@config_group.command("validate", help=t("cli.config.validate.help"))
+@click.option("--config-path", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 def config_validate(config_path):
-    """Valida a configuração do MeisterRouter."""
+    """Validate the MeisterRouter configuration."""
     from meister.config import validate_config
     try:
         cfg = _load_cli_config(config_path)
     except FileNotFoundError as e:
-        click.echo(f"ERRO: {e}", err=True)
+        click.echo(t("cli.config.error", error=e), err=True)
         sys.exit(2)
     issues = validate_config(cfg)
     if not issues:
-        click.echo("Configuracao valida.")
+        click.echo(t("cli.config.valid"))
         return
     for iss in issues:
-        tag = {"error": "ERRO", "warning": "AVISO", "info": "INFO"}[iss.level]
-        click.echo(f"{tag} [{iss.path}]: {iss.message}")
+        tag = t(f"cli.config.level.{iss.level}")
+        click.echo(t("cli.config.issue", tag=tag, path=iss.path, message=iss.message))
     has_errors = any(iss.level == "error" for iss in issues)
     if has_errors:
         sys.exit(2)
 
 
-@config_group.command("init")
+@config_group.command("init", help=t("cli.config.init.help"))
 @click.option(
     "--path",
     "-p",
     "target_path",
     default=None,
-    help="Caminho para o arquivo meister.config.yaml (padrão: ./meister.config.yaml)",
+    help=t("cli.config.init.path_help"),
 )
 @click.option(
     "--force",
     "-f",
     is_flag=True,
     default=False,
-    help="Sobrescreve arquivo existente se já houver.",
+    help=t("cli.config.init.force_help"),
 )
 def config_init(target_path, force):
-    """Inicializa um arquivo meister.config.yaml com router e workers para o projeto."""
+    """Create a meister.config.yaml with router and workers for this project."""
     from meister.setup_cmd import generate_config_yaml_content
 
     resolved_path = os.path.abspath(target_path or os.path.join(os.getcwd(), "meister.config.yaml"))
     if os.path.exists(resolved_path) and not force:
         click.echo(
-            f"Erro: o arquivo '{resolved_path}' já existe. Use --force para sobrescrever.",
+            t("cli.config.init.exists", path=resolved_path),
             err=True,
         )
         sys.exit(1)
@@ -1871,25 +1875,25 @@ def config_init(target_path, force):
     with open(resolved_path, "w", encoding="utf-8") as f:
         f.write(content)
 
-    click.echo(f"✅ Arquivo de configuração gerado em: {resolved_path}")
+    click.echo(t("cli.config.init.generated", path=resolved_path))
 
 
-# Aliases para compatibilidade caso chamados diretamente
-@main.command("clean")
-@click.option("--repo", "repo_path", default=".", show_default=True, help="Repositório Git a limpar")
-@click.option("--base", default=None, help="Branch base (default: main, senão master)")
-@click.option("--apply", "apply_changes", is_flag=True, help="Aplica as remoções; sem a opção, apenas simula")
+# Aliases for compatibility with direct callers.
+@main.command("clean", help=t("cli.clean.help"))
+@click.option("--repo", "repo_path", default=".", show_default=True, help=t("cli.clean.repo_help"))
+@click.option("--base", default=None, help=t("cli.clean.base_help"))
+@click.option("--apply", "apply_changes", is_flag=True, help=t("cli.clean.apply_help"))
 @click.option(
     "--archive-and-delete",
     is_flag=True,
-    help="Arquiva commits não integrados antes de remover suas branches",
+    help=t("cli.clean.archive_help"),
 )
-@click.option("--keep", multiple=True, help="Preserva branches cujo run_id começa com este prefixo")
-@click.option("--close-stale-runs", is_flag=True, help="Cancela runs sem branch, processo ou panes ativos")
-@click.option("--force-busy", is_flag=True, help="Ignora o bloqueio quando há processo MeisterRouter ativo")
-@click.option("--json", "json_format", is_flag=True, help="Emite resultado JSON estável")
+@click.option("--keep", multiple=True, help=t("cli.clean.keep_help"))
+@click.option("--close-stale-runs", is_flag=True, help=t("cli.clean.close_stale_runs_help"))
+@click.option("--force-busy", is_flag=True, help=t("cli.clean.force_busy_help"))
+@click.option("--json", "json_format", is_flag=True, help=t("cli.clean.json_help"))
 def clean(repo_path, base, apply_changes, archive_and_delete, keep, close_stale_runs, force_busy, json_format):
-    """Remove branches MeisterRouter obsoletas com simulação segura por padrão."""
+    """Safely preview and remove stale MeisterRouter branches."""
     from meister.clean import (
         CleanBusyError,
         CleanError,
@@ -1900,7 +1904,7 @@ def clean(repo_path, base, apply_changes, archive_and_delete, keep, close_stale_
     )
 
     if close_stale_runs and not apply_changes:
-        raise click.ClickException("--close-stale-runs exige --apply.")
+        raise click.ClickException(t("cli.clean.close_stale_requires_apply"))
     try:
         plan = plan_cleanup(
             repo_path,
@@ -1923,7 +1927,7 @@ def clean(repo_path, base, apply_changes, archive_and_delete, keep, close_stale_
         if result and result["failures"]:
             sys.exit(1)
     except CleanBusyError as error:
-        click.echo(f"Erro: {error}", err=True)
+        click.echo(t("cli.common.error", error=error), err=True)
         sys.exit(3)
     except CleanError as error:
         raise click.ClickException(str(error))
