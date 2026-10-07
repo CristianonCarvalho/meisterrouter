@@ -354,6 +354,7 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
 - `scope.tolerated_files`: artefatos gerados tolerados fora dos `target_files` (a lista substitui a padrão).
 - `gate.cache` (padrão `true`): o gate guarda só as passagens, por conteúdo do código e dos comandos, e não repete
   uma verificação idêntica; `gate.cache: false` desliga.
+- `gate.repair_attempts` (padrão `1`; `0` desativa): quando o gate determinístico ou a checagem estrita de escopo reprova uma subtarefa, o Meister não descarta o worktree. Em vez disso, reabre um worker na mesma via e no mesmo worktree com uma seção REPAIR trazendo o motivo da rejeição, a lista de testes falhos e o resumo da falha. O worker ganha até `repair_attempts` tentativas para consertar quebras colaterais antes de o trabalho ser arquivado e reprovado.
 - `environment.install_dependencies`: instala as dependências Node nos worktrees só quando há o que instalar.
 
 ---

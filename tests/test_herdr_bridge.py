@@ -1211,6 +1211,7 @@ async def test_bridge_timeout_salvages_dirty_or_committed_work_through_integrati
         }
     ])
     config = _timeout_test_config(tmp_path, idle=0.02, retries=0)
+    config.gate.repair_attempts = 0
     client = AsyncMock()
     client.read_pane.return_value = "idle"
     bridge = HerdrEventBridge(config=config, client=client, state_manager=state)
@@ -2097,6 +2098,7 @@ async def test_workers_in_same_run_get_distinct_worktree_paths(tmp_path, monkeyp
     mock_spawner.get_tier.return_value = MagicMock(name="luna", model="gpt-6-luna")
 
     bridge = HerdrEventBridge(client=mock_client, spawner=mock_spawner)
+    bridge.config.gate.repair_attempts = 0
     bridge._integration_pipeline = pipeline
     bridge.current_run_id = "run-unique-paths"
 

@@ -72,6 +72,7 @@ gate:
   commands: []
   allow_unverified: false
   cache: true
+  repair_attempts: 1  # Tentativas de conserto no mesmo worktree após reprovação no gate/escopo (0 desliga)
   # Opcional e desligado por padrão. Só substitui o gate no pré-merge e pós-merge
   # de mudanças que correspondam a paths; validate_final_integration continua completo.
   # Uma falha que apenas o gate completo detectaria reprovará o run inteiro no gate final,

@@ -5,6 +5,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 ## [Unreleased]
 
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
+- Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.
 
 ## [0.9.1] - 2026-10-07
 

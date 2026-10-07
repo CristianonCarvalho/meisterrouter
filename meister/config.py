@@ -208,6 +208,9 @@ class GateConfig:
     python: Optional[str] = None
     cache: bool = field(default_factory=lambda: _default_section("gate")["cache"])
     docs_only: DocsOnlyGateConfig = field(default_factory=DocsOnlyGateConfig)
+    repair_attempts: int = field(
+        default_factory=lambda: int(_default_section("gate").get("repair_attempts", 1))
+    )
 
 
 @dataclass
@@ -657,6 +660,21 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if not isinstance(cache, bool):
         parse_issues.append(ConfigIssue("error", "gate.cache", t("reports.config.expected_boolean")))
         cache = gate_defaults["cache"]
+    repair_attempts = gate_data.get("repair_attempts", gate_defaults.get("repair_attempts", 1))
+    if isinstance(repair_attempts, bool) or not isinstance(repair_attempts, int):
+        parse_issues.append(
+            ConfigIssue("error", "gate.repair_attempts", t("reports.config.nonnegative_integer"))
+        )
+        repair_attempts = gate_defaults.get("repair_attempts", 1)
+    elif repair_attempts < 0:
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "gate.repair_attempts",
+                t("reports.config.nonnegative_value", value=repair_attempts),
+            )
+        )
+        repair_attempts = gate_defaults.get("repair_attempts", 1)
     raw_commands = gate_data.get("commands", gate_defaults["commands"])
     commands = _parse_gate_commands(raw_commands, "gate.commands", parse_issues)
     docs_only_data = gate_data.get("docs_only", {})
@@ -712,6 +730,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         python=python,
         cache=cache,
         docs_only=docs_only,
+        repair_attempts=repair_attempts,
     )
 
     return MeisterConfig(
@@ -853,6 +872,23 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 t("reports.config.nonnegative_value", value=config.retry.pane_lost_backoff_seconds),
             )
         )
+
+    if isinstance(config.gate.repair_attempts, bool) or not isinstance(
+        config.gate.repair_attempts, int
+    ):
+        if not any(issue.path == "gate.repair_attempts" for issue in issues):
+            issues.append(
+                ConfigIssue("error", "gate.repair_attempts", t("reports.config.nonnegative_integer"))
+            )
+    elif config.gate.repair_attempts < 0:
+        if not any(issue.path == "gate.repair_attempts" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "gate.repair_attempts",
+                    t("reports.config.nonnegative_value", value=config.gate.repair_attempts),
+                )
+            )
 
     if config.router.mode not in {"first", "jev"}:
         issues.append(

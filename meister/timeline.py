@@ -210,11 +210,29 @@ def _build_row(
         elif kind in terminal_events:
             current["terminal"] = timestamp
             current["kind"] = kind
+            failed_tests = event.get("failed_tests")
+            if failed_tests and isinstance(failed_tests, list):
+                names = [str(item).split("::")[-1] for item in failed_tests]
+                if len(names) > 3:
+                    names_str = f"{', '.join(names[:3])}, +{len(names) - 3}"
+                else:
+                    names_str = ", ".join(names)
+                if len(failed_tests) == 1:
+                    formatted_reason = t("gate_repair.timeline.failure_singular", tests=names_str)
+                else:
+                    formatted_reason = t(
+                        "gate_repair.timeline.failure_plural",
+                        count=len(failed_tests),
+                        tests=names_str,
+                    )
+            else:
+                formatted_reason = None
+
             if kind == "worker_end":
                 current["worker_status"] = str(event.get("status") or "")
-                current["reason"] = str(event.get("error") or current["worker_status"])
+                current["reason"] = formatted_reason or str(event.get("error") or current["worker_status"])
             elif kind in FAILURE_EVENTS:
-                current["reason"] = str(event.get("reason") or event.get("error") or kind)
+                current["reason"] = formatted_reason or str(event.get("reason") or event.get("error") or kind)
         elif kind == "worker_retry" and current["terminal"] is None:
             # tentativa abandonada (ex.: pane_lost): fecha aqui, senão uma fase inferida ficaria
             # aberta por cima da tentativa seguinte
