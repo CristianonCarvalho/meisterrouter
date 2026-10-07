@@ -441,13 +441,12 @@ def test_check_worker_clis_disabled_tier_not_checked(monkeypatch):
         )
     )
 
-    # Simula que copilot existe e codex não existe
-    def fake_which(harness):
-        if harness == "copilot":
-            return "/bin/copilot"
-        return None
+    # Simula que copilot existe e codex não existe (find_cli_binary também olha o disco, então é trocado inteiro)
+    import meister.worker as worker_module
 
-    monkeypatch.setattr(shutil, "which", fake_which)
+    monkeypatch.setattr(
+        worker_module, "find_cli_binary", lambda harness: "/bin/copilot" if harness == "copilot" else None
+    )
     items = check_worker_clis(cfg)
 
     # Somente copilot deve ter sido checado

@@ -8,8 +8,28 @@ from pathlib import Path
 
 from click.testing import CliRunner
 
+import pytest
+
+from meister import setup_cmd
 from meister.cli import main
 from tests.test_setup_cmd import OWNER_FIXTURE, FakeCompletedProcess
+
+
+@pytest.fixture(autouse=True)
+def _no_real_herdr_or_clis(monkeypatch):
+    """Hermético: nenhum teste executa o herdr real nem depende das CLIs instaladas nesta máquina."""
+    import meister.worker as worker_module
+
+    calls = []
+
+    def fake_runner(cmd):
+        calls.append(list(cmd))
+        stdout = "- dev.meisterrouter.orchestrator (MeisterRouter) enabled" if list(cmd)[:3] == ["herdr", "plugin", "list"] else ""
+        return FakeCompletedProcess(0, stdout, "")
+
+    monkeypatch.setattr(setup_cmd, "default_runner", fake_runner)
+    monkeypatch.setattr(worker_module, "find_cli_binary", lambda harness: f"/bin/{harness}")
+    return calls
 
 
 def test_cli_setup_herdr_absent_aborts(monkeypatch):
