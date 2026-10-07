@@ -13,6 +13,7 @@ import json
 from typing import Optional, Tuple, Union, Any, List
 from meister.config import MeisterConfig, WorkerTier, load_config
 from meister.herdr.client import HerdrSocketClient
+from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 
@@ -140,9 +141,11 @@ class WorkerSpawner:
             tier_ok = state_manager.is_harness_available(tier.name)
             if not harness_ok or not tier_ok:
                 logger.info(
-                    "Tier %s (%s) está em cooldown no circuit breaker. Pulando...",
-                    tier.name,
-                    tier.harness,
+                    t(
+                        "engine.workers.tier_cooldown",
+                        tier=tier.name,
+                        harness=tier.harness,
+                    )
                 )
                 return False
         return True

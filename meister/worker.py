@@ -21,6 +21,7 @@ import signal
 from typing import Optional, List, Dict, Any, Tuple
 from meister.logger import log_event
 from meister.usage import finalize_usage, parse_for_harness
+from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 _UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
@@ -205,7 +206,7 @@ def resolve_worker_harness_and_model(
     tiers = cfg.workers.tier_order
     if model_name is None or not model_name.strip():
         if not tiers:
-            raise UnknownTierError("Nenhuma via configurada em workers.tier_order")
+            raise UnknownTierError(t("engine.worker.no_lanes_configured"))
         tier = tiers[0]
     else:
         requested = model_name.strip().casefold()
@@ -217,11 +218,12 @@ def resolve_worker_harness_and_model(
         if tier is None:
             valid_names = ", ".join(item.name for item in tiers)
             if cfg.workers.disabled:
-                valid_names += " (desligadas, só por escolha explícita: " + ", ".join(
-                    item.name for item in cfg.workers.disabled
-                ) + ")"
+                valid_names += t(
+                    "engine.worker.disabled_tiers",
+                    tiers=", ".join(item.name for item in cfg.workers.disabled),
+                )
             raise UnknownTierError(
-                f"Via desconhecida '{model_name}'. Vias válidas: {valid_names}"
+                t("engine.worker.unknown_tier", tier=model_name, valid_names=valid_names)
             )
 
     harness = (tier.harness or "").strip()
@@ -421,10 +423,7 @@ class HarnessWorker:
     ) -> Dict[str, Any]:
         """Execute task via local agent harness and track changes on disk."""
         if not self.cli_binary:
-            raise RuntimeError(
-                f"Harness CLI '{self.harness}' não encontrado no sistema. "
-                f"Instale o executável correspondente ou selecione outro modelo de worker."
-            )
+            raise RuntimeError(t("engine.worker.cli_missing", harness=self.harness))
 
         file_context = self._build_context(target_files)
 
@@ -447,12 +446,12 @@ class HarnessWorker:
         print(
             f"\033[1;35m🔮 [MeisterRouter Worker]\033[0m "
             f"Harness: \033[1;32m{self.harness}\033[0m | "
-            f"Modelo: \033[1;33m{self.resolved_model or 'default'}\033[0m"
+            f"{t('engine.worker.model_label')} \033[1;33m{self.resolved_model or 'default'}\033[0m"
         )
-        print(f"🛠️ \033[1mCLI Executável:\033[0m {self.cli_binary}")
-        print(f"📋 \033[1mTarefa:\033[0m {task}")
+        print(f"🛠️ \033[1m{t('engine.worker.cli_label')}\033[0m {self.cli_binary}")
+        print(f"📋 \033[1m{t('engine.worker.task_label')}\033[0m {task}")
         if target_files:
-            print(f"📂 \033[1mArquivos Alvo:\033[0m {', '.join(target_files)}")
+            print(f"📂 \033[1m{t('engine.worker.target_files_label')}\033[0m {', '.join(target_files)}")
         print(f"\033[1;36m{'='*68}\033[0m\n")
         sys.stdout.flush()
 
@@ -525,9 +524,11 @@ class HarnessWorker:
         except (subprocess.TimeoutExpired, TimeoutError) as te:
             if process is not None and hasattr(process, "pid") and isinstance(process.pid, int):
                 kill_process_tree(process.pid, is_pgid=True)
-            raise TimeoutError(f"Harness {self.harness} excedeu o timeout duro de {timeout}s") from te
+            raise TimeoutError(
+                t("engine.worker.hard_timeout", harness=self.harness, timeout=timeout)
+            ) from te
         except Exception as e:
-            raise RuntimeError(f"Erro ao executar harness {self.harness}: {e}") from e
+            raise RuntimeError(t("engine.worker.execution_error", harness=self.harness, error=e)) from e
 
         captured_output = "".join(output_lines)
         readable_output, parsed_usage = parse_for_harness(self.harness, captured_output)
@@ -557,15 +558,17 @@ class HarnessWorker:
 
         print(f"\n\033[1;36m{'='*68}\033[0m")
         if exit_code == 0:
-            print(f"\033[1;32m✅ Concluído com sucesso pelo harness {self.harness}!\033[0m")
+            print(f"\033[1;32m✅ {t('engine.worker.completed', harness=self.harness)}\033[0m")
             if modified_files:
-                print("📂 \033[1mArquivos alterados:\033[0m")
+                print(f"📂 \033[1m{t('engine.worker.changed_files_label')}\033[0m")
                 for f in modified_files:
                     print(f"   \033[1;32m✓\033[0m {f}")
             else:
-                print("ℹ️ Nenhum arquivo alterado.")
+                print(f"ℹ️ {t('engine.worker.no_files_changed')}")
         else:
-            print(f"\033[1;31m❌ Falha na execução do harness {self.harness} (exit code: {exit_code})\033[0m")
+            print(
+                f"\033[1;31m❌ {t('engine.worker.failed', harness=self.harness, exit_code=exit_code)}\033[0m"
+            )
         print(f"\033[1;36m{'='*68}\033[0m\n")
         sys.stdout.flush()
 
@@ -742,7 +745,7 @@ async def run_worker_in_herdr_pane_async(
             except Exception:
                 pass
             raise WorkerInfrastructureError(
-                f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                t("engine.worker.pane_exited", pane_id=pane_id)
             )
 
         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
@@ -769,7 +772,7 @@ async def run_worker_in_herdr_pane_async(
                         except Exception:
                             pass
                         raise WorkerInfrastructureError(
-                            f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                            t("engine.worker.pane_disappeared", pane_id=pane_id)
                         )
                 except WorkerInfrastructureError:
                     raise
@@ -787,7 +790,7 @@ async def run_worker_in_herdr_pane_async(
     except Exception as e:
         logger.debug("Failed to close timed out pane %s: %s", pane_id, e)
 
-    raise TimeoutError(f"Worker no pane {pane_id} excedeu o timeout de {timeout}s aguardando conclusão")
+    raise TimeoutError(t("engine.worker.pane_timeout", pane_id=pane_id, timeout=timeout))
 
 
 def run_worker_in_herdr_pane(
@@ -957,7 +960,7 @@ async def run_worker_in_herdr_tab_async(
             except Exception:
                 pass
             raise WorkerInfrastructureError(
-                f"Worker na tab {tab_id} (pane {pane_id}) encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                t("engine.worker.tab_exited", tab_id=tab_id, pane_id=pane_id)
             )
 
         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
@@ -985,7 +988,7 @@ async def run_worker_in_herdr_tab_async(
                         except Exception:
                             pass
                         raise WorkerInfrastructureError(
-                            f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                            t("engine.worker.pane_disappeared", pane_id=pane_id)
                         )
                 except WorkerInfrastructureError:
                     raise
@@ -1004,7 +1007,7 @@ async def run_worker_in_herdr_tab_async(
     except Exception:
         pass
 
-    raise TimeoutError(f"Worker na tab {tab_id} (pane {pane_id}) excedeu o timeout de {timeout}s aguardando conclusão")
+    raise TimeoutError(t("engine.worker.tab_timeout", tab_id=tab_id, pane_id=pane_id, timeout=timeout))
 
 
 def run_worker_in_herdr_tab(
@@ -1075,7 +1078,7 @@ def execute_task_file(
     """Lê contrato task.json, executa worker isolado e grava result.json atômico (Achados #7, #8, #11, #29)."""
     task_data = read_atomic_json(task_file)
     if not task_data:
-        raise ValueError(f"Arquivo de tarefa inválido ou inacessível: {task_file}")
+        raise ValueError(t("engine.worker.invalid_task_file", path=task_file))
 
     task_id = task_data.get("task_id", uuid.uuid4().hex[:8])
     run_id = task_data.get("run_id") or os.environ.get("MEISTER_RUN_ID")

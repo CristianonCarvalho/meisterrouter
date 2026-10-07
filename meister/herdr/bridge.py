@@ -22,6 +22,7 @@ import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from meister.config import MeisterConfig, WorkerTier, effective_worker_timeouts, load_config
+from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
@@ -86,8 +87,15 @@ def is_infrastructure_error(int_err: Any) -> bool:
     from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
 
     err_code = getattr(int_err, "code", None)
+    prefixes = {
+        GATE_INFRASTRUCTURE_PREFIX,
+        CATALOGS["en"]["engine.worktree.infrastructure_prefix"],
+        CATALOGS["pt-BR"]["engine.worktree.infrastructure_prefix"],
+    }
     return (err_code == "gate_infrastructure") or (
-        err_code is None and isinstance(int_err, str) and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX)
+        err_code is None
+        and isinstance(int_err, str)
+        and any(int_err.startswith(prefix) for prefix in prefixes)
     )
 
 
@@ -405,7 +413,13 @@ class HerdrEventBridge:
                 text=True,
             )
             if pin.returncode != 0:
-                raise RuntimeError(f"Não foi possível fixar o commit retomado {sha}: {pin.stderr.strip()}")
+                raise RuntimeError(
+                    t(
+                        "engine.bridge.pin_resume_failed",
+                        sha=sha,
+                        error=pin.stderr.strip(),
+                    )
+                )
 
             state_manager.adopt_subtask(
                 new_row["subtask_id"],
@@ -579,7 +593,14 @@ class HerdrEventBridge:
         if active_run_id:
             existing_subtask = sm.get_subtask(subtask_id)
             if existing_subtask and existing_subtask.get("status") == SubtaskState.COMPLETED.value:
-                logger.info("Subtask %s (%s) já concluída na execução %s. Pulando.", task_id, subtask_id, active_run_id)
+                logger.info(
+                    t(
+                        "engine.bridge.subtask_already_completed",
+                        task_id=task_id,
+                        subtask_id=subtask_id,
+                        run_id=active_run_id,
+                    )
+                )
                 return True
 
         # Determine starting tier
@@ -589,7 +610,7 @@ class HerdrEventBridge:
                 tier_order = self.config.workers.tier_order
                 current_tier = tier_order[0].name
             else:
-                logger.error("Não é possível executar a subtarefa: nenhuma via está configurada.")
+                logger.error(t("engine.bridge.no_lanes"))
                 return False
 
             if getattr(getattr(self.config, "router", None), "mode", "first") == "jev" and len(tier_order) > 1:
@@ -648,7 +669,7 @@ class HerdrEventBridge:
                             )
                             recommended = result.get("recommended_implementer")
                             if result.get("api_unavailable", False):
-                                error = "Jev Decisions API indisponível"
+                                error = t("engine.bridge.jev_unavailable")
                                 self._jev_unavailable_until = (
                                     time.monotonic() + self.config.router.unavailable_cooldown_seconds
                                 )
@@ -761,7 +782,7 @@ class HerdrEventBridge:
                             )
 
         if current_tier is None:
-            logger.error("Não foi possível selecionar uma via para a subtarefa %s.", task_id)
+            logger.error(t("engine.bridge.no_lane_selected", task_id=task_id))
             return False
 
         if sm and hasattr(self.spawner, "get_first_available_tier"):
@@ -771,9 +792,11 @@ class HerdrEventBridge:
                 first_tier_name = getattr(first_tier, "name", None)
                 if isinstance(first_tier_name, str) and first_tier_name != current_tier:
                     logger.info(
-                        "Tier inicial %s está em cooldown no circuit breaker. Redirecionando para %s.",
-                        current_tier,
-                        first_tier_name,
+                        t(
+                            "engine.bridge.initial_tier_cooldown",
+                            current_tier=current_tier,
+                            next_tier=first_tier_name,
+                        )
                     )
                     log_event(
                         event_type="tier_skipped_breaker",
@@ -811,7 +834,7 @@ class HerdrEventBridge:
                     task_dict["cwd"] = subtask_wt.worktree_path
                     task_dict["worktree"] = subtask_wt.worktree_path
                 except Exception as e:
-                    err_msg = f"Falha ao criar worktree para subtask {task_id}: {e}"
+                    err_msg = t("engine.bridge.worktree_create_failed", task_id=task_id, error=e)
                     logger.warning(err_msg)
                     log_event(
                         event_type="subtask_rejected",
@@ -1048,7 +1071,7 @@ class HerdrEventBridge:
                                     except Exception:
                                         pass
                                     break
-                            infra_error = f"Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)"
+                            infra_error = t("engine.bridge.worker_pane_exited", pane_id=pane_id)
                             break
 
                         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
@@ -1095,7 +1118,7 @@ class HerdrEventBridge:
                                                 except Exception:
                                                     pass
                                                 break
-                                        infra_error = f"Pane {pane_id} do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)"
+                                        infra_error = t("engine.bridge.worker_pane_disappeared", pane_id=pane_id)
                                         break
                                 except Exception:
                                     pass
@@ -1175,13 +1198,16 @@ class HerdrEventBridge:
                     if timeout_kind:
                         seconds_label = f"{timeout_seconds:g}"
                         if timeout_kind == "idle":
-                            timeout_message = (
-                                f"Worker na via {current_tier} sem atividade por {seconds_label} s "
-                                "(timeout por inatividade)"
+                            timeout_message = t(
+                                "engine.bridge.idle_timeout",
+                                tier=current_tier,
+                                seconds=seconds_label,
                             )
                         else:
-                            timeout_message = (
-                                f"Worker na via {current_tier} excedeu o teto de {seconds_label} s"
+                            timeout_message = t(
+                                "engine.bridge.max_runtime_timeout",
+                                tier=current_tier,
+                                seconds=seconds_label,
                             )
                         try:
                             await self.client.send_interrupt(pane_id)
@@ -1235,18 +1261,18 @@ class HerdrEventBridge:
                                     current_tier, state_manager=sm
                                 )
                             action = (
-                                "retentando na mesma via"
+                                t("engine.bridge.timeout_retry_same_lane")
                                 if retry_timeout
                                 else (
-                                    f"escalando para {timeout_next_tier.name}"
+                                    t("engine.bridge.timeout_escalating", tier=timeout_next_tier.name)
                                     if timeout_next_tier is not None
-                                    else "falhando sem trabalho aproveitavel"
+                                    else t("engine.bridge.timeout_failed_no_salvage")
                                 )
                             )
                         elif timeout_salvaged:
-                            action = "integrando trabalho salvaguardado"
+                            action = t("engine.bridge.timeout_integrating_salvaged")
                         else:
-                            action = "integrando resultado recebido"
+                            action = t("engine.bridge.timeout_integrating_result")
 
                         log_event(
                             event_type="worker_timeout",
@@ -1665,7 +1691,13 @@ class HerdrEventBridge:
                         )
                         subtask_wt = None
                         if not ok_int:
-                            logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
+                            logger.warning(
+                                t(
+                                    "engine.bridge.integration_failed",
+                                    task_id=task_id,
+                                    error=int_err,
+                                )
+                            )
                             reason = extract_rejection_reason(int_err)
 
                             short_err = int_err.strip()[:200]
@@ -1802,7 +1834,13 @@ class HerdrEventBridge:
                         archive_unmerged=True,
                     )
                 except Exception as e:
-                    logger.debug("Falha na limpeza do worktree %s em finally: %s", subtask_wt.task_id, e)
+                    logger.debug(
+                        t(
+                            "engine.bridge.cleanup_failed",
+                            task_id=subtask_wt.task_id,
+                            error=e,
+                        )
+                    )
                 subtask_wt = None
 
     async def execute_parallel_batch(
@@ -1881,7 +1919,7 @@ class HerdrEventBridge:
                 try:
                     await self.client.send_interrupt(pane_id)
                 except Exception as e:
-                    logger.debug("Falha ao enviar interrupção para pane %s: %s", pane_id, e)
+                    logger.debug(t("engine.bridge.interrupt_failed", pane_id=pane_id, error=e))
 
                 try:
                     pinfo = await self.client._call("pane.process_info", {"pane_id": pane_id})
@@ -1893,7 +1931,7 @@ class HerdrEventBridge:
                             except (OSError, ProcessLookupError):
                                 pass
                 except Exception as e:
-                    logger.debug("Não foi possível obter process_info do pane %s: %s", pane_id, e)
+                    logger.debug(t("engine.bridge.process_info_failed", pane_id=pane_id, error=e))
 
             if rec_pid:
                 try:
@@ -1910,13 +1948,13 @@ class HerdrEventBridge:
                     try:
                         await self.client.close_tab(tab_id)
                     except Exception as e:
-                        logger.debug("Falha ao fechar tab %s: %s", tab_id, e)
+                        logger.debug(t("engine.bridge.close_tab_failed", tab_id=tab_id, error=e))
 
                 if pane_id and hasattr(self.client, "close_pane"):
                     try:
                         await self.client.close_pane(pane_id)
                     except Exception as e:
-                        logger.debug("Falha ao fechar pane %s: %s", pane_id, e)
+                        logger.debug(t("engine.bridge.close_pane_failed", pane_id=pane_id, error=e))
 
             # 3. Remove registro do SQLite
             if pane_id:
@@ -1963,7 +2001,7 @@ class HerdrEventBridge:
 
         # Notify user in Herdr UI that orchestration has started
         await self.client.show_notification(
-            f"Iniciando ciclo de orquestração no workspace {workspace_id}...",
+            t("engine.bridge.orchestration_started", workspace_id=workspace_id),
             title="MeisterRouter",
         )
 
@@ -1979,7 +2017,7 @@ class HerdrEventBridge:
             if allow_freeform:
                 steps = parse_architect_plan(raw_plan)
             else:
-                err_msg = f"Plano rejeitado: {e}"
+                err_msg = t("engine.bridge.plan_rejected", error=e)
                 logger.error(err_msg)
                 log_event(
                     event_type="plan_rejected",
@@ -2006,8 +2044,11 @@ class HerdrEventBridge:
 
         async def resume_same_run(run: Dict[str, Any]) -> None:
             message = (
-                f"Plano identico ao run {run['run_id'][:8]} ({run['state']}): "
-                "retomando o mesmo run; tarefas concluidas sao puladas."
+                t(
+                    "engine.bridge.resume_same_run",
+                    run_id=run["run_id"][:8],
+                    state=run["state"],
+                )
             )
             logger.info(message)
             log_event(
@@ -2030,8 +2071,12 @@ class HerdrEventBridge:
                     if subtask["status"] == SubtaskState.COMPLETED.value and subtask.get("integrated_sha")
                 )
                 resume_hint_callback(
-                    f"Run {candidate['run_id']} ({candidate['state']}) tem {completed_count} "
-                    "tarefas concluidas reaproveitaveis; use --resume"
+                    t(
+                        "engine.bridge.resume_hint",
+                        run_id=candidate["run_id"],
+                        state=candidate["state"],
+                        count=completed_count,
+                    )
                 )
         if resume_run_id == "auto":
             source_run = resumable_candidate
@@ -2043,21 +2088,35 @@ class HerdrEventBridge:
                 ):
                     await resume_same_run(same_run)
                 else:
-                    warning = "Nenhum run FAILED/RUNNING elegível encontrado para --resume."
+                    warning = t("engine.bridge.resume_no_run")
                     logger.warning(warning)
                     await self.client.show_notification(warning, title="MeisterRouter")
         elif resume_run_id is not None:
             source_run = sm.get_run(resume_run_id)
             if source_run is None:
-                raise ResumeRequestError(f"Run de origem '{resume_run_id}' não existe{automatic_source_hint()}")
+                raise ResumeRequestError(
+                    t(
+                        "engine.bridge.resume_missing_run",
+                        run_id=resume_run_id,
+                        hint=automatic_source_hint(),
+                    )
+                )
             if source_run["state"] not in {RunState.FAILED.value, RunState.RUNNING.value}:
                 raise ResumeRequestError(
-                    f"Run de origem '{resume_run_id}' está {source_run['state']}; "
-                    f"--resume aceita FAILED ou RUNNING{automatic_source_hint()}"
+                    t(
+                        "engine.bridge.resume_invalid_state",
+                        run_id=resume_run_id,
+                        state=source_run["state"],
+                        hint=automatic_source_hint(),
+                    )
                 )
             if os.path.abspath(source_run["cwd"]) != cwd:
                 raise ResumeRequestError(
-                    f"Run de origem '{resume_run_id}' pertence a outro cwd{automatic_source_hint()}"
+                    t(
+                        "engine.bridge.resume_other_cwd",
+                        run_id=resume_run_id,
+                        hint=automatic_source_hint(),
+                    )
                 )
             if resume_run_id == new_run_id:
                 same_run = source_run
@@ -2116,7 +2175,7 @@ class HerdrEventBridge:
                 self._integration_pipeline = pipeline
                 crash_point("after_integration_started", run_id=run_id)
             except Exception as e:
-                if source_run is not None and str(e).startswith("falha ao reaplicar "):
+                if source_run is not None and getattr(e, "code", None) == "replay_failed":
                     failure = f"{e}; rode sem --resume"
                     logger.error(failure)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
@@ -2131,7 +2190,7 @@ class HerdrEventBridge:
                         error=failure,
                     )
                     return False
-                logger.warning("Não foi possível inicializar pipeline de integração: %s", e)
+                logger.warning(t("engine.bridge.integration_init_failed", error=e))
 
         try:
             plan_success = await self.execute_plan(steps)
@@ -2214,7 +2273,7 @@ class HerdrEventBridge:
                     crash_point("before_fast_forward", run_id=run_id)
                     ok_ff, ff_msg = await asyncio.to_thread(self._integration_pipeline.apply_fast_forward)
                     if not ok_ff:
-                        logger.error("Fast-forward na main falhou: %s", ff_msg)
+                        logger.error(t("engine.bridge.fast_forward_main_failed", error=ff_msg))
                         msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
                         await self.client.show_notification(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
