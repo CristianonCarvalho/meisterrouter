@@ -17,6 +17,8 @@ from importlib.resources import files
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional, List, Set, Union
+
+from meister.i18n import t
 import yaml
 
 
@@ -211,6 +213,7 @@ class GateConfig:
 @dataclass
 class MeisterConfig:
     version: str = field(default_factory=lambda: _default_config_data()["version"])
+    language: str = field(default_factory=lambda: _as_str(_default_config_data().get("language", "en"), "en"))
     master: MasterConfig = field(default_factory=MasterConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
@@ -316,6 +319,22 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     version = str(data.get("version", "1.0"))
     parse_issues: List[ConfigIssue] = []
+
+    from meister.i18n import normalize_language
+
+    raw_lang = data.get("language", "en")
+    norm_lang = normalize_language(raw_lang)
+    if norm_lang is None:
+        parse_issues.append(
+            ConfigIssue(
+                level="error",
+                path="language",
+                message=t("config.language.invalid", value=repr(raw_lang)),
+            )
+        )
+        language = str(raw_lang) if raw_lang is not None else ""
+    else:
+        language = norm_lang
 
     # Master
     master_data = data["master"]
@@ -703,6 +722,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     return MeisterConfig(
         version=version,
+        language=language,
         master=master,
         router=router,
         retry=retry,
@@ -770,6 +790,19 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
     Sem levantar exceção. A configuração padrão sem arquivo e sem env resulta em 0 erros.
     """
     issues: List[ConfigIssue] = list(getattr(config, "_parse_issues", []))
+
+    from meister.i18n import normalize_language
+
+    cfg_lang = getattr(config, "language", None)
+    if normalize_language(cfg_lang) is None:
+        if not any(issue.path == "language" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    level="error",
+                    path="language",
+                    message=t("config.language.invalid", value=repr(cfg_lang)),
+                )
+            )
 
     for path, value in (
         ("workers.idle_timeout_seconds", config.workers.idle_timeout_seconds),

@@ -316,6 +316,9 @@ sai. Mostra também as tarefas rodadas por `meister worker`. Um run sem fim e se
 Os padrões estão em `meister/default_config.yaml`; o `meister.config.yaml` do projeto os sobrescreve (listas
 como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias está no README; aqui o resto.
 
+**Idioma**
+- `language`: `en` (padrão) ou `pt-BR` no `meister.config.yaml`. Também pode ser definido pela variável de ambiente `MEISTER_LANG`. Precedência: (1) opção `--config` explícita do CLI, (2) `MEISTER_LANG`, (3) `meister.config.yaml` no diretório atual, (4) padrão `en`. Nesta versão, as mensagens estão em processo de tradução (o português atual continua disponível).
+
 **Roteador**
 - `router.mode`: `jev` (padrão) ou `first` (sempre a primeira via, sem rede, operação offline e determinística).
 - `router.timeout_seconds` (10) limita cada chamada ao Jev; `router.max_attempts` (2) define as tentativas;

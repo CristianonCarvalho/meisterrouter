@@ -41,6 +41,21 @@ logger = logging.getLogger(__name__)
 GATE_INFRASTRUCTURE_PREFIX = "ERRO DE INFRAESTRUTURA no portão:"
 
 
+class CodedMessage(str):
+    """String with an associated semantic reason code."""
+
+    code: str
+
+    def __new__(cls, content: str, code: str = "integration") -> "CodedMessage":
+        obj = str.__new__(cls, content)
+        obj.code = code
+        return obj
+
+    def __repr__(self) -> str:
+        return f"CodedMessage({super().__repr__()}, code={self.code!r})"
+
+
+
 def _normalize_scope_pattern(value: str) -> str:
     raw = value.replace("\\", "/")
     trailing_slash = raw.endswith("/")
@@ -398,7 +413,7 @@ class WorktreeManager:
         Se houver conflito ou erro, aborta o merge automaticamente e retorna False.
         """
         if not os.path.exists(target_worktree_path):
-            return False, f"Target worktree não existe: {target_worktree_path}"
+            return False, CodedMessage(f"Target worktree não existe: {target_worktree_path}", code="merge")
 
         rollback_sha = self._run_git(["rev-parse", "HEAD"], cwd=target_worktree_path)
         commit_msg = message or f"Merge branch '{source_branch}'"
@@ -427,7 +442,7 @@ class WorktreeManager:
                 )
             except Exception:
                 pass
-            return False, f"Falha/conflito no merge: {res.stderr.strip() or res.stdout.strip()}"
+            return False, CodedMessage(f"Falha/conflito no merge: {res.stderr.strip() or res.stdout.strip()}", code="merge")
 
         return True, rollback_sha
 
@@ -1294,7 +1309,7 @@ class IntegrationPipeline:
             tier=tier,
         )
         if self.integration_info is None:
-            prepared.early = (False, "Pipeline de integração não foi inicializado.")
+            prepared.early = (False, CodedMessage("Pipeline de integração não foi inicializado.", code="integration"))
             return prepared
 
         # 1. Validação estrita de escopo
@@ -1305,10 +1320,10 @@ class IntegrationPipeline:
             tolerated=self.config.scope.tolerated_files,
         )
         if not valid_scope:
-            prepared.early = (False, (
+            prepared.early = (False, CodedMessage((
                 f"Violação de escopo no worktree: {out_of_scope}. Declare o arquivo em **Files:** "
                 "(aceita glob, ex.: drizzle/*) ou adicione-o a scope.tolerated_files no meister.config.yaml."
-            ))
+            ), code="scope"))
             return prepared
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
 
@@ -1335,7 +1350,7 @@ class IntegrationPipeline:
             return prepared
         if not worker_result.passed:
             out = worker_result.output
-            prepared.early = (False, f"Portão determinístico falhou no worktree do worker:\n{out}")
+            prepared.early = (False, CodedMessage(f"Portão determinístico falhou no worktree do worker:\n{out}", code="gate"))
             return prepared
 
         # 3. Commit das alterações no worktree do worker
@@ -1414,7 +1429,7 @@ class IntegrationPipeline:
 
                 prepared.early = (
                     False,
-                    f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})",
+                    CodedMessage(f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})", code="no_changes"),
                 )
                 return prepared
             prepared.early = (True, "Nenhuma alteração para integrar.")
@@ -1433,7 +1448,7 @@ class IntegrationPipeline:
         if prepared.commit_sha is None:
             raise ValueError("PreparedSubtask sem resultado antecipado ou commit para integrar")
         if self.integration_info is None:
-            return False, "Pipeline de integração não foi inicializado."
+            return False, CodedMessage("Pipeline de integração não foi inicializado.", code="integration")
 
         subtask_wt = prepared.subtask_wt
         commit_sha = prepared.commit_sha
@@ -1444,7 +1459,7 @@ class IntegrationPipeline:
             message=f"Merge subtask {subtask_wt.task_id} ({commit_sha[:8]})",
         )
         if not merged:
-            return False, f"Falha no merge com a branch de integração: {rollback_sha_or_err}"
+            return False, CodedMessage(f"Falha no merge com a branch de integração: {rollback_sha_or_err}", code="merge")
 
         rollback_sha = rollback_sha_or_err
         crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
@@ -1470,25 +1485,28 @@ class IntegrationPipeline:
             logger.warning("Portão falhou na integração após merge de %s. Executando rollback para %s...", subtask_wt.task_id, rollback_sha)
             # 6. Rollback atômico
             self.wt_mgr.rollback_merge(self.integration_info.worktree_path, rollback_sha)
-            return False, f"Portão de integração falhou após merge:\n{int_out}. Rollback executado."
+            return False, CodedMessage(f"Portão de integração falhou após merge:\n{int_out}. Rollback executado.", code="gate")
 
         return True, f"Subtarefa {subtask_wt.task_id} integrada com sucesso ({commit_sha[:8]})."
 
     def validate_final_integration(self) -> Tuple[bool, str]:
         """Valida o portão de qualidade determinístico na branch de integração antes de qualquer alteração na main."""
         if self.integration_info is None:
-            return False, "Nenhuma integração ativa."
+            return False, CodedMessage("Nenhuma integração ativa.", code="integration")
         result = self._run_gate(self.integration_info.worktree_path)
         if result.infrastructure_error:
             self._log_gate_infrastructure_error("final-integration", result.output)
             return False, self._gate_infrastructure_message(result.output)
+        if not result.passed:
+            return False, CodedMessage(result.output, code="gate")
         return result.passed, result.output
 
     @staticmethod
-    def _gate_infrastructure_message(detail: str) -> str:
-        return (
+    def _gate_infrastructure_message(detail: str) -> CodedMessage:
+        return CodedMessage(
             f"{GATE_INFRASTRUCTURE_PREFIX} {detail}. O código do worker não foi reprovado; "
-            "corrija o ambiente e rode o mesmo comando para retomar."
+            "corrija o ambiente e rode o mesmo comando para retomar.",
+            code="gate_infrastructure",
         )
 
     def _log_gate_infrastructure_error(self, task_id: str, detail: str) -> None:

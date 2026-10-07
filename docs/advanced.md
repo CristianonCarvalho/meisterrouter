@@ -315,6 +315,9 @@ quits. Also shows tasks run by `meister worker`. A run without an end and with n
 Defaults are in `meister/default_config.yaml`; the project's `meister.config.yaml` overrides them (lists
 such as `tier_order` **replace** the entire list). See the README for selecting and ordering lanes; the rest is here.
 
+**Language**
+- `language`: `en` (default) or `pt-BR` in `meister.config.yaml`. Can also be defined via the `MEISTER_LANG` environment variable. Precedence: (1) explicit `--config` CLI option, (2) `MEISTER_LANG`, (3) `meister.config.yaml` in current working directory, (4) default `en`. In this version, messages are in the process of being translated (the existing Portuguese messages remain available).
+
 **Router**
 - `router.mode`: `jev` (default) or `first` (always the first lane, no network, deterministic offline operation).
 - `router.timeout_seconds` (10) limits each call to Jev; `router.max_attempts` (2) sets the attempts;

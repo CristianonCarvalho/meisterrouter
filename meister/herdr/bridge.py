@@ -81,6 +81,37 @@ class ResumeRequestError(ValueError):
     """Erro de validação de uma origem explicitamente solicitada para retomada."""
 
 
+def is_infrastructure_error(int_err: Any) -> bool:
+    """Detects whether an integration error represents an infrastructure failure."""
+    from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
+
+    err_code = getattr(int_err, "code", None)
+    return (err_code == "gate_infrastructure") or (
+        err_code is None and isinstance(int_err, str) and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX)
+    )
+
+
+def extract_rejection_reason(int_err: Any) -> str:
+    """Extracts semantic rejection reason ('no_changes', 'gate', 'scope', 'merge', 'integration')."""
+    err_code = getattr(int_err, "code", None)
+    if err_code in {"no_changes", "gate", "scope", "merge", "integration"}:
+        return err_code
+    elif err_code == "gate_infrastructure":
+        return "gate"
+
+    err_lower = str(int_err).lower()
+    if "sem alterações" in err_lower:
+        return "no_changes"
+    elif "portão" in err_lower or "portao" in err_lower or "gate" in err_lower:
+        return "gate"
+    elif "escopo" in err_lower or "scope violation" in err_lower:
+        return "scope"
+    elif "merge" in err_lower or "conflito" in err_lower:
+        return "merge"
+    return "integration"
+
+
+
 def parse_architect_plan(output: str) -> List[Dict[str, Any]]:
     """Parse architect plan output into structured subtask dictionaries.
 
@@ -1602,9 +1633,9 @@ class HerdrEventBridge:
                                 phase="integrate",
                                 duration_ms=(prepare_duration + merge_duration) * 1000.0,
                             )
-                        from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
+                        is_infra_error = is_infrastructure_error(int_err)
 
-                        if not ok_int and int_err.startswith(GATE_INFRASTRUCTURE_PREFIX):
+                        if not ok_int and is_infra_error:
                             logger.error(
                                 "Infrastructure error in deterministic gate for subtask %s: %s",
                                 task_id,
@@ -1635,15 +1666,7 @@ class HerdrEventBridge:
                         subtask_wt = None
                         if not ok_int:
                             logger.warning("Falha na validação/integração da subtask %s: %s", task_id, int_err)
-                            reason = "integration"
-                            if "sem alterações" in int_err.lower():
-                                reason = "no_changes"
-                            elif "portão" in int_err.lower() or "portao" in int_err.lower() or "gate" in int_err.lower():
-                                reason = "gate"
-                            elif "escopo" in int_err.lower() or "scope violation" in int_err.lower():
-                                reason = "scope"
-                            elif "merge" in int_err.lower() or "conflito" in int_err.lower():
-                                reason = "merge"
+                            reason = extract_rejection_reason(int_err)
 
                             short_err = int_err.strip()[:200]
                             self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
