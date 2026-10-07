@@ -7,6 +7,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 First tagged release. Consolidates the history of PRs #1 through #73 (2026-09-29 to 2026-10-07).
 
 ### Added
+- Optional, disabled-by-default `gate.docs_only` commands for documentation-only changes before and after merges; final integration always runs the full gate.
 - **Orchestration:** running plans as a DAG with a worktree per subtask, `--no-ff` merge into an integration branch, and fast-forward of `main` only at the end (#1, #4, #6); canonical plan contract with a superpowers adapter (#5); `--resume` reuses completed tasks (#24); retry on the same lane when the pane disappears (#26); progress per task and final summary (#28); `meister plan analyze` and serial-plan warning (#46); inactivity timeout with work preserved (#32).
 - **Routing:** Jev chooses the initial lane for each subtask and is the default mode, with protection against a slow Jev (#13, #17); structured context for Jev (#33); `max_parallel` per lane (#16); `eligible_classes` per lane, a deterministic rule governing Jev's choice (#63).
 - **Configuration:** model catalog 100% in configuration, with packaged defaults (#14, #15); lane validation and display, lanes can be disabled, Copilot as the first lane (#12, #19).

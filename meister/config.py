@@ -11,6 +11,7 @@ import os
 import shutil
 import copy
 import math
+import ntpath
 from functools import lru_cache
 from importlib.resources import files
 from dataclasses import dataclass, field
@@ -189,12 +190,22 @@ class GateCommand:
 
 
 @dataclass
+class DocsOnlyGateConfig:
+    enabled: bool = False
+    paths: List[str] = field(
+        default_factory=lambda: list(_default_section("gate")["docs_only"]["paths"])
+    )
+    commands: List[GateCommand] = field(default_factory=list)
+
+
+@dataclass
 class GateConfig:
     install: Optional[str] = field(default_factory=lambda: _default_section("gate")["install"])
     commands: List[GateCommand] = field(default_factory=list)
     allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
     python: Optional[str] = None
     cache: bool = field(default_factory=lambda: _default_section("gate")["cache"])
+    docs_only: DocsOnlyGateConfig = field(default_factory=DocsOnlyGateConfig)
 
 
 @dataclass
@@ -225,6 +236,79 @@ def _merge_config(base: dict, override: dict) -> dict:
         else:
             merged[key] = copy.deepcopy(value)
     return merged
+
+
+def _parse_gate_commands(
+    raw_commands: Any,
+    path_prefix: str,
+    parse_issues: List[ConfigIssue],
+) -> List[GateCommand]:
+    commands: List[GateCommand] = []
+    if not isinstance(raw_commands, list):
+        parse_issues.append(ConfigIssue("error", path_prefix, "deve ser uma lista"))
+        return commands
+    for index, item in enumerate(raw_commands):
+        prefix = f"{path_prefix}[{index}]"
+        if not isinstance(item, dict):
+            parse_issues.append(ConfigIssue("error", prefix, "deve ser um objeto"))
+            continue
+        name = item.get("name")
+        run = item.get("run")
+        timeout = item.get("timeout_seconds", 300)
+        required = item.get("required", True)
+        ok_exit_codes = item.get("ok_exit_codes", [0])
+        valid = True
+        if not isinstance(name, str) or not name.strip():
+            parse_issues.append(ConfigIssue("error", f"{prefix}.name", "nome não pode ser vazio"))
+            valid = False
+        if not (
+            isinstance(run, str) and bool(run.strip())
+            or isinstance(run, list) and bool(run) and all(isinstance(arg, str) and bool(arg) for arg in run)
+        ):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.run", "deve ser string ou lista de strings não vazia"))
+            valid = False
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, (int, float))
+            or not math.isfinite(timeout)
+            or timeout <= 0
+        ):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.timeout_seconds", "deve ser número > 0"))
+            timeout = 300
+            valid = False
+        if not isinstance(required, bool):
+            parse_issues.append(ConfigIssue("error", f"{prefix}.required", "deve ser booleano"))
+            required = True
+            valid = False
+        if (
+            not isinstance(ok_exit_codes, list)
+            or not ok_exit_codes
+            or any(isinstance(code, bool) or not isinstance(code, int) for code in ok_exit_codes)
+        ):
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    f"{prefix}.ok_exit_codes",
+                    "deve ser uma lista não vazia de inteiros (booleanos não são aceitos)",
+                )
+            )
+            ok_exit_codes = [0]
+            valid = False
+        if valid:
+            command_run: Union[str, List[str]] = (
+                run if isinstance(run, str)
+                else [arg for arg in (run or []) if isinstance(arg, str)]
+            )
+            commands.append(
+                GateCommand(str(name), command_run, float(timeout), required, ok_exit_codes)
+            )
+    names = [command.name for command in commands]
+    for index, name in enumerate(names):
+        if name in names[:index]:
+            parse_issues.append(
+                ConfigIssue("error", f"{path_prefix}[{index}].name", f"nome repetido: {name!r}")
+            )
+    return commands
 
 
 def _parse_config_dict(data: dict) -> MeisterConfig:
@@ -557,81 +641,64 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         parse_issues.append(ConfigIssue("error", "gate.cache", "deve ser booleano"))
         cache = gate_defaults["cache"]
     raw_commands = gate_data.get("commands", gate_defaults["commands"])
-    commands: List[GateCommand] = []
-    if not isinstance(raw_commands, list):
-        parse_issues.append(ConfigIssue("error", "gate.commands", "deve ser uma lista"))
-        raw_commands = []
-    for index, item in enumerate(raw_commands):
-        prefix = f"gate.commands[{index}]"
-        if not isinstance(item, dict):
-            parse_issues.append(ConfigIssue("error", prefix, "deve ser um objeto"))
-            continue
-        name = item.get("name")
-        run = item.get("run")
-        timeout = item.get("timeout_seconds", 300)
-        required = item.get("required", True)
-        ok_exit_codes = item.get("ok_exit_codes", [0])
-        valid = True
-        if not isinstance(name, str) or not name.strip():
-            parse_issues.append(ConfigIssue("error", f"{prefix}.name", "nome não pode ser vazio"))
-            valid = False
-        if not (
-            isinstance(run, str) and bool(run.strip())
-            or isinstance(run, list) and bool(run) and all(isinstance(arg, str) and bool(arg) for arg in run)
-        ):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.run", "deve ser string ou lista de strings não vazia"))
-            valid = False
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.timeout_seconds", "deve ser número > 0"))
-            timeout = 300
-            valid = False
-        if not isinstance(required, bool):
-            parse_issues.append(ConfigIssue("error", f"{prefix}.required", "deve ser booleano"))
-            required = True
-            valid = False
-        if (
-            not isinstance(ok_exit_codes, list)
-            or not ok_exit_codes
-            or any(isinstance(code, bool) or not isinstance(code, int) for code in ok_exit_codes)
-        ):
-            parse_issues.append(
-                ConfigIssue(
-                    "error",
-                    f"{prefix}.ok_exit_codes",
-                    "deve ser uma lista não vazia de inteiros (booleanos não são aceitos)",
-                )
+    commands = _parse_gate_commands(raw_commands, "gate.commands", parse_issues)
+    docs_only_data = gate_data.get("docs_only", {})
+    if not isinstance(docs_only_data, dict):
+        parse_issues.append(ConfigIssue("error", "gate.docs_only", "deve ser um objeto"))
+        docs_only_data = {}
+    docs_only_defaults = gate_defaults["docs_only"]
+    docs_only_enabled = docs_only_data.get("enabled", docs_only_defaults["enabled"])
+    if not isinstance(docs_only_enabled, bool):
+        parse_issues.append(ConfigIssue("error", "gate.docs_only.enabled", "deve ser booleano"))
+        docs_only_enabled = docs_only_defaults["enabled"]
+    raw_paths = docs_only_data.get("paths", docs_only_defaults["paths"])
+    docs_only_paths = raw_paths
+    if (
+        not isinstance(raw_paths, list)
+        or not raw_paths
+        or any(
+            not isinstance(path, str)
+            or not path.strip()
+            or os.path.isabs(path)
+            or ntpath.isabs(path)
+            or bool(ntpath.splitdrive(path)[0])
+            or ".." in path.replace("\\", "/").split("/")
+            for path in raw_paths
+        )
+    ):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "gate.docs_only.paths",
+                "deve ser uma lista não vazia de caminhos relativos sem componente '..'",
             )
-            ok_exit_codes = [0]
-            valid = False
-        if valid:
-            command_name = name if isinstance(name, str) else ""
-            command_run: Union[str, List[str]] = (
-                run
-                if isinstance(run, str)
-                else [arg for arg in run if isinstance(arg, str)]
-                if isinstance(run, list)
-                else []
+        )
+        docs_only_paths = docs_only_defaults["paths"]
+    docs_only_commands = _parse_gate_commands(
+        docs_only_data.get("commands", docs_only_defaults["commands"]),
+        "gate.docs_only.commands",
+        parse_issues,
+    )
+    if docs_only_enabled and not docs_only_commands:
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "gate.docs_only.commands",
+                "obrigatório quando enabled",
             )
-            commands.append(
-                GateCommand(command_name, command_run, float(timeout), required, ok_exit_codes)
-            )
-    command_names = [command.name for command in commands]
-    for index, name in enumerate(command_names):
-        if name in command_names[:index]:
-            parse_issues.append(
-                ConfigIssue("error", f"gate.commands[{index}].name", f"nome repetido: {name!r}")
-            )
+        )
+    docs_only = DocsOnlyGateConfig(
+        enabled=docs_only_enabled,
+        paths=list(docs_only_paths),
+        commands=docs_only_commands,
+    )
     gate = GateConfig(
         install=install,
         commands=commands,
         allow_unverified=allow_unverified,
         python=python,
         cache=cache,
+        docs_only=docs_only,
     )
 
     return MeisterConfig(

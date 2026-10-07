@@ -340,6 +340,12 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
 **Gate and scope**
 - `gate.commands`: custom checks (Go, Node/pnpm...); see `meister.config.example.yaml`. If no tests
   are detected, the gate fails unless `gate.allow_unverified: true`.
+- `gate.docs_only` is an optional, disabled-by-default lightweight gate for changes where every changed file
+  matches one of its relative `paths` patterns (default: root Markdown, Markdown under `docs/`, and `docs/img/`).
+  Set `enabled: true` and define its own `commands`, for example `ruff check .` plus the documentation tests in
+  `meister.config.example.yaml`. It replaces the full gate only before and after a merge; the final integration
+  gate always runs the full checks. A failure that only the full gate would catch is therefore reported at the
+  final gate and fails the entire run, rather than rejecting an individual task.
 - `scope.tolerated_files`: tolerated generated artifacts outside `target_files` (the list replaces the default).
 - `gate.cache` (default `true`): the gate caches only successful passes, by code content and commands, and does not repeat
   an identical check; `gate.cache: false` disables it.

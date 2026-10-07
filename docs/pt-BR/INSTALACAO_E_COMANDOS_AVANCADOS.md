@@ -342,6 +342,12 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
 **Gate e escopo**
 - `gate.commands`: verificações próprias (Go, Node/pnpm...); veja `meister.config.example.yaml`. Sem testes
   detectados o gate reprova, a menos que `gate.allow_unverified: true`.
+- `gate.docs_only` é um gate leve opcional, desligado por padrão, para mudanças em que todos os arquivos alterados
+  correspondam aos padrões relativos de `paths` (padrão: Markdown na raiz, Markdown em `docs/` e `docs/img/`).
+  Defina `enabled: true` e seus próprios `commands`, por exemplo `ruff check .` e os testes de documentação em
+  `meister.config.example.yaml`. Ele substitui o gate completo somente antes e depois do merge; o gate final de
+  integração sempre executa as verificações completas. Uma falha que só o gate completo detectaria será apontada
+  no gate final e reprovará o run inteiro, em vez de reprovar uma tarefa individual.
 - `scope.tolerated_files`: artefatos gerados tolerados fora dos `target_files` (a lista substitui a padrão).
 - `gate.cache` (padrão `true`): o gate guarda só as passagens, por conteúdo do código e dos comandos, e não repete
   uma verificação idêntica; `gate.cache: false` desliga.
