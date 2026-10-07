@@ -1,6 +1,6 @@
 id = "dev.meisterrouter.orchestrator"
 name = "MeisterRouter"
-version = "0.9.0"
+version = "0.9.1"
 min_herdr_version = "0.7.0"
 description = "Distributes a plan's tasks across your AI CLI subscriptions (Copilot, Codex, Gemini, Claude) with a deterministic test gate. Requires the meister CLI: see the README to install it."
 platforms = ["linux", "macos"]
