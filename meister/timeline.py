@@ -152,6 +152,10 @@ def _build_row(
     run_start: Optional[datetime],
     run_end: Optional[datetime],
 ) -> TaskRow:
+    cli_worker = any(event_type(event) == "worker_start" for event in events) and not any(
+        event_type(event) == "worker_spawn" for event in events
+    )
+    terminal_events = _TERMINAL | ({"worker_end"} if cli_worker else set())
     attempts: List[Dict[str, Any]] = []
     current: Optional[Dict[str, Any]] = None
     tier: Optional[str] = None
@@ -162,7 +166,7 @@ def _build_row(
             tier = str(event["tier"])
         if timestamp is None:
             continue
-        if kind == "worker_spawn":
+        if kind == "worker_spawn" or (cli_worker and kind == "worker_start"):
             current = {
                 "spawn": timestamp,
                 "worker_end": None,
@@ -172,10 +176,11 @@ def _build_row(
                 "terminal": None,
                 "kind": None,
                 "reason": None,
+                "worker_status": None,
             }
             attempts.append(current)
             continue
-        if current is None and kind in _TERMINAL:
+        if current is None and kind in terminal_events:
             current = {
                 "spawn": run_start or timestamp,
                 "worker_end": None,
@@ -185,6 +190,7 @@ def _build_row(
                 "terminal": None,
                 "kind": None,
                 "reason": None,
+                "worker_status": None,
             }
             attempts.append(current)
         if current is None:
@@ -200,10 +206,13 @@ def _build_row(
             if name in ("worker", "gate", "lock_wait", "integrate"):
                 current["last_phase"] = name
                 current["last_end"] = timestamp
-        elif kind in _TERMINAL:
+        elif kind in terminal_events:
             current["terminal"] = timestamp
             current["kind"] = kind
-            if kind in FAILURE_EVENTS:
+            if kind == "worker_end":
+                current["worker_status"] = str(event.get("status") or "")
+                current["reason"] = str(event.get("error") or current["worker_status"])
+            elif kind in FAILURE_EVENTS:
                 current["reason"] = str(event.get("reason") or event.get("error") or kind)
         elif kind == "worker_retry" and current["terminal"] is None:
             # tentativa abandonada (ex.: pane_lost): fecha aqui, senão uma fase inferida ficaria
@@ -227,6 +236,9 @@ def _build_row(
                     segments.append(
                         Segment("wait", attempt["terminal"], run_end, inferred=run_end is None)
                     )
+            elif attempt["kind"] == "worker_end":
+                if attempt["worker_end"] is None:
+                    segments.append(Segment("worker", attempt["spawn"], attempt["terminal"]))
             elif attempt["worker_end"] is None:
                 segments.append(Segment("worker", attempt["spawn"], attempt["terminal"]))
             else:
@@ -257,7 +269,12 @@ def _build_row(
     last = attempts[-1]
     failure: Optional[str] = None
     if last["terminal"] is not None and last["kind"] != "worker_retry":
-        if last["kind"] == "subtask_completed":
+        if last["kind"] == "worker_end":
+            if last["worker_status"] == "done":
+                status = "completed"
+            else:
+                status, failure = "failed", last["reason"]
+        elif last["kind"] == "subtask_completed":
             status = "completed"
         elif last["kind"] == "subtask_reused":
             status = "reused"
@@ -334,6 +351,10 @@ def build_timeline(
     end_event = next(
         (event for event in reversed(run_events) if event_type(event) == "orchestration_end"), None
     )
+    plan_event = next(
+        (event for event in reversed(run_events) if event_type(event) == "plan_parsed"), None
+    )
+    worker_cli_run = start_event is None and plan_event is None
     started_at = _ts(start_event) if start_event else (_ts(run_events[0]) if run_events else None)
     ended_at = _ts(end_event) if end_event else None
     event_times: List[datetime] = []
@@ -361,9 +382,6 @@ def build_timeline(
     else:
         status = "running"
 
-    plan_event = next(
-        (event for event in reversed(run_events) if event_type(event) == "plan_parsed"), None
-    )
     plan_ids = [str(task_id) for task_id in (plan_event.get("task_ids") or [])] if plan_event else []
     raw_titles = plan_event.get("task_titles") if plan_event else None
     titles = {str(key): str(value) for key, value in raw_titles.items()} if isinstance(raw_titles, dict) else {}
@@ -374,12 +392,22 @@ def build_timeline(
         task_id = str(event.get("task_id") or "")
         if task_id and task_id != "orchestrator":
             by_task.setdefault(task_id, []).append(event)
+    worker_cli_task_ids = {
+        task_id
+        for task_id, task_events in by_task.items()
+        if worker_cli_run
+        and any(event_type(event) == "worker_start" for event in task_events)
+        and not any(event_type(event) == "worker_spawn" for event in task_events)
+    }
     extras = sorted(
         (
             task_id
             for task_id, task_events in by_task.items()
             if task_id not in plan_ids
-            and any(event_type(event) in LIFECYCLE_EVENTS for event in task_events)
+            and (
+                task_id in worker_cli_task_ids
+                or any(event_type(event) in LIFECYCLE_EVENTS for event in task_events)
+            )
         ),
         key=_natural_key,
     )
@@ -394,6 +422,26 @@ def build_timeline(
         )
         for task_id in plan_ids + extras
     ]
+    if worker_cli_task_ids and all(
+        any(
+            event_type(event) == "worker_end" and _ts(event) is not None
+            for event in by_task[task_id]
+        )
+        for task_id in worker_cli_task_ids
+    ):
+        terminal_times = [
+            _ts(event)
+            for task_id in worker_cli_task_ids
+            for event in by_task[task_id]
+            if event_type(event) == "worker_end"
+        ]
+        ended_at = max((moment for moment in terminal_times if moment is not None), default=None)
+        if ended_at is not None:
+            stalled_since = None
+            cli_rows = [row for row in rows if row.task_id in worker_cli_task_ids]
+            status = (
+                "completed" if all(row.status == "completed" for row in cli_rows) else "failed"
+            )
     if stalled_since is not None:
         for row in rows:
             if row.status == "running":
