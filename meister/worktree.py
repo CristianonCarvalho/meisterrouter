@@ -36,6 +36,7 @@ from typing import Any, List, Optional, Set, Tuple
 from meister.faults import crash_point
 from meister.config import load_config
 from meister.env_setup import prepare_environment
+from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 GATE_INFRASTRUCTURE_PREFIX = "ERRO DE INFRAESTRUTURA no portão:"
@@ -53,6 +54,12 @@ class CodedMessage(str):
 
     def __repr__(self) -> str:
         return f"CodedMessage({super().__repr__()}, code={self.code!r})"
+
+
+class ReplayError(RuntimeError):
+    """Raised when strict integration replay cannot reconstruct a completed task."""
+
+    code = "replay_failed"
 
 
 
@@ -232,7 +239,7 @@ class WorktreeManager:
                 message=message,
             )
         else:
-            logger.warning("Falha ao preparar ambiente do worktree %s: %s", info.task_id, message)
+            logger.warning(t("engine.worktree.setup_failed", task_id=info.task_id, message=message))
             log_event(
                 event_type="worktree_setup_failed",
                 task_id=info.task_id,
@@ -270,8 +277,12 @@ class WorktreeManager:
         )
         if res.returncode != 0:
             raise RuntimeError(
-                f"Comando git falhou (rc={res.returncode}): git {' '.join(args)}\n"
-                f"stderr: {res.stderr.strip()}"
+                t(
+                    "engine.worktree.git_command_failed",
+                    return_code=res.returncode,
+                    command=" ".join(args),
+                    stderr=res.stderr.strip(),
+                )
             )
         return res.stdout.strip()
 
@@ -318,8 +329,13 @@ class WorktreeManager:
                     if not is_transient or _wait is None:
                         raise
                     logger.warning(
-                        "Falha transitória ao criar worktree para task %s (tentativa %d): %s — aguardando %.1fs",
-                        task_id, _attempt, err_str, _wait,
+                        t(
+                            "engine.worktree.create_retry",
+                            task_id=task_id,
+                            attempt=_attempt,
+                            error=err_str,
+                            wait=f"{_wait:.1f}",
+                        ),
                     )
                     _last_exc = exc
                     try:
@@ -355,7 +371,7 @@ class WorktreeManager:
             with open(meta_file, "w", encoding="utf-8") as f:
                 json.dump(asdict(info), f, indent=2)
 
-        logger.info("Criado worktree para task %s em %s (branch: %s)", task_id, worktree_path, target_branch)
+        logger.info(t("engine.worktree.created", task_id=task_id, path=worktree_path, branch=target_branch))
         self._prepare_node_worktree(info)
         return info
 
@@ -413,7 +429,7 @@ class WorktreeManager:
         Se houver conflito ou erro, aborta o merge automaticamente e retorna False.
         """
         if not os.path.exists(target_worktree_path):
-            return False, CodedMessage(f"Target worktree não existe: {target_worktree_path}", code="merge")
+            return False, CodedMessage(t("engine.worktree.target_missing", path=target_worktree_path), code="merge")
 
         rollback_sha = self._run_git(["rev-parse", "HEAD"], cwd=target_worktree_path)
         commit_msg = message or f"Merge branch '{source_branch}'"
@@ -442,7 +458,10 @@ class WorktreeManager:
                 )
             except Exception:
                 pass
-            return False, CodedMessage(f"Falha/conflito no merge: {res.stderr.strip() or res.stdout.strip()}", code="merge")
+            return False, CodedMessage(
+                t("engine.worktree.merge_failed", detail=res.stderr.strip() or res.stdout.strip()),
+                code="merge",
+            )
 
         return True, rollback_sha
 
@@ -469,7 +488,7 @@ class WorktreeManager:
                 text=True,
             )
             if status_res.stdout.strip():
-                return False, "Repositório principal está dirty; fast-forward pulado"
+                return False, t("engine.worktree.repo_dirty")
 
             if target_branch:
                 curr_branch = self._run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root)
@@ -477,9 +496,9 @@ class WorktreeManager:
                     self._run_git(["checkout", target_branch], cwd=self.repo_root)
 
             self._run_git(["merge", "--ff-only", source_branch], cwd=self.repo_root)
-            return True, "Fast-forward aplicado com sucesso"
+            return True, t("engine.worktree.fast_forward_ok")
         except Exception as e:
-            return False, f"Falha no fast-forward: {e}"
+            return False, t("engine.worktree.fast_forward_failed", error=e)
 
     def get_modified_files(
         self,
@@ -505,7 +524,7 @@ class WorktreeManager:
                 if f:
                     modified.add(f)
         except Exception as e:
-            logger.debug("Falha ao rodar git diff em %s: %s", worktree_path, e)
+            logger.debug(t("engine.worktree.diff_failed", path=worktree_path, error=e))
 
         # 2. Arquivos novos não rastreados (untracked)
         try:
@@ -518,7 +537,7 @@ class WorktreeManager:
                 if f:
                     modified.add(f)
         except Exception as e:
-            logger.debug("Falha ao rodar git ls-files em %s: %s", worktree_path, e)
+            logger.debug(t("engine.worktree.ls_files_failed", path=worktree_path, error=e))
 
         # Ignora arquivos internos do Meister (.meister)
         clean_modified = {f for f in modified if not f.startswith(".meister/") and f != ".meister"}
@@ -552,7 +571,7 @@ class WorktreeManager:
                 )
                 ignored = {name for name in result.stdout.split("\0") if name}
             except OSError as exc:
-                logger.warning("Não foi possível consultar git check-ignore: %s", exc)
+                logger.warning(t("engine.worktree.check_ignore_failed", error=exc))
 
         out_of_scope = scope_violations(modified, target_files, tolerated_patterns, ignored)
         return len(out_of_scope) == 0, out_of_scope
@@ -580,8 +599,11 @@ class WorktreeManager:
         # a branch não possui nenhum commit próprio.
         if base_commit and branch_sha == base_commit.strip():
             logger.debug(
-                "Branch %s não possui commits próprios (SHA coincide com base_commit %s). Arquivamento ignorado.",
-                branch, base_commit[:8],
+                t(
+                    "engine.worktree.branch_same_base_commit",
+                    branch=branch,
+                    base_commit=base_commit[:8],
+                ),
             )
             return (True, None)
 
@@ -595,8 +617,12 @@ class WorktreeManager:
 
         if base_sha and branch_sha == base_sha:
             logger.debug(
-                "Branch %s não possui commits próprios (SHA %s coincide com base_ref %s). Arquivamento ignorado.",
-                branch, branch_sha[:8], base_ref,
+                t(
+                    "engine.worktree.branch_same_base_ref",
+                    branch=branch,
+                    sha=branch_sha[:8],
+                    base_ref=base_ref,
+                ),
             )
             return (True, None)
 
@@ -609,7 +635,9 @@ class WorktreeManager:
                     capture_output=True,
                 )
                 if res.returncode == 0:
-                    logger.debug("Branch %s já está completamente integrada em %s. Arquivamento ignorado.", branch, base_ref)
+                    logger.debug(
+                        t("engine.worktree.branch_already_integrated_ref", branch=branch, base_ref=base_ref)
+                    )
                     return (True, None)
             except Exception:
                 pass
@@ -622,7 +650,7 @@ class WorktreeManager:
                 capture_output=True,
             )
             if res.returncode == 0:
-                logger.debug("Branch %s já está completamente integrada em HEAD. Arquivamento ignorado.", branch)
+                logger.debug(t("engine.worktree.branch_already_integrated_head", branch=branch))
                 return (True, None)
         except Exception:
             pass
@@ -653,8 +681,13 @@ class WorktreeManager:
             try:
                 self._run_git(["update-ref", ref_name, branch_sha])
                 logger.warning(
-                    "Branch %s possui %d commits não integrados. Arquivado em %s (%s).",
-                    branch, count, ref_name, branch_sha[:8],
+                    t(
+                        "engine.worktree.branch_archived",
+                        branch=branch,
+                        count=count,
+                        ref=ref_name,
+                        sha=branch_sha[:8],
+                    )
                 )
                 try:
                     from meister.logger import log_event
@@ -670,7 +703,7 @@ class WorktreeManager:
                     pass
                 return (True, ref_name)
             except Exception as e:
-                logger.error("Falha ao criar ref de arquivo para branch %s: %s", branch, e)
+                logger.error(t("engine.worktree.archive_branch_failed", branch=branch, error=e))
                 try:
                     from meister.logger import log_event
                     log_event(
@@ -701,7 +734,7 @@ class WorktreeManager:
                 cwd=wt_path,
             )
         except Exception as exc:
-            logger.error("Falha ao verificar alterações não commitadas em %s: %s", wt_path, exc)
+            logger.error(t("engine.worktree.uncommitted_check_failed", path=wt_path, error=exc))
             return (False, None)
         if not status:
             return (True, None)
@@ -742,7 +775,7 @@ class WorktreeManager:
                     "-p",
                     "HEAD",
                     "-m",
-                    f"meister: mudanças não commitadas de {task_id} (rejeitadas)",
+                    t("engine.worktree.uncommitted_commit", task_id=task_id),
                 ],
                 cwd=wt_path,
                 env=env,
@@ -760,10 +793,12 @@ class WorktreeManager:
                 timestamp += 1
             self._run_git(["update-ref", ref_name, snapshot_sha, ""])
             logger.warning(
-                "Alterações não commitadas da branch %s arquivadas em %s (%s).",
-                branch,
-                ref_name,
-                snapshot_sha[:8],
+                t(
+                    "engine.worktree.uncommitted_archived",
+                    branch=branch,
+                    ref=ref_name,
+                    sha=snapshot_sha[:8],
+                )
             )
             try:
                 from meister.logger import log_event
@@ -781,7 +816,7 @@ class WorktreeManager:
                 pass
             return (True, ref_name)
         except Exception as exc:
-            logger.error("Falha ao arquivar alterações não commitadas da tarefa %s: %s", task_id, exc)
+            logger.error(t("engine.worktree.archive_uncommitted_failed", task_id=task_id, error=exc))
             try:
                 from meister.logger import log_event
 
@@ -830,8 +865,7 @@ class WorktreeManager:
                 archive_ok, _ = self._archive_uncommitted(worktree_path, task_id)
                 if not archive_ok:
                     logger.error(
-                        "Bloqueando remoção do worktree %s: falha ao arquivar alterações não commitadas.",
-                        worktree_path,
+                        t("engine.worktree.archive_remove_blocked", path=worktree_path)
                     )
                     return False
 
@@ -844,7 +878,13 @@ class WorktreeManager:
             try:
                 self._run_git(cmd)
             except Exception as e:
-                logger.debug("Aviso ao remover worktree via git (%s): %s", worktree_path, e)
+                logger.debug(
+                    t(
+                        "engine.worktree.remove_worktree_notice",
+                        path=worktree_path,
+                        error=e,
+                    )
+                )
                 if os.path.exists(worktree_path):
                     try:
                         shutil.rmtree(worktree_path, ignore_errors=True)
@@ -864,20 +904,19 @@ class WorktreeManager:
                         can_delete = False
                         success = False
                         logger.error(
-                            "Bloqueando deleção da branch %s: falha ao arquivar commits não integrados.",
-                            branch_name,
+                            t("engine.worktree.archive_delete_blocked", branch=branch_name)
                         )
                 if can_delete:
                     try:
                         self._run_git(["branch", "-D", branch_name])
                     except Exception as e:
-                        logger.debug("Aviso ao deletar branch %s: %s", branch_name, e)
+                        logger.debug(t("engine.worktree.delete_branch_notice", branch=branch_name, error=e))
 
             # 3. Executa git worktree prune
             try:
                 self._run_git(["worktree", "prune"])
             except Exception as e:
-                logger.debug("Aviso ao rodar git worktree prune: %s", e)
+                logger.debug(t("engine.worktree.prune_notice", error=e))
 
         # 4. Remove arquivo de metadados
         if os.path.exists(meta_file):
@@ -886,7 +925,7 @@ class WorktreeManager:
             except Exception:
                 pass
 
-        logger.info("Limpeza de worktree concluída para task %s", task_id)
+        logger.info(t("engine.worktree.cleaned", task_id=task_id))
         return success
 
     def list_active_worktrees(self) -> List[WorktreeInfo]:
@@ -918,7 +957,7 @@ class WorktreeManager:
                 if line.startswith("worktree "):
                     git_worktree_paths.add(os.path.abspath(line.split(" ", 1)[1].strip()))
         except Exception as e:
-            logger.warning("Falha ao listar worktrees pelo git: %s", e)
+            logger.warning(t("engine.worktree.list_failed", error=e))
 
         safe_exclude = None
         if exclude_run_id:
@@ -949,7 +988,7 @@ class WorktreeManager:
                         is_orphan = True
 
                 if is_orphan:
-                    logger.warning("Worktree órfão detectado: %s. Limpando...", wt_path)
+                    logger.warning(t("engine.worktree.orphan_found", path=wt_path))
                     is_int_branch = branch_name.startswith("meister/integration/") or entry.startswith("int_")
                     wt_cleaned = self.cleanup_worktree(
                         entry,
@@ -991,8 +1030,7 @@ class WorktreeManager:
                                 pass
                         else:
                             logger.error(
-                                "Bloqueando deleção da branch órfã %s: falha ao arquivar commits não integrados.",
-                                branch,
+                                t("engine.worktree.archive_orphan_blocked", branch=branch)
                             )
         except Exception:
             pass
@@ -1006,7 +1044,7 @@ class WorktreeManager:
         try:
             self.prune_archive_refs()
         except Exception as e:
-            logger.debug("Aviso ao executar prune de refs de arquivo em cleanup_orphans: %s", e)
+            logger.debug(t("engine.worktree.archive_prune_notice", error=e))
 
         return cleaned_ids
 
@@ -1052,11 +1090,11 @@ class WorktreeManager:
                     try:
                         self._run_git(["update-ref", "-d", ref])
                         pruned.append(ref)
-                        logger.info("Ref de arquivo expirada removida: %s", ref)
+                        logger.info(t("engine.worktree.archive_ref_expired", ref=ref))
                     except Exception as e:
-                        logger.warning("Falha ao remover ref de arquivo %s: %s", ref, e)
+                        logger.warning(t("engine.worktree.archive_ref_remove_failed", ref=ref, error=e))
         except Exception as e:
-            logger.debug("Aviso durante prune_archive_refs: %s", e)
+            logger.debug(t("engine.worktree.archive_prune_failed", error=e))
 
         return pruned
 
@@ -1135,7 +1173,7 @@ class IntegrationPipeline:
 
         # Se já existe e tem histórico do run: REUSAR
         if branch_exists and has_history:
-            logger.info("Reutilizando branch de integração existente %s para o run %s", branch_name, run_id)
+            logger.info(t("engine.worktree.integration_branch_reused", branch=branch_name, run_id=run_id))
             is_valid_worktree = False
             if os.path.exists(worktree_path):
                 try:
@@ -1155,7 +1193,7 @@ class IntegrationPipeline:
                     self.wt_mgr._run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
                     self.wt_mgr._run_git(["clean", "-fd"], cwd=worktree_path)
                 except Exception as e:
-                    logger.debug("Aviso ao limpar worktree existente: %s", e)
+                    logger.debug(t("engine.worktree.integration_cleanup_notice", error=e))
             else:
                 if os.path.exists(worktree_path):
                     shutil.rmtree(worktree_path, ignore_errors=True)
@@ -1181,7 +1219,7 @@ class IntegrationPipeline:
                 json.dump(asdict(info), f, indent=2)
 
             self.integration_info = info
-            logger.info("Pipeline de integração reutilizou branch %s (worktree: %s)", branch_name, info.worktree_path)
+            logger.info(t("engine.worktree.integration_reused", branch=branch_name, path=info.worktree_path))
             self.wt_mgr._prepare_node_worktree(info)
             return info
 
@@ -1196,7 +1234,7 @@ class IntegrationPipeline:
                         label = st.get("step_id") or st.get("subtask_id", "")
                         completed_entries.append((label, st["integrated_sha"]))
             except Exception as e:
-                logger.debug("Não foi possível obter subtarefas do SQLite: %s", e)
+                logger.debug(t("engine.worktree.subtasks_load_failed", error=e))
 
         info = self.wt_mgr.create_worktree(
             task_id=wt_task_id,
@@ -1206,7 +1244,13 @@ class IntegrationPipeline:
         self.integration_info = info
 
         if completed_entries:
-            logger.info("Reconstruindo branch de integração %s reaplicando %d commits do SQLite...", branch_name, len(completed_entries))
+            logger.info(
+                t(
+                    "engine.worktree.integration_rebuilding",
+                    branch=branch_name,
+                    count=len(completed_entries),
+                )
+            )
             env = os.environ.copy()
             env.setdefault("GIT_AUTHOR_NAME", "MeisterRouter")
             env.setdefault("GIT_AUTHOR_EMAIL", "bot@meisterrouter.dev")
@@ -1242,12 +1286,12 @@ class IntegrationPipeline:
                             except Exception:
                                 pass
                             logger.warning(
-                                "Falha ao reaplicar commit %s na reconstrução (merge falhou: %s)",
-                                sha,
-                                err_msg,
+                                t("engine.worktree.replay_commit_failed", sha=sha, error=err_msg)
                             )
                             if strict_replay:
-                                raise RuntimeError(f"falha ao reaplicar {label}: {err_msg}")
+                                raise ReplayError(
+                                    t("engine.worktree.replay_strict_failed", label=label, error=err_msg)
+                                )
                     except Exception as e:
                         try:
                             subprocess.run(
@@ -1258,13 +1302,15 @@ class IntegrationPipeline:
                             )
                         except Exception:
                             pass
-                        logger.warning("Falha ao reaplicar commit %s na reconstrução: %s", sha, e)
+                        logger.warning(t("engine.worktree.replay_failed", sha=sha, error=e))
                         if strict_replay:
-                            if isinstance(e, RuntimeError) and str(e).startswith("falha ao reaplicar "):
+                            if isinstance(e, ReplayError):
                                 raise
-                            raise RuntimeError(f"falha ao reaplicar {label}: {e}") from e
+                            raise ReplayError(
+                                t("engine.worktree.replay_strict_failed", label=label, error=e)
+                            ) from e
 
-        logger.info("Pipeline de integração iniciado no branch %s (worktree: %s)", branch_name, info.worktree_path)
+        logger.info(t("engine.worktree.integration_started", branch=branch_name, path=info.worktree_path))
         return info
 
     def integrate_subtask(
@@ -1309,7 +1355,10 @@ class IntegrationPipeline:
             tier=tier,
         )
         if self.integration_info is None:
-            prepared.early = (False, CodedMessage("Pipeline de integração não foi inicializado.", code="integration"))
+            prepared.early = (
+                False,
+                CodedMessage(t("engine.worktree.integration_not_started"), code="integration"),
+            )
             return prepared
 
         # 1. Validação estrita de escopo
@@ -1321,8 +1370,7 @@ class IntegrationPipeline:
         )
         if not valid_scope:
             prepared.early = (False, CodedMessage((
-                f"Violação de escopo no worktree: {out_of_scope}. Declare o arquivo em **Files:** "
-                "(aceita glob, ex.: drizzle/*) ou adicione-o a scope.tolerated_files no meister.config.yaml."
+                t("engine.worktree.scope_violation", files=out_of_scope)
             ), code="scope"))
             return prepared
         crash_point("before_worker_gate", task_id=subtask_wt.task_id)
@@ -1350,7 +1398,10 @@ class IntegrationPipeline:
             return prepared
         if not worker_result.passed:
             out = worker_result.output
-            prepared.early = (False, CodedMessage(f"Portão determinístico falhou no worktree do worker:\n{out}", code="gate"))
+            prepared.early = (
+                False,
+                CodedMessage(t("engine.worktree.worker_gate_failed", output=out), code="gate"),
+            )
             return prepared
 
         # 3. Commit das alterações no worktree do worker
@@ -1365,7 +1416,13 @@ class IntegrationPipeline:
                 if int(count_str.strip()) > 0:
                     commit_sha = self.wt_mgr._run_git(["rev-parse", "HEAD"], cwd=subtask_wt.worktree_path)
             except Exception as e:
-                logger.debug("Erro ao verificar commits do worker em %s: %s", subtask_wt.worktree_path, e)
+                logger.debug(
+                    t(
+                        "engine.worktree.commit_lookup_failed",
+                        path=subtask_wt.worktree_path,
+                        error=e,
+                    )
+                )
 
         if not commit_sha:
             if target_files:
@@ -1417,22 +1474,29 @@ class IntegrationPipeline:
                                             matched_id = tid
                         existing_sha = subtask_sha or merge_sha
                     except Exception as e:
-                        logger.debug("Erro ao verificar commits anteriores da subtarefa no git log: %s", e)
+                        logger.debug(t("engine.worktree.prior_commit_lookup_failed", error=e))
 
                 if existing_sha:
                     prepared.integrated_sha = existing_sha
                     prepared.early = (
                         True,
-                        f"Subtarefa {matched_id} já integrada anteriormente ({existing_sha[:8]}).",
+                        t(
+                            "engine.worktree.subtask_already_integrated",
+                            task_id=matched_id,
+                            sha=existing_sha[:8],
+                        ),
                     )
                     return prepared
 
                 prepared.early = (
                     False,
-                    CodedMessage(f"Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})", code="no_changes"),
+                    CodedMessage(
+                        t("engine.worktree.subtask_no_changes", target_files=target_files),
+                        code="no_changes",
+                    ),
                 )
                 return prepared
-            prepared.early = (True, "Nenhuma alteração para integrar.")
+            prepared.early = (True, t("engine.worktree.no_changes_to_integrate"))
             return prepared
 
         prepared.commit_sha = commit_sha
@@ -1446,9 +1510,9 @@ class IntegrationPipeline:
         if prepared.early is not None:
             return prepared.early
         if prepared.commit_sha is None:
-            raise ValueError("PreparedSubtask sem resultado antecipado ou commit para integrar")
+            raise ValueError(t("engine.worktree.prepared_missing_result"))
         if self.integration_info is None:
-            return False, CodedMessage("Pipeline de integração não foi inicializado.", code="integration")
+            return False, CodedMessage(t("engine.worktree.integration_not_started"), code="integration")
 
         subtask_wt = prepared.subtask_wt
         commit_sha = prepared.commit_sha
@@ -1459,7 +1523,10 @@ class IntegrationPipeline:
             message=f"Merge subtask {subtask_wt.task_id} ({commit_sha[:8]})",
         )
         if not merged:
-            return False, CodedMessage(f"Falha no merge com a branch de integração: {rollback_sha_or_err}", code="merge")
+            return False, CodedMessage(
+                t("engine.worktree.integration_merge_failed", error=rollback_sha_or_err),
+                code="merge",
+            )
 
         rollback_sha = rollback_sha_or_err
         crash_point("after_merge_before_gate", task_id=subtask_wt.task_id)
@@ -1482,17 +1549,30 @@ class IntegrationPipeline:
             return False, self._gate_infrastructure_message(integration_result.output)
         if not integration_result.passed:
             int_out = integration_result.output
-            logger.warning("Portão falhou na integração após merge de %s. Executando rollback para %s...", subtask_wt.task_id, rollback_sha)
+            logger.warning(
+                t(
+                    "engine.worktree.integration_gate_rollback",
+                    task_id=subtask_wt.task_id,
+                    sha=rollback_sha,
+                )
+            )
             # 6. Rollback atômico
             self.wt_mgr.rollback_merge(self.integration_info.worktree_path, rollback_sha)
-            return False, CodedMessage(f"Portão de integração falhou após merge:\n{int_out}. Rollback executado.", code="gate")
+            return False, CodedMessage(
+                t("engine.worktree.integration_gate_failed", output=int_out),
+                code="gate",
+            )
 
-        return True, f"Subtarefa {subtask_wt.task_id} integrada com sucesso ({commit_sha[:8]})."
+        return True, t(
+            "engine.worktree.subtask_integrated",
+            task_id=subtask_wt.task_id,
+            sha=commit_sha[:8],
+        )
 
     def validate_final_integration(self) -> Tuple[bool, str]:
         """Valida o portão de qualidade determinístico na branch de integração antes de qualquer alteração na main."""
         if self.integration_info is None:
-            return False, CodedMessage("Nenhuma integração ativa.", code="integration")
+            return False, CodedMessage(t("engine.worktree.integration_none_active"), code="integration")
         result = self._run_gate(self.integration_info.worktree_path)
         if result.infrastructure_error:
             self._log_gate_infrastructure_error("final-integration", result.output)
@@ -1504,8 +1584,11 @@ class IntegrationPipeline:
     @staticmethod
     def _gate_infrastructure_message(detail: str) -> CodedMessage:
         return CodedMessage(
-            f"{GATE_INFRASTRUCTURE_PREFIX} {detail}. O código do worker não foi reprovado; "
-            "corrija o ambiente e rode o mesmo comando para retomar.",
+            t(
+                "engine.worktree.infrastructure_message",
+                prefix=t("engine.worktree.infrastructure_prefix"),
+                detail=detail,
+            ),
             code="gate_infrastructure",
         )
 
@@ -1603,7 +1686,7 @@ class IntegrationPipeline:
         COMPLETED é ancestral da branch de integração antes de permitir fast-forward.
         """
         if self.integration_info is None:
-            return False, "Nenhuma integração ativa para validar ancestrais."
+            return False, t("engine.worktree.ancestry_none_active")
 
         shas_to_check: List[Tuple[str, str]] = []
 
@@ -1617,7 +1700,7 @@ class IntegrationPipeline:
                         label = sub.get("step_id") or sub.get("subtask_id", "")
                         shas_to_check.append((label, sub["integrated_sha"]))
             except Exception as e:
-                logger.warning("Erro ao consultar subtarefas para invariante: %s", e)
+                logger.warning(t("engine.worktree.ancestry_lookup_failed", error=e))
 
         if completed_shas:
             for idx, sha in enumerate(completed_shas):
@@ -1631,13 +1714,16 @@ class IntegrationPipeline:
                 )
             except Exception:
                 err = (
-                    f"Invariante de integridade violada: commit integrado {sha[:8]} "
-                    f"da subtarefa '{label}' NÃO é ancestral da branch de integração."
+                    t(
+                        "engine.worktree.ancestry_violation",
+                        sha=sha[:8],
+                        task_id=label,
+                    )
                 )
                 logger.error(err)
                 return False, err
 
-        return True, "Ancestralidade de subtarefas concluídas validada com sucesso."
+        return True, t("engine.worktree.ancestry_valid")
 
     def apply_fast_forward(self) -> Tuple[bool, str]:
         """Aplica fast-forward no repositório principal somente após aprovação de todos os gates.
@@ -1646,19 +1732,19 @@ class IntegrationPipeline:
         intacta para inspeção manual.
         """
         if self.integration_info is None:
-            return False, "Nenhuma integração ativa."
+            return False, t("engine.worktree.integration_none_active")
 
         # Invariante final, sempre: verificar ancestralidade de subtasks COMPLETED
         ok_anc, msg_anc = self.verify_completed_subtasks_ancestry()
         if not ok_anc:
-            logger.critical("Bloqueando fast-forward: %s", msg_anc)
+            logger.critical(t("engine.worktree.fast_forward_blocked_log", message=msg_anc))
             return False, msg_anc
 
         ok, ff_msg = self.wt_mgr.fast_forward_repo(self.integration_info.branch_name)
         if not ok:
             # Mantém a branch e o worktree de integração para inspeção manual (Achado Item 1)
-            logger.error("Falha no fast-forward do repositório principal: %s", ff_msg)
-            return False, f"Falha no fast-forward: {ff_msg}"
+            logger.error(t("engine.worktree.fast_forward_failed_main", error=ff_msg))
+            return False, t("engine.worktree.fast_forward_blocked", message=ff_msg)
 
         # Fast-forward com sucesso: limpa o worktree e remove a branch de integração
         self.wt_mgr.cleanup_worktree(self.integration_info.task_id, delete_branch=True, force=True)
@@ -1668,12 +1754,12 @@ class IntegrationPipeline:
     def finish_integration(self, fast_forward: bool = True) -> Tuple[bool, str]:
         """Finaliza a integração: valida portão final, aplica fast-forward se configurado e limpa worktree."""
         if self.integration_info is None:
-            return False, "Nenhuma integração ativa."
+            return False, t("engine.worktree.integration_none_active")
 
         # Portão final
         passed, out = self.validate_final_integration()
         if not passed:
-            return False, f"Portão final de integração falhou:\n{out}"
+            return False, t("engine.worktree.final_gate_failed", output=out)
 
         if fast_forward:
             return self.apply_fast_forward()
@@ -1681,7 +1767,7 @@ class IntegrationPipeline:
         # Limpa o worktree de integração, mantendo a branch se não fez ff
         self.wt_mgr.cleanup_worktree(self.integration_info.task_id, delete_branch=False, force=True)
         self.integration_info = None
-        return True, "Integração validada com sucesso (fast-forward desabilitado)."
+        return True, t("engine.worktree.integration_validated")
 
     def abort_integration(self) -> None:
         """Aborta a integração e limpa o worktree e a branch de integração."""
