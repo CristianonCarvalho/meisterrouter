@@ -21,7 +21,7 @@
 - Largura mínima 80 colunas; terminal sem cor (`NO_COLOR`, `TERM=dumb`, não-TTY) → saída sem nenhuma sequência ANSI.
 - Todas as strings de interface em português.
 - Suíte, `ruff check .` e `mypy meister` limpos; testes sem rede e sem tocar `~/.meister`.
-- O worker não commita, não faz push, não toca em nenhum outro projeto (CRM_Base, UFG_TODO) e não chama CLI de IA.
+- O worker não commita, não faz push, não toca em nenhum outro projeto (projetos reais do dono) e não chama CLI de IA.
 
 ## Review Focus
 
@@ -1476,7 +1476,7 @@ Expected: PASS.
 - [ ] **Step 6: Verificação real (somente leitura)**
 
 ```bash
-LG=/Users/cristianocarvalho/Documents/UFG_TODO/.meister/logs
+LG=<projeto-de-teste>/.meister/logs
 stat -f '%Sm %z' $LG/orchestration_log.jsonl
 .venv/bin/python -m meister.cli timeline --once --log-dir $LG --run-id 3a5ae6
 .venv/bin/python -m meister.cli timeline --once --log-dir $LG --run-id 815dd3
@@ -1953,5 +1953,5 @@ Expected: tudo verde; o teste de higiene `tests/test_hygiene.py` continua passan
 
 ## Verificação do orquestrador (depois de cada PR, fora do worker)
 
-- PR 1: `--once` no log do UFG_TODO (somente leitura, `stat` antes/depois), durações e custo iguais ao `meister report`; mutações refeitas em cópia; suíte normal, `env -i` e "como o CI".
+- PR 1: `--once` no log de um projeto de teste (somente leitura, `stat` antes/depois), durações e custo iguais ao `meister report`; mutações refeitas em cópia; suíte normal, `env -i` e "como o CI".
 - PR 2: abrir `meister timeline` numa tab do Herdr contra um log real e conferir as teclas; ver um run ao vivo com 3 workers paralelos (gasta alguns créditos do Copilot: o usuário é avisado antes); `meister dashboard --tui` e a tecla `t`.

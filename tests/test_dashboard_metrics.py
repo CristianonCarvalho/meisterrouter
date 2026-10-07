@@ -549,9 +549,9 @@ def test_runs_and_tasks_expose_human_titles_from_the_log():
 
 
 def test_project_from_log_uses_the_log_owner_not_the_cwd(tmp_path, monkeypatch):
-    log = tmp_path / "CRM_Base" / ".meister" / "logs" / "orchestration_log.jsonl"
+    log = tmp_path / "projeto_b" / ".meister" / "logs" / "orchestration_log.jsonl"
     assert project_from_log(str(log), "/outro/projeto") == {
-        "name": "CRM_Base", "path": str(tmp_path / "CRM_Base"),
+        "name": "projeto_b", "path": str(tmp_path / "projeto_b"),
     }
     # layout fora do padrão: cai para o projeto do cwd, e sem ele para a pasta do log
     odd = tmp_path / "logs-soltos" / "orchestration_log.jsonl"

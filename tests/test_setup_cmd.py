@@ -35,31 +35,31 @@ theme = "dark"
 [[keys.command]]
 key = "prefix+m"
 type = "shell"
-command = "/Users/cristianocarvalho/.local/bin/meister herdr-action orchestrate"
+command = "/home/usuario/.local/bin/meister herdr-action orchestrate"
 
 [[keys.command]]
 key = "ctrl+alt+m"
 type = "shell"
-command = "/Users/cristianocarvalho/.local/bin/meister herdr-action orchestrate"
+command = "/home/usuario/.local/bin/meister herdr-action orchestrate"
 
 [[keys.command]]
 key = "prefix+shift+m"
 type = "popup"
-command = "/Users/cristianocarvalho/.local/bin/meister dashboard --tui"
+command = "/home/usuario/.local/bin/meister dashboard --tui"
 width = "85%"
 height = "85%"
 
 [[keys.command]]
 key = "ctrl+alt+shift+m"
 type = "popup"
-command = "/Users/cristianocarvalho/.local/bin/meister dashboard --tui"
+command = "/home/usuario/.local/bin/meister dashboard --tui"
 width = "85%"
 height = "85%"
 
 [[keys.command]]
 key = "prefix+t"
 type = "popup"
-command = "/Users/cristianocarvalho/.local/bin/meister timeline"
+command = "/home/usuario/.local/bin/meister timeline"
 width = "85%"
 height = "85%"
 description = "MeisterRouter: linha do tempo (Gantt) do projeto"
@@ -67,7 +67,7 @@ description = "MeisterRouter: linha do tempo (Gantt) do projeto"
 [[keys.command]]
 key = "ctrl+alt+t"
 type = "popup"
-command = "/Users/cristianocarvalho/.local/bin/meister timeline"
+command = "/home/usuario/.local/bin/meister timeline"
 width = "85%"
 height = "85%"
 description = "MeisterRouter: linha do tempo (Gantt) do projeto (direto)"
@@ -143,7 +143,7 @@ def test_merge_keys_block_preserves_external_content_without_trailing_newline():
 
 
 def test_merge_keys_block_owner_fixture_all_already():
-    desired = get_desired_bindings("/Users/cristianocarvalho/.local/bin/meister", direct_keys=True)
+    desired = get_desired_bindings("/home/usuario/.local/bin/meister", direct_keys=True)
     res = merge_keys_block(OWNER_FIXTURE, desired)
     assert res.changed is False
     assert res.new_text == OWNER_FIXTURE

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, `asyncio`, JSON-RPC over UNIX Domain Sockets, PyYAML, TypeSafe Jev Decisions API (`typesafe/jev-1.13`), OpenRouter API, Rich/Curses (TUI), `pytest`.
 
-**Spec:** [`docs/superpowers/specs/2026-09-26-meisterrouter-herdr-plugin-design.md`](file:///Users/cristianocarvalho/Documents/meisterrouter/docs/superpowers/specs/2026-09-26-meisterrouter-herdr-plugin-design.md)
+**Spec:** [`docs/superpowers/specs/2026-09-26-meisterrouter-herdr-plugin-design.md`](https://github.com/CristianonCarvalho/meisterrouter/blob/main/docs/superpowers/specs/2026-09-26-meisterrouter-herdr-plugin-design.md)
 
 ---
 

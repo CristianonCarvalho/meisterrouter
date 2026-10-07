@@ -69,12 +69,13 @@ def test_install_claude_hook_creates_files_and_config(monkeypatch):
         assert "PreToolUse" in cfg["hooks"]
 
         # Run guard hook in subprocess to verify Exit Code 2
-        res = subprocess.run(["bash", guard_hook], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        # cwd no projeto temporário: o hook lê .meister/guard_mode do diretório atual
+        res = subprocess.run(["bash", guard_hook], cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         assert res.returncode == 2
         assert "Edição direta de código bloqueada" in res.stderr
 
         # Run prompt hook in subprocess to verify stdout injection
-        res_p = subprocess.run(["bash", prompt_hook], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        res_p = subprocess.run(["bash", prompt_hook], cwd=tmpdir, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         assert res_p.returncode == 0
         assert "[MEISTERROUTER MANDATORY DIRECTIVE]" in res_p.stdout
 
