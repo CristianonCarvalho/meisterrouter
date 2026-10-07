@@ -96,9 +96,9 @@ def test_translation_selftest():
 
 
 def test_translation_fallback_and_missing(monkeypatch):
-    from meister.locales import en
+    from meister.i18n import CATALOGS
 
-    monkeypatch.setitem(en.MESSAGES, "test.english_only", "Only in English: {val}")
+    monkeypatch.setitem(CATALOGS["en"], "test.english_only", "Only in English: {val}")
 
     # When language is pt-BR, key missing in pt-BR falls back to English
     set_language("pt-BR")
@@ -112,7 +112,7 @@ def test_translation_fallback_and_missing(monkeypatch):
     assert t("i18n.selftest") == "Mensagem de auto-teste: {name}"
 
     # Invalid placeholder syntax in template does not crash
-    monkeypatch.setitem(en.MESSAGES, "test.bad_format", "Invalid {bad:syntax}")
+    monkeypatch.setitem(CATALOGS["en"], "test.bad_format", "Invalid {bad:syntax}")
     set_language("en")
     assert t("test.bad_format", val=1) == "Invalid {bad:syntax}"
     set_language(None)

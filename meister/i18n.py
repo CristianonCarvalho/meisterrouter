@@ -9,16 +9,43 @@ import os
 import sys
 from typing import Any, Optional
 
-from meister.locales.en import MESSAGES as EN_MESSAGES
-from meister.locales.pt_br import MESSAGES as PT_BR_MESSAGES
+import importlib
+import pkgutil
 
 SUPPORTED_LANGUAGES = ("en", "pt-BR")
 DEFAULT_LANGUAGE = "en"
 
-CATALOGS: dict[str, dict[str, str]] = {
-    "en": EN_MESSAGES,
-    "pt-BR": PT_BR_MESSAGES,
-}
+
+def _load_catalogs() -> tuple[dict[str, dict[str, str]], list[str]]:
+    """Reúne os catálogos de `meister/locales/`: `en.py`, `en_<area>.py`, `pt_br.py` e `pt_br_<area>.py`.
+
+    Cada área da tradução tem o seu módulo (sem arquivo compartilhado para editar). Chave repetida entre
+    módulos do mesmo idioma não é erro em tempo de execução (vale a última, em ordem alfabética), mas
+    fica em `DUPLICATE_KEYS` para o teste de paridade acusar.
+    """
+    import meister.locales as package
+
+    catalogs: dict[str, dict[str, str]] = {"en": {}, "pt-BR": {}}
+    duplicates: list[str] = []
+    for info in sorted(pkgutil.iter_modules(package.__path__), key=lambda module: module.name):
+        name = info.name
+        if name == "en" or name.startswith("en_"):
+            language = "en"
+        elif name == "pt_br" or name.startswith("pt_br_"):
+            language = "pt-BR"
+        else:
+            continue
+        messages = importlib.import_module(f"meister.locales.{name}").MESSAGES
+        for key, value in messages.items():
+            if key in catalogs[language]:
+                duplicates.append(f"{language}:{key} ({name})")
+            catalogs[language][key] = value
+    return catalogs, duplicates
+
+
+CATALOGS, DUPLICATE_KEYS = _load_catalogs()
+EN_MESSAGES = CATALOGS["en"]
+PT_BR_MESSAGES = CATALOGS["pt-BR"]
 
 _explicit_language: Optional[str] = None
 _cached_config_language: Optional[str] = None
