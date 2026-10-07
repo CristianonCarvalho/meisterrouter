@@ -2,7 +2,6 @@ from setuptools import setup, find_packages
 
 setup(
     name="meisterrouter",
-    version="1.0.0",
     description="Multi-Model Autonomous Orchestration Framework for Claude Code & OpenAI Codex",
     author="Cristiano Carvalho",
     packages=find_packages(),
