@@ -90,6 +90,12 @@ herdr plugin action list                           # confere as ações registra
 O plugin (`dev.meisterrouter.orchestrator`) registra as ações `auto-orchestrate`, `classify-task` e
 `verify-gate`, e sobe o daemon junto com o Herdr.
 
+### O plugin sem o CLI
+Se você instalou apenas o plugin (por exemplo, pelo marketplace) ou se o executável `meister` não estiver no `PATH` do Herdr, o script de entrada (`bin/herdr-meister.sh`) tenta localizá-lo em `~/.local/bin`, `/opt/homebrew/bin` e `/usr/local/bin`. Se o CLI não for encontrado, as ações do plugin exibem uma notificação no Herdr com o comando de instalação e encerram com código 127. No evento de inicialização (`startup`), a mensagem de orientação é registrada no log do plugin e o processo encerra com código 0 (sem notificação visual). Para inspecionar os logs do plugin no Herdr:
+```bash
+herdr plugin log list --plugin dev.meisterrouter.orchestrator
+```
+
 ---
 
 ## Atalhos do Herdr à mão
