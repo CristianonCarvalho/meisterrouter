@@ -329,6 +329,18 @@
 <script>
 (() => {
   const text = {{ messages|tojson }};
+  // helpers:begin
+  function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "—";
+    if (seconds < 60) return text.duration_seconds.replace("{value}", String(Math.round(seconds)));
+    if (seconds < 3600) {
+      return text.duration_minutes.replace("{value}", String(Math.floor(seconds / 60))) + " "
+        + text.duration_seconds.replace("{value}", String(Math.round(seconds % 60)));
+    }
+    return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
+      + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
+  }
+  // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
   const requestedRunId = initialHash.get("run") || null;
@@ -442,17 +454,6 @@
   byId("notice-close").addEventListener("click", () => {
     byId("notice-banner").hidden = true;
   });
-
-  function formatDuration(seconds) {
-    if (!Number.isFinite(seconds) || seconds < 0) return "—";
-    if (seconds < 60) return text.duration_seconds.replace("{value}", String(Math.round(seconds)));
-    if (seconds < 3600) {
-      return text.duration_minutes.replace("{value}", String(Math.floor(seconds / 60))) + " "
-        + text.duration_seconds.replace("{value}", String(Math.round(seconds % 60)));
-    }
-    return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
-      + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
-  }
 
   function displayStatus(status) {
     return status ? (text[status] || status) : "—";
