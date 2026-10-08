@@ -350,3 +350,14 @@ def test_timeline_page_with_real_run_log(dashboard_client):
     assert "/api/timeline" in html
 
 
+
+
+def test_timeline_html_hides_notice_banner_and_draws_wait_distinctly(dashboard_client):
+    """O atributo hidden precisa vencer o display:flex do banner e a espera não pode usar a cor do worker."""
+    client, _, _ = dashboard_client
+    response = client.get("/timeline")
+    html = response.get_data(as_text=True)
+
+    assert ".notice[hidden] { display: none; }" in html
+    assert 'seg.phase === "wait"' in html
+    assert 'segFill = "#475569"' in html

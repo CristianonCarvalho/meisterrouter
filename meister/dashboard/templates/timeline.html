@@ -104,6 +104,7 @@
     justify-content: space-between;
     align-items: center;
   }
+  .notice[hidden] { display: none; }
   .notice button {
     background: transparent;
     border: none;
@@ -873,6 +874,7 @@
           if (seg.phase === "gate") segFill = "#f59e0b";
           else if (seg.phase === "integrate") segFill = "#10b981";
           else if (seg.phase === "lock_wait") segFill = "#64748b";
+          else if (seg.phase === "wait" || seg.phase === "queue") segFill = "#475569";
 
           const bar = createSvgEl("rect", {
             x: sx1,
@@ -899,8 +901,8 @@
 
           lanesGroup.appendChild(bar);
 
-          // If lock_wait, overlay pattern
-          if (seg.phase === "lock_wait") {
+          // If waiting (task queue or merge lock), overlay the striped pattern
+          if (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue") {
             const patOverlay = createSvgEl("rect", {
               x: sx1,
               y: rY + (ROW_H - BAR_H) / 2,
