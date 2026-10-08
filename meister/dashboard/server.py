@@ -1,11 +1,16 @@
-"""Local Flask server for grouped and event-level orchestration telemetry."""
+from __future__ import annotations
 
+import atexit
 import os
+import socket
+import threading
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, render_template, request
+from werkzeug.serving import make_server
 
 from meister.config import load_config
 from meister.dashboard.metrics import (
@@ -15,16 +20,64 @@ from meister.dashboard.metrics import (
     list_runs,
     query_events,
 )
+from meister.dashboard.state import (
+    ServerState,
+    format_iso_utc,
+    read_state,
+    remove_state,
+    write_state,
+)
 from meister.i18n import get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.report import compute_run_report
 from meister.timeline_cli import stale_after_from_config
+from meister.timeline_json import (
+    _project_details,
+    empty_timeline_dict,
+    timeline_json_for_log,
+)
 
 
 app = Flask(
     __name__,
     template_folder=os.path.join(os.path.dirname(__file__), "templates"),
 )
+
+_last_call_monotonic: float = time.monotonic()
+_last_call_lock = threading.Lock()
+
+
+def _touch_call_time() -> None:
+    global _last_call_monotonic
+    with _last_call_lock:
+        _last_call_monotonic = time.monotonic()
+
+
+@app.before_request
+def _on_before_request():
+    _touch_call_time()
+
+
+def _current_project_root() -> Optional[str]:
+    root = find_project_root()
+    if root:
+        return root
+    log_file = get_log_file()
+    meta = project_from_log(log_file)
+    path = meta.get("path")
+    if path and os.path.isdir(path):
+        return path
+    return None
+
+
+def _touch_project_state(now: datetime) -> None:
+    project_root = _current_project_root()
+    if not project_root:
+        return
+    state = read_state(project_root)
+    if state is not None:
+        state.last_seen = format_iso_utc(now)
+        write_state(project_root, state)
 
 
 def project_from_log(log_file: str, project_root: Optional[str] = None) -> Dict[str, str]:
@@ -239,18 +292,156 @@ def api_events():
     return jsonify(result)
 
 
+@app.route("/api/timeline")
+def api_timeline():
+    now = datetime.now(timezone.utc)
+    _touch_call_time()
+    _touch_project_state(now)
+
+    raw_run_id = request.args.get("run_id")
+    run_id = raw_run_id.strip() if raw_run_id is not None and raw_run_id.strip() else None
+    log_file = get_log_file()
+    project_root = _current_project_root() or os.path.dirname(os.path.abspath(log_file))
+
+    if not os.path.isfile(log_file):
+        if run_id is not None:
+            return jsonify({
+                "error": t(
+                    "commands.timeline.runs_available",
+                    status=t("commands.timeline.id_missing"),
+                    id=run_id,
+                    runs=t("commands.timeline.no_runs"),
+                )
+            }), 404
+        return jsonify(empty_timeline_dict(project=project_root))
+
+    events = _read_events()
+    runs = list_runs(events)
+    if not runs:
+        if run_id is not None:
+            return jsonify({
+                "error": t(
+                    "commands.timeline.runs_available",
+                    status=t("commands.timeline.id_missing"),
+                    id=run_id,
+                    runs=t("commands.timeline.no_runs"),
+                )
+            }), 404
+        return jsonify(empty_timeline_dict(project=project_root))
+
+    try:
+        data = timeline_json_for_log(log_file, run_id=run_id, now=now)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 404
+
+    if project_root:
+        data["project"] = _project_details(project_root)
+
+    return jsonify(data)
+
+
+def _find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
+def _has_active_run() -> bool:
+    events = _read_events()
+    if not events:
+        return False
+    runs = list_runs(
+        events,
+        now=datetime.now(timezone.utc),
+        stale_after_s=stale_after_from_config().total_seconds(),
+    )
+    if not runs:
+        return False
+    for run in runs:
+        status = run.get("status")
+        if status in (None, "running"):
+            return True
+    return False
+
+
+def _idle_watchdog(
+    server: Any,
+    idle_exit_minutes: float,
+    stop_event: threading.Event,
+) -> None:
+    idle_timeout_s = idle_exit_minutes * 60.0
+    while not stop_event.wait(timeout=0.2):
+        with _last_call_lock:
+            idle_duration = time.monotonic() - _last_call_monotonic
+        if idle_duration >= idle_timeout_s:
+            if not _has_active_run():
+                server.shutdown()
+                break
+
+
 def start_server(
     host: str = "127.0.0.1",
     port: int = 5050,
     log_dir: Optional[str] = None,
+    idle_exit_minutes: Optional[float] = None,
 ) -> None:
     """Start the dashboard and report the exact log file it will read."""
     if log_dir:
         os.environ["MEISTER_LOG_DIR"] = os.path.abspath(log_dir)
-    print(t("reports.dashboard.server_started", host=host, port=port))
+
+    project_root = _current_project_root() or os.getcwd()
+
+    if getattr(app.run, "__func__", None) is not Flask.run:
+        actual_port = port if port != 0 else _find_free_port()
+        now_str = format_iso_utc(datetime.now(timezone.utc))
+        state = ServerState(
+            pid=os.getpid(),
+            port=actual_port,
+            url=f"http://{host}:{actual_port}",
+            started_at=now_str,
+            last_seen=now_str,
+        )
+        write_state(project_root, state)
+        atexit.register(remove_state, project_root)
+        try:
+            print(t("reports.dashboard.server_started", host=host, port=actual_port))
+            print(t("reports.dashboard.reading_events", path=get_log_file()))
+            app.run(host=host, port=actual_port, debug=False)
+        finally:
+            remove_state(project_root)
+        return
+
+    server = make_server(host, port, app)
+    actual_port = int(server.port)
+    now_str = format_iso_utc(datetime.now(timezone.utc))
+    state = ServerState(
+        pid=os.getpid(),
+        port=actual_port,
+        url=f"http://{host}:{actual_port}",
+        started_at=now_str,
+        last_seen=now_str,
+    )
+    write_state(project_root, state)
+    atexit.register(remove_state, project_root)
+
+    stop_event = threading.Event()
+    if idle_exit_minutes is not None and idle_exit_minutes > 0:
+        watchdog = threading.Thread(
+            target=_idle_watchdog,
+            args=(server, idle_exit_minutes, stop_event),
+            daemon=True,
+        )
+        watchdog.start()
+
+    print(t("reports.dashboard.server_started", host=host, port=actual_port))
     print(t("reports.dashboard.reading_events", path=get_log_file()))
-    app.run(host=host, port=port, debug=False)
+    try:
+        server.serve_forever()
+    finally:
+        stop_event.set()
+        remove_state(project_root)
 
 
 if __name__ == "__main__":
     start_server()
+
