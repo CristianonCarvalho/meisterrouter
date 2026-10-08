@@ -68,6 +68,61 @@ def test_timeline_api_two_runs_default_newest(dashboard_client):
     assert len(data["rows"]) == 3
 
 
+def test_timelines_api_returns_runs_newest_first_in_timeline_schema(dashboard_client):
+    client, log_dir, _ = dashboard_client
+    events1 = parallel_events(run="run-111111")
+    events2 = [
+        {
+            **ev,
+            "run_id": "run-222222",
+            "ts": ev["ts"].replace("2026-10-05T12:", "2026-10-05T13:"),
+        }
+        for ev in parallel_events(run="run-222222")
+    ]
+    _write_log(log_dir, [*events1, *events2])
+
+    response = client.get("/api/timelines")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert [timeline["run"]["id"] for timeline in data["runs"]] == [
+        "run-222222",
+        "run-111111",
+    ]
+
+    single_run = client.get("/api/timeline?run_id=run-222222").get_json()
+    assert data["runs"][0]["schema"] == single_run["schema"] == 1
+    assert data["runs"][0]["rows"] == single_run["rows"]
+    assert set(data["runs"][0]) == set(single_run)
+
+
+def test_timelines_api_empty_log_returns_empty_list(dashboard_client):
+    client, _, _ = dashboard_client
+    response = client.get("/api/timelines")
+    assert response.status_code == 200
+    assert response.get_json() == {"runs": []}
+
+
+def test_timelines_api_respects_default_limit_and_caps_at_100(dashboard_client):
+    client, log_dir, _ = dashboard_client
+    events = [
+        {
+            "event_type": "orchestration_start",
+            "run_id": f"run-{index:06d}",
+            "ts": f"2026-10-{(index // 24) + 1:02d}T{index % 24:02d}:00:00Z",
+        }
+        for index in range(105)
+    ]
+    _write_log(log_dir, events)
+
+    default_response = client.get("/api/timelines").get_json()
+    limited_response = client.get("/api/timelines?limit=2").get_json()
+    capped_response = client.get("/api/timelines?limit=101").get_json()
+    assert len(default_response["runs"]) == 20
+    assert len(limited_response["runs"]) == 2
+    assert len(capped_response["runs"]) == 100
+    assert capped_response["runs"][0]["run"]["id"] == "run-000104"
+
+
 def test_timeline_api_specific_run_id(dashboard_client):
     client, log_dir, _ = dashboard_client
     events1 = parallel_events(run="run-111111")
@@ -227,6 +282,35 @@ def test_timeline_html_no_inner_html_and_no_cdn(dashboard_client):
     assert "https://" not in html
 
 
+def test_timeline_html_has_run_controls_and_localized_keyboard_help(
+    dashboard_client, monkeypatch
+):
+    client, _, _ = dashboard_client
+    from meister.i18n import reset_language_cache
+
+    monkeypatch.setenv("MEISTER_LANG", "en")
+    reset_language_cache()
+    html_en = client.get("/timeline").get_data(as_text=True)
+    assert 'id="run-list"' in html_en
+    assert 'id="mode-live"' in html_en
+    assert 'id="mode-paused"' in html_en
+    assert 'id="mode-all"' in html_en
+    assert "Keyboard shortcuts" in html_en
+    assert "Selected run" in html_en
+    assert "All runs" in html_en
+    assert "Pause" in html_en
+    assert "Previous run" in html_en
+    assert "Next run" in html_en
+
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    html_pt = client.get("/timeline").get_data(as_text=True)
+    assert "Teclas de atalho" in html_pt
+    assert "Run selecionada" in html_pt
+    assert "Todas as runs" in html_pt
+    assert "Pausar" in html_pt
+
+
 def test_timeline_html_uses_create_element_ns_and_text_content_for_xss_prevention(dashboard_client):
     client, log_dir, _ = dashboard_client
     malicious_title = '<img src=x onerror=alert("xss")>'
@@ -264,6 +348,5 @@ def test_timeline_page_with_real_run_log(dashboard_client):
     html = resp.get_data(as_text=True)
     assert "Meister" in html
     assert "/api/timeline" in html
-
 
 
