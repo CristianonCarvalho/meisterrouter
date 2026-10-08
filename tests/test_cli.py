@@ -57,7 +57,7 @@ def test_cli_models_shows_disabled_configured_via_only(tmp_path):
     assert "disabled-custom" in res.output
     assert "custom-model-b" in res.output
     assert "$0.840  desligada" in res.output
-    assert "copilot_luna" not in res.output
+    assert "tier_1b" not in res.output
 
 def test_cli_init():
     with tempfile.TemporaryDirectory() as tmpdir:
