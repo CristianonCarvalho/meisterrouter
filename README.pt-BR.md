@@ -75,11 +75,13 @@ Cada **via** é uma assinatura (CLI) com um modelo. A **ordem** é a cadeia de f
 meister models
 ```
 ```
-  #  NOME                     HARNESS          MODELO                         CUSTO/1M  STATUS
-  1  copilot_luna             copilot          gpt-6-luna                   $0.200  ligada
-  2  agy_gemini_flash         agy              gemini-3.8-flash-high        $1.500  ligada
-  3  claude_sonnet            claude           sonnet                       $4.000  ligada
-  4  codex_luna               codex            gpt-6-luna                   $0.200  desligada
+  #  NOME                     HARNESS          MODELO                       ESFORÇO      CUSTO/1M  STATUS
+  1  tier_1                   copilot          claude-haiku-5.5             -              $0.200  ligada
+  2  tier_1b                  copilot          gpt-6-luna                   -              $0.200  ligada
+  3  tier_2                   agy              gemini-3.8-flash-high        -              $1.500  ligada
+  4  tier_3                   claude           sonnet                       -              $4.000  ligada
+  5  tier_1c                  codex            gpt-6-luna                   -              $0.200  desligada
+  6  tier_3b                  claude           opus                         -              $8.000  desligada
 ```
 Para mudar, crie o arquivo do projeto com as vias padrão e edite:
 ```bash
@@ -90,10 +92,12 @@ router:
   mode: jev                # jev escolhe a via inicial de cada tarefa; first = sempre a primeira (sem rede)
 workers:
   tier_order:              # a ORDEM destas linhas é a cadeia de fallback
-    - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: codex_luna, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
-    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
-    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
+    - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
+    - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
+    - {name: tier_1c, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
+    - {name: tier_2, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
+    - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
+    - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}
 ```
 (O `meister models` lista as vias desligadas por último; elas não entram na cadeia.)
 
@@ -103,8 +107,18 @@ workers:
 | **ligar ou desligar** uma via | `enabled: true` ou `enabled: false` |
 | limitar a via a certas **classes** de tarefa (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (o Jev só manda para a via o que ela aceita) |
 | ignorar o Jev e usar sempre a primeira via | `router.mode: first` |
+| ligar ou desligar uma via pela linha de comando | `meister models --enable tier_1c` ou `meister models --disable tier_1b` |
+| definir o **esforço de raciocínio** de uma via | `effort: high` (os valores dependem do harness, abaixo) |
 
 Atenção: a lista `tier_order` do projeto **substitui** a padrão inteira. Depois de editar, confira com `meister config validate` e `meister models`. Os campos e os demais ajustes (timeouts, gate, escopo) estão em [configuração avançada](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+
+Valores de effort por harness:
+
+| Harness | Valores de `effort` (opcional; sem ele vale o padrão do harness) |
+|---|---|
+| `copilot` | none, minimal, low, medium, high, xhigh, max |
+| `claude`, `agy` | low, medium, high, xhigh, max |
+| `codex` | minimal, low, medium, high, xhigh |
 
 ## 📚 Mais documentação
 

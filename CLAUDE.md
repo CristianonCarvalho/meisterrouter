@@ -59,10 +59,10 @@ O Jev retornará em JSON:
 Como orquestrador, invoque o implementador recomendado via CLI do MeisterRouter:
 ```bash
 # 1. Execução direta pelo worker recomendado:
-meister worker --model copilot_luna --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
+meister worker --model tier_1 --task "<tarefa>" [--files "<arquivos_separados_por_virgula>"]
 
 # 2. SE o modelo recomendado falhar ou estiver inativo, ESCALE IMEDIATAMENTE para o próximo:
-meister worker --model codex_luna --task "<tarefa>" [--files "<arquivos>"]
+meister worker --model tier_1b --task "<tarefa>" [--files "<arquivos>"]
 
 # 3. Ou delegar o ciclo completo ao orquestrador autônomo:
 meister orchestrate --task "<tarefa>"
