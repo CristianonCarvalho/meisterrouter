@@ -4,9 +4,9 @@
 >
 > **Execução neste projeto:** a implementação é delegada ao `meister orchestrate --plan-file` (importado com `meister plan import --format superpowers`). Os workers não commitam nem fazem push; o orquestrador verifica e só commita com OK do usuário. Onde o template diz "Commit", este plano usa **Checkpoint**.
 
-**Goal:** Ao iniciar `meister orchestrate`, abrir uma janela de navegador em modo app (sem abas nem barra de endereço), **uma por projeto**, mostrando o timeline ao vivo em SVG: raias por via, escalonamento entre vias, caminho crítico e custo acumulado contra a linha-base. Funciona com qualquer harness como orquestrador, sem Mod e sem Herdr.
+**Goal:** Ao iniciar `meister orchestrate`, abrir uma janela de navegador em modo app (sem abas nem barra de endereço), **uma por projeto**, mostrando o timeline em SVG, ao vivo ou parado, com seleção de qualquer run do projeto e visão de todas elas: raias por via, escalonamento entre vias, caminho crítico e custo acumulado contra a linha-base. Funciona com qualquer harness como orquestrador, sem Mod e sem Herdr.
 
-**Architecture:** Três camadas independentes. (1) Modelo: `timeline_graph.py` deriva raias, arestas, caminho crítico, escalonamentos e série de custo a partir do `Timeline` existente, e `timeline_json.py` serializa tudo. (2) Servidor: o dashboard ganha `/api/timeline`, a página `/timeline` (SVG desenhado no navegador a partir do JSON) e um arquivo de descoberta `.meister/dashboard.json` por projeto. (3) Janela: `launcher.py` acha um navegador Chromium, sobe o servidor do projeto em porta livre e abre `--app=URL` só se aquele projeto não tiver janela viva.
+**Architecture:** Três camadas independentes. (1) Modelo: `timeline_graph.py` deriva raias, arestas, caminho crítico, escalonamentos e série de custo a partir do `Timeline` existente, e `timeline_json.py` serializa tudo. (2) Servidor: o dashboard ganha `/api/timeline`, `/api/timelines`, a página `/timeline` (com seletor de runs, modo ao vivo, modo parado e visão de todas as runs) (SVG desenhado no navegador a partir do JSON) e um arquivo de descoberta `.meister/dashboard.json` por projeto. (3) Janela: `launcher.py` acha um navegador Chromium, sobe o servidor do projeto em porta livre e abre `--app=URL` só se aquele projeto não tiver janela viva.
 
 **Tech Stack:** Python ≥ 3.10 (CI roda 3.10 a 3.13), Flask (já usado), JavaScript puro na página, `click`, `pytest`. Nenhuma dependência nova.
 
@@ -18,6 +18,7 @@
 |---|---|
 | Forma de abrir | Janela app do Chromium (`--app`); sem Chromium, aba normal; sem tela, só imprime a URL |
 | Vários projetos | **Uma janela e um servidor por projeto**, cada um com porta livre, título e cor próprios |
+| Navegação | Selecionar qualquer run e vê-la **ao vivo** (se ainda roda) ou **parada** (concluída, ou pausada); visão de todas as runs do projeto; paridade com as teclas do `meister timeline` |
 | Dependência de harness | Nenhuma: o Mod do Claude Code e a janela flutuante sem borda ficam fora deste plano |
 
 ## Decisões abertas (confirmar antes de executar)
@@ -40,12 +41,13 @@
 
 ## Review Focus
 
-1. **Dois projetos ao mesmo tempo:** cada um grava o próprio `.meister/dashboard.json`, usa a própria porta e nunca mostra dados do outro. (Tarefas 3, 6 e 7)
-2. **Servidor órfão ou estado velho:** arquivo com `pid` de processo que já morreu, ou pid reaproveitado pelo sistema. A decisão de "está vivo" usa a porta respondendo e o `last_seen`, não só o pid. (Tarefas 3 e 6)
-3. **Corrida na subida:** dois `orchestrate` no mesmo projeto iniciando o servidor juntos devem resultar em um servidor só (criação atômica do arquivo de trava). (Tarefa 6)
+1. **Dois projetos ao mesmo tempo:** cada um grava o próprio `.meister/dashboard.json`, usa a própria porta e nunca mostra dados do outro. (Tarefas 3, 7 e 8)
+2. **Servidor órfão ou estado velho:** arquivo com `pid` de processo que já morreu, ou pid reaproveitado pelo sistema. A decisão de "está vivo" usa a porta respondendo e o `last_seen`, não só o pid. (Tarefas 3 e 7)
+3. **Corrida na subida:** dois `orchestrate` no mesmo projeto iniciando o servidor juntos devem resultar em um servidor só (criação atômica do arquivo de trava). (Tarefa 7)
 4. **XSS pelo log:** títulos de tarefa e nomes de via vêm de planos e do log; a página monta o SVG com `createElementNS` e `textContent`, nunca com `innerHTML` nem concatenação de strings. (Tarefa 4)
-5. **Ambiente sem tela** (SSH, CI, nuvem, `DISPLAY` e `WAYLAND_DISPLAY` vazios): nenhuma tentativa de abrir navegador; a URL é impressa. (Tarefa 6)
+5. **Ambiente sem tela** (SSH, CI, nuvem, `DISPLAY` e `WAYLAND_DISPLAY` vazios): nenhuma tentativa de abrir navegador; a URL é impressa. (Tarefa 7)
 6. **Log inexistente, vazio, truncado ou de run sem `plan_parsed`:** a API devolve um JSON válido com `rows: []` e a página mostra o estado "aguardando a primeira run". (Tarefas 2, 3 e 4)
+7. **Navegação entre runs:** run escolhida que ainda roda continua ao vivo e não é trocada pela run nova; run concluída não gera consulta repetida; `run_id` inexistente (hash antigo, run apagada por `meister clean`) volta ao modo ao vivo com aviso, sem erro. (Tarefa 5)
 
 ---
 
@@ -56,7 +58,7 @@
 | `meister/timeline_graph.py` | criar | Puro: raias por via, arestas, caminho crítico, escalonamentos, série de custo |
 | `meister/timeline_json.py` | criar | Serialização estável (`schema: 1`) do `Timeline` e do grafo |
 | `meister/dashboard/state.py` | criar | Estado do servidor por projeto: ler, gravar atômico, "está vivo?" |
-| `meister/dashboard/server.py` | modificar | `/api/timeline`, `/timeline`, heartbeat, porta livre, saída por ociosidade |
+| `meister/dashboard/server.py` | modificar | `/api/timeline`, `/api/timelines`, `/timeline`, heartbeat, porta livre, saída por ociosidade |
 | `meister/dashboard/templates/timeline.html` | criar | Página SVG ao vivo (JS puro) |
 | `meister/dashboard/launcher.py` | criar | Detectar Chromium, subir servidor desacoplado, abrir janela app |
 | `meister/config.py`, `meister/default_config.yaml` | modificar | Seção `dashboard:` (`open`, `idle_exit_minutes`, `window`) |
@@ -67,7 +69,7 @@
 
 ---
 
-## PR 1: modelo, API e página (útil mesmo sem a janela)
+## PR 1: modelo, API, página e navegação entre runs (útil mesmo sem a janela)
 
 ### Task 1: Grafo do timeline (`timeline_graph.py`)
 
@@ -155,11 +157,43 @@
 
 **Depends on:** Task 3
 
+### Task 5: Seleção de run, modos ao vivo e parado, visão de todas as runs
+
+**Files:**
+- Modify: `meister/dashboard/server.py`
+- Modify: `meister/dashboard/templates/timeline.html`
+- Modify: `meister/locales/en_cli.py`
+- Modify: `meister/locales/pt_br_cli.py`
+- Test: `tests/test_dashboard_timeline_api.py`
+
+**Interfaces:**
+- Consumes: `/api/timeline`, `/api/runs` (já existe) e `timeline_to_dict` (Tarefa 2).
+- Produces:
+  - `GET /api/timelines[?limit=N]`: as runs do projeto, da mais nova para a mais antiga, cada uma no mesmo formato de `/api/timeline` (`schema: 1`); `limit` padrão 20, máximo 100. Sem log: `runs: []`.
+  - Na página, três modos:
+    - **Ao vivo** (padrão): segue a run mais nova e passa sozinha para a próxima quando uma run nova começa.
+    - **Run selecionada**: fixa naquela run. Se ainda está em andamento, continua atualizando (ao vivo daquela run) e não salta para uma run mais nova; se terminou, desenha uma vez e não consulta mais.
+    - **Pausado**: congela o quadro atual em qualquer modo; a leitura continua em segundo plano e, ao retomar, mostra o estado atual.
+  - Seletor de runs: lista recolhível com id curto, título, estado, hora de início, duração e custo; clicar seleciona.
+  - Visão **todas as runs**: uma faixa por run, empilhadas, com eixo de tempo comum; a run selecionada fica destacada e clicar numa faixa abre aquela run.
+  - Teclas iguais às de `meister timeline`: `[` e `]` run anterior/seguinte, `l` volta ao ao vivo, `a` alterna todas as runs, `p` pausa, `+` e `-` zoom, setas andam no tempo, `?` ajuda.
+  - Run na URL como `#run=<id>`, para guardar e reabrir. O id é validado contra a lista de `/api/runs` e nunca é usado como caminho de arquivo; id desconhecido volta ao modo ao vivo com um aviso curto.
+  - A lógica de estado (modo, run, pausa, zoom, deslocamento) fica numa função `reduce(state, action)` isolada no JS da página, sem tocar o DOM.
+
+- [ ] **Step 1: Escrever os testes que falham.** `/api/timelines`: ordem da mais nova para a mais antiga, `limit` respeitado e limitado a 100, log vazio devolve lista vazia, duas runs devolvem o mesmo formato de `/api/timeline`. HTML de `/timeline`: contém os controles e a tabela de teclas, textos traduzidos, e continua sem `innerHTML` nem CDN.
+- [ ] **Step 2: Rodar e ver falhar** (`pytest tests/test_dashboard_timeline_api.py -q`).
+- [ ] **Step 3: Implementar.** O JS não tem teste automatizado (sem dependência nova de navegador ou Node); a função `reduce` fica pequena e a Tarefa fecha com o roteiro manual abaixo.
+- [ ] **Step 4: Rodar testes, `ruff check .`, `mypy meister`, `tests/test_i18n_ratchet.py`.**
+- [ ] **Step 5: Roteiro manual** com um projeto de duas ou mais runs: abrir no ao vivo; selecionar uma run antiga (fica parada); selecionar a run em andamento (continua atualizando); pausar e retomar; `[`, `]`, `l`, `a`; zoom e deslocamento; recarregar a página com `#run=<id>` válido e inválido.
+- [ ] **Step 6: Checkpoint.**
+
+**Depends on:** Task 4
+
 ---
 
 ## PR 2: janela app, uma por projeto
 
-### Task 5: Configuração `dashboard:`
+### Task 6: Configuração `dashboard:`
 
 **Files:**
 - Modify: `meister/default_config.yaml`
@@ -177,14 +211,14 @@
 
 **Depends on:** none
 
-### Task 6: Lançador (`launcher.py`)
+### Task 7: Lançador (`launcher.py`)
 
 **Files:**
 - Create: `meister/dashboard/launcher.py`
 - Test: `tests/test_dashboard_launcher.py`
 
 **Interfaces:**
-- Consumes: `state.py` (Tarefa 3), `config.dashboard` (Tarefa 5).
+- Consumes: `state.py` (Tarefa 3), `config.dashboard` (Tarefa 6).
 - Produces:
   - `find_chromium(platform, env) -> Optional[list[str]]`: procura, em ordem, os executáveis do Chrome, Chromium, Edge e Brave por sistema (`shutil.which` no Linux; caminhos dos `.app` no macOS; locais comuns no Windows). Firefox e Safari não contam.
   - `has_display(platform, env) -> bool`: falso em SSH, CI e sem `DISPLAY`/`WAYLAND_DISPLAY` no Linux.
@@ -198,9 +232,9 @@
 - [ ] **Step 4: Rodar testes, `ruff check .`, `mypy meister`.**
 - [ ] **Step 5: Checkpoint.**
 
-**Depends on:** Task 3, Task 5
+**Depends on:** Task 3, Task 6
 
-### Task 7: Integração no `orchestrate`
+### Task 8: Integração no `orchestrate`
 
 **Files:**
 - Modify: `meister/cli.py`
@@ -209,7 +243,7 @@
 - Test: `tests/test_dashboard_launcher.py`
 
 **Interfaces:**
-- Consumes: `ensure_dashboard` (Tarefa 6).
+- Consumes: `ensure_dashboard` (Tarefa 7).
 - Produces: no início de `meister orchestrate`, uma chamada best-effort a `ensure_dashboard`; imprime uma linha com a URL (`Timeline: http://127.0.0.1:PORTA/timeline`) em qualquer resultado diferente de `disabled`; nova opção `--no-open` que equivale a `open: never` naquela execução. A abertura não bloqueia: roda em segundo plano e a orquestração segue sem esperar.
 
 - [ ] **Step 1: Escrever os testes que falham** (com `ensure_dashboard` simulado): chamada feita uma vez por run; `--no-open` impede a chamada; exceção no lançador não altera o código de saída; saída mostra a URL.
@@ -218,9 +252,9 @@
 - [ ] **Step 4: Rodar a suíte completa, `ruff check .`, `mypy meister`.**
 - [ ] **Step 5: Checkpoint.**
 
-**Depends on:** Task 6
+**Depends on:** Task 7
 
-### Task 8: Documentação
+### Task 9: Documentação
 
 **Files:**
 - Modify: `docs/execution-manual.md`
@@ -232,4 +266,4 @@
 - [ ] **Step 1: Escrever a seção nos dois idiomas** e conferir que `tests/test_hygiene.py` e os testes de documentação continuam verdes.
 - [ ] **Step 2: Checkpoint** e conferência manual ponta a ponta: `meister orchestrate` em dois projetos ao mesmo tempo, duas janelas, cada uma com o próprio título e cor.
 
-**Depends on:** Task 4, Task 7
+**Depends on:** Task 5, Task 8
