@@ -431,8 +431,8 @@ def test_check_openrouter_key_modes(monkeypatch):
 
 
 def test_check_worker_clis_disabled_tier_not_checked(monkeypatch):
-    tier_enabled = WorkerTier(name="copilot_luna", harness="copilot", model="gpt-6-luna", cost_per_m_tokens=0.20)
-    tier_disabled = WorkerTier(name="codex_luna", harness="codex", model="gpt-6-luna", cost_per_m_tokens=0.20, enabled=False)
+    tier_enabled = WorkerTier(name="tier_1b", harness="copilot", model="gpt-6-luna", cost_per_m_tokens=0.20)
+    tier_disabled = WorkerTier(name="tier_1c", harness="codex", model="gpt-6-luna", cost_per_m_tokens=0.20, enabled=False)
 
     cfg = MeisterConfig(
         workers=WorkersConfig(
