@@ -391,6 +391,40 @@
     if (trunkX < sx + 12) return straight;
     return "M " + sx + " " + sy + " H " + trunkX + " V " + dy + " L " + dx + " " + dy;
   }
+  // Short labels for the reasoning effort shown in the lane header.
+  const EFFORT_ABBREVIATIONS = new Map([
+    ["none", "N"],
+    ["minimal", "MIN"],
+    ["low", "L"],
+    ["medium", "M"],
+    ["high", "H"],
+    ["xhigh", "XH"],
+    ["max", "MAX"],
+  ]);
+  function effortAbbreviation(effort) {
+    const raw = effort === null || effort === undefined ? "" : String(effort).trim();
+    if (!raw) return "";
+    const known = EFFORT_ABBREVIATIONS.get(raw.toLowerCase());
+    return known || raw.toUpperCase();
+  }
+  // "harness · model (SIGLA)"; missing parts are omitted.
+  function laneDetailText(lane) {
+    const harness = lane.harness || "";
+    const model = lane.model || "";
+    if (!harness && !model) return "";
+    const effort = effortAbbreviation(lane.effort);
+    const modelPart = model && effort ? model + " (" + effort + ")" : model;
+    return [harness, modelPart].filter(Boolean).join(" · ");
+  }
+  // One line when "name  detail" fits beside the utilization figure, otherwise two.
+  function laneHeaderLayout(lane, labelWidthPx, charPx) {
+    const name = String(lane.via || "");
+    const detail = laneDetailText(lane);
+    if (!detail) return { name, detail: "", twoLines: false };
+    const available = labelWidthPx - 16 - 40;
+    const width = (name.length + 2 + detail.length) * charPx;
+    return { name, detail, twoLines: width > available };
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -497,6 +531,18 @@
       line.textContent = label + ": " + formatDuration(sec);
       timingBox.appendChild(line);
     });
+    placeTooltip(event);
+  }
+
+  function showLaneTooltip(event, title, detail) {
+    byId("tooltip-title").textContent = title;
+    byId("tooltip-body").textContent = detail;
+    byId("tooltip-timing").replaceChildren();
+    placeTooltip(event);
+  }
+
+  function placeTooltip(event) {
+    const tip = byId("tooltip");
     tip.style.display = "block";
 
     let left = event.clientX + 10;
@@ -774,6 +820,7 @@
     const MARGIN_R = 30;
     const HEADER_H = 40;
     const LANE_HEADER_H = 26;
+    const LANE_DETAIL_LINE_H = 13;
     const ROW_H = 34;
     const BAR_H = 20;
 
@@ -891,7 +938,9 @@
 
     lanesList.forEach((lane, laneIdx) => {
       if (!lane.rows.length && lanesList.length > 1) return;
-      const laneH = LANE_HEADER_H + lane.rows.length * ROW_H;
+      const layout = laneHeaderLayout(lane, LABEL_W, 6.2);
+      const headerH = layout.twoLines ? LANE_HEADER_H + LANE_DETAIL_LINE_H : LANE_HEADER_H;
+      const laneH = headerH + lane.rows.length * ROW_H;
       laneCenterY[lane.via] = currentY + LANE_HEADER_H / 2;
 
       // Lane background
@@ -906,8 +955,8 @@
       });
       lanesGroup.appendChild(laneBg);
 
-      // Lane label
-      const viaText = createSvgText(lane.via, {
+      // Lane label: name, then harness · model (effort) beside it or on a second line
+      const viaText = createSvgText("", {
         x: "16",
         y: currentY + 17,
         fill: "var(--muted)",
@@ -915,6 +964,23 @@
         "font-weight": "700",
         "letter-spacing": "0.04em",
       });
+      const nameSpan = createSvgEl("tspan");
+      nameSpan.textContent = layout.name;
+      viaText.appendChild(nameSpan);
+      if (layout.detail) {
+        const detailSpan = createSvgEl("tspan", layout.twoLines
+          ? { x: "16", dy: String(LANE_DETAIL_LINE_H), "font-size": "10", "font-weight": "400", "letter-spacing": "0" }
+          : { dx: "10", "font-size": "10", "font-weight": "400", "letter-spacing": "0" });
+        detailSpan.textContent = layout.detail;
+        viaText.appendChild(detailSpan);
+        viaText.addEventListener("mouseenter", (event) => {
+          showLaneTooltip(event, layout.name, layout.detail);
+        });
+        viaText.addEventListener("mousemove", (event) => {
+          showLaneTooltip(event, layout.name, layout.detail);
+        });
+        viaText.addEventListener("mouseleave", hideTaskTooltip);
+      }
       lanesGroup.appendChild(viaText);
 
       if (lane.utilization !== undefined && lane.utilization !== null && lane.utilization > 0) {
@@ -931,7 +997,7 @@
 
       // Tasks in this lane
       lane.rows.forEach((row, rowIdx) => {
-        const rY = currentY + LANE_HEADER_H + rowIdx * ROW_H;
+        const rY = currentY + headerH + rowIdx * ROW_H;
         rowCenterY[row.task_id] = rY + ROW_H / 2;
 
         const rowStartXVal = timeToX(row.start);
