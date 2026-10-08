@@ -487,7 +487,8 @@ def report(run_ids, groups, log_dir, output_format):
 @click.option("--once", is_flag=True, default=False, help=t("cli.timeline.once_help"))
 @click.option("--all", "all_runs", is_flag=True, default=False, help=t("cli.timeline.all_help"))
 @click.option("--no-color", is_flag=True, default=False, help=t("cli.timeline.no_color_help"))
-def timeline_command(run_id, log_dir, once, all_runs, no_color):
+@click.option("--json", "json_format", is_flag=True, default=False)
+def timeline_command(run_id, log_dir, once, all_runs, no_color, json_format):
     """Read-only, colorized Gantt timeline of a run's tasks."""
     import shutil
     from datetime import datetime, timezone
@@ -495,6 +496,21 @@ def timeline_command(run_id, log_dir, once, all_runs, no_color):
     from meister.log_tail import resolve_log_file
     from meister.timeline_cli import once_frame
     from meister.timeline_view import detect_color
+
+    if json_format:
+        from meister.timeline_json import timeline_json_for_log
+
+        try:
+            data = timeline_json_for_log(
+                resolve_log_file(log_dir),
+                run_id=run_id,
+                now=datetime.now(timezone.utc),
+            )
+        except ValueError as error:
+            click.echo(t("cli.common.error", error=error), err=True)
+            raise click.exceptions.Exit(2)
+        click.echo(json.dumps(data, ensure_ascii=False, indent=2))
+        return
 
     if all_runs and run_id is not None:
         raise click.UsageError(t("cli.timeline.all_or_run_id"))

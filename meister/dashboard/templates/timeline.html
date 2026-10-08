@@ -1,0 +1,1475 @@
+<!DOCTYPE html>
+<html lang="{{ language }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meister · {{ messages.waiting_first_run }}</title>
+<style>
+  :root {
+    --bg: #090b10;
+    --surface: #10141e;
+    --hover: #161c2b;
+    --border: #21283b;
+    --text: #f0f3fa;
+    --muted: #8b95a5;
+    --purple: #c084fc;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --blue: #38bdf8;
+    --cyan: #22d3ee;
+    --amber: #f59e0b;
+    --project-hue: 220;
+    --accent: hsl(var(--project-hue) 75% 55%);
+    --accent-glow: hsla(var(--project-hue) 75% 55% / 0.25);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  button, select, input {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover, a:hover { background: var(--hover); }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .logo {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--purple), var(--blue));
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .subtitle { color: var(--muted); margin-top: 4px; font-size: 13px; }
+  .header-controls { display: flex; align-items: center; gap: 12px; }
+  .run-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+  .run-controls button[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
+  .run-list { position: relative; }
+  .run-list summary, .keyboard-help summary { cursor: pointer; color: var(--cyan); }
+  .run-list select { margin-left: 8px; max-width: min(360px, 70vw); }
+  .run-entries { position: absolute; z-index: 10; top: 28px; left: 0; width: min(680px, 90vw); max-height: 360px; overflow: auto; padding: 6px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.45); }
+  .run-entry { display: grid; grid-template-columns: minmax(140px, 2fr) minmax(80px, .8fr) minmax(145px, 1.3fr) minmax(70px, .8fr) minmax(72px, .7fr); width: 100%; gap: 10px; text-align: left; border: 0; border-radius: 4px; }
+  .run-entry[aria-current="true"] { background: var(--hover); outline: 1px solid var(--cyan); }
+  .run-entry span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .keyboard-help { margin-left: auto; color: var(--muted); }
+  .keyboard-help table { position: absolute; z-index: 10; right: 24px; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+  .keyboard-help td { padding: 3px 8px; }
+  .run-band { cursor: pointer; }
+  .run-band:hover { filter: brightness(1.2); }
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #252c3e;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .live-badge {
+    background: rgba(34, 211, 238, 0.15);
+    color: var(--cyan);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+  }
+  .notice {
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .notice[hidden] { display: none; }
+  .notice button {
+    background: transparent;
+    border: none;
+    color: var(--amber);
+    cursor: pointer;
+    font-weight: bold;
+    padding: 0 4px;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .card-label {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .card-value {
+    margin: 6px 0 2px;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .completed { color: var(--green); }
+  .running { color: var(--yellow); }
+  .failed { color: var(--red); }
+  .stalled { color: var(--amber); }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  .swatch-worker { background: #6366f1; }
+  .swatch-gate { background: #f59e0b; }
+  .swatch-integrate { background: #10b981; }
+  .swatch-wait { background: #64748b; }
+  .swatch-critical { background: #fbbf24; border: 1px solid #f59e0b; }
+  .swatch-escalation { background: #ec4899; }
+  .timeline-wrapper {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-x: auto;
+    position: relative;
+    min-height: 200px;
+  }
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 16px;
+  }
+  .empty-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    display: block;
+  }
+  svg text {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .task-bar:hover {
+    filter: brightness(1.25);
+    cursor: pointer;
+  }
+  .tooltip {
+    position: absolute;
+    display: none;
+    padding: 8px 12px;
+    background: #1a2234;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    max-width: 280px;
+  }
+  .tooltip-title { font-weight: 600; margin-bottom: 4px; }
+  .tooltip-row { color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="header">
+  <div>
+    <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span></h1>
+    <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
+  </div>
+  <div class="header-controls">
+    <span id="live-badge" class="badge live-badge" hidden>{{ messages.live }}</span>
+    <a href="/" class="badge">{{ messages.dashboard }}</a>
+  </div>
+</header>
+
+<nav class="run-controls" aria-label="{{ messages.select_run }}">
+  <button id="mode-live" type="button" aria-pressed="true">{{ messages.mode_live }}</button>
+  <button id="mode-selected" type="button" aria-pressed="false">{{ messages.mode_selected }}</button>
+  <button id="mode-paused" type="button" aria-pressed="false">{{ messages.mode_paused }}</button>
+  <button id="mode-all" type="button" aria-pressed="false">{{ messages.mode_all }}</button>
+  <details id="run-list" class="run-list">
+    <summary>{{ messages.select_run }}</summary>
+    <div>
+      <select id="run-select" aria-label="{{ messages.select_run }}">
+        <option value="">{{ messages.live_newest }}</option>
+      </select>
+    </div>
+    <div class="run-entry" aria-hidden="true">
+      <span>{{ messages.run_title }}</span>
+      <span>{{ messages.run_status }}</span>
+      <span>{{ messages.run_started }}</span>
+      <span>{{ messages.run_duration }}</span>
+      <span>{{ messages.run_cost }}</span>
+    </div>
+    <div id="run-entries" class="run-entries"></div>
+  </details>
+  <details class="keyboard-help">
+    <summary>{{ messages.keyboard_shortcuts }}</summary>
+    <table>
+      <tbody>
+        <tr><td>[</td><td>{{ messages.shortcut_previous }}</td></tr>
+        <tr><td>]</td><td>{{ messages.shortcut_next }}</td></tr>
+        <tr><td>l</td><td>{{ messages.shortcut_live }}</td></tr>
+        <tr><td>a</td><td>{{ messages.shortcut_all }}</td></tr>
+        <tr><td>p</td><td>{{ messages.shortcut_pause }}</td></tr>
+        <tr><td>+ / -</td><td>{{ messages.shortcut_zoom }}</td></tr>
+        <tr><td>← / →</td><td>{{ messages.shortcut_pan }}</td></tr>
+        <tr><td>?</td><td>{{ messages.keyboard_shortcuts }}</td></tr>
+      </tbody>
+    </table>
+  </details>
+</nav>
+
+<div id="notice-banner" class="notice" hidden>
+  <span id="notice-text"></span>
+  <button id="notice-close" type="button">×</button>
+</div>
+
+<section class="cards" aria-label="Summary">
+  <div class="card">
+    <div class="card-label">{{ messages.tasks }}</div>
+    <div id="card-total" class="card-value">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.completed }}</div>
+    <div id="card-completed" class="card-value completed">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.running }}</div>
+    <div id="card-running" class="card-value running">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.failed }}</div>
+    <div id="card-failed" class="card-value failed">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.stalled }}</div>
+    <div id="card-stalled" class="card-value stalled">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.peak_parallel }}</div>
+    <div id="card-peak" class="card-value">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.avg_parallel }}</div>
+    <div id="card-avg" class="card-value">0.0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.cost }}</div>
+    <div id="card-cost" class="card-value">—</div>
+  </div>
+</section>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-swatch swatch-worker"></span><span>{{ messages.phase_worker }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-gate"></span><span>{{ messages.phase_gate }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-integrate"></span><span>{{ messages.phase_integrate }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-wait"></span><span>{{ messages.phase_wait }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-escalation"></span><span>{{ messages.escalation }}</span></div>
+</div>
+
+<div class="timeline-wrapper">
+  <div id="empty-state" class="empty-state">
+    <span class="empty-icon">⏳</span>
+    <span id="empty-text">{{ messages.waiting_first_run }}</span>
+  </div>
+  <svg id="timeline-svg" xmlns="http://www.w3.org/2000/svg" hidden></svg>
+  <div id="tooltip" class="tooltip">
+    <div id="tooltip-title" class="tooltip-title"></div>
+    <div id="tooltip-body" class="tooltip-row"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const text = {{ messages|tojson }};
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const initialHash = new URLSearchParams(window.location.hash.slice(1));
+  const requestedRunId = initialHash.get("run") || null;
+  let state = { mode: "live", runId: null, paused: false, zoom: 1, offset: 0 };
+  let latestTimeline = null;
+  let allTimelineData = [];
+  let pollingTimer = null;
+  let catalogTimer = null;
+  let runsCatalog = [];
+  let runCosts = new Map();
+  let catalogLoaded = false;
+
+  const byId = (id) => document.getElementById(id);
+
+  function reduce(current, action) {
+    switch (action.type) {
+      case "SELECT_RUN":
+        return { ...current, mode: "selected", runId: action.runId };
+      case "LIVE":
+        return { ...current, mode: "live", runId: action.runId || current.runId };
+      case "ALL":
+        return { ...current, mode: "all" };
+      case "NEWEST_RUN":
+        return current.mode === "live" && current.runId !== action.runId
+          ? { ...current, runId: action.runId }
+          : current;
+      case "TOGGLE_PAUSE":
+        return { ...current, paused: !current.paused };
+      case "ZOOM":
+        return { ...current, zoom: Math.min(12, Math.max(0.25, current.zoom * action.factor)) };
+      case "SHIFT":
+        return { ...current, offset: current.offset + action.amount / current.zoom };
+      default:
+        return current;
+    }
+  }
+
+  function updateState(action) {
+    const oldRunId = state.runId;
+    state = reduce(state, action);
+    syncControls();
+    if (state.runId !== oldRunId || action.type === "SELECT_RUN" || action.type === "LIVE") {
+      updateUrl();
+    }
+    renderCurrent();
+  }
+
+  function syncControls() {
+    byId("mode-live").setAttribute("aria-pressed", String(state.mode === "live"));
+    byId("mode-selected").setAttribute("aria-pressed", String(state.mode === "selected"));
+    byId("mode-paused").setAttribute("aria-pressed", String(state.paused));
+    byId("mode-paused").textContent = state.paused ? text.mode_resume : text.mode_paused;
+    byId("mode-all").setAttribute("aria-pressed", String(state.mode === "all"));
+  }
+
+  function updateUrl() {
+    const hash = new URLSearchParams();
+    if (state.mode === "selected" && state.runId) hash.set("run", state.runId);
+    const nextHash = hash.toString();
+    if (window.location.hash.slice(1) !== nextHash) {
+      window.history.replaceState({}, "", window.location.pathname + window.location.search + (nextHash ? "#" + nextHash : ""));
+    }
+  }
+
+  function createSvgEl(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    if (attrs) {
+      for (const key of Object.keys(attrs)) {
+        el.setAttribute(key, String(attrs[key]));
+      }
+    }
+    return el;
+  }
+
+  function createSvgText(content, attrs) {
+    const el = createSvgEl("text", attrs);
+    el.textContent = String(content);
+    return el;
+  }
+
+  function showNotice(message) {
+    const banner = byId("notice-banner");
+    byId("notice-text").textContent = message;
+    banner.hidden = false;
+  }
+
+  byId("notice-close").addEventListener("click", () => {
+    byId("notice-banner").hidden = true;
+  });
+
+  function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "—";
+    if (seconds < 60) return text.duration_seconds.replace("{value}", String(Math.round(seconds)));
+    if (seconds < 3600) {
+      return text.duration_minutes.replace("{value}", String(Math.floor(seconds / 60))) + " "
+        + text.duration_seconds.replace("{value}", String(Math.round(seconds % 60)));
+    }
+    return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
+      + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
+  }
+
+  function displayStatus(status) {
+    return status ? (text[status] || status) : "—";
+  }
+
+  function formatRunCost(runId) {
+    const cost = runCosts.get(runId);
+    return cost === null || cost === undefined ? "—" : "$" + Number(cost).toFixed(4);
+  }
+
+  function refreshRunList() {
+    const select = byId("run-select");
+    const entries = byId("run-entries");
+    select.replaceChildren();
+    entries.replaceChildren();
+
+    const liveOption = document.createElement("option");
+    liveOption.value = "";
+    liveOption.textContent = text.live_newest;
+    select.appendChild(liveOption);
+
+    if (!runsCatalog.length) {
+      const empty = document.createElement("span");
+      empty.textContent = text.no_runs;
+      entries.appendChild(empty);
+      return;
+    }
+    runsCatalog.forEach((run) => {
+      const option = document.createElement("option");
+      option.value = run.run_id;
+      option.textContent = (run.title || run.run_id) + (run.status ? " (" + displayStatus(run.status) + ")" : "");
+      select.appendChild(option);
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "run-entry";
+      button.setAttribute("aria-current", String(state.runId === run.run_id && state.mode === "selected"));
+      const title = document.createElement("span");
+      title.textContent = (run.run_id.slice(0, 8) + " · " + (run.title || run.run_id));
+      const status = document.createElement("span");
+      status.textContent = displayStatus(run.status);
+      const started = document.createElement("span");
+      started.textContent = run.started_at ? new Date(run.started_at).toLocaleString() : "—";
+      const elapsed = run.started_at
+        ? ((run.ended_at ? new Date(run.ended_at).getTime() : Date.now()) - new Date(run.started_at).getTime()) / 1000
+        : NaN;
+      const duration = document.createElement("span");
+      duration.textContent = formatDuration(elapsed);
+      const cost = document.createElement("span");
+      cost.textContent = formatRunCost(run.run_id);
+      button.append(title, status, started, duration, cost);
+      button.addEventListener("click", () => selectRun(run.run_id));
+      entries.appendChild(button);
+    });
+    select.value = state.mode === "selected" ? state.runId || "" : "";
+  }
+
+  async function loadRunCatalog() {
+    try {
+      const res = await fetch("/api/runs");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.runs)) {
+        runsCatalog = data.runs;
+        const latestRunId = runsCatalog.length ? runsCatalog[0].run_id : null;
+        if (!catalogLoaded) {
+          catalogLoaded = true;
+          if (requestedRunId && runsCatalog.some((run) => run.run_id === requestedRunId)) {
+            state = reduce(state, { type: "SELECT_RUN", runId: requestedRunId });
+          } else if (requestedRunId) {
+            showNotice(text.run_not_found);
+            updateUrl();
+          } else if (latestRunId) {
+            state = reduce(state, { type: "NEWEST_RUN", runId: latestRunId });
+          }
+        } else if (latestRunId && state.mode === "live" && state.runId !== latestRunId) {
+          updateState({ type: "NEWEST_RUN", runId: latestRunId });
+        }
+        refreshRunList();
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  async function loadTimelineCollection() {
+    try {
+      const response = await fetch("/api/timelines?limit=100");
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!Array.isArray(data.runs)) return;
+      allTimelineData = data.runs;
+      runCosts = new Map(data.runs.map((timeline) => [
+        timeline.run.id,
+        timeline.summary ? timeline.summary.cost_usd : null,
+      ]));
+      refreshRunList();
+      renderCurrent();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function selectRun(runId) {
+    if (!runsCatalog.some((run) => run.run_id === runId)) {
+      showNotice(text.run_not_found);
+      return;
+    }
+    selectedRunCompleted = false;
+    updateState({ type: "SELECT_RUN", runId });
+    byId("notice-banner").hidden = true;
+    byId("run-list").open = false;
+    fetchCurrentTimeline().then(scheduleNextPoll);
+  }
+
+  byId("run-select").addEventListener("change", (event) => {
+    const value = event.target.value.trim();
+    if (value) selectRun(value);
+    else {
+      updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+      fetchCurrentTimeline().then(scheduleNextPoll);
+    }
+  });
+
+  byId("mode-live").addEventListener("click", () => {
+    updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+    fetchCurrentTimeline().then(scheduleNextPoll);
+  });
+  byId("mode-selected").addEventListener("click", () => {
+    if (state.runId) selectRun(state.runId);
+  });
+  byId("mode-paused").addEventListener("click", () => {
+    updateState({ type: "TOGGLE_PAUSE" });
+  });
+  byId("mode-all").addEventListener("click", () => {
+    updateState({ type: state.mode === "all" ? "LIVE" : "ALL", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+    selectedRunCompleted = false;
+    fetchCurrentTimeline().then(scheduleNextPoll);
+  });
+
+  function updateCards(summary) {
+    if (!summary) return;
+    byId("card-total").textContent = String(summary.total || 0);
+    byId("card-completed").textContent = String(summary.completed || 0);
+    byId("card-running").textContent = String(summary.running || 0);
+    byId("card-failed").textContent = String(summary.failed || 0);
+    byId("card-stalled").textContent = String(summary.stalled || 0);
+    byId("card-peak").textContent = String(summary.peak_parallel || 0);
+    byId("card-avg").textContent = summary.avg_parallel !== undefined && summary.avg_parallel !== null
+      ? Number(summary.avg_parallel).toFixed(1)
+      : "0.0";
+    byId("card-cost").textContent = summary.cost_usd !== undefined && summary.cost_usd !== null
+      ? "$" + Number(summary.cost_usd).toFixed(4)
+      : "—";
+  }
+
+  function renderEmpty() {
+    byId("empty-state").hidden = false;
+    byId("timeline-svg").hidden = true;
+    byId("live-badge").hidden = true;
+    byId("empty-text").textContent = text.waiting_first_run;
+    updateCards({ total: 0, completed: 0, running: 0, failed: 0, stalled: 0, peak_parallel: 0, avg_parallel: 0.0, cost_usd: null });
+  }
+
+  function renderSvg(data) {
+    const svg = byId("timeline-svg");
+    svg.replaceChildren();
+
+    const rows = data.rows || [];
+    if (!rows.length) {
+      renderEmpty();
+      return;
+    }
+
+    byId("empty-state").hidden = true;
+    svg.hidden = false;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Defs: markers and gradients
+    const defs = createSvgEl("defs");
+    
+    // Normal arrow
+    const marker = createSvgEl("marker", {
+      id: "arrow",
+      viewBox: "0 0 10 10",
+      refX: "7",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse",
+    });
+    const markerPath = createSvgEl("path", {
+      d: "M 0 1.5 L 8 5 L 0 8.5 z",
+      fill: "rgba(245, 158, 11, 0.6)",
+    });
+    marker.appendChild(markerPath);
+    defs.appendChild(marker);
+
+    // Critical arrow
+    const critMarker = createSvgEl("marker", {
+      id: "arrow-crit",
+      viewBox: "0 0 10 10",
+      refX: "7",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse",
+    });
+    const critMarkerPath = createSvgEl("path", {
+      d: "M 0 1.5 L 8 5 L 0 8.5 z",
+      fill: "#f59e0b",
+    });
+    critMarker.appendChild(critMarkerPath);
+    defs.appendChild(critMarker);
+
+    // Cost gradient
+    const costGrad = createSvgEl("linearGradient", {
+      id: "cost-grad",
+      x1: "0",
+      y1: "0",
+      x2: "0",
+      y2: "1",
+    });
+    const stop1 = createSvgEl("stop", { offset: "0%", "stop-color": "#818cf8", "stop-opacity": "0.45" });
+    const stop2 = createSvgEl("stop", { offset: "100%", "stop-color": "#818cf8", "stop-opacity": "0.05" });
+    costGrad.appendChild(stop1);
+    costGrad.appendChild(stop2);
+    defs.appendChild(costGrad);
+
+    // Wait striped pattern
+    const pattern = createSvgEl("pattern", {
+      id: "pattern-wait",
+      width: "6",
+      height: "6",
+      patternUnits: "userSpaceOnUse",
+      patternTransform: "rotate(45)",
+    });
+    const patLine = createSvgEl("line", {
+      x1: "0",
+      y1: "0",
+      x2: "0",
+      y2: "6",
+      stroke: "#94a3b8",
+      "stroke-width": "2",
+    });
+    pattern.appendChild(patLine);
+    defs.appendChild(pattern);
+
+    svg.appendChild(defs);
+
+    // Layout configuration
+    const LABEL_W = 220;
+    const MARGIN_R = 30;
+    const HEADER_H = 40;
+    const LANE_HEADER_H = 26;
+    const ROW_H = 34;
+    const BAR_H = 20;
+
+    const containerW = Math.max(960, byId("timeline-svg").parentElement.clientWidth || 960);
+    const CHART_W = containerW - LABEL_W - MARGIN_R;
+
+    // Determine time bounds
+    const nowTime = Date.now();
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+
+    if (data.run && data.run.started_at) {
+      minTime = Math.min(minTime, new Date(data.run.started_at).getTime());
+    }
+    if (data.run && data.run.ended_at) {
+      maxTime = Math.max(maxTime, new Date(data.run.ended_at).getTime());
+    }
+
+    rows.forEach((r) => {
+      if (r.start) minTime = Math.min(minTime, new Date(r.start).getTime());
+      if (r.end) maxTime = Math.max(maxTime, new Date(r.end).getTime());
+      (r.segments || []).forEach((s) => {
+        if (s.start) minTime = Math.min(minTime, new Date(s.start).getTime());
+        if (s.end) maxTime = Math.max(maxTime, new Date(s.end).getTime());
+      });
+    });
+
+    if (data.cost_series && data.cost_series.length) {
+      data.cost_series.forEach((pt) => {
+        if (pt.t) {
+          const tMs = new Date(pt.t).getTime();
+          minTime = Math.min(minTime, tMs);
+          maxTime = Math.max(maxTime, tMs);
+        }
+      });
+    }
+
+    if (data.run && data.run.status === "running") {
+      maxTime = Math.max(maxTime, nowTime);
+    }
+
+    if (!Number.isFinite(minTime)) minTime = nowTime - 10000;
+    if (!Number.isFinite(maxTime) || maxTime <= minTime) maxTime = minTime + 10000;
+    const rawSpan = Math.max(1000, maxTime - minTime);
+    const span = Math.max(1000, rawSpan / state.zoom);
+    const centerTime = (minTime + maxTime) / 2 + state.offset;
+    minTime = centerTime - span / 2;
+    maxTime = minTime + span;
+
+    function timeToX(t) {
+      if (!t) return LABEL_W;
+      const ms = typeof t === "number" ? t : new Date(t).getTime();
+      const norm = (ms - minTime) / span;
+      return LABEL_W + Math.max(0, Math.min(CHART_W, norm * CHART_W));
+    }
+
+    // Time axis / grid in background
+    const gridGroup = createSvgEl("g", { class: "grid-group" });
+    const ticksCount = 6;
+    for (let i = 0; i <= ticksCount; i++) {
+      const frac = i / ticksCount;
+      const tx = LABEL_W + frac * CHART_W;
+      const tSec = Math.round((frac * span) / 1000);
+      
+      const gridLine = createSvgEl("line", {
+        x1: tx,
+        y1: HEADER_H,
+        x2: tx,
+        y2: 2000, // will adjust or let bounds handle
+        stroke: "rgba(255, 255, 255, 0.05)",
+        "stroke-width": "1",
+      });
+      gridGroup.appendChild(gridLine);
+
+      const tickLabel = createSvgText("+" + tSec + "s", {
+        x: tx,
+        y: HEADER_H - 8,
+        "text-anchor": "middle",
+        fill: "var(--muted)",
+        "font-size": "10",
+      });
+      gridGroup.appendChild(tickLabel);
+    }
+    svg.appendChild(gridGroup);
+
+    // Group rows by lane
+    const lanesList = (data.lanes && data.lanes.length)
+      ? data.lanes.map((l) => ({ ...l, rows: [] }))
+      : [{ via: text.unassigned, tasks: [], busy_s: 0, utilization: 0, rows: [] }];
+
+    const laneByVia = new Map();
+    lanesList.forEach((l) => laneByVia.set(l.via, l));
+
+    const otherLane = { via: text.unassigned, tasks: [], busy_s: 0, utilization: 0, rows: [] };
+
+    rows.forEach((r) => {
+      if (r.tier && laneByVia.has(r.tier)) {
+        laneByVia.get(r.tier).rows.push(r);
+      } else {
+        otherLane.rows.push(r);
+      }
+    });
+
+    if (otherLane.rows.length && !laneByVia.has(text.unassigned)) {
+      lanesList.push(otherLane);
+    }
+
+    let currentY = HEADER_H;
+    const rowCenterY = {};
+    const rowStartX = {};
+    const rowEndX = {};
+    const laneCenterY = {};
+
+    const lanesGroup = createSvgEl("g", { class: "lanes-group" });
+
+    lanesList.forEach((lane, laneIdx) => {
+      if (!lane.rows.length && lanesList.length > 1) return;
+      const laneH = LANE_HEADER_H + lane.rows.length * ROW_H;
+      laneCenterY[lane.via] = currentY + LANE_HEADER_H / 2;
+
+      // Lane background
+      const laneBg = createSvgEl("rect", {
+        x: "0",
+        y: currentY,
+        width: containerW,
+        height: laneH,
+        fill: laneIdx % 2 === 0 ? "rgba(255, 255, 255, 0.015)" : "rgba(255, 255, 255, 0.03)",
+        stroke: "rgba(255, 255, 255, 0.04)",
+        "stroke-width": "1",
+      });
+      lanesGroup.appendChild(laneBg);
+
+      // Lane label
+      const viaText = createSvgText(lane.via, {
+        x: "16",
+        y: currentY + 17,
+        fill: "var(--muted)",
+        "font-size": "11",
+        "font-weight": "700",
+        "letter-spacing": "0.04em",
+      });
+      lanesGroup.appendChild(viaText);
+
+      if (lane.utilization !== undefined && lane.utilization !== null && lane.utilization > 0) {
+        const utilPct = (lane.utilization * 100).toFixed(0) + "%";
+        const utilText = createSvgText(utilPct, {
+          x: LABEL_W - 14,
+          y: currentY + 17,
+          "text-anchor": "end",
+          fill: "var(--muted)",
+          "font-size": "10",
+        });
+        lanesGroup.appendChild(utilText);
+      }
+
+      // Tasks in this lane
+      lane.rows.forEach((row, rowIdx) => {
+        const rY = currentY + LANE_HEADER_H + rowIdx * ROW_H;
+        rowCenterY[row.task_id] = rY + ROW_H / 2;
+
+        const rowStartXVal = timeToX(row.start);
+        const rowEndXVal = timeToX(row.end || nowTime);
+        rowStartX[row.task_id] = rowStartXVal;
+        rowEndX[row.task_id] = rowEndXVal;
+
+        // Task title on left
+        const rawTitle = row.title || row.task_id;
+        const displayTitle = rawTitle.length > 25 ? rawTitle.slice(0, 23) + "…" : rawTitle;
+        const taskText = createSvgText(displayTitle, {
+          x: "24",
+          y: rY + 20,
+          fill: "var(--text)",
+          "font-size": "11",
+          class: "task-title-label",
+        });
+        lanesGroup.appendChild(taskText);
+
+        // Task segments
+        const segs = row.segments && row.segments.length
+          ? row.segments
+          : [{ phase: "worker", start: row.start, end: row.end || nowTime }];
+
+        const isCritical = Array.isArray(data.critical_path) && data.critical_path.includes(row.task_id);
+
+        segs.forEach((seg, sIdx) => {
+          const sx1 = timeToX(seg.start);
+          const sx2 = timeToX(seg.end);
+          const sW = Math.max(4, sx2 - sx1);
+
+          let segFill = "#6366f1";
+          if (seg.phase === "gate") segFill = "#f59e0b";
+          else if (seg.phase === "integrate") segFill = "#10b981";
+          else if (seg.phase === "lock_wait") segFill = "#64748b";
+          else if (seg.phase === "wait" || seg.phase === "queue") segFill = "#475569";
+
+          const bar = createSvgEl("rect", {
+            x: sx1,
+            y: rY + (ROW_H - BAR_H) / 2,
+            width: sW,
+            height: BAR_H,
+            rx: "4",
+            fill: segFill,
+            class: "task-bar",
+          });
+
+          // Attach hover handlers
+          bar.addEventListener("mouseenter", (e) => {
+            const tip = byId("tooltip");
+            byId("tooltip-title").textContent = row.title || row.task_id;
+            byId("tooltip-body").textContent = (seg.phase || "phase") + " · " + (row.status || "");
+            tip.style.left = (e.pageX + 10) + "px";
+            tip.style.top = (e.pageY + 10) + "px";
+            tip.style.display = "block";
+          });
+          bar.addEventListener("mouseleave", () => {
+            byId("tooltip").style.display = "none";
+          });
+
+          lanesGroup.appendChild(bar);
+
+          // If waiting (task queue or merge lock), overlay the striped pattern
+          if (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue") {
+            const patOverlay = createSvgEl("rect", {
+              x: sx1,
+              y: rY + (ROW_H - BAR_H) / 2,
+              width: sW,
+              height: BAR_H,
+              rx: "4",
+              fill: "url(#pattern-wait)",
+              opacity: "0.5",
+              "pointer-events": "none",
+            });
+            lanesGroup.appendChild(patOverlay);
+          }
+
+          // Live pulse at the trailing edge of the latest segment if running
+          if (row.status === "running" && sIdx === segs.length - 1) {
+            const headCircle = createSvgEl("circle", {
+              cx: sx2,
+              cy: rY + ROW_H / 2,
+              r: "4",
+              fill: "#38bdf8",
+            });
+            if (!prefersReducedMotion) {
+              const animR = createSvgEl("animate", {
+                attributeName: "r",
+                values: "3;6;3",
+                dur: "1.2s",
+                repeatCount: "indefinite",
+              });
+              const animOp = createSvgEl("animate", {
+                attributeName: "opacity",
+                values: "1;0.4;1",
+                dur: "1.2s",
+                repeatCount: "indefinite",
+              });
+              headCircle.appendChild(animR);
+              headCircle.appendChild(animOp);
+            }
+            lanesGroup.appendChild(headCircle);
+          }
+        });
+
+        // Critical path highlight border
+        if (isCritical) {
+          const critX1 = rowStartXVal;
+          const critX2 = rowEndXVal;
+          const critW = Math.max(4, critX2 - critX1);
+          const critOutline = createSvgEl("rect", {
+            x: critX1 - 1,
+            y: rY + (ROW_H - BAR_H) / 2 - 1,
+            width: critW + 2,
+            height: BAR_H + 2,
+            rx: "5",
+            fill: "none",
+            stroke: "#f59e0b",
+            "stroke-width": "2",
+            "pointer-events": "none",
+          });
+          lanesGroup.appendChild(critOutline);
+        }
+
+        // Failure badge
+        if (row.status === "failed") {
+          const failMarker = createSvgEl("rect", {
+            x: rowEndXVal - 4,
+            y: rY + (ROW_H - BAR_H) / 2,
+            width: "6",
+            height: BAR_H,
+            rx: "2",
+            fill: "#ef4444",
+          });
+          lanesGroup.appendChild(failMarker);
+        }
+
+        // Attempts badge
+        if (row.attempts > 1) {
+          const attText = createSvgText("[" + row.attempts + "]", {
+            x: Math.max(rowStartXVal - 6, LABEL_W + 4),
+            y: rY + ROW_H / 2 + 4,
+            "text-anchor": "end",
+            fill: "var(--yellow)",
+            "font-size": "9",
+            "font-weight": "700",
+          });
+          lanesGroup.appendChild(attText);
+        }
+      });
+
+      currentY += laneH;
+    });
+
+    svg.appendChild(lanesGroup);
+
+    // Escalation bridges
+    if (Array.isArray(data.escalations)) {
+      const escGroup = createSvgEl("g", { class: "escalations-group" });
+      data.escalations.forEach((esc) => {
+        const yFrom = laneCenterY[esc.from_via];
+        const yTo = laneCenterY[esc.to_via];
+        if (yFrom !== undefined && yTo !== undefined) {
+          const ex = timeToX(esc.at);
+          const midY = (yFrom + yTo) / 2;
+          const pathD = "M " + ex + " " + yFrom + " C " + (ex + 18) + " " + midY + ", " + (ex + 18) + " " + midY + ", " + ex + " " + yTo;
+          const bridge = createSvgEl("path", {
+            d: pathD,
+            stroke: "#ec4899",
+            "stroke-width": "2",
+            "stroke-dasharray": "3,3",
+            fill: "none",
+          });
+          escGroup.appendChild(bridge);
+
+          const escBadge = createSvgText("⤹", {
+            x: ex + 20,
+            y: midY + 4,
+            fill: "#ec4899",
+            "font-size": "12",
+            "font-weight": "700",
+          });
+          escGroup.appendChild(escBadge);
+        }
+      });
+      svg.appendChild(escGroup);
+    }
+
+    // Dependency edges
+    if (Array.isArray(data.edges)) {
+      const edgesGroup = createSvgEl("g", { class: "edges-group" });
+      data.edges.forEach((edge) => {
+        const sy = rowCenterY[edge.src];
+        const dy = rowCenterY[edge.dst];
+        const sx = rowEndX[edge.src];
+        const dx = rowStartX[edge.dst];
+
+        if (sy !== undefined && dy !== undefined && sx !== undefined && dx !== undefined) {
+          const deltaX = Math.max(14, (dx - sx) * 0.4);
+          const dStr = "M " + sx + " " + sy + " C " + (sx + deltaX) + " " + sy + ", " + (dx - deltaX) + " " + dy + ", " + dx + " " + dy;
+          const edgePath = createSvgEl("path", {
+            d: dStr,
+            fill: "none",
+            stroke: edge.critical ? "#f59e0b" : "rgba(245, 158, 11, 0.45)",
+            "stroke-width": edge.critical ? "2.5" : "1.2",
+            "marker-end": edge.critical ? "url(#arrow-crit)" : "url(#arrow)",
+          });
+          edgesGroup.appendChild(edgePath);
+        }
+      });
+      svg.appendChild(edgesGroup);
+    }
+
+    // "Now" vertical line
+    if (data.run && data.run.status === "running") {
+      const nowX = timeToX(nowTime);
+      const nowLine = createSvgEl("line", {
+        x1: nowX,
+        y1: HEADER_H,
+        x2: nowX,
+        y2: currentY,
+        stroke: "#38bdf8",
+        "stroke-width": "1.8",
+        "stroke-dasharray": "4,3",
+      });
+      svg.appendChild(nowLine);
+
+      const nowLabel = createSvgText(text.now, {
+        x: nowX + 4,
+        y: HEADER_H + 12,
+        fill: "#38bdf8",
+        "font-size": "10",
+        "font-weight": "700",
+      });
+      svg.appendChild(nowLabel);
+    }
+
+    // Cost River
+    if (Array.isArray(data.cost_series) && data.cost_series.length > 0) {
+      const riverTopY = currentY + 36;
+      const riverH = 80;
+      const riverBottomY = riverTopY + riverH;
+
+      const riverGroup = createSvgEl("g", { class: "cost-river-group" });
+
+      // Title
+      const riverLabel = createSvgText(text.cost_river, {
+        x: "16",
+        y: riverTopY - 10,
+        fill: "var(--muted)",
+        "font-size": "11",
+        "font-weight": "700",
+      });
+      riverGroup.appendChild(riverLabel);
+
+      let maxCost = 0.001;
+      data.cost_series.forEach((pt) => {
+        if (pt.actual_usd > maxCost) maxCost = pt.actual_usd;
+        if (pt.baseline_usd && pt.baseline_usd > maxCost) maxCost = pt.baseline_usd;
+      });
+
+      const actualPts = [];
+      const basePts = [];
+
+      data.cost_series.forEach((pt) => {
+        const px = timeToX(pt.t);
+        const py = riverBottomY - (pt.actual_usd / maxCost) * (riverH - 12);
+        actualPts.push({ x: px, y: py });
+        if (pt.baseline_usd !== undefined && pt.baseline_usd !== null) {
+          const bpy = riverBottomY - (pt.baseline_usd / maxCost) * (riverH - 12);
+          basePts.push({ x: px, y: bpy });
+        }
+      });
+
+      if (actualPts.length > 0) {
+        let areaD = "M " + actualPts[0].x + " " + riverBottomY + " L " + actualPts[0].x + " " + actualPts[0].y;
+        for (let i = 1; i < actualPts.length; i++) {
+          areaD += " L " + actualPts[i].x + " " + actualPts[i].y;
+        }
+        areaD += " L " + actualPts[actualPts.length - 1].x + " " + riverBottomY + " z";
+
+        const areaPath = createSvgEl("path", {
+          d: areaD,
+          fill: "url(#cost-grad)",
+        });
+        riverGroup.appendChild(areaPath);
+
+        let lineD = "M " + actualPts[0].x + " " + actualPts[0].y;
+        for (let i = 1; i < actualPts.length; i++) {
+          lineD += " L " + actualPts[i].x + " " + actualPts[i].y;
+        }
+        const linePath = createSvgEl("path", {
+          d: lineD,
+          fill: "none",
+          stroke: "#818cf8",
+          "stroke-width": "2",
+        });
+        riverGroup.appendChild(linePath);
+      }
+
+      if (basePts.length > 0) {
+        let baseD = "M " + basePts[0].x + " " + basePts[0].y;
+        for (let i = 1; i < basePts.length; i++) {
+          baseD += " L " + basePts[i].x + " " + basePts[i].y;
+        }
+        const basePath = createSvgEl("path", {
+          d: baseD,
+          fill: "none",
+          stroke: "#94a3b8",
+          "stroke-width": "1.5",
+          "stroke-dasharray": "4,4",
+        });
+        riverGroup.appendChild(basePath);
+      }
+
+      // Max cost label on the right
+      const costMaxText = createSvgText("$" + maxCost.toFixed(4), {
+        x: containerW - MARGIN_R,
+        y: riverTopY + 10,
+        "text-anchor": "end",
+        fill: "var(--muted)",
+        "font-size": "10",
+      });
+      riverGroup.appendChild(costMaxText);
+
+      svg.appendChild(riverGroup);
+      currentY = riverBottomY + 20;
+    }
+
+    svg.setAttribute("width", String(containerW));
+    svg.setAttribute("height", String(currentY + 20));
+    svg.setAttribute("viewBox", "0 0 " + containerW + " " + (currentY + 20));
+  }
+
+  let selectedRunCompleted = false;
+
+  function renderAllRuns() {
+    const svg = byId("timeline-svg");
+    svg.replaceChildren();
+    if (!allTimelineData.length) {
+      renderEmpty();
+      return;
+    }
+    byId("empty-state").hidden = true;
+    svg.hidden = false;
+
+    const now = Date.now();
+    const labelWidth = 300;
+    const marginRight = 30;
+    const width = Math.max(960, svg.parentElement.clientWidth || 960);
+    const chartWidth = width - labelWidth - marginRight;
+    const rowHeight = 46;
+    const headerHeight = 34;
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+    allTimelineData.forEach((timeline) => {
+      const run = timeline.run;
+      const start = run.started_at ? new Date(run.started_at).getTime() : NaN;
+      const end = run.ended_at ? new Date(run.ended_at).getTime()
+        : run.status === "running" ? now : start;
+      if (Number.isFinite(start)) minTime = Math.min(minTime, start);
+      if (Number.isFinite(end)) maxTime = Math.max(maxTime, end);
+    });
+    if (!Number.isFinite(minTime)) minTime = now - 10000;
+    if (!Number.isFinite(maxTime) || maxTime <= minTime) maxTime = minTime + 10000;
+    const rawSpan = Math.max(1000, maxTime - minTime);
+    const span = Math.max(1000, rawSpan / state.zoom);
+    const center = (minTime + maxTime) / 2 + state.offset;
+    minTime = center - span / 2;
+    maxTime = minTime + span;
+    const timeToX = (timestamp) => labelWidth + Math.max(
+      0,
+      Math.min(chartWidth, ((timestamp - minTime) / span) * chartWidth)
+    );
+
+    for (let index = 0; index <= 6; index++) {
+      const x = labelWidth + (chartWidth * index) / 6;
+      const line = createSvgEl("line", {
+        x1: x, y1: headerHeight, x2: x,
+        y2: headerHeight + allTimelineData.length * rowHeight,
+        stroke: "rgba(255,255,255,0.08)",
+      });
+      svg.appendChild(line);
+      const label = createSvgText("+" + text.duration_seconds.replace(
+        "{value}", String(Math.round((span * index) / 6000))
+      ), {
+        x, y: 18, fill: "var(--muted)", "font-size": "10", "text-anchor": "middle",
+      });
+      svg.appendChild(label);
+    }
+
+    allTimelineData.forEach((timeline, index) => {
+      const run = timeline.run;
+      const y = headerHeight + index * rowHeight;
+      const start = run.started_at ? new Date(run.started_at).getTime() : minTime;
+      const end = run.ended_at ? new Date(run.ended_at).getTime()
+        : run.status === "running" ? now : start;
+      const selected = state.runId === run.id;
+      const band = createSvgEl("g", {
+        class: "run-band",
+        "data-run-id": run.id,
+        "aria-label": run.title || run.id,
+      });
+      const background = createSvgEl("rect", {
+        x: 0, y, width, height: rowHeight,
+        fill: selected ? "rgba(34,211,238,0.12)" : index % 2 ? "rgba(255,255,255,0.025)" : "transparent",
+        stroke: selected ? "#22d3ee" : "rgba(255,255,255,0.04)",
+      });
+      band.appendChild(background);
+      const title = createSvgText(
+        (run.id.slice(0, 8) + " · " + (run.title || run.id) + " · " + displayStatus(run.status)),
+        { x: 14, y: y + 18, fill: selected ? "#22d3ee" : "var(--text)", "font-size": "11" }
+      );
+      band.appendChild(title);
+      const startX = timeToX(start);
+      const endX = timeToX(end);
+      const bar = createSvgEl("rect", {
+        x: startX, y: y + 25, width: Math.max(3, endX - startX), height: 12, rx: 4,
+        fill: run.status === "running" ? "#38bdf8" : run.status === "failed" ? "#f87171" : "#4ade80",
+      });
+      band.appendChild(bar);
+      const costText = createSvgText(formatRunCost(run.id), {
+        x: width - marginRight, y: y + 18, fill: "var(--muted)",
+        "font-size": "10", "text-anchor": "end",
+      });
+      band.appendChild(costText);
+      band.addEventListener("click", () => selectRun(run.id));
+      svg.appendChild(band);
+    });
+    svg.setAttribute("width", String(width));
+    svg.setAttribute("height", String(headerHeight + allTimelineData.length * rowHeight + 10));
+    svg.setAttribute("viewBox", "0 0 " + width + " " + (headerHeight + allTimelineData.length * rowHeight + 10));
+    const focus = allTimelineData.find((timeline) => timeline.run.id === state.runId) || allTimelineData[0];
+    updateCards(focus.summary);
+    updateHeader(focus);
+  }
+
+  function updateHeader(data) {
+    if (data.project && data.project.hue !== undefined) {
+      document.documentElement.style.setProperty("--project-hue", String(data.project.hue));
+    }
+    const projectName = data.project && data.project.name ? data.project.name : "Meister";
+    byId("project-name").textContent = projectName;
+    const run = data.run;
+    if (run) {
+      const title = run.title || run.id;
+      document.title = "Meister · " + projectName + " · " + title;
+      byId("run-header-title").textContent = title;
+      byId("live-badge").hidden = run.status !== "running";
+    } else {
+      document.title = "Meister · " + projectName + " · " + text.waiting_first_run;
+      byId("run-header-title").textContent = text.waiting_first_run;
+      byId("live-badge").hidden = true;
+    }
+  }
+
+  function renderCurrent() {
+    if (state.paused) return;
+    if (state.mode === "all") {
+      renderAllRuns();
+      return;
+    }
+    if (!latestTimeline) {
+      renderEmpty();
+      return;
+    }
+    updateHeader(latestTimeline);
+    updateCards(latestTimeline.summary);
+    renderSvg(latestTimeline);
+  }
+
+  async function fetchCurrentTimeline() {
+    if (state.mode === "all") {
+      await loadTimelineCollection();
+      return;
+    }
+    if (state.mode === "selected" && selectedRunCompleted) return;
+    const requestMode = state.mode;
+    const requestRunId = state.runId;
+    const selectedId = requestMode === "selected" ? requestRunId : null;
+    const url = selectedId
+      ? "/api/timeline?run_id=" + encodeURIComponent(selectedId)
+      : "/api/timeline";
+    try {
+      const response = await fetch(url);
+      if (response.status === 404 && selectedId) {
+        showNotice(text.run_not_found);
+        selectedRunCompleted = false;
+        updateState({
+          type: "LIVE",
+          runId: runsCatalog.length ? runsCatalog[0].run_id : null,
+        });
+        await fetchCurrentTimeline();
+        return;
+      }
+      if (!response.ok) return;
+      const data = await response.json();
+      if (state.mode !== requestMode || (
+        requestMode === "selected" && state.runId !== requestRunId
+      )) return;
+      if (requestMode === "live" && state.runId && runsCatalog[0]
+        && runsCatalog[0].run_id === state.runId
+        && (!data.run || data.run.id !== state.runId)) return;
+      latestTimeline = data;
+      if (data.run && data.run.id) {
+        runCosts.set(data.run.id, data.summary ? data.summary.cost_usd : null);
+        if (state.mode === "live" && state.runId !== data.run.id) {
+          state = reduce(state, { type: "NEWEST_RUN", runId: data.run.id });
+        }
+        selectedRunCompleted = state.mode === "selected" && data.run.status !== "running";
+      } else {
+        selectedRunCompleted = false;
+      }
+      refreshRunList();
+      renderCurrent();
+    } catch (_) {
+      // ignore transient polling failures
+    }
+  }
+
+  function scheduleNextPoll() {
+    if (pollingTimer) clearTimeout(pollingTimer);
+    if (state.mode === "selected" && selectedRunCompleted) return;
+    const interval = document.visibilityState === "hidden" ? 5000 : state.mode === "all" ? 2000 : 1000;
+    pollingTimer = setTimeout(async () => {
+      await fetchCurrentTimeline();
+      scheduleNextPoll();
+    }, interval);
+  }
+
+  async function refreshCatalog() {
+    const previousRunId = state.runId;
+    await loadRunCatalog();
+    if (state.mode === "live" && state.runId !== previousRunId) {
+      await fetchCurrentTimeline();
+      scheduleNextPoll();
+    } else if (state.mode === "selected" && !runsCatalog.some((run) => run.run_id === state.runId)) {
+      showNotice(text.run_not_found);
+      selectedRunCompleted = false;
+      updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+      await fetchCurrentTimeline();
+      scheduleNextPoll();
+    }
+    catalogTimer = setTimeout(refreshCatalog, 5000);
+  }
+
+  function selectAdjacentRun(direction) {
+    if (!runsCatalog.length) return;
+    const currentIndex = runsCatalog.findIndex((run) => run.run_id === state.runId);
+    const index = currentIndex < 0 ? 0 : currentIndex + direction;
+    if (index < 0) {
+      updateState({ type: "LIVE", runId: runsCatalog[0].run_id });
+      selectedRunCompleted = false;
+      fetchCurrentTimeline().then(scheduleNextPoll);
+    } else if (index < runsCatalog.length) {
+      selectedRunCompleted = false;
+      selectRun(runsCatalog[index].run_id);
+    }
+  }
+
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (target instanceof HTMLElement && (
+      target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)
+    )) return;
+    if (event.key === "?") {
+      event.preventDefault();
+      const help = document.querySelector(".keyboard-help");
+      help.open = !help.open;
+    } else if (event.key === "[") {
+      selectAdjacentRun(1);
+    } else if (event.key === "]") {
+      selectAdjacentRun(-1);
+    } else if (event.key.toLowerCase() === "l") {
+      updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+      selectedRunCompleted = false;
+      fetchCurrentTimeline().then(scheduleNextPoll);
+    } else if (event.key.toLowerCase() === "a") {
+      updateState({ type: state.mode === "all" ? "LIVE" : "ALL", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+      if (state.mode === "all") fetchCurrentTimeline().then(scheduleNextPoll);
+      else loadTimelineCollection().then(scheduleNextPoll);
+    } else if (event.key.toLowerCase() === "p") {
+      updateState({ type: "TOGGLE_PAUSE" });
+    } else if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      updateState({ type: "ZOOM", factor: 1.25 });
+    } else if (event.key === "-") {
+      event.preventDefault();
+      updateState({ type: "ZOOM", factor: 0.8 });
+    } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      const sign = event.key === "ArrowLeft" ? -1 : 1;
+      updateState({ type: "SHIFT", amount: sign * 10000 });
+    }
+  });
+
+  window.addEventListener("hashchange", async () => {
+    await loadRunCatalog();
+    const requestedId = new URLSearchParams(window.location.hash.slice(1)).get("run");
+    if (requestedId && runsCatalog.some((run) => run.run_id === requestedId)) {
+      selectedRunCompleted = false;
+      updateState({ type: "SELECT_RUN", runId: requestedId });
+      await fetchCurrentTimeline();
+      scheduleNextPoll();
+    } else if (requestedId) {
+      showNotice(text.run_not_found);
+      updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
+      selectedRunCompleted = false;
+      await fetchCurrentTimeline();
+      scheduleNextPoll();
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      loadRunCatalog().then(fetchCurrentTimeline).then(scheduleNextPoll);
+    }
+  });
+
+  async function start() {
+    await loadRunCatalog();
+    syncControls();
+    refreshRunList();
+    await loadTimelineCollection();
+    await fetchCurrentTimeline();
+    scheduleNextPoll();
+    catalogTimer = setTimeout(refreshCatalog, 5000);
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>
