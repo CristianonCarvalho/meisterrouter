@@ -78,6 +78,7 @@
   .keyboard-help { margin-left: auto; color: var(--muted); }
   .keyboard-help table { position: absolute; z-index: 10; right: 24px; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
   .keyboard-help td { padding: 3px 8px; }
+  .sound-toggle[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
   .run-band { cursor: pointer; }
   .run-band:hover { filter: brightness(1.2); }
   .badge {
@@ -222,6 +223,7 @@
     <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
   </div>
   <div class="header-controls">
+    <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true" title="{{ messages.sound_title }}">{{ messages.sound_on }}</button>
     <span id="live-badge" class="badge live-badge" hidden>{{ messages.live }}</span>
     <a href="/" class="badge">{{ messages.dashboard }}</a>
   </div>
@@ -257,6 +259,7 @@
         <tr><td>l</td><td>{{ messages.shortcut_live }}</td></tr>
         <tr><td>a</td><td>{{ messages.shortcut_all }}</td></tr>
         <tr><td>p</td><td>{{ messages.shortcut_pause }}</td></tr>
+        <tr><td>s</td><td>{{ messages.shortcut_sound }}</td></tr>
         <tr><td>+ / -</td><td>{{ messages.shortcut_zoom }}</td></tr>
         <tr><td>← / →</td><td>{{ messages.shortcut_pan }}</td></tr>
         <tr><td>?</td><td>{{ messages.keyboard_shortcuts }}</td></tr>
@@ -425,6 +428,25 @@
     const width = (name.length + 2 + detail.length) * charPx;
     return { name, detail, twoLines: width > available };
   }
+  // Statuses that mean a task has finished; "reused" counts as a completion.
+  const FINISHED_OK_STATUSES = ["completed", "reused"];
+  const FINISHED_STATUSES = ["completed", "reused", "failed"];
+  // A task only counts when it was seen before in a non-terminal status (null or empty map = first load).
+  function finishedTransitions(prevStatuses, rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const next = {};
+    list.forEach((row) => { next[row.task_id] = row.status; });
+    const result = { completed: [], failed: [], next };
+    if (!prevStatuses || !Object.keys(prevStatuses).length) return result;
+    list.forEach((row) => {
+      const before = prevStatuses[row.task_id];
+      if (before === undefined || before === null) return;
+      if (FINISHED_STATUSES.includes(before)) return;
+      if (FINISHED_OK_STATUSES.includes(row.status)) result.completed.push(row.task_id);
+      else if (row.status === "failed") result.failed.push(row.task_id);
+    });
+    return result;
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -437,6 +459,88 @@
   let runsCatalog = [];
   let runCosts = new Map();
   let catalogLoaded = false;
+  const SOUND_STORAGE_KEY = "meister.timeline.sound";
+  let soundOn = readSoundPreference();
+  let audioCtx = null;
+  let lastStatuses = null;
+  let lastStatusRunId = null;
+
+  function readSoundPreference() {
+    try {
+      return window.localStorage.getItem(SOUND_STORAGE_KEY) !== "off";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  function saveSoundPreference() {
+    try {
+      window.localStorage.setItem(SOUND_STORAGE_KEY, soundOn ? "on" : "off");
+    } catch (_) {
+      // storage unavailable: the preference only lasts for this page
+    }
+  }
+
+  // Created only from a user gesture, because browsers block audio before one.
+  function unlockAudio() {
+    if (!audioCtx) {
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (Ctor) audioCtx = new Ctor();
+      } catch (_) {
+        audioCtx = null;
+      }
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  }
+
+  function playNote(frequency, startAt) {
+    const gain = audioCtx.createGain();
+    const osc = audioCtx.createOscillator();
+    osc.frequency.value = frequency;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.15, startAt + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.12);
+    osc.start(startAt);
+    osc.stop(startAt + 0.12);
+  }
+
+  function playFinishSound(kind) {
+    if (!soundOn || !audioCtx || audioCtx.state !== "running") return;
+    const start = audioCtx.currentTime;
+    const notes = kind === "failed" ? [330, 220] : [660, 990];
+    notes.forEach((frequency, index) => playNote(frequency, start + index * 0.14));
+  }
+
+  function renderSoundToggle() {
+    const button = byId("sound-toggle");
+    button.setAttribute("aria-pressed", String(soundOn));
+    button.textContent = soundOn ? text.sound_on : text.sound_off;
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    saveSoundPreference();
+    unlockAudio();
+    renderSoundToggle();
+  }
+
+  function trackFinishedTasks(data) {
+    const runId = data.run && data.run.id ? data.run.id : null;
+    const previous = runId === lastStatusRunId ? lastStatuses : null;
+    const transitions = finishedTransitions(previous, data.rows);
+    lastStatuses = transitions.next;
+    lastStatusRunId = runId;
+    if (transitions.completed.length) playFinishSound("completed");
+    if (transitions.failed.length) playFinishSound("failed");
+  }
+
+  byId("sound-toggle").addEventListener("click", toggleSound);
+  document.addEventListener("pointerdown", unlockAudio, { once: true });
+  document.addEventListener("keydown", unlockAudio, { once: true });
+  renderSoundToggle();
 
   const byId = (id) => document.getElementById(id);
 
@@ -1519,6 +1623,7 @@
         && runsCatalog[0].run_id === state.runId
         && (!data.run || data.run.id !== state.runId)) return;
       latestTimeline = data;
+      trackFinishedTasks(data);
       if (data.run && data.run.id) {
         runCosts.set(data.run.id, data.summary ? data.summary.cost_usd : null);
         if (state.mode === "live" && state.runId !== data.run.id) {
@@ -1598,6 +1703,8 @@
       else loadTimelineCollection().then(scheduleNextPoll);
     } else if (event.key.toLowerCase() === "p") {
       updateState({ type: "TOGGLE_PAUSE" });
+    } else if (event.key.toLowerCase() === "s") {
+      toggleSound();
     } else if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       updateState({ type: "ZOOM", factor: 1.25 });
