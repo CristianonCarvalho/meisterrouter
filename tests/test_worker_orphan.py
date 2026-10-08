@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock, patch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def _write_fake_harness(tmp_path: Path) -> tuple[Path, Path]:
+def _write_fake_harness(tmp_path: Path, slow_write: float = 0.0) -> tuple[Path, Path]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     process_file = tmp_path / "harness-processes.json"
@@ -34,8 +34,20 @@ def _write_fake_harness(tmp_path: Path) -> tuple[Path, Path]:
         "import json, os, subprocess, sys, time\n"
         "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], "
         "stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\n"
-        f"open({str(process_file)!r}, 'w').write(json.dumps("
-        "{'pid': os.getpid(), 'child': child.pid}))\n"
+        f"process_file = {str(process_file)!r}\n"
+        f"slow_write = {float(slow_write)!r}\n"
+        "payload = json.dumps({'pid': os.getpid(), 'child': child.pid})\n"
+        "if slow_write:\n"
+        "    with open(process_file, 'w') as f:\n"
+        "        pass\n"
+        "    time.sleep(slow_write)\n"
+        "    with open(process_file, 'w') as f:\n"
+        "        f.write(payload)\n"
+        "else:\n"
+        "    tmp_file = process_file + '.tmp'\n"
+        "    with open(tmp_file, 'w') as f:\n"
+        "        f.write(payload)\n"
+        "    os.replace(tmp_file, process_file)\n"
         "if 'finish-normally' in ' '.join(sys.argv):\n"
         "    time.sleep(0.3)\n"
         "else:\n"
@@ -46,8 +58,8 @@ def _write_fake_harness(tmp_path: Path) -> tuple[Path, Path]:
     return bin_dir, process_file
 
 
-def _start_run_task(tmp_path: Path, finish_normally: bool = False):
-    bin_dir, process_file = _write_fake_harness(tmp_path)
+def _start_run_task(tmp_path: Path, finish_normally: bool = False, slow_write: float = 0.0):
+    bin_dir, process_file = _write_fake_harness(tmp_path, slow_write=slow_write)
     config_file = tmp_path / "meister.config.yaml"
     config_file.write_text(
         "workers:\n"
@@ -86,16 +98,30 @@ def _start_run_task(tmp_path: Path, finish_normally: bool = False):
         stdout=stdout_file.open("wb"),
         stderr=stderr_file.open("wb"),
     )
+    pid_file = tmp_path / "task.harness.json"
     deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and not process_file.exists():
+    while time.monotonic() < deadline:
+        if _read_json_or_none(process_file) is not None and (
+            finish_normally or pid_file.exists()
+        ):
+            break
         if process.poll() is not None:
             break
         time.sleep(0.02)
-    assert process_file.exists(), (
+    assert _read_json_or_none(process_file) is not None and (
+        finish_normally or pid_file.exists()
+    ), (
         "the fake harness did not start: "
         f"{stdout_file.read_text(errors='replace')}\n{stderr_file.read_text(errors='replace')}"
     )
     return process, process_file
+
+
+def _read_json_or_none(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
 
 
 def _process_is_alive(pid: int) -> bool:
@@ -134,6 +160,19 @@ def _terminate_test_group(process_file: Path) -> None:
         os.kill(child, signal.SIGKILL)
     except (OSError, ProcessLookupError):
         pass
+
+
+def test_start_helper_waits_for_complete_process_file(tmp_path):
+    process, process_file = _start_run_task(tmp_path, slow_write=0.4)
+    try:
+        info = json.loads(process_file.read_text(encoding="utf-8"))
+        assert _process_is_alive(info["pid"])
+        assert _process_is_alive(info["child"])
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        _terminate_test_group(process_file)
 
 
 @pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
