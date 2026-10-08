@@ -14,7 +14,7 @@ from tests.timeline_fixtures import at, parallel_events
 def test_timeline_json_is_serializable_and_has_schema_and_graph_data(tmp_path):
     events = parallel_events()
     timeline = build_timeline(events, "r1", at(30))
-    graph = build_graph(timeline, {"copilot_luna": 0, "agy_gemini_flash": 1}, at(30), events)
+    graph = build_graph(timeline, {"tier_1b": 0, "tier_2": 1}, at(30), events)
 
     data = timeline_to_dict(timeline, graph, project=str(tmp_path), now=at(30))
 

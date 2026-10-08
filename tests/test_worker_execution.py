@@ -226,11 +226,11 @@ def test_worker_resolves_model_from_config_yaml_in_cwd(tmp_path):
     cfg_file.write_text(
         "workers:\n"
         "  tier_order:\n"
-        "    - {name: codex_luna, harness: codex, model: gpt-modelo-inexistente}\n"
-        "    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-medium}\n"
+        "    - {name: tier_1c, harness: codex, model: gpt-modelo-inexistente}\n"
+        "    - {name: tier_2, harness: agy, model: gemini-3.8-flash-medium}\n"
     )
 
-    worker = HarnessWorker(model="codex_luna", cwd=str(tmp_path))
+    worker = HarnessWorker(model="tier_1c", cwd=str(tmp_path))
     assert worker.resolved_model == "gpt-modelo-inexistente"
     cmd = build_harness_command(worker.harness, "/usr/bin/codex", worker.resolved_model, "test task", str(tmp_path))
     assert "-m" in cmd
@@ -245,7 +245,7 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
     cfg_file.write_text(
         "workers:\n"
         "  tier_order:\n"
-        "    - {name: codex_luna, harness: codex, model: gpt-override-model}\n"
+        "    - {name: tier_1c, harness: codex, model: gpt-override-model}\n"
     )
 
     worktree_dir = tmp_path / "wt"
@@ -256,7 +256,7 @@ def test_execute_task_file_with_explicit_config_path(tmp_path):
     import json
     task_file.write_text(json.dumps({
         "task_id": "t-e2e8",
-        "model": "codex_luna",
+        "model": "tier_1c",
         "task": "Do something",
         "cwd": str(worktree_dir),
         "config_path": str(cfg_file),
@@ -460,7 +460,7 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
         t0 = time.monotonic()
         with pytest.raises(WorkerInfrastructureError) as exc_info:
             await run_worker_in_herdr_pane_async(
-                model="codex_luna",
+                model="tier_1c",
                 task="any task",
                 cwd=str(tmp_path),
                 timeout=180.0,
@@ -497,7 +497,7 @@ def _ceiling_config(tmp_path, workers_ceiling, tier_ceiling=None):
         "workers:\n"
         f"  max_runtime_seconds: {workers_ceiling}\n"
         "  tier_order:\n"
-        f"    - {{name: codex_luna, harness: codex, model: gpt-x{tier_extra}}}\n"
+        f"    - {{name: tier_1c, harness: codex, model: gpt-x{tier_extra}}}\n"
     )
     return str(cfg_file)
 
@@ -509,7 +509,7 @@ def test_direct_worker_without_timeout_uses_the_configured_ceiling(tmp_path):
     def run(workers_ceiling, tier_ceiling=None, **kwargs):
         cfg = _ceiling_config(tmp_path, workers_ceiling, tier_ceiling)
         with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
-            execute_worker_task(model="codex_luna", task="t", cwd=str(tmp_path), config_path=cfg, **kwargs)
+            execute_worker_task(model="tier_1c", task="t", cwd=str(tmp_path), config_path=cfg, **kwargs)
         return mock_run.call_args.kwargs["timeout"]
 
     assert run(123) == 123
@@ -529,7 +529,7 @@ def test_execute_task_file_without_timeout_uses_the_configured_ceiling(tmp_path)
     def run(extra):
         task_file = tmp_path / "task.json"
         task_file.write_text(json.dumps({
-            "task_id": "t-ceiling", "model": "codex_luna", "task": "x", "cwd": str(worktree_dir),
+            "task_id": "t-ceiling", "model": "tier_1c", "task": "x", "cwd": str(worktree_dir),
             "config_path": cfg, "result_file": str(tmp_path / "result.json"), **extra,
         }))
         with patch.object(HarnessWorker, "run_task", return_value={"status": "done", "modified_files": []}) as mock_run:
