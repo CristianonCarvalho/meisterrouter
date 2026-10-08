@@ -170,6 +170,7 @@ def test_model_table_matches_catalog():
             if tier["name"] in [via.strip() for via in row["vias_meister"].split(";")]
         ]
         assert matching, f"via {tier['name']} sem linha na tabela de modelos"
+        assert len(matching) == 1, f"via {tier['name']} deve ter exatamente uma linha na tabela"
         for row in matching:
             assert float(row["combinado_3_1_usd_1m"]) == tier["cost_per_m_tokens"], (
                 f"{tier['name']}: catálogo {tier['cost_per_m_tokens']} != tabela {row['combinado_3_1_usd_1m']}"

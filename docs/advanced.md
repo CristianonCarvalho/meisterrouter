@@ -12,6 +12,9 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 - [Plan and execution manually (`plan`, `orchestrate`, `--resume`)](#plan-and-execution-manually-plan-orchestrate---resume)
 - [Clean up old branches (`clean`)](#clean-up-old-branches-clean)
 - [Dashboard and timeline: options](#dashboard-and-timeline-options)
+- [Lane names](#lane-names)
+- [Per-lane effort](#per-lane-effort)
+- [Enabling and disabling lanes](#enabling-and-disabling-lanes)
 - [Advanced configuration](#advanced-configuration)
 - [Development and testing](#development-and-testing)
 - [Project structure](#project-structure)
@@ -206,10 +209,10 @@ Returns the authorized action: `COMPLETE` (can commit and finish), `RETRY` (try 
 `orchestrate` runs workers through internal functions; the `worker` command runs **one isolated task**, without a plan:
 ```bash
 # Run using the selected lane:
-meister worker --model copilot_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model tier_1 --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 
 # If the model fails or is inactive, escalate to the next lane:
-meister worker --model codex_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 ```
 > ⚠️ **No direct implementation by the orchestrator.** Architect models (Claude, Codex) must not write
 > implementation code when a worker is configured. If the recommended lane fails, the rule is to
@@ -307,6 +310,81 @@ own line, and the cost. Read-only: does not change the log. Keys: `[` and `]` ol
 returns to live, `a` one run/all, `p` pauses, `+` and `-` zoom, arrows scroll and move through time, `?` help, `q`
 quits. Also shows tasks run by `meister worker`. A run without an end and with no events beyond
 `max_runtime_seconds` + 5 min appears as `⚠ SEM SINAL` (no signal).
+
+---
+
+## Lane names
+
+Each entry in `workers.tier_order` has a `name`. The name is what you pass to `meister worker --model`,
+`meister models --enable/--disable`, `workers.enabled`, the timeline, and the reports.
+
+The convention:
+- `tier_N` is the primary lane of position N in the chain (`tier_1` for small edits, `tier_2` for deep reasoning,
+  `tier_3` for escalation).
+- `tier_Nb`, `tier_Nc`, ... are alternatives at the same position, on another harness or model.
+
+The name describes the position in the chain, not the model. To see which harness, model, and cost each lane uses,
+run `meister models`. The names used in earlier versions are listed in the [`CHANGELOG.md`](../CHANGELOG.md).
+
+```bash
+meister worker --model tier_1 --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+```
+
+---
+
+## Per-lane effort
+
+A lane can set `effort`, the reasoning-effort level passed to its harness. It is optional:
+
+```yaml
+workers:
+  tier_order:
+    - {name: tier_2, harness: agy, model: <model>, effort: high, cost_per_m_tokens: 1.50, max_retries: 2}
+```
+
+- **Omitted** (the default): the harness argv is exactly what it was before this option existed, and the
+  harness uses its own default.
+- **Set**: Meister adds the harness flag shown below. Values are case-insensitive.
+- **Invalid** (a value the harness does not accept, or `effort` on a harness that does not support it):
+  `meister config validate` reports an error at `workers.tier_order[i].effort`.
+
+| Harness | Accepted `effort` values | Flag added to the command |
+|---|---|---|
+| `copilot` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | `--reasoning-effort VALUE` |
+| `claude` | `low`, `medium`, `high`, `xhigh`, `max` | `--effort VALUE` |
+| `agy` | `low`, `medium`, `high`, `xhigh`, `max` | `--effort VALUE` |
+| `codex` | `minimal`, `low`, `medium`, `high`, `xhigh` | `-c model_reasoning_effort="VALUE"` |
+
+The architect has its own `architect.effort` setting; it is independent of the lanes.
+
+---
+
+## Enabling and disabling lanes
+
+A lane is on or off. Lanes that are off stay in the configuration file and appear as disabled in `meister models`.
+
+There are two ways to switch a lane:
+- **In the file**: set `enabled: false` on the lane entry, or use the `workers.enabled` mapping, which overrides
+  the entry's flag:
+  ```yaml
+  workers:
+    enabled:
+      tier_1c: true
+      tier_3b: false
+  ```
+- **With the command**: `--enable` and `--disable` can each be repeated:
+  ```bash
+  meister models --enable tier_1c --disable tier_1
+  meister models --config meister.config.yaml --disable tier_3
+  ```
+  The command writes the `workers.enabled` mapping in `meister.config.yaml` (or in the file given to `--config`).
+  Before writing, it saves the previous file as `<file>.bak` and validates the configuration.
+
+Rules:
+- You cannot disable the last enabled lane; at least one lane must remain on.
+- Unknown lane names are rejected, and the same lane cannot appear in both `--enable` and `--disable`.
+- Changes take effect on the **next run**. A run already in progress keeps the configuration it started with.
 
 ---
 

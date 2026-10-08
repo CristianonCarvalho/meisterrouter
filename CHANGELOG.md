@@ -4,6 +4,25 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+### Changed (incompatible)
+- **Lanes have neutral names.** Names that embedded a model or harness are replaced; update `workers.tier_order`, `meister.config.yaml`, `--model` arguments and any script that uses them. The old names no longer exist in the default configuration.
+
+  | Old name | New name |
+  |---|---|
+  | `copilot_luna` | `tier_1b` |
+  | `codex_luna` | `tier_1c` |
+  | `agy_gemini_flash` | `tier_2` |
+  | `claude_sonnet` | `tier_3` |
+
+  The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
+
+### Added
+- **`effort` per lane:** an optional reasoning level passed to the harness (values depend on the harness: `copilot` and `github-copilot` accept none, minimal, low, medium, high, xhigh, max). When omitted, the harness argv is unchanged from before.
+- **`workers.enabled`:** turns lanes on or off in the configuration, written safely, without ever leaving the configuration with no lane enabled.
+- **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
+- **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
+
+### Other changes
 - Tolerated scope changes emit `scope_tolerated` events and progress lines; this repository tolerates `tests/**` but still requires the full test suite to pass. Its `meister.config.yaml` uses `router.mode: first` (no Jev; `tier_order` fallback remains active).
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
 - Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.

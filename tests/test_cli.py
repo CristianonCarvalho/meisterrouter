@@ -11,17 +11,20 @@ def test_cli_models():
     res = CliRunner().invoke(main, ["models"])
     assert res.exit_code == 0, res.output
     assert "Origem da configuração: padrao (meister/default_config.yaml)" in res.output
-    assert "copilot_luna" in res.output
-    assert "codex_luna" in res.output
-    assert "agy_gemini_flash" in res.output
-    assert "claude_sonnet" in res.output
+    assert all(
+        name in res.output
+        for name in ("tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3", "tier_3b")
+    )
     assert "$0.200" in res.output
     assert "$1.500" in res.output
     assert "$4.000" in res.output
-    # ativas primeiro, na ordem do fallback; a desligada (codex_luna) vem ao final
-    assert res.output.index("copilot_luna") < res.output.index("agy_gemini_flash")
-    assert res.output.index("agy_gemini_flash") < res.output.index("claude_sonnet")
-    assert res.output.index("claude_sonnet") < res.output.index("codex_luna")
+    assert "$8.000" in res.output
+    # Vias ativas primeiro na ordem de fallback; desligadas no fim.
+    assert res.output.index("tier_1") < res.output.index("tier_1b")
+    assert res.output.index("tier_1b") < res.output.index("tier_2")
+    assert res.output.index("tier_2") < res.output.index("tier_3")
+    assert res.output.index("tier_3") < res.output.index("tier_1c")
+    assert res.output.index("tier_1c") < res.output.index("tier_3b")
     assert "desligada" in res.output
 
 
@@ -54,7 +57,7 @@ def test_cli_models_shows_disabled_configured_via_only(tmp_path):
     assert "disabled-custom" in res.output
     assert "custom-model-b" in res.output
     assert "$0.840  desligada" in res.output
-    assert "copilot_luna" not in res.output
+    assert "tier_1b" not in res.output
 
 def test_cli_init():
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -144,7 +147,7 @@ def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
             main,
             [
                 "worker",
-                "--model", "codex_luna",
+                "--model", "tier_1c",
                 "--task", "Adicione a função mul e teste",
                 "--files", "calc.py,tests/test_calc.py",
                 "--cwd", cwd,
@@ -161,7 +164,7 @@ def test_cli_worker_worktree_isolation_and_integration(tmp_path, monkeypatch):
 
     # Verifica que no repositório principal a branch main recebeu o commit e fast-forward
     log_res = subprocess.run(["git", "log", "--oneline", "--all"], cwd=cwd, capture_output=True, text=True)
-    assert "Merge subtask" in log_res.stdout or "worker(codex_luna): Adicione a função mul e teste" in log_res.stdout
+    assert "Merge subtask" in log_res.stdout or "worker(tier_1c): Adicione a função mul e teste" in log_res.stdout
 
     # Verifica que o repositório principal está limpo (sem modificações unstaged)
     status_res = subprocess.run(["git", "status", "--porcelain"], cwd=cwd, capture_output=True, text=True)
@@ -239,7 +242,7 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
             main,
             [
                 "worker",
-                "--model", "codex_luna",
+                "--model", "tier_1c",
                 "--task", "Adicione a função mul",
                 "--files", "calc.py",
                 "--cwd", cwd,
@@ -291,8 +294,8 @@ def test_e2e_correlation_and_telemetry_flow(tmp_path, monkeypatch):
     # Worker_start e worker_end
     start_ev = next(event for event in events if event["event"] == "worker_start")
     end_ev = next(event for event in events if event["event"] == "worker_end")
-    assert start_ev["tier"] == "codex_luna"
-    assert end_ev["tier"] == "codex_luna"
+    assert start_ev["tier"] == "tier_1c"
+    assert end_ev["tier"] == "tier_1c"
     assert end_ev["exit_code"] == 0
     assert end_ev["cost"] == 0.00005
     assert end_ev["cost_source"] == "reported"
@@ -353,7 +356,7 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path, monkeypatch):
          patch("meister.worker.run_worker_in_herdr_pane", return_value={"status": "done", "modified_files": []}) as mock_pane:
 
         # 1. Padrão: sem flags de pane/split -> deve abrir TAB
-        res_default = runner.invoke(main, ["worker", "--model", "codex_luna", "--task", "task 1", "--cwd", str(tmp_path)])
+        res_default = runner.invoke(main, ["worker", "--model", "tier_1c", "--task", "task 1", "--cwd", str(tmp_path)])
         assert res_default.exit_code == 0
         assert "aba dedicada no Herdr" in res_default.output
         mock_tab.assert_called_once()
@@ -363,7 +366,7 @@ def test_cli_worker_defaults_to_tab_in_herdr(tmp_path, monkeypatch):
         mock_pane.reset_mock()
 
         # 2. Com --split ou --pane -> deve abrir PANE lateral
-        res_split = runner.invoke(main, ["worker", "--model", "codex_luna", "--task", "task 2", "--cwd", str(tmp_path), "--split"])
+        res_split = runner.invoke(main, ["worker", "--model", "tier_1c", "--task", "task 2", "--cwd", str(tmp_path), "--split"])
         assert res_split.exit_code == 0
         assert "terminal lateral no Herdr" in res_split.output
         mock_pane.assert_called_once()

@@ -598,19 +598,103 @@ def install_hooks(target, git, claude):
 
 @main.command("models", help=t("cli.models.help"))
 @click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
-def models(config_path):
+@click.option("--enable", "enable_lanes", multiple=True, help=t("tiers.models.enable_help"))
+@click.option("--disable", "disable_lanes", multiple=True, help=t("tiers.models.disable_help"))
+def models(config_path, enable_lanes, disable_lanes):
     """Print configured lanes and their costs."""
-    cfg = _load_cli_config(config_path=config_path)
-    click.echo(t("cli.models.config_source", source=cfg.config_source))
-    click.echo(f"{'#':>3}  {t('cli.models.name'):<24} {t('cli.models.harness'):<16} {t('cli.models.model'):<28} {t('cli.models.cost_per_m') :>10}  {t('cli.models.status')}")
+    from meister.lane_toggle import LaneToggleError, apply_toggle
+
+    try:
+        if (
+            (enable_lanes or disable_lanes)
+            and config_path is not None
+            and not Path(config_path).exists()
+        ):
+            cfg = _load_cli_config()
+        else:
+            cfg = _load_cli_config(config_path=config_path)
+    except Exception as error:
+        if not enable_lanes and not disable_lanes:
+            raise
+        click.echo(t("tiers.toggle_error", error=error), err=True)
+        raise click.exceptions.Exit(1)
+
     tiers = [
         *((tier, True) for tier in cfg.workers.tier_order),
         *((tier, False) for tier in cfg.workers.disabled),
     ]
+    config_source = cfg.config_source
+    if enable_lanes or disable_lanes:
+        from meister.config import validate_config
+
+        errors = [
+            issue for issue in validate_config(cfg) if issue.level == "error"
+        ]
+        if errors:
+            click.echo(t("tiers.invalid_configuration"), err=True)
+            for issue in errors:
+                click.echo(
+                    t(
+                        "tiers.configuration_issue",
+                        path=issue.path,
+                        message=issue.message,
+                    ),
+                    err=True,
+                )
+            raise click.exceptions.Exit(1)
+
+        catalog_names = [tier.name for tier, _ in tiers]
+        enabled_now = {tier.name: enabled for tier, enabled in tiers}
+        if config_path is not None:
+            target_path = config_path
+        else:
+            source_path = Path(cfg.config_source)
+            target_path = str(
+                source_path
+                if source_path.is_file()
+                else Path.cwd() / "meister.config.yaml"
+            )
+        try:
+            final_state = apply_toggle(
+                target_path,
+                catalog_names,
+                enabled_now,
+                enable_lanes,
+                disable_lanes,
+            )
+        except LaneToggleError as error:
+            message = str(error)
+            if "at least one enabled lane" in message:
+                output = t("tiers.last_enabled_lane")
+            elif message.startswith("Unknown lane name(s): "):
+                unknown, valid = message.removeprefix("Unknown lane name(s): ").split(
+                    ". Valid lane names: ", 1
+                )
+                output = t("tiers.unknown_lane", lanes=unknown, valid=valid)
+            elif message.startswith("Cannot enable and disable the same lane: "):
+                output = t(
+                    "tiers.conflicting_toggle",
+                    lanes=message.removeprefix("Cannot enable and disable the same lane: "),
+                )
+            else:
+                output = t("tiers.toggle_error", error=error)
+            click.echo(output, err=True)
+            raise click.exceptions.Exit(1)
+        tiers = [(tier, final_state[tier.name]) for tier, _ in tiers]
+        config_source = target_path
+
+    click.echo(t("cli.models.config_source", source=config_source))
+    click.echo(
+        f"{'#':>3}  {t('cli.models.name'):<24} {t('cli.models.harness'):<16} "
+        f"{t('cli.models.model'):<28} {t('tiers.models.effort'):<10} "
+        f"{t('cli.models.cost_per_m') :>10}  {t('cli.models.status')}"
+    )
     for position, (tier, enabled) in enumerate(tiers, 1):
         status = t("cli.models.enabled") if enabled else t("cli.models.disabled")
+        effort = "-" if tier.effort is None else tier.effort
         click.echo(
             f"{position:>3}  {tier.name:<24} {tier.harness:<16} {tier.model:<28} "
+            f"{effort:<10} "
             f"${tier.cost_per_m_tokens:.3f}  {status}"
         )
 
@@ -1761,6 +1845,7 @@ def config_show(config_path, json_format):
                         "credit_usd": t.credit_usd,
                         "eligible_classes": t.eligible_classes,
                         "enabled": False,
+                        "effort": t.effort,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
@@ -1778,6 +1863,7 @@ def config_show(config_path, json_format):
                         "credit_usd": t.credit_usd,
                         "eligible_classes": t.eligible_classes,
                         "enabled": True,
+                        "effort": t.effort,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
@@ -1830,31 +1916,33 @@ def config_show(config_path, json_format):
     click.echo(t("cli.config.idle_timeout", seconds=cfg.workers.idle_timeout_seconds))
     click.echo(t("cli.config.max_runtime", seconds=cfg.workers.max_runtime_seconds))
     if cfg.workers.tier_order:
-        header = f"  {t('cli.config.position'):<4} {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.position'):<4} {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Effort':<8} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, tier in enumerate(cfg.workers.tier_order):
+            effort = "-" if tier.effort is None else tier.effort
             max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
             idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
             max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
             credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
             eligible_classes = ",".join(tier.eligible_classes) or "-"
-            click.echo(f"  {i + 1:<4} {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+            click.echo(f"  {i + 1:<4} {tier.name:<16} {tier.harness:<12} {tier.model:<24} {effort:<8} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo(t("cli.config.no_enabled_lanes"))
 
     click.echo("\n" + t("cli.config.disabled_lanes"))
     if cfg.workers.disabled:
-        header = f"  {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Effort':<8} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for tier in cfg.workers.disabled:
+            effort = "-" if tier.effort is None else tier.effort
             max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
             idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
             max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
             credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
             eligible_classes = ",".join(tier.eligible_classes) or "-"
-            click.echo(f"  {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+            click.echo(f"  {tier.name:<16} {tier.harness:<12} {tier.model:<24} {effort:<8} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo(t("cli.config.none"))
 

@@ -20,15 +20,15 @@ from tests.timeline_fixtures import at, ev, parallel_events, phase
 def test_two_lanes_three_tasks_with_dependencies() -> None:
     events = parallel_events()
     timeline = build_timeline(events, "r1", at(30))
-    via_index = {"copilot_luna": 0, "agy_gemini_flash": 1}
+    via_index = {"tier_1b": 0, "tier_2": 1}
 
     graph = build_graph(timeline, via_index, at(30), events=events)
 
     # Lanes
     assert len(graph.lanes) == 2
-    assert graph.lanes[0].via == "copilot_luna"
+    assert graph.lanes[0].via == "tier_1b"
     assert graph.lanes[0].tasks == ["task_1", "task_3"]
-    assert graph.lanes[1].via == "agy_gemini_flash"
+    assert graph.lanes[1].via == "tier_2"
     assert graph.lanes[1].tasks == ["task_2"]
     assert graph.lanes[0].busy_s > 0.0
     assert 0.0 < graph.lanes[0].utilization <= 1.0
@@ -36,9 +36,9 @@ def test_two_lanes_three_tasks_with_dependencies() -> None:
     assert 0.0 < graph.lanes[1].utilization <= 1.0
 
     # Lane catalog order respecting via_index
-    reversed_index = {"agy_gemini_flash": 0, "copilot_luna": 1}
+    reversed_index = {"tier_2": 0, "tier_1b": 1}
     rev_graph = build_graph(timeline, reversed_index, at(30), events=events)
-    assert [lane.via for lane in rev_graph.lanes] == ["agy_gemini_flash", "copilot_luna"]
+    assert [lane.via for lane in rev_graph.lanes] == ["tier_2", "tier_1b"]
 
     # Edges
     assert len(graph.edges) == 2
@@ -172,7 +172,7 @@ def test_critical_path_tie_broken_by_task_id_with_dependencies() -> None:
 def test_cost_series_monotonic_and_ends_at_summary_cost() -> None:
     events = parallel_events()
     timeline = build_timeline(events, "r1", at(30))
-    via_index = {"copilot_luna": 0, "agy_gemini_flash": 1}
+    via_index = {"tier_1b": 0, "tier_2": 1}
 
     graph = build_graph(timeline, via_index, at(30), events=events)
 
@@ -214,7 +214,7 @@ def test_dataclasses_are_immutable() -> None:
 def test_build_graph_without_events() -> None:
     events = parallel_events()
     timeline = build_timeline(events, "r1", at(30))
-    via_index = {"copilot_luna": 0, "agy_gemini_flash": 1}
+    via_index = {"tier_1b": 0, "tier_2": 1}
 
     # Calling purely with (timeline, via_index, now)
     graph = build_graph(timeline, via_index, at(30))

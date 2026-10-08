@@ -233,8 +233,8 @@ def _seed_cli_run(run_state=RunState.COMPLETED, subtask_state=SubtaskState.COMPL
     state.add_subtasks(run_id, [{"id": "step-a", "description": "A task"}])
     subtask = state.get_subtasks(run_id)[0]
     if subtask_state == SubtaskState.COMPLETED:
-        state.transition_subtask(subtask["subtask_id"], SubtaskState.RUNNING, assigned_tier="copilot_luna")
-    state.transition_subtask(subtask["subtask_id"], subtask_state, assigned_tier="copilot_luna")
+        state.transition_subtask(subtask["subtask_id"], SubtaskState.RUNNING, assigned_tier="tier_1b")
+    state.transition_subtask(subtask["subtask_id"], subtask_state, assigned_tier="tier_1b")
     if run_state != RunState.RUNNING:
         state.transition_run(run_id, run_state)
     return run_id
@@ -253,12 +253,12 @@ def _emit_cli_progress(run_id):
         batches=1,
         task_ids=["step-a"],
     )
-    log_event("worker_spawn", run_id=run_id, task_id="step-a", tier="copilot_luna", ts=started.isoformat())
+    log_event("worker_spawn", run_id=run_id, task_id="step-a", tier="tier_1b", ts=started.isoformat())
     log_event(
         "subtask_completed",
         run_id=run_id,
         task_id="step-a",
-        tier="copilot_luna",
+        tier="tier_1b",
         ts=(started + timedelta(seconds=28)).isoformat(),
     )
 
@@ -280,8 +280,8 @@ def test_cli_orchestrate_progress_stderr_and_stdout_contract(tmp_path, monkeypat
     assert result.exit_code == 0
     assert result.stdout.strip() == "Orchestration cycle completed successfully."
     assert "Plano: 1 tarefas em 1 lotes (run cli-prog)" in result.stderr
-    assert "[1/1] step-a iniciada em copilot_luna" in result.stderr
-    assert "[1/1] step-a concluida em copilot_luna (28 s)" in result.stderr
+    assert "[1/1] step-a iniciada em tier_1b" in result.stderr
+    assert "[1/1] step-a concluida em tier_1b (28 s)" in result.stderr
     assert "Resumo do run cli-prog: 1 tarefas | 1 concluidas | 0 falhou | 0 reaproveitadas" in result.stderr
     assert "Concluido: a main foi atualizada." in result.stderr
 
@@ -403,6 +403,6 @@ def test_cli_orchestrate_removes_observer_after_exception(tmp_path, monkeypatch)
 
 def test_cli_worker_command():
     runner = CliRunner()
-    result = runner.invoke(main, ["worker", "--model", "codex_luna"])
+    result = runner.invoke(main, ["worker", "--model", "tier_1c"])
     assert result.exit_code == 0
-    assert "MeisterRouter worker starting with tier/model: codex_luna" in result.output
+    assert "MeisterRouter worker starting with tier/model: tier_1c" in result.output

@@ -81,19 +81,19 @@ async def test_high_class_replaces_restricted_recommendation_with_nearest_prior_
     bridge, spawned, subtask = _make_router_bridge(
         tmp_path,
         [
-            ("copilot_luna", []),
-            ("agy_gemini_flash", []),
-            ("claude_sonnet", ["ESCALATE"]),
+            ("tier_1b", []),
+            ("tier_2", []),
+            ("tier_3", ["ESCALATE"]),
             ("later_open_tier", []),
         ],
     )
 
-    success, routes = await _execute(bridge, subtask, "HIGH", "claude_sonnet")
+    success, routes = await _execute(bridge, subtask, "HIGH", "tier_3")
 
     assert success
-    assert spawned == ["agy_gemini_flash"]
-    assert routes[0]["tier"] == "agy_gemini_flash"
-    assert routes[0]["jev_recommended"] == "claude_sonnet"
+    assert spawned == ["tier_2"]
+    assert routes[0]["tier"] == "tier_2"
+    assert routes[0]["jev_recommended"] == "tier_3"
     assert routes[0]["status"] == "ineligible_replaced"
     assert routes[0]["fallback_rule_applied"] is True
 
