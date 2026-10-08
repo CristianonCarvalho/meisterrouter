@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from typing import Optional, List, Dict, Any, Tuple, Iterator
 from meister.logger import log_event
 from meister.usage import finalize_usage, parse_for_harness
+from meister.harness_effort import HARNESS_EFFORT_VALUES
 from meister.i18n import t
 
 logger = logging.getLogger(__name__)
@@ -387,24 +388,32 @@ def build_harness_command(
     model: Optional[str],
     prompt: str,
     cwd: str,
+    effort: Optional[str] = None,
 ) -> List[str]:
     """Construct the command line invocation for the specified harness."""
+    _validate_harness_effort(harness, effort, harness)
     if harness == HARNESS_CODEX:
         cmd = [cli_bin, "exec", "--dangerously-bypass-approvals-and-sandbox"]
         if model and model not in ("default", "codex"):
             cmd.extend(["-m", model])
+        if effort:
+            cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
         cmd.extend(["-C", cwd, prompt])
         return cmd
     elif harness == HARNESS_ANTIGRAVITY:
         cmd = [cli_bin, "--dangerously-skip-permissions"]
         if model:
             cmd.extend(["--model", model])
+        if effort:
+            cmd.extend(["--effort", effort])
         cmd.extend(["--output-format", "json", "-p", prompt])
         return cmd
     elif harness == HARNESS_CLAUDE:
         cmd = [cli_bin, "--dangerously-skip-permissions"]
         if model:
             cmd.extend(["--model", model])
+        if effort:
+            cmd.extend(["--effort", effort])
         cmd.extend(["--output-format", "json", "-p", prompt])
         return cmd
     elif harness == HARNESS_COPILOT:
@@ -413,9 +422,33 @@ def build_harness_command(
         cmd = [cli_bin, "-p", prompt, "--allow-all", "--no-ask-user"]
         if model and model not in ("default", "copilot", "auto"):
             cmd.extend(["--model", model])
+        if effort:
+            cmd.extend(["--reasoning-effort", effort])
         return cmd
     else:
         return [cli_bin, prompt]
+
+
+def _validate_harness_effort(harness: str, effort: Optional[str], lane: str) -> None:
+    """Reject effort settings the selected harness cannot accept."""
+    if effort is None:
+        return
+
+    valid_efforts = HARNESS_EFFORT_VALUES.get(harness.casefold())
+    if valid_efforts is None:
+        raise ValueError(
+            t("tiers.unsupported_effort", lane=lane, harness=harness)
+        )
+    if effort not in valid_efforts:
+        raise ValueError(
+            t(
+                "tiers.invalid_effort",
+                lane=lane,
+                harness=harness,
+                effort=effort,
+                values=", ".join(valid_efforts),
+            )
+        )
 
 
 def get_git_status_files(cwd: str) -> set[str]:
@@ -479,7 +512,11 @@ class HarnessWorker:
             else []
         )
         selected = next(
-            (tier for tier in configured_tiers if model and tier.name.casefold() == model.casefold()),
+            (
+                tier
+                for tier in configured_tiers
+                if model and tier.name.casefold() == model.strip().casefold()
+            ),
             None,
         )
         if selected is None:
@@ -492,6 +529,9 @@ class HarnessWorker:
                 None,
             )
         self.tier_key = selected.name if selected is not None else (model or "")
+        self.effort = selected.effort if selected is not None else None
+        if selected is not None:
+            _validate_harness_effort(selected.harness, self.effort, selected.name)
         self.cli_binary = find_cli_binary(self.harness)
 
     def _build_context(self, target_files: Optional[List[str]] = None) -> str:
@@ -560,6 +600,7 @@ class HarnessWorker:
             self.resolved_model,
             full_prompt,
             self.cwd,
+            effort=self.effort,
         )
 
         status_before = get_git_status_files(self.cwd)
