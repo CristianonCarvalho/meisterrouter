@@ -44,10 +44,10 @@ preflight() {
     exit 1
   fi
   if ! command -v codex >/dev/null 2>&1; then
-    echo "AVISO: codex CLI não encontrado no PATH (necessário para workers codex_luna)." >&2
+    echo "AVISO: codex CLI não encontrado no PATH (necessário para workers tier_1c)." >&2
   fi
   if ! command -v agy >/dev/null 2>&1; then
-    echo "AVISO: agy CLI não encontrado no PATH (necessário para workers agy_gemini_flash)." >&2
+    echo "AVISO: agy CLI não encontrado no PATH (necessário para workers tier_2)." >&2
   fi
   echo "meister resolvido: $(command -v meister)"
 }
@@ -169,8 +169,8 @@ router:
   mode: first
 workers:
   tier_order:
-    - {name: codex_luna, harness: codex, model: ${luna_m}, max_retries: 1}
-    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-medium, max_retries: 1}
+    - {name: tier_1c, harness: codex, model: ${luna_m}, max_retries: 1}
+    - {name: tier_2, harness: agy, model: gemini-3.8-flash-medium, max_retries: 1}
 CFG
   git add -A && git commit -qm init
 }

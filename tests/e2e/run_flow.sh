@@ -91,7 +91,7 @@ PYEOF'
 check "flow-g sem worktrees/branches/tabs restantes" '[ "$(git -C "$REPO" worktree list | wc -l | tr -d " ")" = 1 ] && [ -z "$(git -C "$REPO" branch --list "meister/worktree/*")" ] && [ -z "$(worker_tabs | awk "{print \$2}" | grep -vxF -f <(echo "$WT_BEFORE_IDS") )" ]'
 
 if [ -n "${E2E_LUNA_MODEL:-}" ] && [ "$E2E_LUNA_MODEL" != "gpt-6-luna" ]; then
-  check "flow-h worker usado NAO foi codex_luna (fallback executado)" '[ "$USED" != "codex_luna" ]'
+  check "flow-h worker usado NAO foi tier_1c (fallback executado)" '[ "$USED" != "tier_1c" ]'
 fi
 
 print_summary_and_exit
