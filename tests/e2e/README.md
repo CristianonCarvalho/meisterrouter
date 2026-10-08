@@ -22,7 +22,7 @@ Esta pasta contém scripts de testes E2E para o **MeisterRouter**, executando fl
 
 ## Scripts Disponíveis, Objetivos e Tempos Estimados
 
-Todos os repositórios descartáveis criados pelos scripts utilizam um `meister.config.yaml` temporário restrito às vias `codex_luna` (`gpt-6-luna`, harness Codex) e `agy_gemini_flash` (`gemini-3.8-flash-medium`, harness Antigravity), com `max_retries: 1`. Nenhuma outra via é utilizada.
+Todos os repositórios descartáveis criados pelos scripts utilizam um `meister.config.yaml` temporário restrito às vias `tier_1c` (`gpt-6-luna`, harness Codex) e `tier_2` (`gemini-3.8-flash-medium`, harness Antigravity), com `max_retries: 1`. Nenhuma outra via é utilizada.
 
 ### 1. `run_flow.sh` (~1 minuto)
 Testa o ciclo fundamental do MeisterRouter de ponta a ponta:
@@ -65,7 +65,7 @@ Os scripts aceitam as seguintes variáveis de customização:
 |---|---|---|
 | `MEISTER_E2E_DIR` | `${TMPDIR:-/tmp}/meister-e2e` | Diretório descartável onde logs, repositórios temporários e worktrees de teste são criados. Os scripts nunca gravam arquivos dentro do repositório principal. |
 | `MEISTER_E2E_PYTHON` | `<repo>/.venv/bin/python` (fallback: `python3`) | Caminho do interpretador Python a ser usado para testes e coleta de dados. |
-| `E2E_LUNA_MODEL` | `gpt-6-luna` | Modelo da via `codex_luna` no arquivo de configuração do repo descartável. Permite forçar falha no Codex para testar fallback (ex: `E2E_LUNA_MODEL=gpt-modelo-inexistente`). |
+| `E2E_LUNA_MODEL` | `gpt-6-luna` | Modelo da via `tier_1c` no arquivo de configuração do repo descartável. Permite forçar falha no Codex para testar fallback (ex: `E2E_LUNA_MODEL=gpt-modelo-inexistente`). |
 | `MEISTER_E2E_SAMPLE_SECS` | `120` | Duração máxima em segundos da amostragem de abas/painéis do Herdr pelo `herdr_sampler.py`. |
 | `E2E_S1_T2_DESC` | *(descrição padrão de teste falho)* | Sobrescreve a descrição da subtarefa `t2` no cenário S1 de `run_safety.sh`. Permite testar deterministicamente o caminho de resultado inconclusivo / SKIP passando uma descrição benigna. |
 
@@ -210,7 +210,7 @@ Os mesmos pré-requisitos gerais da suíte E2E:
 2. **Cenário P1 (Fluxo Real com Workers e Retomada Idempotente):**
    - **Passo 1 (Import):** Converte o arquivo Markdown no formato Superpowers (`plan.md`) para o arquivo canônico `plan.json` com resolução de dependência sequencial padrão (`task_2` depende de `task_1`).
    - **Passo 2 (Validate):** Executa `meister plan validate plan.json`, assegurando que o esquema das tarefas é rigorosamente compatível.
-   - **Passo 3 (Orchestrate):** Executa `meister orchestrate --plan-file plan.json`, despachando as vias locais configuradas (`codex_luna` e `agy_gemini_flash`) para resolver ordenadamente as subtarefas em worktrees isolados e integrá-las via pipeline determinístico na branch `main`.
+   - **Passo 3 (Orchestrate):** Executa `meister orchestrate --plan-file plan.json`, despachando as vias locais configuradas (`tier_1c` e `tier_2`) para resolver ordenadamente as subtarefas em worktrees isolados e integrá-las via pipeline determinístico na branch `main`.
    - **Passo 4 (Retomada / Idempotência):** Executa novamente o mesmo comando `meister orchestrate --plan-file plan.json`. Como a representação do plano em JSON canônico deriva o mesmo identificador determinístico de execução (`run_id`) e as subtarefas já constam como concluídas no banco de dados SQLite, o comando termina com código 0 imediatamente sem instanciar nenhum novo worker.
 
 3. **Cenário P2 (Dependência Real entre Tarefas sem Arquivo em Comum):**
@@ -303,7 +303,7 @@ O script `run_chain.sh` valida 10 checagens determinísticas (C-a a C-j), sem us
 
 ### Limitações Honestas
 
-1. **Dependência de LLM (`codex_luna`):** O script despacha código para workers reais (`gpt-6-luna`). Falhas de raciocínio, sintaxe ou geração de diff por parte do modelo durante as tarefas reprovam as asserções correspondentes como `FAIL`, alertando no resumo final que a cadeia foi interrompida ou incompleta.
+1. **Dependência de LLM (`tier_1c`):** O script despacha código para workers reais (`gpt-6-luna`). Falhas de raciocínio, sintaxe ou geração de diff por parte do modelo durante as tarefas reprovam as asserções correspondentes como `FAIL`, alertando no resumo final que a cadeia foi interrompida ou incompleta.
 2. **Ambiente Não Suportado no CI:** O script requer sessão interativa do Herdr com multiplexação de terminal, workers locais instalados (`codex`, `agy`) e credenciais ativas. O CI executa exclusivamente a suíte rápida de testes-guarda em `tests/test_e2e_scripts.py` (sintaxe via `bash -n`, executabilidade `+x` e portabilidade sem caminhos absolutos).
-3. **Tempo de Execução:** medido em 2026-09-30 com a via `codex_luna`: ~173 s no total (18:05:33 a 18:08:26, incluindo a segunda execução de idempotência), com 24 a 36 s por tarefa (task_1 24,2 s; task_2 24,1 s; task_3 29,4 s; task_4 27,2 s; task_5 23,9 s; task_6 35,8 s). Uma única medição; varia com o LLM.
+3. **Tempo de Execução:** medido em 2026-09-30 com a via `tier_1c`: ~173 s no total (18:05:33 a 18:08:26, incluindo a segunda execução de idempotência), com 24 a 36 s por tarefa (task_1 24,2 s; task_2 24,1 s; task_3 29,4 s; task_4 27,2 s; task_5 23,9 s; task_6 35,8 s). Uma única medição; varia com o LLM.
 
