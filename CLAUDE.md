@@ -134,3 +134,14 @@ meister orchestrate --task "lista de tarefas livre" --allow-freeform
 ```
 Não use em produção — não valida dependências, tipos ou chaves proibidas.
 Tarefas sem `target_files` (ex.: `--allow-unscoped` ou `--allow-freeform`) rodam isoladas, sem paralelismo, por não haver como saber se conflitam.
+
+## 06. Política de planos: dividir ao máximo
+Ao escrever planos para o `meister orchestrate`, divida ao máximo: muitas tarefas pequenas, não poucas grandes.
+Isso reduz os tokens por pedido (o contexto de um worker cresce com cada arquivo lido e cada saída de teste) e dá
+mais granularidade ao gate, aos retries e ao custo.
+- Poucos arquivos por tarefa: alvo de 3 a 5; até cerca de 8 só em troca mecânica (renomear, ajustar texto).
+- Uma entrega testável por tarefa; a suíte inteira fica verde ao fim de **cada** tarefa.
+- Descrição curta (cerca de 1,5 mil tokens): só o que o worker daquela tarefa precisa.
+- Troca mecânica em massa se divide por grupo de arquivos (por exemplo testes, scripts, documentação).
+- Tarefas que não compartilham arquivos ficam sem `depends_on`, para rodarem em paralelo.
+Vale também contra o padrão da skill `superpowers:writing-plans` ("menor unidade com seu próprio ciclo de teste").
