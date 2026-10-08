@@ -30,10 +30,17 @@ from meister.dashboard.state import (
 from meister.i18n import get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.report import compute_run_report
-from meister.timeline_cli import stale_after_from_config
+from meister.timeline import build_timeline
+from meister.timeline_cli import (
+    price_tables_from_config,
+    stale_after_from_config,
+    via_index_from_config,
+)
+from meister.timeline_graph import build_graph
 from meister.timeline_json import (
     _project_details,
     empty_timeline_dict,
+    timeline_to_dict,
     timeline_json_for_log,
 )
 
@@ -155,6 +162,28 @@ def _timeline_messages() -> Dict[str, str]:
         "dashboard",
         "select_run",
         "unassigned",
+        "mode_live",
+        "mode_selected",
+        "mode_paused",
+        "mode_all",
+        "keyboard_shortcuts",
+        "shortcut_previous",
+        "shortcut_next",
+        "shortcut_live",
+        "shortcut_all",
+        "shortcut_pause",
+        "shortcut_zoom",
+        "shortcut_pan",
+        "run_started",
+        "run_duration",
+        "run_cost",
+        "run_title",
+        "run_status",
+        "mode_resume",
+        "duration_seconds",
+        "duration_minutes",
+        "duration_hours",
+        "no_runs",
     )
     return {key: t(f"cli.timeline.web.{key}") for key in keys}
 
@@ -385,6 +414,49 @@ def api_timeline():
     return jsonify(data)
 
 
+@app.route("/api/timelines")
+def api_timelines():
+    now = datetime.now(timezone.utc)
+    _touch_call_time()
+    _touch_project_state(now)
+    try:
+        limit = min(_query_int("limit", 20), 100)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if limit < 0:
+        return jsonify({"error": t("reports.events_integer", name="limit")}), 400
+
+    log_file = get_log_file()
+    project_root = _current_project_root() or os.path.dirname(os.path.abspath(log_file))
+    events = _read_events()
+    stale_after = stale_after_from_config()
+    runs = list_runs(
+        events,
+        now=now,
+        stale_after_s=stale_after.total_seconds(),
+    )
+    if not os.path.isfile(log_file) or not runs or limit == 0:
+        return jsonify({"runs": []})
+
+    tier_prices, credit_prices = price_tables_from_config()
+    via_index = via_index_from_config()
+    timelines = []
+    for run in runs[:limit]:
+        timeline = build_timeline(
+            events,
+            str(run["run_id"]),
+            now,
+            tier_prices=tier_prices,
+            credit_prices=credit_prices,
+            stale_after=stale_after,
+        )
+        graph = build_graph(timeline, via_index, now, events=events)
+        timelines.append(
+            timeline_to_dict(timeline, graph, project=project_root, now=now)
+        )
+    return jsonify({"runs": timelines})
+
+
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
@@ -489,4 +561,3 @@ def start_server(
 
 if __name__ == "__main__":
     start_server()
-
