@@ -1,5 +1,6 @@
 import os
 import time
+import types
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -82,9 +83,12 @@ def test_detect_quota_real_terminal_outputs():
 # =============================================================================
 
 
-def test_circuit_breaker_lifecycle(state_mgr):
+def test_circuit_breaker_lifecycle(state_mgr, monkeypatch):
     """Testa o ciclo de vida completo do circuit breaker: CLOSED -> OPEN -> HALF_OPEN -> CLOSED."""
     harness = "test_harness"
+    # Relógio controlado: com tempo real, um atraso do runner maior que o cooldown abria o HALF_OPEN antes da hora.
+    clock = [1_000_000.0]
+    monkeypatch.setattr("meister.state.time", types.SimpleNamespace(time=lambda: clock[0]))
 
     # 1. Estado inicial é CLOSED e disponível
     cb = state_mgr.get_circuit_breaker(harness)
@@ -93,7 +97,7 @@ def test_circuit_breaker_lifecycle(state_mgr):
     assert state_mgr.is_harness_available(harness) is True
 
     # 2. Falha de cota abre o circuito imediatamente
-    res = state_mgr.record_harness_failure(harness, is_quota=True, cooldown_seconds=0.05)
+    res = state_mgr.record_harness_failure(harness, is_quota=True, cooldown_seconds=30.0)
     assert res["state"] == "OPEN"
     assert res["is_available"] is False
     assert state_mgr.is_harness_available(harness) is False
@@ -103,7 +107,7 @@ def test_circuit_breaker_lifecycle(state_mgr):
     assert cb_open["is_available"] is False
 
     # 3. Aguarda expiração do cooldown -> deve transitar para HALF_OPEN
-    time.sleep(0.06)
+    clock[0] += 31.0
     cb_half = state_mgr.get_circuit_breaker(harness)
     assert cb_half["state"] == "HALF_OPEN"
     assert cb_half["is_available"] is True
