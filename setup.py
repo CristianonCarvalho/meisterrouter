@@ -32,5 +32,5 @@ setup(
             "meister=meister.cli:main",
         ],
     },
-    python_requires=">=3.9",
+    python_requires=">=3.10",
 )

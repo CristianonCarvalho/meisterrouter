@@ -5,6 +5,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 ## [Unreleased]
 
 ### Changed (incompatible)
+- **Minimum Python is 3.10.** The declared floor was 3.9, which was never tested; `requires-python`, `meister setup` and the CI matrix now all use 3.10, the version CI and mypy already assumed.
 - **Lanes have neutral names.** Names that embedded a model or harness are replaced; update `workers.tier_order`, `meister.config.yaml`, `--model` arguments and any script that uses them. The old names no longer exist in the default configuration.
 
   | Old name | New name |

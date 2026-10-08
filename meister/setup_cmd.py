@@ -415,7 +415,7 @@ def get_default_pid_file() -> str:
 
 def check_python() -> DiagnosticItem:
     v = sys.version_info
-    if v >= (3, 9):
+    if v >= (3, 10):
         version = f"{v.major}.{v.minor}.{v.micro}"
         return DiagnosticItem("python", "ok", t("commands.setup.python_compatible", version=version))
     version = f"{v.major}.{v.minor}.{v.micro}"
