@@ -22,9 +22,9 @@ Each release gets the `vX.Y.Z` tag and an entry in `CHANGELOG.md`.
 - **ACTION: the project must be a git repository with at least one commit** (workers use worktrees and integration finishes on `main`).
 - **Starter files:** `meister init` (from the project root) creates `AGENTS.md`, `CLAUDE.md`, and `CODEX.md` without fixed templates and **never overwrites** existing files (`--force` to overwrite). Hooks are optional (`--hooks`).
 - **Configuration (optional):** `meister.config.yaml` at the root overrides `meister/default_config.yaml`. Check with `meister config show` and `meister config validate`. The `workers.tier_order` list in your file **replaces** the default; the other sections are merged. Commented examples are in `meister.config.example.yaml`.
-- Each lane accepts `eligible_classes` (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`); an empty list (the default) means unrestricted. In the default catalog, `claude_sonnet` is only eligible for `ESCALATE`.
+- Each lane accepts `eligible_classes` (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`); an empty list (the default) means unrestricted. In the default catalog, `tier_3` is only eligible for `ESCALATE`.
 - With `router.mode: jev`, Jev recommends a lane, but this deterministic rule corrects an incompatible recommendation to the nearest eligible lane in order. Eligibility applies only to the initial selection, not to fallbacks.
-- **Codex is disabled** (`codex_luna`, limited credits). To use it in automatic routing, enable it in your `meister.config.yaml` (`enabled: true`); for a one-off use, `meister worker --model codex_luna --task "..."`.
+- **Codex is disabled** (`tier_1c`, limited credits). To use it in automatic routing, enable it in your `meister.config.yaml` (`enabled: true`); for a one-off use, `meister worker --model tier_1c --task "..."`.
 - **Node/TypeScript project:** nothing to do. MeisterRouter installs dependencies in each worktree (`pnpm install --frozen-lockfile`, `npm ci`, or `yarn install --frozen-lockfile`, depending on the lockfile), and the gate uses local binaries (`node_modules/.bin`), without `npx`. To disable: `environment.install_dependencies: false`.
 - **Python project:** create `.venv` in the root once (`python3 -m venv .venv`); the gate also detects it in worktrees. Example:
   ```yaml
