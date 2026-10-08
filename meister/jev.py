@@ -230,6 +230,22 @@ def call_decisions(
     raise RuntimeError(f"Erro na requisição para OpenRouter Decisions API após {max_retries} tentativas: {last_error}")
 
 
+def _opaque_lane_keys(count: int) -> List[str]:
+    """Gera chaves neutras e estáveis para as vias: lane_a..lane_z, lane_aa, lane_ab...
+
+    Não usa números: um número sugere ranking e faz o Jev subir de via.
+    """
+    keys: List[str] = []
+    for index in range(count):
+        n = index + 1
+        letters = ""
+        while n > 0:
+            n, remainder = divmod(n - 1, 26)
+            letters = chr(ord("a") + remainder) + letters
+        keys.append(f"lane_{letters}")
+    return keys
+
+
 def classify_task(
     context: str,
     model: Optional[str] = None,
@@ -267,15 +283,18 @@ def classify_task(
         raise ValueError("implementers não pode ser uma sequência vazia")
 
     implementer_names = [tier.name for tier in configured_implementers]
+    # Chaves opacas: o nome real da via nunca vai ao Jev (nomes tier_N fazem o Jev subir de via).
+    lane_keys = _opaque_lane_keys(len(implementer_names))
+    lane_key_to_name = dict(zip(lane_keys, implementer_names))
     implementer_criteria = {}
-    for tier in configured_implementers:
+    for lane_key, tier in zip(lane_keys, configured_implementers):
         description_parts = [tier.model or tier.harness, f"via {tier.harness}" if tier.harness else ""]
         if tier.cost_per_m_tokens:
             description_parts.append(f"(${tier.cost_per_m_tokens}/M)")
         description = " ".join(part for part in description_parts if part)
         if tier.best_for:
             description += f": {', '.join(tier.best_for)}"
-        implementer_criteria[tier.name] = description
+        implementer_criteria[lane_key] = description
 
     state = {"task_description": context}
     questions = {
@@ -328,7 +347,8 @@ def classify_task(
             impl_val = implementer_names[0]
             fallback_applied = True
         else:
-            impl_val = str(raw_impl_val)
+            # Traduz a chave opaca de volta para o nome real; aceita o nome real por tolerância.
+            impl_val = lane_key_to_name.get(str(raw_impl_val), str(raw_impl_val))
         impl_conf = float(impl_ans.get("confidence", 0.8))
 
         usage = raw.get("usage", {})

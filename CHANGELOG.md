@@ -22,6 +22,9 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
+### Fixed
+- The Jev now receives opaque lane keys (`lane_a`, `lane_b`...) instead of lane names: names like `tier_N` made it read a ranking and pick a more expensive lane. Its answer is translated back to the real lane name, so `recommended_implementer`, `fallback_chain` and the telemetry keep the real names.
+
 ### Other changes
 - Tolerated scope changes emit `scope_tolerated` events and progress lines; this repository tolerates `tests/**` but still requires the full test suite to pass. Its `meister.config.yaml` uses `router.mode: first` (no Jev; `tier_order` fallback remains active).
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
