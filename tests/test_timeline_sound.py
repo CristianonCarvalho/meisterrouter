@@ -106,3 +106,20 @@ def test_local_storage_is_only_used_inside_try_blocks() -> None:
         next_catch = source.find("catch", index)
         assert last_try != -1 and next_catch != -1, index
         assert next_catch - index < 400, index
+
+
+def _sound_preference(stored: object) -> object:
+    return run_js(f"parseSoundPreference({json.dumps(stored)})")
+
+
+def test_parse_sound_preference_is_on_only_for_on() -> None:
+    assert _sound_preference("on") is True
+
+
+def test_parse_sound_preference_defaults_to_off() -> None:
+    assert run_js("parseSoundPreference(undefined)") is False
+    assert run_js("parseSoundPreference(null)") is False
+    assert _sound_preference("off") is False
+    assert _sound_preference("") is False
+    assert _sound_preference("yes") is False
+    assert _sound_preference("ON") is False

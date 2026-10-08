@@ -448,6 +448,10 @@
     });
     return result;
   }
+  // Sound is off unless the stored preference is exactly "on".
+  function parseSoundPreference(stored) {
+    return stored === "on";
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -468,9 +472,9 @@
 
   function readSoundPreference() {
     try {
-      return window.localStorage.getItem(SOUND_STORAGE_KEY) !== "off";
+      return parseSoundPreference(window.localStorage.getItem(SOUND_STORAGE_KEY));
     } catch (_) {
-      return true;
+      return false;
     }
   }
 

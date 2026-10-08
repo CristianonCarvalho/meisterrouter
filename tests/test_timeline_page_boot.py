@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from meister.dashboard.server import app
+from meister.dashboard.server import _timeline_messages, app
 
 NODE = shutil.which("node")
 
@@ -32,11 +32,16 @@ process.on("unhandledRejection", (reason) => {
 // Universal fake element: accepts any property, method or call.
 function makeElement() {
   const cache = {};
+  const attrs = {};
   const target = function () {};
   return new Proxy(target, {
     get(_t, prop) {
       if (typeof prop === "symbol" || prop === "then") return undefined;
       if (prop === "toString" || prop === "valueOf") return () => "";
+      if (prop === "setAttribute") {
+        return (name, value) => { attrs[name] = String(value); };
+      }
+      if (prop === "__attrs") return attrs;
       if (!(prop in cache)) cache[prop] = makeElement();
       return cache[prop];
     },
@@ -112,7 +117,11 @@ try {
 }
 
 setImmediate(() => {
-  process.stdout.write(JSON.stringify({ syncError, errors, fetchCalls }));
+  const toggle = elementsById.get("sound-toggle");
+  const soundToggle = toggle
+    ? { text: toggle.textContent, pressed: toggle.__attrs["aria-pressed"] }
+    : null;
+  process.stdout.write(JSON.stringify({ syncError, errors, fetchCalls, soundToggle }));
 });
 """
 
@@ -166,3 +175,18 @@ def test_timeline_page_script_boots_without_errors(
     assert result["errors"] == [], result
     assert "/api/runs" in result["fetchCalls"], result
     assert "/api/timeline" in result["fetchCalls"], result
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+@pytest.mark.parametrize("storage_mode", ["storage-ok", "storage-throws"])
+def test_sound_starts_off_without_saved_preference(
+    tmp_path: Path, timeline_html: str, storage_mode: str
+):
+    script = _main_inline_script(timeline_html)
+
+    result = _run_page_script(tmp_path, script, storage_mode)
+
+    assert result["soundToggle"] == {
+        "text": _timeline_messages()["sound_off"],
+        "pressed": "false",
+    }, result
