@@ -349,6 +349,18 @@
     }
     return "+" + Math.floor(total / 3600) + "h" + String(Math.floor((total % 3600) / 60)).padStart(2, "0") + "m";
   }
+  function firstWorkStartX(row, timeToX, fallbackX) {
+    const seg = (row.segments || []).find((s) => s.phase !== "wait");
+    return seg ? timeToX(seg.start) : fallbackX;
+  }
+  // Orthogonal elbow: horizontal stub, vertical trunk per lane, horizontal tail into dx.
+  function edgePathD(sx, sy, dx, dy, laneIndex) {
+    const straight = "M " + sx + " " + sy + " L " + dx + " " + dy;
+    if (sy === dy) return straight;
+    const trunkX = Math.min(sx + 12 + 6 * laneIndex, dx - 16);
+    if (trunkX < sx + 12) return straight;
+    return "M " + sx + " " + sy + " H " + trunkX + " V " + dy + " L " + dx + " " + dy;
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -1082,17 +1094,22 @@
     // Dependency edges
     if (Array.isArray(data.edges)) {
       const edgesGroup = createSvgEl("g", { class: "edges-group" });
+      const rowById = new Map(rows.map((r) => [r.task_id, r]));
+      const edgesPerSource = new Map();
       data.edges.forEach((edge) => {
         const sy = rowCenterY[edge.src];
         const dy = rowCenterY[edge.dst];
         const sx = rowEndX[edge.src];
-        const dx = rowStartX[edge.dst];
+        const dstRow = rowById.get(edge.dst);
+        const dx = dstRow && rowStartX[edge.dst] !== undefined
+          ? firstWorkStartX(dstRow, timeToX, rowStartX[edge.dst])
+          : rowStartX[edge.dst];
+        const laneIndex = edgesPerSource.get(edge.src) || 0;
+        edgesPerSource.set(edge.src, laneIndex + 1);
 
         if (sy !== undefined && dy !== undefined && sx !== undefined && dx !== undefined) {
-          const deltaX = Math.max(14, (dx - sx) * 0.4);
-          const dStr = "M " + sx + " " + sy + " C " + (sx + deltaX) + " " + sy + ", " + (dx - deltaX) + " " + dy + ", " + dx + " " + dy;
           const edgePath = createSvgEl("path", {
-            d: dStr,
+            d: edgePathD(sx, sy, dx, dy, laneIndex),
             fill: "none",
             stroke: edge.critical ? "#f59e0b" : "rgba(245, 158, 11, 0.45)",
             "stroke-width": edge.critical ? "2.5" : "1.2",
