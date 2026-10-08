@@ -24,6 +24,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **Claude Haiku 5.5 na via `tier_1`** (harness GitHub Copilot CLI) como primeira via padrão.
 
 ### Corrigido
+- Um worker que falha ao iniciar por erro de configuração (ex.: `Unknown lane`) passa a gravar o resultado de erro e registrar `worker_task_error` imediatamente, em vez de esperar o timeout de inatividade de 600 s e escalar para outra via.
 - O Jev passa a receber chaves opacas das vias (`lane_a`, `lane_b`...) em vez dos nomes: nomes como `tier_N` faziam o Jev ler ranking e escolher uma via mais cara. A resposta é traduzida de volta para o nome real da via, então `recommended_implementer`, `fallback_chain` e a telemetria continuam com os nomes reais.
 
 ### Outras alterações
