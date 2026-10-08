@@ -92,7 +92,8 @@ def test_worktree_commit_merge_and_rollback(git_test_repo):
     wt_mgr.cleanup_worktree(int_wt.task_id, force=True)
 
 
-def test_integration_pipeline_successful_flow(git_test_repo):
+def test_integration_pipeline_successful_flow(git_test_repo, monkeypatch):
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -209,7 +210,8 @@ def test_integration_pipeline_gate_failure_triggers_rollback(git_test_repo):
     wt_mgr.cleanup_worktree(subtask_wt.task_id, force=True)
 
 
-def test_sequential_merge_of_two_subtasks(git_test_repo):
+def test_sequential_merge_of_two_subtasks(git_test_repo, monkeypatch):
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -248,7 +250,8 @@ def test_sequential_merge_of_two_subtasks(git_test_repo):
     assert os.path.exists(os.path.join(repo_path, "module_y.py"))
 
 
-def test_finish_integration_fails_closed_when_repo_is_dirty(git_test_repo):
+def test_finish_integration_fails_closed_when_repo_is_dirty(git_test_repo, monkeypatch):
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -285,7 +288,8 @@ def test_finish_integration_fails_closed_when_repo_is_dirty(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_resumed_integration_preserves_completed_subtasks(git_test_repo):
+def test_resumed_integration_preserves_completed_subtasks(git_test_repo, monkeypatch):
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState
@@ -355,7 +359,8 @@ def test_resumed_integration_preserves_completed_subtasks(git_test_repo):
         assert "def shout" in f.read()
 
 
-def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo):
+def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo, monkeypatch):
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState
@@ -391,8 +396,9 @@ def test_integration_ancestry_invariant_blocks_lost_subtask(git_test_repo):
     assert "invariante" in ff_err.lower() or "ancestral" in ff_err.lower()
 
 
-def test_integration_subtask_noop_with_target_files_rejected(git_test_repo):
+def test_integration_subtask_noop_with_target_files_rejected(git_test_repo, monkeypatch):
     """(a) diff vazio + target_files sem histórico -> False, mensagem contém 'sem alterações'."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -458,8 +464,9 @@ def test_prepared_subtasks_are_pure_and_worker_gates_overlap(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_subtask_noop_without_target_files_accepted(git_test_repo):
+def test_integration_subtask_noop_without_target_files_accepted(git_test_repo, monkeypatch):
     """(b) diff vazio sem target_files -> True."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -477,8 +484,11 @@ def test_integration_subtask_noop_without_target_files_accepted(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_subtask_noop_with_target_files_already_integrated_accepted(git_test_repo):
+def test_integration_subtask_noop_with_target_files_already_integrated_accepted(
+    git_test_repo, monkeypatch
+):
     """(c) diff vazio + target_files, mas integração já tem subtask(<id>): ... -> True e last_integrated_sha."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -513,8 +523,9 @@ def test_integration_subtask_noop_with_target_files_already_integrated_accepted(
     pipeline.abort_integration()
 
 
-def test_integration_last_integrated_sha_does_not_leak_to_noop(git_test_repo):
+def test_integration_last_integrated_sha_does_not_leak_to_noop(git_test_repo, monkeypatch):
     """(d) last_integrated_sha de uma subtarefa anterior NÃO vaza para um no-op."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -554,8 +565,9 @@ def test_integration_last_integrated_sha_does_not_leak_to_noop(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_worker_committed_all_changes_integrated(git_test_repo):
+def test_integration_worker_committed_all_changes_integrated(git_test_repo, monkeypatch):
     """(B) worker edita app.py e commita tudo no worktree: ok is True, mergeado, last_integrated_sha = worker HEAD."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -594,8 +606,9 @@ def test_integration_worker_committed_all_changes_integrated(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_worker_committed_and_loose_edits_both_integrated(git_test_repo):
+def test_integration_worker_committed_and_loose_edits_both_integrated(git_test_repo, monkeypatch):
     """(C) commita e deixa uma segunda edição solta em app.py: ok is True e a integração contém as DUAS funções."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -697,8 +710,9 @@ def test_integration_worker_commits_failing_gate_rejected(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_regression_worker_without_commit_or_change(git_test_repo):
+def test_integration_regression_worker_without_commit_or_change(git_test_repo, monkeypatch):
     """(F) regressão: worker sem commit e sem mudança + target_files continua False com 'sem alterações'; sem target_files continua True."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -725,8 +739,9 @@ def test_integration_regression_worker_without_commit_or_change(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_integration_multiple_worker_commits_all_integrated(git_test_repo):
+def test_integration_multiple_worker_commits_all_integrated(git_test_repo, monkeypatch):
     """(G) múltiplos commits do worker: todos entram."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     wt_mgr = WorktreeManager(repo_root=repo_path)
     gate = DeterministicGate(repo_path)
@@ -774,8 +789,9 @@ def test_integration_multiple_worker_commits_all_integrated(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_rebuild_ancestry_after_clean_abort_single_subtask(git_test_repo):
+def test_rebuild_ancestry_after_clean_abort_single_subtask(git_test_repo, monkeypatch):
     """(1) Reconstrução após falha limpa: 1 subtarefa COMPLETED preserva ancestralidade."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState
@@ -841,8 +857,9 @@ def test_rebuild_ancestry_after_clean_abort_single_subtask(git_test_repo):
     pipeline2.abort_integration()
 
 
-def test_rebuild_ancestry_two_completed_subtasks(git_test_repo):
+def test_rebuild_ancestry_two_completed_subtasks(git_test_repo, monkeypatch):
     """(2) Duas subtarefas COMPLETED preservam ancestralidade e passam na validação final."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState
@@ -914,8 +931,9 @@ def test_rebuild_ancestry_two_completed_subtasks(git_test_repo):
     pipeline2.abort_integration()
 
 
-def test_rebuild_ancestry_resume_complete_and_finish(git_test_repo):
+def test_rebuild_ancestry_resume_complete_and_finish(git_test_repo, monkeypatch):
     """(3) Retomada completa: integra 3a subtarefa após reconstrução e finish_integration(fast_forward=True) sucede."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState
@@ -1058,8 +1076,9 @@ def test_rebuild_ancestry_conflict_handling_aborts_and_reports(git_test_repo):
     pipeline.abort_integration()
 
 
-def test_rebuild_ancestry_reuse_path_regression(git_test_repo):
+def test_rebuild_ancestry_reuse_path_regression(git_test_repo, monkeypatch):
     """(5) Regressão: o caminho de REUSO (branch de integração ainda existe) continua preservado."""
+    monkeypatch.chdir(git_test_repo.parent)
     repo_path = str(git_test_repo)
     db_path = os.path.join(repo_path, ".meister", "meister.db")
     from meister.state import StateManager, SubtaskState

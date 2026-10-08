@@ -218,6 +218,7 @@ def test_config_defaults_include_generated_lockfiles():
 
 
 def test_node_gate_installs_before_local_eslint_without_npx(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     log = _fake_path(tmp_path, monkeypatch)
     project = tmp_path / "node"
     project.mkdir()
@@ -485,6 +486,7 @@ def test_pipeline_gate_infrastructure_preserves_worker_work_and_logs(tmp_path, m
 
 
 def test_node_gate_runs_local_vitest_without_npx(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     log = _fake_path(tmp_path, monkeypatch)
     project = tmp_path / "node"
     project.mkdir()
