@@ -403,6 +403,6 @@ def test_cli_orchestrate_removes_observer_after_exception(tmp_path, monkeypatch)
 
 def test_cli_worker_command():
     runner = CliRunner()
-    result = runner.invoke(main, ["worker", "--model", "codex_luna"])
+    result = runner.invoke(main, ["worker", "--model", "tier_1c"])
     assert result.exit_code == 0
-    assert "MeisterRouter worker starting with tier/model: codex_luna" in result.output
+    assert "MeisterRouter worker starting with tier/model: tier_1c" in result.output

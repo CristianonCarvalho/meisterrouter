@@ -34,17 +34,23 @@ def test_cli_config_show_default(tmp_path, monkeypatch):
     assert "high" in result.output
     assert "(declarado; ainda nao conectado a nenhum fluxo)" in result.output
     assert "Vias ativas (tier_order):" in result.output
-    assert "copilot_luna" in result.output
+    assert "tier_1" in result.output
+    assert "claude-haiku-5.5" in result.output
+    assert "tier_1b" in result.output
+    assert "tier_1c" in result.output
+    assert "tier_2" in result.output
+    assert "tier_3" in result.output
+    assert "tier_3b" in result.output
     assert "Credit USD" in result.output
     assert "0.01" in result.output
-    assert "agy_gemini_flash" in result.output
-    assert "claude_sonnet" in result.output
     assert "Classes" in result.output
     assert "ESCALATE" in result.output
-    # codex_luna vem desligada por padrao (creditos do Codex limitados)
+    # Somente tier_1c e tier_3b vêm desligadas por padrão.
     ativas, desligadas = result.output.split("Vias desabilitadas:")
-    assert "codex_luna" not in ativas
-    assert "codex_luna" in desligadas
+    assert "tier_1c" not in ativas
+    assert "tier_3b" not in ativas
+    assert "tier_1c" in desligadas
+    assert "tier_3b" in desligadas
 
 
 def test_cli_config_show_with_file(tmp_path):
@@ -94,22 +100,26 @@ def test_cli_config_show_json(tmp_path, monkeypatch):
         "pane_lost_backoff_seconds": 5.0,
     }
     assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
-        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
+        "tier_1", "tier_1b", "tier_2", "tier_3"
     ]
-    assert [tier["name"] for tier in data["workers"]["disabled"]] == ["codex_luna"]
+    assert [tier["name"] for tier in data["workers"]["disabled"]] == ["tier_1c", "tier_3b"]
+    assert next(
+        tier["model"] for tier in data["workers"]["tier_order"]
+        if tier["name"] == "tier_1"
+    ) == "claude-haiku-5.5"
     assert next(
         tier["credit_usd"] for tier in data["workers"]["tier_order"]
-        if tier["name"] == "copilot_luna"
+        if tier["name"] == "tier_1"
     ) == 0.01
     assert data["workers"]["disabled"][0]["credit_usd"] is None
     assert next(
         tier["eligible_classes"] for tier in data["workers"]["tier_order"]
-        if tier["name"] == "claude_sonnet"
+        if tier["name"] == "tier_3"
     ) == ["ESCALATE"]
     assert all(
         tier["eligible_classes"] == []
         for tier in data["workers"]["tier_order"]
-        if tier["name"] != "claude_sonnet"
+        if tier["name"] != "tier_3"
     )
     assert all("max_parallel" in tier for tier in data["workers"]["tier_order"])
     assert data["workers"]["idle_timeout_seconds"] == 600
@@ -406,7 +416,7 @@ def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
             ["worker", "--task", "do work", "--cwd", str(tmp_path), "--no-tab"],
         )
     assert result.exit_code == 0
-    assert execute.call_args.kwargs["model"] == "copilot_luna"
+    assert execute.call_args.kwargs["model"] == "tier_1"
 
     invalid = runner.invoke(
         main,
@@ -414,8 +424,8 @@ def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
     )
     assert invalid.exit_code == 2
     assert "Via desconhecida 'gemini'" in invalid.output
-    assert "copilot_luna, agy_gemini_flash, claude_sonnet" in invalid.output
-    assert "desligadas, só por escolha explícita: codex_luna" in invalid.output
+    assert "tier_1, tier_1b, tier_2, tier_3" in invalid.output
+    assert "desligadas, só por escolha explícita: tier_1c, tier_3b" in invalid.output
 
 
 def test_native_harness_cli_validation_and_orchestrate_abort_without_run(tmp_path):

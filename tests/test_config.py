@@ -164,8 +164,31 @@ def test_default_worker_credit_prices():
     config = load_config()
     tiers = {tier.name: tier for tier in [*config.workers.tier_order, *config.workers.disabled]}
 
-    assert tiers["copilot_luna"].credit_usd == 0.01
-    assert tiers["codex_luna"].credit_usd is None
+    assert tiers["tier_1"].credit_usd == 0.01
+    assert tiers["tier_1b"].credit_usd == 0.01
+    assert tiers["tier_1c"].credit_usd is None
+
+
+def test_default_tier_catalog_order_and_values():
+    from meister.config import _default_config_data
+
+    tiers = _default_config_data()["workers"]["tier_order"]
+    assert [tier["name"] for tier in tiers] == [
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3", "tier_3b"
+    ]
+    assert [(tier["harness"], tier["model"], tier["cost_per_m_tokens"]) for tier in tiers] == [
+        ("copilot", "claude-haiku-5.5", 0.20),
+        ("copilot", "gpt-6-luna", 0.20),
+        ("codex", "gpt-6-luna", 0.20),
+        ("agy", "gemini-3.8-flash-high", 1.50),
+        ("claude", "sonnet", 4.00),
+        ("claude", "opus", 8.00),
+    ]
+    assert [tier.get("enabled", True) for tier in tiers] == [
+        True, True, False, True, True, False
+    ]
+    assert tiers[4]["eligible_classes"] == ["ESCALATE"]
+    assert tiers[5]["eligible_classes"] == ["ESCALATE"]
 
 
 def test_worker_eligible_classes_parse_normalize_and_default(tmp_path):
@@ -186,11 +209,12 @@ workers:
     default_tiers = {
         tier.name: tier for tier in [*defaults.workers.tier_order, *defaults.workers.disabled]
     }
-    assert default_tiers["claude_sonnet"].eligible_classes == ["ESCALATE"]
+    assert default_tiers["tier_3"].eligible_classes == ["ESCALATE"]
+    assert default_tiers["tier_3b"].eligible_classes == ["ESCALATE"]
     assert all(
         tier.eligible_classes == []
         for name, tier in default_tiers.items()
-        if name != "claude_sonnet"
+        if name not in {"tier_3", "tier_3b"}
     )
 
 
@@ -256,7 +280,7 @@ def test_removed_worker_environment_overrides_are_ignored(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     baseline = _default_worker_tiers()
     monkeypatch.setenv("MEISTER_DISABLE_LUNA", "true")
-    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "agy_gemini_flash")
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "tier_2")
     monkeypatch.setenv("MEISTER_LUNA_MODEL", "custom-model")
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "false")
     assert _default_worker_tiers() == baseline
@@ -542,12 +566,12 @@ def test_removed_copilot_and_primary_environment_overrides_are_ignored(monkeypat
     from meister.config import _default_worker_tiers
 
     baseline_tiers = _default_worker_tiers()
-    # codex_luna vem desligada por padrao: fora das vias ativas
+    # tier_1c e tier_3b vêm desligadas por padrão.
     assert [t.name for t in baseline_tiers] == [
-        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
+        "tier_1", "tier_1b", "tier_2", "tier_3"
     ]
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
-    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "codex_luna")
+    monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "tier_1c")
     monkeypatch.setenv("MEISTER_LUNA_MODEL", "custom-model")
     assert _default_worker_tiers() == baseline_tiers
 
@@ -561,11 +585,10 @@ def test_example_yaml_loads_and_validates():
     errors = [i for i in issues if i.level == "error"]
     assert len(errors) == 0
 
-    # As quatro vias padrão permanecem habilitadas.
     active_names = [t.name for t in cfg.workers.tier_order]
     disabled_names = [t.name for t in cfg.workers.disabled]
-    assert active_names == ["copilot_luna", "codex_luna", "agy_gemini_flash", "claude_sonnet"]
-    assert disabled_names == []
+    assert active_names == ["tier_1", "tier_1b", "tier_2", "tier_3"]
+    assert disabled_names == ["tier_1c", "tier_3b"]
 
 
 @pytest.mark.parametrize("value", ['"yes"', "1", "null"])
@@ -727,11 +750,10 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
     default = load_config()
-    # codex_luna vem desligada por padrao (creditos do Codex limitados): fica fora da ordem ativa
     assert [tier.name for tier in default.workers.tier_order] == [
-        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
+        "tier_1", "tier_1b", "tier_2", "tier_3"
     ]
-    assert [tier.name for tier in default.workers.disabled] == ["codex_luna"]
+    assert [tier.name for tier in default.workers.disabled] == ["tier_1c", "tier_3b"]
     assert default.master.model == "typesafe/jev-1.13"
     assert default.architect.effort == "high"
     assert not [issue for issue in validate_config(default) if issue.level == "error"]
@@ -741,9 +763,9 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     merged = load_config(str(partial))
     assert merged.router.mode == "jev"
     assert [tier.name for tier in merged.workers.tier_order] == [
-        "copilot_luna", "agy_gemini_flash", "claude_sonnet"
+        "tier_1", "tier_1b", "tier_2", "tier_3"
     ]
-    assert [tier.name for tier in merged.workers.disabled] == ["codex_luna"]
+    assert [tier.name for tier in merged.workers.disabled] == ["tier_1c", "tier_3b"]
     assert merged.concurrency.max_parallel_workers == 2
     assert merged.concurrency.parallel_tasks is True
 
@@ -763,7 +785,7 @@ def test_removed_environment_variables_do_not_change_default_config(tmp_path, mo
     baseline = asdict(load_config())
     for key, value in {
         "MEISTER_LUNA_MODEL": "changed",
-        "MEISTER_PRIMARY_WORKER": "codex_luna",
+        "MEISTER_PRIMARY_WORKER": "tier_1c",
         "MEISTER_DISABLE_LUNA": "1",
         "MEISTER_ENABLE_COPILOT": "0",
     }.items():
@@ -840,4 +862,4 @@ workers:
 
     first_copy = _default_config_data()
     first_copy["workers"]["tier_order"].clear()
-    assert len(_default_config_data()["workers"]["tier_order"]) == 4
+    assert len(_default_config_data()["workers"]["tier_order"]) == 6

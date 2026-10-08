@@ -142,7 +142,7 @@ async def test_pane_dispatch_immune_to_shell_injection(tmp_path):
     malicious_prompt = 'evil"; rm -rf / ; echo "pwned'
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
         res = await run_worker_in_herdr_pane_async(
-            model="codex_luna",
+            model="tier_1c",
             task=malicious_prompt,
             cwd=str(tmp_path),
             timeout=5.0,
@@ -178,7 +178,7 @@ def test_execute_task_file_with_fake_cli(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "test-run-1",
-        "model": "codex_luna",
+        "model": "tier_1c",
         "task": "Modify target.txt",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -209,7 +209,7 @@ def test_execute_task_file_failure_writes_error_result(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "fail-task",
-        "model": "codex_luna",
+        "model": "tier_1c",
         "task": "Failing task",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -237,7 +237,7 @@ def test_execute_task_file_timeout_kills_process(tmp_path):
     result_file = tmp_path / "result.json"
     task_payload = {
         "task_id": "timeout-task",
-        "model": "codex_luna",
+        "model": "tier_1c",
         "task": "Hanging task",
         "cwd": str(tmp_path),
         "timeout": 0.3,
@@ -261,7 +261,7 @@ def test_cli_run_task_command(tmp_path):
     result_file = tmp_path / "result.json"
     task_file.write_text(json.dumps({
         "task_id": "cli-1",
-        "model": "codex_luna",
+        "model": "tier_1c",
         "task": "Test task",
         "cwd": str(tmp_path),
         "result_file": str(result_file),
@@ -298,7 +298,7 @@ async def test_worker_pane_dispatch_uses_sys_executable_and_module(tmp_path, mon
 
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
         res = await run_worker_in_herdr_pane_async(
-            model="codex_luna",
+            model="tier_1c",
             task="Test task",
             cwd=str(tmp_path),
             timeout=5.0,
