@@ -289,6 +289,40 @@ class HerdrEventBridge:
             self.state_manager = StateManager()
         return self.state_manager
 
+    def _report_scope_tolerated(
+        self,
+        run_id: Optional[str],
+        task_id: str,
+        subtask_id: Optional[str],
+        files: List[str],
+    ) -> None:
+        if not files:
+            return
+        log_event(
+            event_type="scope_tolerated",
+            run_id=run_id,
+            task_id=task_id,
+            subtask_id=subtask_id,
+            files=files,
+            count=len(files),
+        )
+
+        rows = self.state_manager.get_subtasks(run_id) if self.state_manager is not None and run_id else []
+        task_ids = [str(row.get("step_id") or "") for row in rows]
+        task_number = task_ids.index(task_id) + 1 if task_id in task_ids else 1
+        total = len(task_ids) or 1
+        prefix = f"[{task_number}/{total}] {task_id}"
+        visible_files = ", ".join(files[:5])
+        extra = f" (+{len(files) - 5})" if len(files) > 5 else ""
+        logger.info(
+            t(
+                "scope_report.progress",
+                prefix=prefix,
+                files=visible_files,
+                extra=extra,
+            )
+        )
+
     def _reuse_completed_subtasks(
         self,
         state_manager: StateManager,
@@ -298,7 +332,7 @@ class HerdrEventBridge:
         repo_root: str,
     ) -> None:
         """Adota subtasks concluídas da origem somente após validar conteúdo, commit e escopo."""
-        from meister.worktree import scope_violations
+        from meister.worktree import scope_violations, tolerated_touched
 
         current_by_id = {str(step.get("id") or step.get("step_id")): step for step in steps}
         current_subtasks = {str(row["step_id"]): row for row in state_manager.get_subtasks(run_id)}
@@ -422,6 +456,18 @@ class HerdrEventBridge:
                     )
                     if out_of_scope:
                         reason = "scope"
+                    else:
+                        self._report_scope_tolerated(
+                            run_id,
+                            step_id,
+                            str(new_row["subtask_id"]),
+                            tolerated_touched(
+                                touched_files,
+                                step.get("target_files") or [],
+                                tolerated_files,
+                                ignored,
+                            ),
+                        )
 
             if reason is not None or source is None or sha is None:
                 log_not_reused(step_id, reason or "changed", source)
@@ -1664,6 +1710,12 @@ class HerdrEventBridge:
                                     task_id=task_id,
                                     attempt=attempt_count,
                                     tier=current_tier,
+                                )
+                                self._report_scope_tolerated(
+                                    active_run_id,
+                                    task_id,
+                                    subtask_id,
+                                    getattr(prepared, "tolerated_touched", []),
                                 )
                             finally:
                                 prepare_duration = time.monotonic() - prepare_start
