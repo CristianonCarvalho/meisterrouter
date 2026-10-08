@@ -629,7 +629,8 @@ workers:
     assert not any("desconhecido" in issue.message for issue in issues)
 
 
-def test_router_mode_defaults_and_parses(tmp_path):
+def test_router_mode_defaults_and_parses(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     default = load_config()
     assert default.router.mode == "jev"
     assert default.router.timeout_seconds == 10

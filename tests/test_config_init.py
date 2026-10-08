@@ -8,7 +8,8 @@ from meister.cli import main
 from meister.config import load_config
 
 
-def test_config_init_creates_file_and_matches_default(tmp_path):
+def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     target_yaml = tmp_path / "meister.config.yaml"
     runner = CliRunner()
     result = runner.invoke(main, ["config", "init", "--path", str(target_yaml)])
