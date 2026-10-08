@@ -340,6 +340,15 @@
     return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
       + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
   }
+  function formatTickLabel(seconds) {
+    const total = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
+    if (total < 60) return "+" + total + "s";
+    if (total < 3600) {
+      const rest = total % 60;
+      return "+" + Math.floor(total / 60) + "m" + (rest ? String(rest).padStart(2, "0") + "s" : "");
+    }
+    return "+" + Math.floor(total / 3600) + "h" + String(Math.floor((total % 3600) / 60)).padStart(2, "0") + "m";
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -784,7 +793,7 @@
       });
       gridGroup.appendChild(gridLine);
 
-      const tickLabel = createSvgText("+" + tSec + "s", {
+      const tickLabel = createSvgText(formatTickLabel(tSec), {
         x: tx,
         y: HEADER_H - 8,
         "text-anchor": "middle",
@@ -1265,9 +1274,7 @@
         stroke: "rgba(255,255,255,0.08)",
       });
       svg.appendChild(line);
-      const label = createSvgText("+" + text.duration_seconds.replace(
-        "{value}", String(Math.round((span * index) / 6000))
-      ), {
+      const label = createSvgText(formatTickLabel((span * index) / 6000), {
         x, y: 18, fill: "var(--muted)", "font-size": "10", "text-anchor": "middle",
       });
       svg.appendChild(label);
