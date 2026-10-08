@@ -90,6 +90,7 @@ def test_explicit_python_missing_is_infrastructure_error(tmp_path):
 
 
 def test_auto_mode_uses_project_python_for_pytest_and_ruff(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     log = tmp_path / "argv.log"
     python = _fake_python(tmp_path / ".venv/bin/python")
     monkeypatch.setenv("CALL_LOG", str(log))
@@ -111,6 +112,7 @@ def test_auto_mode_uses_project_python_for_pytest_and_ruff(tmp_path, monkeypatch
 
 
 def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     root = tmp_path / "project"
     worktree = tmp_path / "worktree"
     log = tmp_path / "argv.log"
@@ -138,6 +140,7 @@ def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypa
 def test_auto_pytest_exit_codes_only_skip_code_5_without_test_files(
     tmp_path, monkeypatch, has_test_file, exit_code, passed
 ):
+    monkeypatch.chdir(tmp_path)
     _fake_python(tmp_path / ".venv/bin/python", exit_code)
     monkeypatch.setenv("CALL_LOG", str(tmp_path / "argv.log"))
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
@@ -297,7 +300,8 @@ def test_invalid_python_or_ok_exit_codes_report_config_issue(tmp_path, field, va
     assert any(issue.level == "error" and issue.path == expected_path for issue in issues)
 
 
-def test_gate_config_defaults_and_four_positional_gate_command(tmp_path):
+def test_gate_config_defaults_and_four_positional_gate_command(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     gate = load_config().gate
     command = GateCommand("a", "b", 1.0, True)
 

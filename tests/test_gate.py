@@ -65,14 +65,16 @@ def test_detect_linters(tmp_path):
     assert "eslint" in gate.detect_linters()
 
 
-def test_run_verification_no_runner(tmp_path):
+def test_run_verification_no_runner(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     gate = DeterministicGate(str(tmp_path))
     passed, output = gate.run_verification()
     assert passed is False
     assert "Configure gate.commands" in output
 
 
-def test_run_verification_pytest_success(tmp_path):
+def test_run_verification_pytest_success(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "pytest.ini").write_text("[pytest]\n")
     gate = DeterministicGate(str(tmp_path))
 

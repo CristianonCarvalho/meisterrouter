@@ -17,7 +17,8 @@ def test_cli_has_config_group():
     assert "validate" in help_res.output
 
 
-def test_cli_config_show_default():
+def test_cli_config_show_default(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     runner = CliRunner()
     result = runner.invoke(main, ["config", "show"])
     assert result.exit_code == 0
@@ -69,7 +70,8 @@ workers:
     assert "luna" in result.output
 
 
-def test_cli_config_show_json():
+def test_cli_config_show_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     runner = CliRunner()
     result = runner.invoke(main, ["config", "show", "--json"])
     assert result.exit_code == 0
