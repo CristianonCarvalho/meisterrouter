@@ -312,6 +312,20 @@ volta ao ao vivo, `a` um run/todos, `p` pausa, `+` e `-` zoom, setas rolam e and
 sai. Mostra também as tarefas rodadas por `meister worker`. Um run sem fim e sem eventos além de
 `max_runtime_seconds` + 5 min aparece como `⚠ SEM SINAL`.
 
+### Linha do tempo na web
+
+A mesma linha do tempo também é servida no navegador pelo dashboard, em `/timeline` (por exemplo,
+`http://localhost:5050/timeline` enquanto o `meister dashboard` está rodando). É somente leitura e mostra os mesmos dados da versão no terminal.
+
+- **Eixo de tempo em minutos:** os rótulos do eixo mostram o tempo decorrido desde o início do run (`+59s`, `+1m05s`), para que runs longos continuem legíveis.
+- **Setas em cotovelo:** as dependências entre tarefas são desenhadas como setas em ângulo reto: um trecho horizontal, um tronco vertical por via e uma cauda horizontal até a tarefa dependente.
+- **Tooltips com durações:** ao passar o mouse sobre uma barra, aparecem a duração da fase, a duração total da tarefa e a espera do Jev. Ao passar sobre o nome de uma via, aparecem os detalhes dela.
+- **Cabeçalho da via:** cada via mostra `harness · modelo (esforço)`, por exemplo `copilot · <modelo> (H)`. Siglas do esforço: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Outros valores aparecem em maiúsculas, e as partes ausentes são omitidas.
+- **Som:** um tom curto toca quando uma tarefa termina (notas ascendentes) ou falha (notas descendentes). Ligue ou desligue com o botão **Sound on / Sound off** (texto da interface, em inglês) ou com a tecla `s`. A escolha é salva no navegador (`localStorage`) e vale só para ele. O som vem **ligado** por padrão; os navegadores bloqueiam áudio até você interagir com a página, então ele começa após o primeiro clique ou tecla.
+- **Tentativas abertas:** quando um worker é reiniciado, a tentativa anterior que ainda estava aberta termina no novo spawn, em vez de se estender até o fim do run.
+
+As teclas são as mesmas da linha do tempo do terminal (`[`, `]`, `l`, `a`, `p`, `+`, `-`, setas, `?`), mais `s` para o som. Pressione `?` na página para ver a tabela.
+
 ---
 
 ## Nomes das vias

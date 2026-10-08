@@ -18,12 +18,14 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
+- **Legibilidade da linha do tempo na web (`/timeline`):** eixo de tempo em minutos, setas de dependência em ângulo reto, tooltips com as durações da fase, da tarefa e da espera, cabeçalho da via com `harness · modelo (esforço)` e um som ao terminar ou falhar uma tarefa, com botão e tecla `s` (ligado por padrão, preferência salva por navegador).
 - **`effort` por via:** nível de raciocínio opcional repassado ao harness (os valores dependem do harness: `copilot` e `github-copilot` aceitam nenhum, minimal, low, medium, high, xhigh, max). Sem `effort`, o argv do harness continua idêntico ao de antes.
 - **`workers.enabled`:** liga ou desliga vias na configuração, com gravação segura, sem nunca deixar a configuração sem nenhuma via ligada.
 - **`meister models --enable` / `--disable`:** liga ou desliga uma via pela linha de comando; a tabela de `models` mostra uma coluna com o esforço de cada via.
 - **Claude Haiku 5.5 na via `tier_1`** (harness GitHub Copilot CLI) como primeira via padrão.
 
 ### Corrigido
+- Linha do tempo na web: uma tentativa ainda aberta quando o worker é reiniciado agora termina no novo spawn, em vez de se estender até o fim do run.
 - Um worker que falha ao iniciar por erro de configuração (ex.: `Unknown lane`) passa a gravar o resultado de erro e registrar `worker_task_error` imediatamente, em vez de esperar o timeout de inatividade de 600 s e escalar para outra via.
 - O Jev passa a receber chaves opacas das vias (`lane_a`, `lane_b`...) em vez dos nomes: nomes como `tier_N` faziam o Jev ler ranking e escolher uma via mais cara. A resposta é traduzida de volta para o nome real da via, então `recommended_implementer`, `fallback_chain` e a telemetria continuam com os nomes reais.
 

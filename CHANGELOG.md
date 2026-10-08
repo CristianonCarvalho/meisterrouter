@@ -18,12 +18,14 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
+- **Web timeline (`/timeline`) readability:** time axis in minutes, right-angle dependency arrows, tooltips with phase, task and wait durations, lane header with `harness · model (effort)`, and a completion/failure sound with a button and the `s` key (on by default, preference saved per browser).
 - **`effort` per lane:** an optional reasoning level passed to the harness (values depend on the harness: `copilot` and `github-copilot` accept none, minimal, low, medium, high, xhigh, max). When omitted, the harness argv is unchanged from before.
 - **`workers.enabled`:** turns lanes on or off in the configuration, written safely, without ever leaving the configuration with no lane enabled.
 - **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed
+- Web timeline: an attempt still open when a worker is respawned now ends at the new spawn, instead of stretching to the end of the run.
 - A worker that fails at startup on a configuration error (e.g. `Unknown lane`) now writes the error result and logs `worker_task_error` immediately, instead of waiting for the 600 s idle timeout and escalating to another lane.
 - The Jev now receives opaque lane keys (`lane_a`, `lane_b`...) instead of lane names: names like `tier_N` made it read a ranking and pick a more expensive lane. Its answer is translated back to the real lane name, so `recommended_implementer`, `fallback_chain` and the telemetry keep the real names.
 
