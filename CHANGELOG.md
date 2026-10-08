@@ -24,6 +24,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed
+- A worker that fails at startup on a configuration error (e.g. `Unknown lane`) now writes the error result and logs `worker_task_error` immediately, instead of waiting for the 600 s idle timeout and escalating to another lane.
 - The Jev now receives opaque lane keys (`lane_a`, `lane_b`...) instead of lane names: names like `tier_N` made it read a ranking and pick a more expensive lane. Its answer is translated back to the real lane name, so `recommended_implementer`, `fallback_chain` and the telemetry keep the real names.
 
 ### Other changes

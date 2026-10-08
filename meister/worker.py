@@ -1276,10 +1276,11 @@ def _execute_task_file(
         cwd=cwd,
     )
 
-    worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
-    timeout = float(raw_timeout) if raw_timeout is not None else _configured_worker_ceiling(worker, model)
-
+    worker: Optional[HarnessWorker] = None
     try:
+        worker = HarnessWorker(model=model, cwd=cwd, config_path=config_path)
+        timeout = float(raw_timeout) if raw_timeout is not None else _configured_worker_ceiling(worker, model)
+
         harness_pid_file = f"{os.path.splitext(task_file)[0]}.harness.json"
         res = worker.run_task(
             task=task,
@@ -1308,20 +1309,42 @@ def _execute_task_file(
             exit_code=1,
             error=str(e),
         )
-        err_res = {
-            "task_id": task_id,
-            "status": "error",
-            "harness": worker.harness,
-            "model": worker.resolved_model or "default",
-            "cli": worker.cli_binary,
-            "modified_files": [],
-            "output": "",
-            "exit_code": 1,
-            "error": str(e),
-        }
+        err_res = _early_error_result(task_id, str(e), worker=worker, model=model)
         if resolved_res_file:
             write_atomic_json(resolved_res_file, err_res)
         raise
+
+
+def _early_error_result(
+    task_id: str,
+    error: str,
+    worker: Optional["HarnessWorker"] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Resultado de erro gravado no result.json; sem worker (falha antes de construí-lo), usa a via da tarefa."""
+    if worker is None:
+        return {
+            "task_id": task_id,
+            "status": "error",
+            "harness": None,
+            "model": model or "default",
+            "cli": None,
+            "modified_files": [],
+            "output": "",
+            "exit_code": 1,
+            "error": error,
+        }
+    return {
+        "task_id": task_id,
+        "status": "error",
+        "harness": worker.harness,
+        "model": worker.resolved_model or "default",
+        "cli": worker.cli_binary,
+        "modified_files": [],
+        "output": "",
+        "exit_code": 1,
+        "error": error,
+    }
 
 
 def run_worker_interactive_loop(
