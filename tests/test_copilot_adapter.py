@@ -17,16 +17,16 @@ from meister.herdr.workers import WorkerSpawner
 
 def test_copilot_harness_resolution():
     """Verifica que a via configurada do Copilot resolve para o adaptador e modelo declarados."""
-    harness, model = resolve_worker_harness_and_model("copilot_luna")
+    harness, model = resolve_worker_harness_and_model("tier_1b")
     assert harness == HARNESS_COPILOT
     assert model == "gpt-6-luna"
-    with pytest.raises(ValueError, match="copilot_luna"):
+    with pytest.raises(ValueError, match="tier_1b"):
         resolve_worker_harness_and_model("copilot")
 
 
 def test_copilot_model_environment_override_is_ignored(monkeypatch):
     monkeypatch.setenv("MEISTER_COPILOT_MODEL", "gpt-5.4")
-    harness, model = resolve_worker_harness_and_model("copilot_luna")
+    harness, model = resolve_worker_harness_and_model("tier_1b")
     assert harness == HARNESS_COPILOT
     assert model == "gpt-6-luna"
 
@@ -71,8 +71,8 @@ def test_copilot_find_cli_binary_not_found(monkeypatch):
 
 def test_copilot_smoke_test(fake_copilot_cli):
     """Verifica o smoke test do tier copilot quando o binário está disponível."""
-    smoke = smoke_test_tier("copilot_luna")
-    assert smoke["tier"] == "copilot_luna"
+    smoke = smoke_test_tier("tier_1b")
+    assert smoke["tier"] == "tier_1b"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is True
     assert smoke["cli_binary"] == fake_copilot_cli
@@ -86,8 +86,8 @@ def test_copilot_smoke_test_when_not_available(monkeypatch):
         "os.path.exists",
         lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
     )
-    smoke = smoke_test_tier("copilot_luna")
-    assert smoke["tier"] == "copilot_luna"
+    smoke = smoke_test_tier("tier_1b")
+    assert smoke["tier"] == "tier_1b"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is False
     assert smoke["cli_binary"] is None
@@ -167,7 +167,7 @@ def test_copilot_safe_env_vars(monkeypatch):
 
 def test_copilot_harness_worker_run_task(tmp_path, fake_copilot_cli):
     """Verifica execução de tarefa no HarnessWorker com o harness copilot mockado."""
-    worker = HarnessWorker(model="copilot_luna", cwd=str(tmp_path))
+    worker = HarnessWorker(model="tier_1b", cwd=str(tmp_path))
     assert worker.harness == HARNESS_COPILOT
     assert worker.cli_binary == fake_copilot_cli
 
@@ -200,7 +200,7 @@ def test_copilot_harness_worker_fails_when_cli_not_found(tmp_path, monkeypatch):
         "os.path.exists",
         lambda p: False if any(n in str(p) for n in ("copilot", "github-copilot-cli")) else orig_exists(p),
     )
-    worker = HarnessWorker(model="copilot_luna", cwd=str(tmp_path))
+    worker = HarnessWorker(model="tier_1b", cwd=str(tmp_path))
     with pytest.raises(RuntimeError, match="não encontrado"):
         worker.run_task(task="Fix auth bug", target_files=["auth.py"])
 
@@ -213,7 +213,7 @@ def test_copilot_is_first_default_route_and_environment_cannot_change_it(monkeyp
     monkeypatch.delenv("MEISTER_ENABLE_COPILOT", raising=False)
     default_config = load_config()
     tier_names = [t.name for t in default_config.workers.tier_order]
-    assert tier_names[0] == "copilot_luna"
+    assert tier_names[0] == "tier_1"
 
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
     opt_in_config = load_config()

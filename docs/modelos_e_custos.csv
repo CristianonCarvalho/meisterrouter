@@ -1,23 +1,24 @@
 modelo,esforco,criador,entrada_usd_1m,saida_usd_1m,cache_leitura_usd_1m,cache_escrita_usd_1m,combinado_3_1_usd_1m,custo_por_tarefa_aa_usd,indice_inteligencia_aa,vias_meister,nota
 Claude Sonnet 5.5,low,Anthropic,2.0,10.0,0.2,2.5,4.0,0.42,36,,
 Claude Sonnet 5.5,medium,Anthropic,2.0,10.0,0.2,2.5,4.0,0.59,41,,
-Claude Sonnet 5.5,high,Anthropic,2.0,10.0,0.2,2.5,4.0,1.12,47,claude_sonnet,arquiteto (effort high) e via claude_sonnet; o worker usa o esforço padrão do CLI (não verificado)
+Claude Sonnet 5.5,high,Anthropic,2.0,10.0,0.2,2.5,4.0,1.12,47,tier_3,arquiteto (effort high) e via tier_3; o worker usa o esforço padrão do CLI (não verificado)
 Claude Sonnet 5.5,xhigh,Anthropic,2.0,10.0,0.2,2.5,4.0,2.75,52,,
 Claude Sonnet 5.5,max,Anthropic,2.0,10.0,0.2,2.5,4.0,7.67,56,,
 Claude Opus 5.5,low,Anthropic,4.0,20.0,0.2,5.0,8.0,0.55,42,,
 Claude Opus 5.5,medium,Anthropic,4.0,20.0,0.2,5.0,8.0,1.34,51,,
-Claude Opus 5.5,high,Anthropic,4.0,20.0,0.2,5.0,8.0,1.82,54,,
+Claude Opus 5.5,high,Anthropic,4.0,20.0,0.2,5.0,8.0,1.82,54,tier_3b,via tier_3b (desligada por padrão)
 Claude Opus 5.5,xhigh,Anthropic,4.0,20.0,0.2,5.0,8.0,3.46,56,,
 Claude Opus 5.5,max,Anthropic,4.0,20.0,0.2,5.0,8.0,5.98,58,,
 Gemini 3.8 Flash,low,Google,0.75,3.75,0.075,0.0417,1.5,,33,,
 Gemini 3.8 Flash,medium,Google,0.75,3.75,0.075,0.0417,1.5,0.93,40,,
-Gemini 3.8 Flash,high,Google,0.75,3.75,0.075,0.0417,1.5,1.24,41,agy_gemini_flash,"coberto por assinatura subsidiada (custo efetivo menor); AA lista cache de escrita 0.75, OpenRouter 0.0417"
+Gemini 3.8 Flash,high,Google,0.75,3.75,0.075,0.0417,1.5,1.24,41,tier_2,"coberto por assinatura subsidiada (custo efetivo menor); AA lista cache de escrita 0.75, OpenRouter 0.0417"
 GPT-6 Luna,non-reasoning,OpenAI,0.1,0.5,0.01,0.125,0.2,0.01,18,,
 GPT-6 Luna,low,OpenAI,0.1,0.5,0.01,0.125,0.2,0.0045,22,,
-GPT-6 Luna,medium,OpenAI,0.1,0.5,0.01,0.125,0.2,0.02,30,copilot_luna;codex_luna,esforço real não confirmado (amostra do Codex: none); Copilot cobra por crédito (1 crédito = US$ 0.01); acima de 272k tokens de prompt o preço sobe (0.20/0.75)
+GPT-6 Luna,medium,OpenAI,0.1,0.5,0.01,0.125,0.2,0.02,30,tier_1b;tier_1c,esforço real não confirmado (amostra do Codex: none); Copilot cobra por crédito (1 crédito = US$ 0.01); acima de 272k tokens de prompt o preço sobe (0.20/0.75)
 GPT-6 Luna,high,OpenAI,0.1,0.5,0.01,0.125,0.2,0.03,33,,
 GPT-6 Luna,xhigh,OpenAI,0.1,0.5,0.01,0.125,0.2,0.04,35,,
 GPT-6 Luna,max,OpenAI,0.1,0.5,0.01,0.125,0.2,0.07,38,,
+Claude Haiku 5.5,default,Anthropic,0.1,0.5,,,0.2,,,tier_1,"até 100k tokens por pedido: 0.10/0.50 (combinado 0.20); acima de 100k: 0.50/2.50 (combinado 1.00)"
 GPT-6.1 Sol,low,OpenAI,2.0,10.0,0.1,2.5,4.0,0.13,42,,
 GPT-6.1 Sol,medium,OpenAI,2.0,10.0,0.1,2.5,4.0,0.21,48,,
 GPT-6.1 Sol,high,OpenAI,2.0,10.0,0.1,2.5,4.0,0.32,50,,

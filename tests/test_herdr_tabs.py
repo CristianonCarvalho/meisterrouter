@@ -126,7 +126,7 @@ async def test_run_worker_in_herdr_tab_async_completes_and_closes_tab(tmp_path):
 
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client):
         res = await run_worker_in_herdr_tab_async(
-            model="codex_luna",
+            model="tier_1c",
             task="Update database models",
             cwd=str(tmp_path),
             timeout=5.0,
@@ -150,7 +150,7 @@ async def test_run_worker_in_herdr_tab_async_timeout_closes_tab(tmp_path):
     with patch("meister.herdr.client.HerdrSocketClient", return_value=mock_client), \
          pytest.raises(TimeoutError) as exc_info:
         await run_worker_in_herdr_tab_async(
-            model="codex_luna",
+            model="tier_1c",
             task="Hanging task",
             cwd=str(tmp_path),
             timeout=0.05,
@@ -172,7 +172,7 @@ def test_cli_worker_with_tab_flag(tmp_path, monkeypatch):
          patch("meister.worker.run_worker_in_herdr_tab", return_value=mock_result) as mock_tab:
         result = runner.invoke(
             main,
-            ["worker", "--tab", "--model", "codex_luna", "--task", "Fix schema validation", "--cwd", str(tmp_path)],
+            ["worker", "--tab", "--model", "tier_1c", "--task", "Fix schema validation", "--cwd", str(tmp_path)],
         )
         assert result.exit_code == 0
         assert "Worker task finished in Herdr tab" in result.output

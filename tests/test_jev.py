@@ -140,7 +140,7 @@ def test_classify_task_tier_alignment():
     mock_raw = {
         "answers": {
             "complexity": {"choice": "high", "confidence": 0.95},
-            "recommended_implementer": {"choice": "agy_gemini_flash", "confidence": 0.9},
+            "recommended_implementer": {"choice": "tier_2", "confidence": 0.9},
         },
         "usage": {"input_tokens": 12, "output_tokens": 5, "cost": 0.00012},
     }
@@ -148,8 +148,8 @@ def test_classify_task_tier_alignment():
     with patch("meister.jev.call_decisions", return_value=mock_raw):
         res = classify_task("Refactor authentication module to support OAuth2")
         assert res["classification"] == "HIGH"
-        assert res["recommended_implementer"] == "agy_gemini_flash"
-        assert res["fallback_chain"] == ["claude_sonnet"]
+        assert res["recommended_implementer"] == "tier_2"
+        assert res["fallback_chain"] == ["tier_3"]
         assert res["cost"] == 0.00012
         assert res["fallback_rule_applied"] is False
         assert res["api_unavailable"] is False
@@ -159,7 +159,7 @@ def test_classify_task_passes_timeout_and_attempt_limit():
     response = {
         "answers": {
             "complexity": {"choice": "medium"},
-            "recommended_implementer": {"choice": "copilot_luna"},
+            "recommended_implementer": {"choice": "tier_1"},
         },
         "usage": {},
     }
@@ -173,7 +173,7 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
     valid = {
         "answers": {
             "complexity": {"choice": "medium"},
-            "recommended_implementer": {"choice": "copilot_luna"},
+            "recommended_implementer": {"choice": "tier_1"},
         },
         "usage": {},
     }
@@ -193,19 +193,19 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
 
 
 def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
-    # codex_luna vem desligada por padrao: o Jev so recebe as vias ativas
-    configured_names = ["copilot_luna", "agy_gemini_flash", "claude_sonnet"]
+    # tier_1c e tier_3b vêm desligadas: o Jev só recebe as vias ativas.
+    configured_names = ["tier_1", "tier_1b", "tier_2", "tier_3"]
     response = {
         "answers": {
             "complexity": {"choice": "high"},
-            "recommended_implementer": {"choice": "agy_gemini_flash"},
+            "recommended_implementer": {"choice": "tier_2"},
         },
         "usage": {},
     }
     with patch("meister.jev.call_decisions", return_value=response) as call:
         result = classify_task("A complex task")
     assert list(call.call_args.kwargs["questions"]["recommended_implementer"]["criteria"]) == configured_names
-    assert result["recommended_implementer"] == "agy_gemini_flash"
+    assert result["recommended_implementer"] == "tier_2"
 
     with patch("meister.jev.call_decisions", side_effect=RuntimeError("offline")):
         fallback = classify_task("A critical authentication migration")
@@ -218,7 +218,7 @@ def test_classify_task_deterministic_task_id():
     mock_raw = {
         "answers": {
             "complexity": {"choice": "medium", "confidence": 0.9},
-            "recommended_implementer": {"choice": "copilot_luna", "confidence": 0.9},
+            "recommended_implementer": {"choice": "tier_1", "confidence": 0.9},
         },
         "usage": {},
     }
@@ -238,7 +238,7 @@ def test_classify_task_rule_based_fallback_on_api_error():
         res_sec = classify_task("Fix critical authentication security vulnerability in OAuth")
         assert res_sec["fallback_rule_applied"] is True
         assert res_sec["classification"] == "HIGH"
-        assert res_sec["recommended_implementer"] == "copilot_luna"
+        assert res_sec["recommended_implementer"] == "tier_1"
         assert res_sec["classification_confidence"] is None
         assert res_sec["implementer_confidence"] is None
 
@@ -246,13 +246,13 @@ def test_classify_task_rule_based_fallback_on_api_error():
         res_typo = classify_task("Fix typo in README documentation")
         assert res_typo["fallback_rule_applied"] is True
         assert res_typo["classification"] == "SMALL"
-        assert res_typo["recommended_implementer"] == "copilot_luna"
+        assert res_typo["recommended_implementer"] == "tier_1"
 
         # 3. Regra genérica -> MEDIUM / primeira via
         res_gen = classify_task("Add user preference option in settings panel")
         assert res_gen["fallback_rule_applied"] is True
         assert res_gen["classification"] == "MEDIUM"
-        assert res_gen["recommended_implementer"] == "copilot_luna"
+        assert res_gen["recommended_implementer"] == "tier_1"
 
 
 def test_classify_fallback_uses_structured_context_and_logs_full_context(tmp_path, monkeypatch):
@@ -314,7 +314,7 @@ def test_classify_task_normalizes_unknown_choices():
     with patch("meister.jev.call_decisions", return_value=mock_raw):
         res = classify_task("Some normal task")
         assert res["classification"] == "MEDIUM"
-        assert res["recommended_implementer"] == "copilot_luna"
+        assert res["recommended_implementer"] == "tier_1"
 
 
 def test_classify_task_old_environment_switch_has_no_effect(monkeypatch):
@@ -322,14 +322,14 @@ def test_classify_task_old_environment_switch_has_no_effect(monkeypatch):
     mock_raw = {
         "answers": {
             "complexity": {"choice": "small", "confidence": 0.99},
-            "recommended_implementer": {"choice": "copilot_luna", "confidence": 0.95},
+            "recommended_implementer": {"choice": "tier_1", "confidence": 0.95},
         },
         "usage": {},
     }
 
     with patch("meister.jev.call_decisions", return_value=mock_raw):
         res = classify_task("Fix typo in readme")
-        assert res["recommended_implementer"] == "copilot_luna"
+        assert res["recommended_implementer"] == "tier_1"
 
 
 def test_classify_task_configured_implementers_build_criteria_and_order():

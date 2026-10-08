@@ -919,7 +919,7 @@ async def test_bridge_subtask_uses_task_contract_without_prompt_agent(tmp_path, 
         task_file_seen = tfiles[0]
         data = json.loads(task_file_seen.read_text(encoding="utf-8"))
         assert data["task_id"] == "t1"
-        assert data["model"] == "copilot_luna"
+        assert data["model"] == "tier_1"
         # Worker writes result.json
         write_atomic_json(data["result_file"], {"status": "done", "modified_files": ["app.py"]})
         return "w1:p1"
@@ -1413,8 +1413,8 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
 
     assert result is True
     assert spawn_calls == [
-        ("copilot_luna", str(worktree_path)),
-        ("copilot_luna", str(worktree_path)),
+        ("tier_1", str(worktree_path)),
+        ("tier_1", str(worktree_path)),
     ]
     worktree_manager.create_worktree.assert_called_once()
     pipeline.prepare_subtask.assert_called_once()
@@ -1431,7 +1431,7 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
     assert bridge._quota_events == {}
     assert bridge._exit_events == {}
     assert bridge.active_workers == {}
-    assert bridge._tier_active["copilot_luna"] == 0
+    assert bridge._tier_active["tier_1"] == 0
     assert bridge._held_slots == {}
 
 
@@ -1481,7 +1481,7 @@ async def test_bridge_fails_after_pane_lost_retries_without_escalation(tmp_path,
         )
 
     assert result is False
-    assert spawns == ["copilot_luna", "copilot_luna"]
+    assert spawns == ["tier_1", "tier_1"]
     retry_events = [
         call.kwargs for call in log_event_mock.call_args_list
         if call.kwargs.get("event_type") == "worker_retry"
@@ -1535,7 +1535,7 @@ async def test_bridge_tracks_pane_lost_retry_limit_per_subtask(tmp_path, monkeyp
                 timeout=5,
             )
 
-    assert spawns == ["copilot_luna"] * 4
+    assert spawns == ["tier_1"] * 4
     retry_events = [
         call.kwargs for call in log_event_mock.call_args_list
         if call.kwargs.get("event_type") == "worker_retry"
@@ -1647,7 +1647,7 @@ async def test_bridge_does_not_retry_gate_infrastructure_error(tmp_path, monkeyp
         )
 
     assert result is False
-    assert spawns == ["copilot_luna"]
+    assert spawns == ["tier_1"]
     assert not any(
         call.kwargs.get("event_type") == "worker_retry"
         for call in log_event_mock.call_args_list

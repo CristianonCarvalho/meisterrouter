@@ -54,7 +54,20 @@ workers:
   # enabled: false disables a lane in automatic routing.
   # eligible_classes restricts the classes (SMALL, MEDIUM, HIGH, ESCALATE) Jev can assign to the lane.
   tier_order:
-    - name: copilot_luna
+    # tier_1 uses the <=100k token band; above 100k the combined price is USD 1.00.
+    - name: tier_1
+      harness: copilot
+      model: claude-haiku-5.5
+      cost_per_m_tokens: 0.20
+      credit_usd: 0.01
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+
+    - name: tier_1b
       harness: copilot
       model: gpt-6-luna
       cost_per_m_tokens: 0.20
@@ -66,7 +79,7 @@ workers:
         - css_fixes
         - unit_test_additions
 
-    - name: codex_luna
+    - name: tier_1c
       harness: codex
       model: gpt-6-luna
       enabled: false
@@ -78,7 +91,7 @@ workers:
         - css_fixes
         - unit_test_additions
 
-    - name: agy_gemini_flash
+    - name: tier_2
       harness: agy
       model: gemini-3.8-flash-high
       cost_per_m_tokens: 1.50
@@ -88,10 +101,22 @@ workers:
         - complex_algorithms
         - hard_bugs
 
-    - name: claude_sonnet
+    - name: tier_3
       harness: claude
       model: sonnet
       cost_per_m_tokens: 4.00
+      max_retries: 1
+      best_for:
+        - architectural_recovery
+        - systemic_regressions
+      eligible_classes:
+        - ESCALATE
+
+    - name: tier_3b
+      harness: claude
+      model: opus
+      enabled: false
+      cost_per_m_tokens: 8.00
       max_retries: 1
       best_for:
         - architectural_recovery

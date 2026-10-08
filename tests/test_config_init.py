@@ -23,6 +23,9 @@ def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
 
     # Vias ativas e ordem
     assert [t.name for t in cfg_init.workers.tier_order] == [t.name for t in cfg_default.workers.tier_order]
+    assert [t.name for t in cfg_init.workers.tier_order] == [
+        "tier_1", "tier_1b", "tier_2", "tier_3"
+    ]
     assert [t.harness for t in cfg_init.workers.tier_order] == [t.harness for t in cfg_default.workers.tier_order]
     assert [t.model for t in cfg_init.workers.tier_order] == [t.model for t in cfg_default.workers.tier_order]
     assert [t.cost_per_m_tokens for t in cfg_init.workers.tier_order] == [t.cost_per_m_tokens for t in cfg_default.workers.tier_order]
@@ -31,11 +34,35 @@ def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
 
     # Vias desabilitadas
     assert [t.name for t in cfg_init.workers.disabled] == [t.name for t in cfg_default.workers.disabled]
+    assert [t.name for t in cfg_init.workers.disabled] == ["tier_1c", "tier_3b"]
+    assert [t.enabled for t in cfg_init.workers.disabled] == [False, False]
     assert [t.cost_per_m_tokens for t in cfg_init.workers.disabled] == [t.cost_per_m_tokens for t in cfg_default.workers.disabled]
+    assert [t.eligible_classes for t in cfg_init.workers.disabled] == [
+        t.eligible_classes for t in cfg_default.workers.disabled
+    ]
 
     # Router
     assert cfg_init.router.mode == cfg_default.router.mode
     assert cfg_init.router.timeout_seconds == cfg_default.router.timeout_seconds
+
+
+def test_config_init_locale_catalogs_match_default_tiers():
+    from pathlib import Path
+
+    import yaml
+
+    from meister.locales.en_commands import MESSAGES as en_messages
+    from meister.locales.pt_br_commands import MESSAGES as pt_messages
+
+    repo_root = Path(__file__).resolve().parents[1]
+    default = yaml.safe_load(
+        (repo_root / "meister" / "default_config.yaml").read_text(encoding="utf-8")
+    )
+    expected_tiers = default["workers"]["tier_order"]
+
+    for messages in (en_messages, pt_messages):
+        template = yaml.safe_load(messages["commands.setup.config_template"])
+        assert template["workers"]["tier_order"] == expected_tiers
 
 
 def test_config_init_refuses_overwrite_without_force(tmp_path):
