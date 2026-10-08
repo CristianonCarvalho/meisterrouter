@@ -252,14 +252,14 @@ def test_api_summary_prices_copilot_credits_and_survives_bad_config(dashboard_cl
 
     client, log_dir = dashboard_client
     cfg = config_module.MeisterConfig()
-    cfg.workers.tier_order[0].name = "copilot_luna"
+    cfg.workers.tier_order[0].name = "tier_1b"
     cfg.workers.tier_order[0].credit_usd = 0.01
     monkeypatch.setattr(server, "load_config", lambda: cfg)
     write_log(log_dir, [
         event("orchestration_start", task="orchestrator"),
         event(
             "subtask_completed",
-            tier="copilot_luna",
+            tier="tier_1b",
             task="copilot",
             cost=0.46,
             cost_source="estimated",
@@ -269,12 +269,12 @@ def test_api_summary_prices_copilot_credits_and_survives_bad_config(dashboard_cl
     ])
 
     summary = client.get("/api/summary").get_json()
-    assert summary["report"]["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.0716
+    assert summary["report"]["by_tier"]["tier_1b"]["cost_known_usd"] == 0.0716
 
     monkeypatch.setattr(server, "load_config", lambda: (_ for _ in ()).throw(ValueError("bad config")))
     broken_config_summary = client.get("/api/summary").get_json()
     assert broken_config_summary["totals"]["completed"] == 1
-    assert broken_config_summary["report"]["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.46
+    assert broken_config_summary["report"]["by_tier"]["tier_1b"]["cost_known_usd"] == 0.46
 
 
 def test_api_summary_reprices_with_current_catalog_and_sums_all_runs(dashboard_client, monkeypatch):
@@ -285,7 +285,7 @@ def test_api_summary_reprices_with_current_catalog_and_sums_all_runs(dashboard_c
     cfg = config_module.MeisterConfig()
     gemini = next(t for t in cfg.workers.tier_order if t.name == "tier_2")
     gemini.cost_per_m_tokens = 1.5
-    cfg.workers.tier_order[0].name = "copilot_luna"
+    cfg.workers.tier_order[0].name = "tier_1b"
     cfg.workers.tier_order[0].credit_usd = 0.01
     monkeypatch.setattr(server, "load_config", lambda: cfg)
     events = []
@@ -298,7 +298,7 @@ def test_api_summary_reprices_with_current_catalog_and_sums_all_runs(dashboard_c
                 cost=0.1781, cost_source="estimated",
             ),
             event(
-                "subtask_completed", run=run, tier="copilot_luna", task="cop",
+                "subtask_completed", run=run, tier="tier_1b", task="cop",
                 cost=0.46, cost_source="estimated", credits=credits,
             ),
             event("orchestration_end", run=run, task="orchestrator", status="completed"),
@@ -313,8 +313,8 @@ def test_api_summary_reprices_with_current_catalog_and_sums_all_runs(dashboard_c
     assert everything["report"] is None
     by_tier = everything["all_runs_cost"]["by_tier"]
     assert by_tier["tier_2"]["cost_known_usd"] == 0.925996
-    assert by_tier["copilot_luna"]["cost_known_usd"] == 0.1058
-    assert by_tier["copilot_luna"]["events_unknown"] == 0
+    assert by_tier["tier_1b"]["cost_known_usd"] == 0.1058
+    assert by_tier["tier_1b"]["events_unknown"] == 0
 
 
 @pytest.mark.parametrize("query", [
@@ -409,9 +409,9 @@ def _real_style_run(classify_ids):
         logical = f"task_{number}"
         jev_id = classify_ids(number)
         events.append(event("classify", task=jev_id, classification="MEDIUM", duration_ms=10, cost_usd=0.001))
-        events.append(event("route_decision", task=jev_id, tier="copilot_luna", fallback_rule_applied=False))
-        events.append(event("worker_spawn", task=logical, tier="copilot_luna", ts="2026-01-01T00:00:00+00:00"))
-        events.append(event("subtask_completed", task=logical, tier="copilot_luna", ts="2026-01-01T00:00:10+00:00"))
+        events.append(event("route_decision", task=jev_id, tier="tier_1b", fallback_rule_applied=False))
+        events.append(event("worker_spawn", task=logical, tier="tier_1b", ts="2026-01-01T00:00:00+00:00"))
+        events.append(event("subtask_completed", task=logical, tier="tier_1b", ts="2026-01-01T00:00:10+00:00"))
     # julgamento final do Jev: `control` com id em hash (nao e uma tarefa do plano)
     events.append(event("control", task="8e871068ba4faee4", action="COMPLETE", duration_ms=5, cost_usd=0.002))
     events.append(event("orchestration_end", task="orchestrator", status="completed"))
@@ -446,13 +446,13 @@ def test_jev_events_with_logical_ids_link_to_their_task():
 def test_task_tier_ignores_final_jev_control_without_changing_jev_metrics():
     events = [
         event("classify", task="fix_28", tier="jev", classification="SMALL", duration_ms=1000, cost=0.01),
-        event("route_decision", task="fix_28", tier="agy_gemini_flash"),
-        event("worker_spawn", task="fix_28", tier="agy_gemini_flash"),
-        event("subtask_completed", task="fix_28", tier="agy_gemini_flash", cost=0.2),
+        event("route_decision", task="fix_28", tier="tier_2"),
+        event("worker_spawn", task="fix_28", tier="tier_2"),
+        event("subtask_completed", task="fix_28", tier="tier_2", cost=0.2),
         event("control", task="fix_28", tier="jev", action="COMPLETE", duration_ms=500, cost_usd=0.02),
     ]
     summary = compute_summary(events, "run-a")
-    assert summary["tasks"][0]["tier"] == "agy_gemini_flash"
+    assert summary["tasks"][0]["tier"] == "tier_2"
     assert summary["jev"]["classify_calls"] == 1
     assert summary["jev"]["control_calls"] == 1
     assert summary["jev"]["cost_usd"] == pytest.approx(0.03)
@@ -477,7 +477,7 @@ def test_summary_orders_tasks_by_run_recency_then_natural_task_id():
         events.append(event("orchestration_start", run=run, task="orchestrator", ts=start))
         for task in ("task_10", "task_2", "task_1"):
             events.append(event("worker_spawn", run=run, task=task, ts=start))
-            events.append(event("subtask_completed", run=run, task=task, ts=start, tier="copilot_luna"))
+            events.append(event("subtask_completed", run=run, task=task, ts=start, tier="tier_1b"))
         events.append(event("orchestration_end", run=run, task="orchestrator", status="completed", ts=start))
 
     tasks = compute_summary(events, "all")["tasks"]
@@ -584,32 +584,32 @@ def test_api_summary_exposes_the_run_report_with_unknown_costs_and_phases(
 
     client, log_dir = dashboard_client
     cfg = config_module.MeisterConfig()
-    cfg.workers.tier_order[0].name = "copilot_luna"
+    cfg.workers.tier_order[0].name = "tier_1b"
     cfg.workers.tier_order[0].credit_usd = 0.01
     monkeypatch.setattr(server, "load_config", lambda: cfg)
     write_log(log_dir, [
         event("orchestration_start", task="orchestrator", ts="2026-01-01T00:00:00+00:00"),
-        event("worker_spawn", task="a", tier="claude_sonnet", ts="2026-01-01T00:00:01+00:00"),
-        event("worker_spawn", task="b", tier="copilot_luna", ts="2026-01-01T00:00:01+00:00"),
-        event("worker_phase", task="a", tier="claude_sonnet", phase="worker", duration_ms=6000,
+        event("worker_spawn", task="a", tier="tier_3", ts="2026-01-01T00:00:01+00:00"),
+        event("worker_spawn", task="b", tier="tier_1b", ts="2026-01-01T00:00:01+00:00"),
+        event("worker_phase", task="a", tier="tier_3", phase="worker", duration_ms=6000,
               ts="2026-01-01T00:00:07+00:00"),
-        event("worker_phase", task="b", tier="copilot_luna", phase="worker", duration_ms=6000,
+        event("worker_phase", task="b", tier="tier_1b", phase="worker", duration_ms=6000,
               ts="2026-01-01T00:00:07+00:00"),
-        event("subtask_completed", task="a", tier="claude_sonnet", cost=0.05, cost_source="reported",
+        event("subtask_completed", task="a", tier="tier_3", cost=0.05, cost_source="reported",
               tokens_in=100, tokens_out=4, ts="2026-01-01T00:00:08+00:00"),
-        event("subtask_completed", task="b", tier="copilot_luna", cost=0.0, cost_source="unknown",
+        event("subtask_completed", task="b", tier="tier_1b", cost=0.0, cost_source="unknown",
               credits=0.19, ts="2026-01-01T00:00:08+00:00"),
         event("orchestration_end", task="orchestrator", status="completed", ts="2026-01-01T00:00:10+00:00"),
     ])
 
     report = client.get("/api/summary").get_json()["report"]
     assert report["peak_parallel_workers"] == 2
-    assert report["by_tier"]["claude_sonnet"]["cost_known_usd"] == 0.05
-    assert report["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.0019
-    assert report["by_tier"]["copilot_luna"]["cost_reported_usd"] == 0.0019
-    assert report["by_tier"]["copilot_luna"]["credits_usd"] == 0.0019
-    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 0
-    assert report["by_tier"]["copilot_luna"]["credits"] == 0.19
+    assert report["by_tier"]["tier_3"]["cost_known_usd"] == 0.05
+    assert report["by_tier"]["tier_1b"]["cost_known_usd"] == 0.0019
+    assert report["by_tier"]["tier_1b"]["cost_reported_usd"] == 0.0019
+    assert report["by_tier"]["tier_1b"]["credits_usd"] == 0.0019
+    assert report["by_tier"]["tier_1b"]["events_unknown"] == 0
+    assert report["by_tier"]["tier_1b"]["credits"] == 0.19
     assert client.get("/api/summary?run_id=all").get_json()["report"] is None
 
     html = client.get("/").get_data(as_text=True)
@@ -622,12 +622,12 @@ def test_api_summary_report_for_an_old_log_reports_unmeasured(dashboard_client):
     client, log_dir = dashboard_client
     write_log(log_dir, [
         event("orchestration_start", task="orchestrator"),
-        event("worker_spawn", task="a", tier="copilot_luna"),
-        event("subtask_completed", task="a", tier="copilot_luna", cost=0.0),
+        event("worker_spawn", task="a", tier="tier_1b"),
+        event("subtask_completed", task="a", tier="tier_1b", cost=0.0),
         event("orchestration_end", task="orchestrator", status="completed", ts="2026-01-01T00:00:09+00:00"),
     ])
     report = client.get("/api/summary").get_json()["report"]
     assert report["overhead_ratio"] is None and report["peak_parallel_workers"] is None
     assert report["phase_seconds"]["worker"] is None
-    assert report["by_tier"]["copilot_luna"]["events_unknown"] == 1
+    assert report["by_tier"]["tier_1b"]["events_unknown"] == 1
     assert any("worker_phase" in note for note in report["notes"])
