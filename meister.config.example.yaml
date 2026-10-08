@@ -34,6 +34,9 @@ workers:
   idle_timeout_seconds: 600
   max_runtime_seconds: 3600
   tier_order:
+    # effort is optional; when omitted, the harness uses its default.
+    # Values by harness: copilot/github-copilot = none, minimal, low, medium, high, xhigh, max;
+    # claude/agy/antigravity = low, medium, high, xhigh, max; codex = minimal, low, medium, high, xhigh.
     # O adaptador Copilot ocupa a primeira posição por decisão do usuário.
     # max_parallel limita onde a tarefa começa; um fallback não troca essa vaga.
     - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2, max_parallel: 2, best_for: [small_edits, single_file, css_fixes, unit_test_additions]}
