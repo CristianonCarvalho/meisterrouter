@@ -8,6 +8,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.
 - Harness process-group cleanup on worker termination, with PID-identity-checked orphan reaping before retries.
 - Fix: an idle or runtime timeout no longer fails the subtask with `worker_error` when the error result was written by our own harness cleanup; the timeout path (retry, escalation or salvage) takes precedence.
+- Per-project timeline app window with `dashboard:` configuration and `orchestrate --no-open`; resumed runs are shown as in progress after a new `orchestration_start`.
 
 ## [0.9.1] - 2026-10-07
 

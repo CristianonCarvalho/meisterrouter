@@ -85,6 +85,21 @@ class RouterConfig:
 
 
 @dataclass
+class DashboardWindowConfig:
+    width: int = field(default_factory=lambda: _default_section("dashboard")["window"]["width"])
+    height: int = field(default_factory=lambda: _default_section("dashboard")["window"]["height"])
+
+
+@dataclass
+class DashboardConfig:
+    open: str = field(default_factory=lambda: _default_section("dashboard")["open"])
+    idle_exit_minutes: int = field(
+        default_factory=lambda: _default_section("dashboard")["idle_exit_minutes"]
+    )
+    window: DashboardWindowConfig = field(default_factory=DashboardWindowConfig)
+
+
+@dataclass
 class RetryConfig:
     pane_lost_attempts: int = field(default_factory=lambda: _default_section("retry")["pane_lost_attempts"])
     pane_lost_backoff_seconds: float = field(
@@ -225,6 +240,7 @@ class MeisterConfig:
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
+    dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     gate: GateConfig = field(default_factory=GateConfig)
     config_source: str = field(default_factory=lambda: t("reports.config.default_source"))
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
@@ -639,6 +655,70 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         install_timeout_seconds=float(install_timeout),
     )
 
+    dashboard_data = data.get("dashboard", {})
+    dashboard_defaults = _default_section("dashboard")
+    if not isinstance(dashboard_data, dict):
+        parse_issues.append(
+            ConfigIssue("error", "dashboard", t("dashboard.expected_object"))
+        )
+        dashboard_data = {}
+
+    dashboard_open = dashboard_data.get("open", dashboard_defaults["open"])
+    if not isinstance(dashboard_open, str) or dashboard_open not in {"auto", "app", "tab", "never"}:
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "dashboard.open",
+                t("dashboard.open_invalid", value=repr(dashboard_open)),
+            )
+        )
+        dashboard_open = dashboard_defaults["open"]
+
+    def dashboard_positive_integer(value: Any, path: str, field_name: str, default: int) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    path,
+                    t("dashboard.positive_integer", field=field_name, value=repr(value)),
+                )
+            )
+            return default
+        return value
+
+    dashboard_idle_exit_minutes = dashboard_positive_integer(
+        dashboard_data.get("idle_exit_minutes", dashboard_defaults["idle_exit_minutes"]),
+        "dashboard.idle_exit_minutes",
+        "idle_exit_minutes",
+        dashboard_defaults["idle_exit_minutes"],
+    )
+
+    dashboard_window_data = dashboard_data.get("window", dashboard_defaults["window"])
+    if not isinstance(dashboard_window_data, dict):
+        parse_issues.append(
+            ConfigIssue("error", "dashboard.window", t("dashboard.expected_object"))
+        )
+        dashboard_window_data = dashboard_defaults["window"]
+    dashboard_window = DashboardWindowConfig(
+        width=dashboard_positive_integer(
+            dashboard_window_data.get("width", dashboard_defaults["window"]["width"]),
+            "dashboard.window.width",
+            "width",
+            dashboard_defaults["window"]["width"],
+        ),
+        height=dashboard_positive_integer(
+            dashboard_window_data.get("height", dashboard_defaults["window"]["height"]),
+            "dashboard.window.height",
+            "height",
+            dashboard_defaults["window"]["height"],
+        ),
+    )
+    dashboard = DashboardConfig(
+        open=dashboard_open,
+        idle_exit_minutes=dashboard_idle_exit_minutes,
+        window=dashboard_window,
+    )
+
     gate_data = data.get("gate", {})
     if not isinstance(gate_data, dict):
         parse_issues.append(ConfigIssue("error", "gate", t("reports.config.gate_object")))
@@ -744,6 +824,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         concurrency=concurrency,
         scope=scope,
         environment=environment,
+        dashboard=dashboard,
         gate=gate,
         _parse_issues=parse_issues,
     )
@@ -814,6 +895,40 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     level="error",
                     path="language",
                     message=t("config.language.invalid", value=repr(cfg_lang)),
+                )
+            )
+
+    dashboard = config.dashboard
+    if dashboard.open not in {"auto", "app", "tab", "never"}:
+        if not any(issue.path == "dashboard.open" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "dashboard.open",
+                    t("dashboard.open_invalid", value=repr(dashboard.open)),
+                )
+            )
+    for path, dashboard_value, field_name in (
+        ("dashboard.idle_exit_minutes", dashboard.idle_exit_minutes, "idle_exit_minutes"),
+        ("dashboard.window.width", dashboard.window.width, "width"),
+        ("dashboard.window.height", dashboard.window.height, "height"),
+    ):
+        if (
+            isinstance(dashboard_value, bool)
+            or not isinstance(dashboard_value, int)
+            or dashboard_value <= 0
+        ) and not any(
+            issue.path == path for issue in issues
+        ):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    path,
+                    t(
+                        "dashboard.positive_integer",
+                        field=field_name,
+                        value=repr(dashboard_value),
+                    ),
                 )
             )
 

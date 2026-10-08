@@ -370,6 +370,17 @@ def build_timeline(
     end_event = next(
         (event for event in reversed(run_events) if event_type(event) == "orchestration_end"), None
     )
+    if end_event is not None:
+        last_end_at = _ts(end_event)
+        resumed_after_end = any(
+            event_type(event) == "orchestration_start"
+            and (start_at := _ts(event)) is not None
+            and last_end_at is not None
+            and start_at > last_end_at
+            for event in run_events
+        )
+        if resumed_after_end:
+            end_event = None
     plan_event = next(
         (event for event in reversed(run_events) if event_type(event) == "plan_parsed"), None
     )

@@ -61,6 +61,19 @@ Não ofereça execução nativa ou fluxos alternativos; se o Meister não estive
 6. `**Files:**` aceita glob (`src/text/*.ts`, `drizzle/*`). Declare todos os arquivos que a tarefa pode criar ou alterar; o que sair do escopo reprova a tarefa.
 7. No fim, o resultado é integrado na `main` do projeto por fast-forward; nada entra sem passar pelos gates.
 
+### Janela da linha do tempo
+No início de `meister orchestrate`, o MeisterRouter inicia o servidor local da linha do tempo do projeto e a abre no navegador. Ela mostra, no navegador, a mesma linha do tempo das tarefas ao vivo que `meister timeline`.
+
+Configure em `meister.config.yaml`:
+```yaml
+dashboard:
+  open: auto # auto | app | tab | never
+  idle_exit_minutes: 30
+```
+`auto` (padrão) e `app` tentam abrir uma janela de aplicativo do Chromium, com fallback para uma aba no navegador padrão; `tab` abre uma aba no navegador padrão; `never` desativa o servidor da linha do tempo e a abertura do navegador. `meister orchestrate --no-open` tem o mesmo efeito nessa execução. Há no máximo uma janela de aplicativo por projeto: orquestrações seguintes reutilizam o servidor e a janela daquele projeto. Cada projeto tem sua própria porta, URL e arquivo de estado `.meister/dashboard.json`.
+
+O servidor escuta somente em `127.0.0.1`. Sem tela gráfica (por exemplo, via SSH ou em CI), o MeisterRouter não tenta abrir um navegador e imprime a URL da linha do tempo para você abrir depois. Se o Chromium não estiver disponível, tenta abrir uma aba no navegador padrão. Uma falha ao iniciar o servidor ou o navegador não interrompe a orquestração. O servidor encerra sozinho após `dashboard.idle_exit_minutes` sem uso e quando não há run ativa; para pará-lo antes, execute `kill <PID>` usando o PID registrado em `.meister/dashboard.json`.
+
 ## 4. Quando algo falha: o que você precisa fazer
 `meister orchestrate` mostra progresso por tarefa e o resumo final em stderr; a frase de sucesso/falha
 continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
