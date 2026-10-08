@@ -156,6 +156,47 @@ def _parse_config(config: Any) -> tuple[str, int, int, int]:
     return str(open_mode), int(idle_exit_minutes), int(width), int(height)
 
 
+def resolve_project_root(path: Union[str, Path]) -> Path:
+    """Resolve a working directory to its canonical project root when possible."""
+    try:
+        resolved_path = Path(path).resolve()
+    except Exception:
+        resolved_path = Path(os.path.abspath(os.fspath(path)))
+
+    try:
+        result = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(resolved_path),
+                "rev-parse",
+                "--git-common-dir",
+            ],
+            timeout=2,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            common_dir = Path(result.stdout.strip())
+            if not common_dir.is_absolute():
+                common_dir = resolved_path / common_dir
+            common_dir = common_dir.resolve()
+            if common_dir.name == ".git":
+                return common_dir.parent.resolve()
+    except Exception:
+        pass
+
+    try:
+        for candidate in (resolved_path, *resolved_path.parents):
+            if (candidate / ".meister").is_dir() or (candidate / "meister.config.yaml").is_file():
+                return candidate.resolve()
+    except Exception:
+        pass
+
+    return resolved_path
+
+
 def ensure_dashboard(
     project_root: Union[str, Path],
     config: Any = None,
@@ -164,7 +205,7 @@ def ensure_dashboard(
 ) -> Outcome:
     """Ensure the project's dashboard server is running and open the timeline view."""
     try:
-        project_root = Path(project_root)
+        project_root = resolve_project_root(project_root)
         open_mode, idle_exit_minutes, width, height = _parse_config(config)
 
         if not open_window or open_mode == "never":
@@ -307,4 +348,3 @@ def ensure_dashboard(
 
     except Exception:
         return Outcome(kind="failed", url=None)
-
