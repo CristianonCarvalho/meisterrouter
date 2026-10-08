@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, List, Set, Union
 
 from meister.i18n import t
+from meister.harness_effort import HARNESS_EFFORT_VALUES
 import yaml
 
 
@@ -129,6 +130,7 @@ class WorkerTier:
     max_runtime_seconds: Optional[float] = None
     credit_usd: Optional[float] = None
     eligible_classes: List[str] = field(default_factory=list)
+    effort: Optional[str] = None
 
 
 def _all_default_worker_tiers() -> List[WorkerTier]:
@@ -146,6 +148,7 @@ def _all_default_worker_tiers() -> List[WorkerTier]:
             max_runtime_seconds=item.get("max_runtime_seconds"),
             credit_usd=item.get("credit_usd"),
             eligible_classes=[str(value).upper() for value in item.get("eligible_classes", [])],
+            effort=_normalize_effort(item.get("effort")),
         )
         for item in _default_config_data()["workers"]["tier_order"]
     ]
@@ -248,6 +251,13 @@ class MeisterConfig:
 
 def _as_str(value: object, default: str = "") -> str:
     return default if value is None else str(value)
+
+
+def _normalize_effort(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = _as_str(value).strip().lower()
+    return normalized or None
 
 
 def _merge_config(base: dict, override: dict) -> dict:
@@ -485,6 +495,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                 raw_idle_timeout = tier.get("idle_timeout_seconds")
                 raw_max_runtime = tier.get("max_runtime_seconds")
                 raw_credit_usd = tier.get("credit_usd")
+                effort = _normalize_effort(tier.get("effort"))
                 credit_usd = None
                 if raw_credit_usd is not None:
                     if (
@@ -576,6 +587,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     max_runtime_seconds=tier_max_runtime,
                     credit_usd=credit_usd,
                     eligible_classes=eligible_classes,
+                    effort=effort,
                 )
                 if enabled_val:
                     tier_list.append(tier_obj)
@@ -1231,6 +1243,43 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             )
         else:
             seen_names.add(tier.name)
+
+    for group_name, tiers in (
+        ("workers.tier_order", config.workers.tier_order),
+        ("workers.disabled", config.workers.disabled),
+    ):
+        for i, tier in enumerate(tiers):
+            if tier.effort is None:
+                continue
+            path = f"{group_name}[{i}].effort"
+            harness = (tier.harness or "").strip().lower()
+            valid_efforts = HARNESS_EFFORT_VALUES.get(harness)
+            if valid_efforts is None:
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        t(
+                            "tiers.unsupported_effort",
+                            lane=tier.name,
+                            harness=harness or tier.harness,
+                        ),
+                    )
+                )
+            elif tier.effort not in valid_efforts:
+                issues.append(
+                    ConfigIssue(
+                        "error",
+                        path,
+                        t(
+                            "tiers.invalid_effort",
+                            lane=tier.name,
+                            harness=harness,
+                            effort=tier.effort,
+                            values=", ".join(valid_efforts),
+                        ),
+                    )
+                )
 
     # 3. max_retries negativo
     for i, tier in enumerate(config.workers.tier_order):
