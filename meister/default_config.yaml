@@ -25,6 +25,9 @@ workers:
   idle_timeout_seconds: 600
   max_runtime_seconds: 3600
   tier_order:
+    # effort is optional; when omitted, the harness uses its default.
+    # Values by harness: copilot/github-copilot = none, minimal, low, medium, high, xhigh, max;
+    # claude/agy/antigravity = low, medium, high, xhigh, max; codex = minimal, low, medium, high, xhigh.
     # A ordem define a cadeia de fallback, sempre para a frente.
     # cost_per_m_tokens = preço combinado 3:1 (3 partes de entrada para 1 de saída), como no Artificial Analysis.
     # Fonte: OpenRouter (/api/v1/models) e Artificial Analysis, conferidos em 2026-10-05:

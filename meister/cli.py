@@ -1761,6 +1761,7 @@ def config_show(config_path, json_format):
                         "credit_usd": t.credit_usd,
                         "eligible_classes": t.eligible_classes,
                         "enabled": False,
+                        "effort": t.effort,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
@@ -1778,6 +1779,7 @@ def config_show(config_path, json_format):
                         "credit_usd": t.credit_usd,
                         "eligible_classes": t.eligible_classes,
                         "enabled": True,
+                        "effort": t.effort,
                         "harness": t.harness,
                         "max_retries": t.max_retries,
                         "max_parallel": t.max_parallel,
@@ -1830,31 +1832,33 @@ def config_show(config_path, json_format):
     click.echo(t("cli.config.idle_timeout", seconds=cfg.workers.idle_timeout_seconds))
     click.echo(t("cli.config.max_runtime", seconds=cfg.workers.max_runtime_seconds))
     if cfg.workers.tier_order:
-        header = f"  {t('cli.config.position'):<4} {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.position'):<4} {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Effort':<8} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for i, tier in enumerate(cfg.workers.tier_order):
+            effort = "-" if tier.effort is None else tier.effort
             max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
             idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
             max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
             credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
             eligible_classes = ",".join(tier.eligible_classes) or "-"
-            click.echo(f"  {i + 1:<4} {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+            click.echo(f"  {i + 1:<4} {tier.name:<16} {tier.harness:<12} {tier.model:<24} {effort:<8} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo(t("cli.config.no_enabled_lanes"))
 
     click.echo("\n" + t("cli.config.disabled_lanes"))
     if cfg.workers.disabled:
-        header = f"  {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
+        header = f"  {t('cli.config.name'):<16} {'Harness':<12} {t('cli.config.model'):<24} {'Effort':<8} {'Max Retries':<11} {'Max Parallel':<12} {'Idle (s)':<10} {'Runtime (s)':<12} {'Credit USD':<10} {'Classes':<20}"
         click.echo(header)
         click.echo("  " + "-" * (len(header) - 2))
         for tier in cfg.workers.disabled:
+            effort = "-" if tier.effort is None else tier.effort
             max_parallel = "-" if tier.max_parallel is None else str(tier.max_parallel)
             idle_timeout = "-" if tier.idle_timeout_seconds is None else str(tier.idle_timeout_seconds)
             max_runtime = "-" if tier.max_runtime_seconds is None else str(tier.max_runtime_seconds)
             credit_usd = "-" if tier.credit_usd is None else f"{tier.credit_usd:g}"
             eligible_classes = ",".join(tier.eligible_classes) or "-"
-            click.echo(f"  {tier.name:<16} {tier.harness:<12} {tier.model:<24} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
+            click.echo(f"  {tier.name:<16} {tier.harness:<12} {tier.model:<24} {effort:<8} {tier.max_retries:<11} {max_parallel:<12} {idle_timeout:<10} {max_runtime:<12} {credit_usd:<10} {eligible_classes:<20}")
     else:
         click.echo(t("cli.config.none"))
 
