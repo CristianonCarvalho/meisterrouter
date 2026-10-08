@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="{{ language }}">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meister · {{ messages.waiting_first_run }}</title>
+<style>
+  :root {
+    --bg: #090b10;
+    --surface: #10141e;
+    --hover: #161c2b;
+    --border: #21283b;
+    --text: #f0f3fa;
+    --muted: #8b95a5;
+    --purple: #c084fc;
+    --green: #4ade80;
+    --yellow: #facc15;
+    --red: #f87171;
+    --blue: #38bdf8;
+    --cyan: #22d3ee;
+    --amber: #f59e0b;
+    --project-hue: 220;
+    --accent: hsl(var(--project-hue) 75% 55%);
+    --accent-glow: hsla(var(--project-hue) 75% 55% / 0.25);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  button, select, input {
+    font: inherit;
+    color: var(--text);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 10px;
+  }
+  button { cursor: pointer; }
+  button:hover, a:hover { background: var(--hover); }
+  a { color: var(--cyan); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .header {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .header-left { display: flex; align-items: center; gap: 12px; }
+  h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  .logo {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--purple), var(--blue));
+    color: #fff;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .subtitle { color: var(--muted); margin-top: 4px; font-size: 13px; }
+  .header-controls { display: flex; align-items: center; gap: 12px; }
+  .badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: #252c3e;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  .live-badge {
+    background: rgba(34, 211, 238, 0.15);
+    color: var(--cyan);
+    border: 1px solid rgba(34, 211, 238, 0.3);
+  }
+  .notice {
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin-bottom: 16px;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid var(--amber);
+    color: var(--amber);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .notice button {
+    background: transparent;
+    border: none;
+    color: var(--amber);
+    cursor: pointer;
+    font-weight: bold;
+    padding: 0 4px;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .card-label {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .card-value {
+    margin: 6px 0 2px;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .completed { color: var(--green); }
+  .running { color: var(--yellow); }
+  .failed { color: var(--red); }
+  .stalled { color: var(--amber); }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+    margin-bottom: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  .swatch-worker { background: #6366f1; }
+  .swatch-gate { background: #f59e0b; }
+  .swatch-integrate { background: #10b981; }
+  .swatch-wait { background: #64748b; }
+  .swatch-critical { background: #fbbf24; border: 1px solid #f59e0b; }
+  .swatch-escalation { background: #ec4899; }
+  .timeline-wrapper {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-x: auto;
+    position: relative;
+    min-height: 200px;
+  }
+  .empty-state {
+    padding: 60px 20px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 16px;
+  }
+  .empty-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+    display: block;
+  }
+  svg text {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .task-bar:hover {
+    filter: brightness(1.25);
+    cursor: pointer;
+  }
+  .tooltip {
+    position: absolute;
+    display: none;
+    padding: 8px 12px;
+    background: #1a2234;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 12px;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    max-width: 280px;
+  }
+  .tooltip-title { font-weight: 600; margin-bottom: 4px; }
+  .tooltip-row { color: var(--muted); }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<header class="header">
+  <div>
+    <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span></h1>
+    <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
+  </div>
+  <div class="header-controls">
+    <span id="live-badge" class="badge live-badge" hidden>{{ messages.live }}</span>
+    <label for="run-select" class="card-label">{{ messages.select_run }}</label>
+    <select id="run-select" aria-label="{{ messages.select_run }}">
+      <option value="">{{ messages.live_newest }}</option>
+    </select>
+    <a href="/" class="badge">{{ messages.dashboard }}</a>
+  </div>
+</header>
+
+<div id="notice-banner" class="notice" hidden>
+  <span id="notice-text"></span>
+  <button id="notice-close" type="button">×</button>
+</div>
+
+<section class="cards" aria-label="Summary">
+  <div class="card">
+    <div class="card-label">{{ messages.tasks }}</div>
+    <div id="card-total" class="card-value">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.completed }}</div>
+    <div id="card-completed" class="card-value completed">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.running }}</div>
+    <div id="card-running" class="card-value running">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.failed }}</div>
+    <div id="card-failed" class="card-value failed">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.stalled }}</div>
+    <div id="card-stalled" class="card-value stalled">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.peak_parallel }}</div>
+    <div id="card-peak" class="card-value">0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.avg_parallel }}</div>
+    <div id="card-avg" class="card-value">0.0</div>
+  </div>
+  <div class="card">
+    <div class="card-label">{{ messages.cost }}</div>
+    <div id="card-cost" class="card-value">—</div>
+  </div>
+</section>
+
+<div class="legend">
+  <div class="legend-item"><span class="legend-swatch swatch-worker"></span><span>{{ messages.phase_worker }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-gate"></span><span>{{ messages.phase_gate }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-integrate"></span><span>{{ messages.phase_integrate }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-wait"></span><span>{{ messages.phase_wait }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-escalation"></span><span>{{ messages.escalation }}</span></div>
+</div>
+
+<div class="timeline-wrapper">
+  <div id="empty-state" class="empty-state">
+    <span class="empty-icon">⏳</span>
+    <span id="empty-text">{{ messages.waiting_first_run }}</span>
+  </div>
+  <svg id="timeline-svg" xmlns="http://www.w3.org/2000/svg" hidden></svg>
+  <div id="tooltip" class="tooltip">
+    <div id="tooltip-title" class="tooltip-title"></div>
+    <div id="tooltip-body" class="tooltip-row"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const text = {{ messages|tojson }};
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const params = new URLSearchParams(window.location.search);
+  let selectedRunId = params.get("run_id") || null;
+  let isRunCompleted = false;
+  let pollingTimer = null;
+  let runsCatalog = [];
+
+  const byId = (id) => document.getElementById(id);
+
+  function createSvgEl(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    if (attrs) {
+      for (const key of Object.keys(attrs)) {
+        el.setAttribute(key, String(attrs[key]));
+      }
+    }
+    return el;
+  }
+
+  function createSvgText(content, attrs) {
+    const el = createSvgEl("text", attrs);
+    el.textContent = String(content);
+    return el;
+  }
+
+  function showNotice(message) {
+    const banner = byId("notice-banner");
+    byId("notice-text").textContent = message;
+    banner.hidden = false;
+  }
+
+  byId("notice-close").addEventListener("click", () => {
+    byId("notice-banner").hidden = true;
+  });
+
+  async function loadRuns() {
+    try {
+      const res = await fetch("/api/runs");
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.runs)) {
+        runsCatalog = data.runs;
+        const select = byId("run-select");
+        const prevValue = select.value;
+        select.replaceChildren();
+
+        const liveOpt = document.createElement("option");
+        liveOpt.value = "";
+        liveOpt.textContent = text.live_newest;
+        select.appendChild(liveOpt);
+
+        data.runs.forEach((r) => {
+          const opt = document.createElement("option");
+          opt.value = r.run_id;
+          const label = r.title || r.run_id;
+          opt.textContent = label + (r.status ? " (" + r.status + ")" : "");
+          select.appendChild(opt);
+        });
+
+        if (selectedRunId) {
+          select.value = selectedRunId;
+        } else {
+          select.value = "";
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  byId("run-select").addEventListener("change", (e) => {
+    const val = e.target.value.trim();
+    if (val) {
+      selectedRunId = val;
+      const u = new URL(window.location.href);
+      u.searchParams.set("run_id", val);
+      window.history.pushState({}, "", u.toString());
+    } else {
+      selectedRunId = null;
+      const u = new URL(window.location.href);
+      u.searchParams.delete("run_id");
+      window.history.pushState({}, "", u.toString());
+    }
+    isRunCompleted = false;
+    byId("notice-banner").hidden = true;
+    fetchTimeline().then(scheduleNextPoll);
+  });
+
+  function updateCards(summary) {
+    if (!summary) return;
+    byId("card-total").textContent = String(summary.total || 0);
+    byId("card-completed").textContent = String(summary.completed || 0);
+    byId("card-running").textContent = String(summary.running || 0);
+    byId("card-failed").textContent = String(summary.failed || 0);
+    byId("card-stalled").textContent = String(summary.stalled || 0);
+    byId("card-peak").textContent = String(summary.peak_parallel || 0);
+    byId("card-avg").textContent = summary.avg_parallel !== undefined && summary.avg_parallel !== null
+      ? Number(summary.avg_parallel).toFixed(1)
+      : "0.0";
+    byId("card-cost").textContent = summary.cost_usd !== undefined && summary.cost_usd !== null
+      ? "$" + Number(summary.cost_usd).toFixed(4)
+      : "—";
+  }
+
+  function renderEmpty() {
+    byId("empty-state").hidden = false;
+    byId("timeline-svg").hidden = true;
+    byId("live-badge").hidden = true;
+    byId("empty-text").textContent = text.waiting_first_run;
+    updateCards({ total: 0, completed: 0, running: 0, failed: 0, stalled: 0, peak_parallel: 0, avg_parallel: 0.0, cost_usd: null });
+  }
+
+  function renderSvg(data) {
+    const svg = byId("timeline-svg");
+    svg.replaceChildren();
+
+    const rows = data.rows || [];
+    if (!rows.length) {
+      renderEmpty();
+      return;
+    }
+
+    byId("empty-state").hidden = true;
+    svg.hidden = false;
+
+    const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    // Defs: markers and gradients
+    const defs = createSvgEl("defs");
+    
+    // Normal arrow
+    const marker = createSvgEl("marker", {
+      id: "arrow",
+      viewBox: "0 0 10 10",
+      refX: "7",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse",
+    });
+    const markerPath = createSvgEl("path", {
+      d: "M 0 1.5 L 8 5 L 0 8.5 z",
+      fill: "rgba(245, 158, 11, 0.6)",
+    });
+    marker.appendChild(markerPath);
+    defs.appendChild(marker);
+
+    // Critical arrow
+    const critMarker = createSvgEl("marker", {
+      id: "arrow-crit",
+      viewBox: "0 0 10 10",
+      refX: "7",
+      refY: "5",
+      markerWidth: "6",
+      markerHeight: "6",
+      orient: "auto-start-reverse",
+    });
+    const critMarkerPath = createSvgEl("path", {
+      d: "M 0 1.5 L 8 5 L 0 8.5 z",
+      fill: "#f59e0b",
+    });
+    critMarker.appendChild(critMarkerPath);
+    defs.appendChild(critMarker);
+
+    // Cost gradient
+    const costGrad = createSvgEl("linearGradient", {
+      id: "cost-grad",
+      x1: "0",
+      y1: "0",
+      x2: "0",
+      y2: "1",
+    });
+    const stop1 = createSvgEl("stop", { offset: "0%", "stop-color": "#818cf8", "stop-opacity": "0.45" });
+    const stop2 = createSvgEl("stop", { offset: "100%", "stop-color": "#818cf8", "stop-opacity": "0.05" });
+    costGrad.appendChild(stop1);
+    costGrad.appendChild(stop2);
+    defs.appendChild(costGrad);
+
+    // Wait striped pattern
+    const pattern = createSvgEl("pattern", {
+      id: "pattern-wait",
+      width: "6",
+      height: "6",
+      patternUnits: "userSpaceOnUse",
+      patternTransform: "rotate(45)",
+    });
+    const patLine = createSvgEl("line", {
+      x1: "0",
+      y1: "0",
+      x2: "0",
+      y2: "6",
+      stroke: "#94a3b8",
+      "stroke-width": "2",
+    });
+    pattern.appendChild(patLine);
+    defs.appendChild(pattern);
+
+    svg.appendChild(defs);
+
+    // Layout configuration
+    const LABEL_W = 220;
+    const MARGIN_R = 30;
+    const HEADER_H = 40;
+    const LANE_HEADER_H = 26;
+    const ROW_H = 34;
+    const BAR_H = 20;
+
+    const containerW = Math.max(960, byId("timeline-svg").parentElement.clientWidth || 960);
+    const CHART_W = containerW - LABEL_W - MARGIN_R;
+
+    // Determine time bounds
+    const nowTime = Date.now();
+    let minTime = Infinity;
+    let maxTime = -Infinity;
+
+    if (data.run && data.run.started_at) {
+      minTime = Math.min(minTime, new Date(data.run.started_at).getTime());
+    }
+    if (data.run && data.run.ended_at) {
+      maxTime = Math.max(maxTime, new Date(data.run.ended_at).getTime());
+    }
+
+    rows.forEach((r) => {
+      if (r.start) minTime = Math.min(minTime, new Date(r.start).getTime());
+      if (r.end) maxTime = Math.max(maxTime, new Date(r.end).getTime());
+      (r.segments || []).forEach((s) => {
+        if (s.start) minTime = Math.min(minTime, new Date(s.start).getTime());
+        if (s.end) maxTime = Math.max(maxTime, new Date(s.end).getTime());
+      });
+    });
+
+    if (data.cost_series && data.cost_series.length) {
+      data.cost_series.forEach((pt) => {
+        if (pt.t) {
+          const tMs = new Date(pt.t).getTime();
+          minTime = Math.min(minTime, tMs);
+          maxTime = Math.max(maxTime, tMs);
+        }
+      });
+    }
+
+    if (data.run && data.run.status === "running") {
+      maxTime = Math.max(maxTime, nowTime);
+    }
+
+    if (!Number.isFinite(minTime)) minTime = nowTime - 10000;
+    if (!Number.isFinite(maxTime) || maxTime <= minTime) maxTime = minTime + 10000;
+    const span = Math.max(1000, maxTime - minTime);
+
+    function timeToX(t) {
+      if (!t) return LABEL_W;
+      const ms = typeof t === "number" ? t : new Date(t).getTime();
+      const norm = (ms - minTime) / span;
+      return LABEL_W + Math.max(0, Math.min(CHART_W, norm * CHART_W));
+    }
+
+    // Time axis / grid in background
+    const gridGroup = createSvgEl("g", { class: "grid-group" });
+    const ticksCount = 6;
+    for (let i = 0; i <= ticksCount; i++) {
+      const frac = i / ticksCount;
+      const tx = LABEL_W + frac * CHART_W;
+      const tSec = Math.round((frac * span) / 1000);
+      
+      const gridLine = createSvgEl("line", {
+        x1: tx,
+        y1: HEADER_H,
+        x2: tx,
+        y2: 2000, // will adjust or let bounds handle
+        stroke: "rgba(255, 255, 255, 0.05)",
+        "stroke-width": "1",
+      });
+      gridGroup.appendChild(gridLine);
+
+      const tickLabel = createSvgText("+" + tSec + "s", {
+        x: tx,
+        y: HEADER_H - 8,
+        "text-anchor": "middle",
+        fill: "var(--muted)",
+        "font-size": "10",
+      });
+      gridGroup.appendChild(tickLabel);
+    }
+    svg.appendChild(gridGroup);
+
+    // Group rows by lane
+    const lanesList = (data.lanes && data.lanes.length)
+      ? data.lanes.map((l) => ({ ...l, rows: [] }))
+      : [{ via: text.unassigned, tasks: [], busy_s: 0, utilization: 0, rows: [] }];
+
+    const laneByVia = new Map();
+    lanesList.forEach((l) => laneByVia.set(l.via, l));
+
+    const otherLane = { via: text.unassigned, tasks: [], busy_s: 0, utilization: 0, rows: [] };
+
+    rows.forEach((r) => {
+      if (r.tier && laneByVia.has(r.tier)) {
+        laneByVia.get(r.tier).rows.push(r);
+      } else {
+        otherLane.rows.push(r);
+      }
+    });
+
+    if (otherLane.rows.length && !laneByVia.has(text.unassigned)) {
+      lanesList.push(otherLane);
+    }
+
+    let currentY = HEADER_H;
+    const rowCenterY = {};
+    const rowStartX = {};
+    const rowEndX = {};
+    const laneCenterY = {};
+
+    const lanesGroup = createSvgEl("g", { class: "lanes-group" });
+
+    lanesList.forEach((lane, laneIdx) => {
+      if (!lane.rows.length && lanesList.length > 1) return;
+      const laneH = LANE_HEADER_H + lane.rows.length * ROW_H;
+      laneCenterY[lane.via] = currentY + LANE_HEADER_H / 2;
+
+      // Lane background
+      const laneBg = createSvgEl("rect", {
+        x: "0",
+        y: currentY,
+        width: containerW,
+        height: laneH,
+        fill: laneIdx % 2 === 0 ? "rgba(255, 255, 255, 0.015)" : "rgba(255, 255, 255, 0.03)",
+        stroke: "rgba(255, 255, 255, 0.04)",
+        "stroke-width": "1",
+      });
+      lanesGroup.appendChild(laneBg);
+
+      // Lane label
+      const viaText = createSvgText(lane.via, {
+        x: "16",
+        y: currentY + 17,
+        fill: "var(--muted)",
+        "font-size": "11",
+        "font-weight": "700",
+        "letter-spacing": "0.04em",
+      });
+      lanesGroup.appendChild(viaText);
+
+      if (lane.utilization !== undefined && lane.utilization !== null && lane.utilization > 0) {
+        const utilPct = (lane.utilization * 100).toFixed(0) + "%";
+        const utilText = createSvgText(utilPct, {
+          x: LABEL_W - 14,
+          y: currentY + 17,
+          "text-anchor": "end",
+          fill: "var(--muted)",
+          "font-size": "10",
+        });
+        lanesGroup.appendChild(utilText);
+      }
+
+      // Tasks in this lane
+      lane.rows.forEach((row, rowIdx) => {
+        const rY = currentY + LANE_HEADER_H + rowIdx * ROW_H;
+        rowCenterY[row.task_id] = rY + ROW_H / 2;
+
+        const rowStartXVal = timeToX(row.start);
+        const rowEndXVal = timeToX(row.end || nowTime);
+        rowStartX[row.task_id] = rowStartXVal;
+        rowEndX[row.task_id] = rowEndXVal;
+
+        // Task title on left
+        const rawTitle = row.title || row.task_id;
+        const displayTitle = rawTitle.length > 25 ? rawTitle.slice(0, 23) + "…" : rawTitle;
+        const taskText = createSvgText(displayTitle, {
+          x: "24",
+          y: rY + 20,
+          fill: "var(--text)",
+          "font-size": "11",
+          class: "task-title-label",
+        });
+        lanesGroup.appendChild(taskText);
+
+        // Task segments
+        const segs = row.segments && row.segments.length
+          ? row.segments
+          : [{ phase: "worker", start: row.start, end: row.end || nowTime }];
+
+        const isCritical = Array.isArray(data.critical_path) && data.critical_path.includes(row.task_id);
+
+        segs.forEach((seg, sIdx) => {
+          const sx1 = timeToX(seg.start);
+          const sx2 = timeToX(seg.end);
+          const sW = Math.max(4, sx2 - sx1);
+
+          let segFill = "#6366f1";
+          if (seg.phase === "gate") segFill = "#f59e0b";
+          else if (seg.phase === "integrate") segFill = "#10b981";
+          else if (seg.phase === "lock_wait") segFill = "#64748b";
+
+          const bar = createSvgEl("rect", {
+            x: sx1,
+            y: rY + (ROW_H - BAR_H) / 2,
+            width: sW,
+            height: BAR_H,
+            rx: "4",
+            fill: segFill,
+            class: "task-bar",
+          });
+
+          // Attach hover handlers
+          bar.addEventListener("mouseenter", (e) => {
+            const tip = byId("tooltip");
+            byId("tooltip-title").textContent = row.title || row.task_id;
+            byId("tooltip-body").textContent = (seg.phase || "phase") + " · " + (row.status || "");
+            tip.style.left = (e.pageX + 10) + "px";
+            tip.style.top = (e.pageY + 10) + "px";
+            tip.style.display = "block";
+          });
+          bar.addEventListener("mouseleave", () => {
+            byId("tooltip").style.display = "none";
+          });
+
+          lanesGroup.appendChild(bar);
+
+          // If lock_wait, overlay pattern
+          if (seg.phase === "lock_wait") {
+            const patOverlay = createSvgEl("rect", {
+              x: sx1,
+              y: rY + (ROW_H - BAR_H) / 2,
+              width: sW,
+              height: BAR_H,
+              rx: "4",
+              fill: "url(#pattern-wait)",
+              opacity: "0.5",
+              "pointer-events": "none",
+            });
+            lanesGroup.appendChild(patOverlay);
+          }
+
+          // Live pulse at the trailing edge of the latest segment if running
+          if (row.status === "running" && sIdx === segs.length - 1) {
+            const headCircle = createSvgEl("circle", {
+              cx: sx2,
+              cy: rY + ROW_H / 2,
+              r: "4",
+              fill: "#38bdf8",
+            });
+            if (!prefersReducedMotion) {
+              const animR = createSvgEl("animate", {
+                attributeName: "r",
+                values: "3;6;3",
+                dur: "1.2s",
+                repeatCount: "indefinite",
+              });
+              const animOp = createSvgEl("animate", {
+                attributeName: "opacity",
+                values: "1;0.4;1",
+                dur: "1.2s",
+                repeatCount: "indefinite",
+              });
+              headCircle.appendChild(animR);
+              headCircle.appendChild(animOp);
+            }
+            lanesGroup.appendChild(headCircle);
+          }
+        });
+
+        // Critical path highlight border
+        if (isCritical) {
+          const critX1 = rowStartXVal;
+          const critX2 = rowEndXVal;
+          const critW = Math.max(4, critX2 - critX1);
+          const critOutline = createSvgEl("rect", {
+            x: critX1 - 1,
+            y: rY + (ROW_H - BAR_H) / 2 - 1,
+            width: critW + 2,
+            height: BAR_H + 2,
+            rx: "5",
+            fill: "none",
+            stroke: "#f59e0b",
+            "stroke-width": "2",
+            "pointer-events": "none",
+          });
+          lanesGroup.appendChild(critOutline);
+        }
+
+        // Failure badge
+        if (row.status === "failed") {
+          const failMarker = createSvgEl("rect", {
+            x: rowEndXVal - 4,
+            y: rY + (ROW_H - BAR_H) / 2,
+            width: "6",
+            height: BAR_H,
+            rx: "2",
+            fill: "#ef4444",
+          });
+          lanesGroup.appendChild(failMarker);
+        }
+
+        // Attempts badge
+        if (row.attempts > 1) {
+          const attText = createSvgText("[" + row.attempts + "]", {
+            x: Math.max(rowStartXVal - 6, LABEL_W + 4),
+            y: rY + ROW_H / 2 + 4,
+            "text-anchor": "end",
+            fill: "var(--yellow)",
+            "font-size": "9",
+            "font-weight": "700",
+          });
+          lanesGroup.appendChild(attText);
+        }
+      });
+
+      currentY += laneH;
+    });
+
+    svg.appendChild(lanesGroup);
+
+    // Escalation bridges
+    if (Array.isArray(data.escalations)) {
+      const escGroup = createSvgEl("g", { class: "escalations-group" });
+      data.escalations.forEach((esc) => {
+        const yFrom = laneCenterY[esc.from_via];
+        const yTo = laneCenterY[esc.to_via];
+        if (yFrom !== undefined && yTo !== undefined) {
+          const ex = timeToX(esc.at);
+          const midY = (yFrom + yTo) / 2;
+          const pathD = "M " + ex + " " + yFrom + " C " + (ex + 18) + " " + midY + ", " + (ex + 18) + " " + midY + ", " + ex + " " + yTo;
+          const bridge = createSvgEl("path", {
+            d: pathD,
+            stroke: "#ec4899",
+            "stroke-width": "2",
+            "stroke-dasharray": "3,3",
+            fill: "none",
+          });
+          escGroup.appendChild(bridge);
+
+          const escBadge = createSvgText("⤹", {
+            x: ex + 20,
+            y: midY + 4,
+            fill: "#ec4899",
+            "font-size": "12",
+            "font-weight": "700",
+          });
+          escGroup.appendChild(escBadge);
+        }
+      });
+      svg.appendChild(escGroup);
+    }
+
+    // Dependency edges
+    if (Array.isArray(data.edges)) {
+      const edgesGroup = createSvgEl("g", { class: "edges-group" });
+      data.edges.forEach((edge) => {
+        const sy = rowCenterY[edge.src];
+        const dy = rowCenterY[edge.dst];
+        const sx = rowEndX[edge.src];
+        const dx = rowStartX[edge.dst];
+
+        if (sy !== undefined && dy !== undefined && sx !== undefined && dx !== undefined) {
+          const deltaX = Math.max(14, (dx - sx) * 0.4);
+          const dStr = "M " + sx + " " + sy + " C " + (sx + deltaX) + " " + sy + ", " + (dx - deltaX) + " " + dy + ", " + dx + " " + dy;
+          const edgePath = createSvgEl("path", {
+            d: dStr,
+            fill: "none",
+            stroke: edge.critical ? "#f59e0b" : "rgba(245, 158, 11, 0.45)",
+            "stroke-width": edge.critical ? "2.5" : "1.2",
+            "marker-end": edge.critical ? "url(#arrow-crit)" : "url(#arrow)",
+          });
+          edgesGroup.appendChild(edgePath);
+        }
+      });
+      svg.appendChild(edgesGroup);
+    }
+
+    // "Now" vertical line
+    if (data.run && data.run.status === "running") {
+      const nowX = timeToX(nowTime);
+      const nowLine = createSvgEl("line", {
+        x1: nowX,
+        y1: HEADER_H,
+        x2: nowX,
+        y2: currentY,
+        stroke: "#38bdf8",
+        "stroke-width": "1.8",
+        "stroke-dasharray": "4,3",
+      });
+      svg.appendChild(nowLine);
+
+      const nowLabel = createSvgText(text.now, {
+        x: nowX + 4,
+        y: HEADER_H + 12,
+        fill: "#38bdf8",
+        "font-size": "10",
+        "font-weight": "700",
+      });
+      svg.appendChild(nowLabel);
+    }
+
+    // Cost River
+    if (Array.isArray(data.cost_series) && data.cost_series.length > 0) {
+      const riverTopY = currentY + 36;
+      const riverH = 80;
+      const riverBottomY = riverTopY + riverH;
+
+      const riverGroup = createSvgEl("g", { class: "cost-river-group" });
+
+      // Title
+      const riverLabel = createSvgText(text.cost_river, {
+        x: "16",
+        y: riverTopY - 10,
+        fill: "var(--muted)",
+        "font-size": "11",
+        "font-weight": "700",
+      });
+      riverGroup.appendChild(riverLabel);
+
+      let maxCost = 0.001;
+      data.cost_series.forEach((pt) => {
+        if (pt.actual_usd > maxCost) maxCost = pt.actual_usd;
+        if (pt.baseline_usd && pt.baseline_usd > maxCost) maxCost = pt.baseline_usd;
+      });
+
+      const actualPts = [];
+      const basePts = [];
+
+      data.cost_series.forEach((pt) => {
+        const px = timeToX(pt.t);
+        const py = riverBottomY - (pt.actual_usd / maxCost) * (riverH - 12);
+        actualPts.push({ x: px, y: py });
+        if (pt.baseline_usd !== undefined && pt.baseline_usd !== null) {
+          const bpy = riverBottomY - (pt.baseline_usd / maxCost) * (riverH - 12);
+          basePts.push({ x: px, y: bpy });
+        }
+      });
+
+      if (actualPts.length > 0) {
+        let areaD = "M " + actualPts[0].x + " " + riverBottomY + " L " + actualPts[0].x + " " + actualPts[0].y;
+        for (let i = 1; i < actualPts.length; i++) {
+          areaD += " L " + actualPts[i].x + " " + actualPts[i].y;
+        }
+        areaD += " L " + actualPts[actualPts.length - 1].x + " " + riverBottomY + " z";
+
+        const areaPath = createSvgEl("path", {
+          d: areaD,
+          fill: "url(#cost-grad)",
+        });
+        riverGroup.appendChild(areaPath);
+
+        let lineD = "M " + actualPts[0].x + " " + actualPts[0].y;
+        for (let i = 1; i < actualPts.length; i++) {
+          lineD += " L " + actualPts[i].x + " " + actualPts[i].y;
+        }
+        const linePath = createSvgEl("path", {
+          d: lineD,
+          fill: "none",
+          stroke: "#818cf8",
+          "stroke-width": "2",
+        });
+        riverGroup.appendChild(linePath);
+      }
+
+      if (basePts.length > 0) {
+        let baseD = "M " + basePts[0].x + " " + basePts[0].y;
+        for (let i = 1; i < basePts.length; i++) {
+          baseD += " L " + basePts[i].x + " " + basePts[i].y;
+        }
+        const basePath = createSvgEl("path", {
+          d: baseD,
+          fill: "none",
+          stroke: "#94a3b8",
+          "stroke-width": "1.5",
+          "stroke-dasharray": "4,4",
+        });
+        riverGroup.appendChild(basePath);
+      }
+
+      // Max cost label on the right
+      const costMaxText = createSvgText("$" + maxCost.toFixed(4), {
+        x: containerW - MARGIN_R,
+        y: riverTopY + 10,
+        "text-anchor": "end",
+        fill: "var(--muted)",
+        "font-size": "10",
+      });
+      riverGroup.appendChild(costMaxText);
+
+      svg.appendChild(riverGroup);
+      currentY = riverBottomY + 20;
+    }
+
+    svg.setAttribute("width", String(containerW));
+    svg.setAttribute("height", String(currentY + 20));
+    svg.setAttribute("viewBox", "0 0 " + containerW + " " + (currentY + 20));
+  }
+
+  async function fetchTimeline() {
+    const url = selectedRunId ? "/api/timeline?run_id=" + encodeURIComponent(selectedRunId) : "/api/timeline";
+    try {
+      const res = await fetch(url);
+      if (res.status === 404) {
+        showNotice(text.run_not_found);
+        selectedRunId = null;
+        isRunCompleted = false;
+        const u = new URL(window.location.href);
+        u.searchParams.delete("run_id");
+        window.history.replaceState({}, "", u.toString());
+        byId("run-select").value = "";
+        return fetchTimeline();
+      }
+      if (!res.ok) {
+        return;
+      }
+      const data = await res.json();
+
+      // Dynamic hue
+      if (data.project && data.project.hue !== undefined) {
+        document.documentElement.style.setProperty("--project-hue", String(data.project.hue));
+      }
+
+      // Project and title
+      const projName = (data.project && data.project.name) ? data.project.name : "Meister";
+      byId("project-name").textContent = projName;
+
+      if (data.run) {
+        const runTitle = data.run.title || data.run.id;
+        document.title = "Meister · " + projName + " · " + runTitle;
+        byId("run-header-title").textContent = runTitle;
+
+        if (data.run.status === "running") {
+          byId("live-badge").hidden = false;
+          isRunCompleted = false;
+        } else {
+          byId("live-badge").hidden = true;
+          isRunCompleted = true;
+        }
+      } else {
+        document.title = "Meister · " + projName + " · " + text.waiting_first_run;
+        byId("run-header-title").textContent = text.waiting_first_run;
+        byId("live-badge").hidden = true;
+        isRunCompleted = false;
+      }
+
+      updateCards(data.summary);
+      renderSvg(data);
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function scheduleNextPoll() {
+    if (pollingTimer) clearTimeout(pollingTimer);
+    // run concluída não gera consulta repetida se foi selecionada explicitamente
+    if (selectedRunId !== null && isRunCompleted) {
+      return;
+    }
+    const interval = document.visibilityState === "hidden" ? 5000 : 1000;
+    pollingTimer = setTimeout(async () => {
+      await fetchTimeline();
+      scheduleNextPoll();
+    }, interval);
+  }
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      if (!isRunCompleted || selectedRunId === null) {
+        fetchTimeline().then(scheduleNextPoll);
+      }
+    }
+  });
+
+  loadRuns();
+  fetchTimeline().then(scheduleNextPoll);
+})();
+</script>
+</body>
+</html>
