@@ -10,12 +10,14 @@ import subprocess
 import uuid
 import time
 import hashlib
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
 import click
 
 from meister import __version__
+from meister.dashboard.launcher import ensure_dashboard
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import (
@@ -33,6 +35,27 @@ from meister.i18n import get_language, t
 
 logger = logging.getLogger(__name__)
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
+_DEFAULT_ENSURE_DASHBOARD = ensure_dashboard
+
+
+def _start_dashboard(project_root: Path, dashboard_config: Any) -> None:
+    """Launch the dashboard independently so startup and browser opening never block orchestration."""
+    if "pytest" in sys.modules and ensure_dashboard is _DEFAULT_ENSURE_DASHBOARD:
+        return
+
+    def launch() -> None:
+        try:
+            outcome = ensure_dashboard(project_root, dashboard_config)
+        except Exception as error:
+            logger.warning("Could not launch the orchestration dashboard: %s", error)
+            return
+        if outcome.kind != "disabled" and outcome.url:
+            click.echo(t("dashboard.timeline", url=outcome.url))
+
+    try:
+        threading.Thread(target=launch, daemon=True).start()
+    except Exception as error:
+        logger.warning("Could not start the orchestration dashboard launcher: %s", error)
 
 
 def _version_string() -> str:
@@ -383,14 +406,26 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
 @click.option("--host", default="127.0.0.1", help=t("cli.dashboard.host_help"))
 @click.option("--log-dir", type=click.Path(file_okay=False), default=None, help=t("cli.common.telemetry_log_dir_help"))
 @click.option("--tui", is_flag=True, default=False, help=t("cli.dashboard.tui_help"))
-def dashboard(port, host, log_dir, tui):
+@click.option(
+    "--idle-exit-minutes",
+    type=click.IntRange(min=1),
+    default=None,
+    hidden=True,
+    help=t("dashboard.idle_exit_minutes_help"),
+)
+def dashboard(port, host, log_dir, tui, idle_exit_minutes):
     """Start the local telemetry server or TUI overlay."""
     if tui:
         from meister.herdr.tui import run_tui_loop
         run_tui_loop()
     else:
         from meister.dashboard.server import start_server
-        start_server(host=host, port=port, log_dir=log_dir)
+        start_server(
+            host=host,
+            port=port,
+            log_dir=log_dir,
+            idle_exit_minutes=idle_exit_minutes,
+        )
 
 
 @main.command("report", help=t("cli.report.help"))
@@ -1182,6 +1217,7 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
 @click.option("--socket-path", default=None, help=t("cli.daemon.socket_path_help"))
 @click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 @click.option("--quiet", "-q", is_flag=True, default=False, help=t("cli.orchestrate.quiet_help"))
+@click.option("--no-open", is_flag=True, default=False, help=t("dashboard.no_open_help"))
 def orchestrate(
     resume_id,
     workspace_id,
@@ -1193,6 +1229,7 @@ def orchestrate(
     socket_path,
     config_path,
     quiet,
+    no_open,
 ):
     """Start the autonomous multi-agent orchestration cycle."""
     from meister.plan import load_plan, PlanError, canonical_json
@@ -1266,6 +1303,9 @@ def orchestrate(
         for err in errors:
             click.echo(t("cli.orchestrate.config_error", path=err.path, message=err.message), err=True)
         sys.exit(2)
+
+    if not no_open:
+        _start_dashboard(Path.cwd(), cfg.dashboard)
 
     if resume_source is None and task:
         from meister.state import StateManager, compute_run_id
@@ -1648,6 +1688,14 @@ def config_show(config_path, json_format):
                 "max_parallel_workers": cfg.concurrency.max_parallel_workers,
                 "parallel_tasks": cfg.concurrency.parallel_tasks,
             },
+            "dashboard": {
+                "idle_exit_minutes": cfg.dashboard.idle_exit_minutes,
+                "open": cfg.dashboard.open,
+                "window": {
+                    "height": cfg.dashboard.window.height,
+                    "width": cfg.dashboard.window.width,
+                },
+            },
             "environment": {
                 "install_dependencies": cfg.environment.install_dependencies,
                 "install_timeout_seconds": cfg.environment.install_timeout_seconds,
@@ -1815,6 +1863,11 @@ def config_show(config_path, json_format):
     click.echo(f"  Max Parallel Workers: {cfg.concurrency.max_parallel_workers}")
     click.echo(f"  Layout Strategy: {cfg.concurrency.layout_strategy}")
     click.echo(f"  Isolation Mode: {cfg.concurrency.isolation_mode}\n")
+    click.echo("\n" + t("dashboard.heading"))
+    click.echo(f"  {t('dashboard.open_label')}: {cfg.dashboard.open}")
+    click.echo(f"  {t('dashboard.idle_exit_minutes_label')}: {cfg.dashboard.idle_exit_minutes}")
+    click.echo(f"  {t('dashboard.window_width_label')}: {cfg.dashboard.window.width}")
+    click.echo(f"  {t('dashboard.window_height_label')}: {cfg.dashboard.window.height}")
     click.echo(t("cli.config.scope"))
     click.echo(f"  Tolerated Files: {', '.join(cfg.scope.tolerated_files)}")
     click.echo("\n" + t("cli.config.environment"))
