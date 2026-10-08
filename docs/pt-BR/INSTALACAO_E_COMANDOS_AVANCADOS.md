@@ -321,6 +321,7 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
 
 **Roteador**
 - `router.mode`: `jev` (padrão) ou `first` (sempre a primeira via, sem rede, operação offline e determinística).
+- O `meister.config.yaml` deste repositório usa `router.mode: first`; o Jev não é usado, e o fallback de `tier_order` continua ativo.
 - `router.timeout_seconds` (10) limita cada chamada ao Jev; `router.max_attempts` (2) define as tentativas;
   `router.unavailable_cooldown_seconds` (300) define por quanto tempo novas chamadas são evitadas após uma falha.
 - `router.context_max_chars` (4000, mínimo 500) limita o contexto enviado ao Jev: o cabeçalho da tarefa e seus
@@ -351,7 +352,7 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
   `meister.config.example.yaml`. Ele substitui o gate completo somente antes e depois do merge; o gate final de
   integração sempre executa as verificações completas. Uma falha que só o gate completo detectaria será apontada
   no gate final e reprovará o run inteiro, em vez de reprovar uma tarefa individual.
-- `scope.tolerated_files`: artefatos gerados tolerados fora dos `target_files` (a lista substitui a padrão).
+- `scope.tolerated_files`: arquivos tolerados fora dos `target_files` (a lista substitui a padrão). Cada arquivo tolerado alterado gera um evento `scope_tolerated` e uma linha de progresso. Este repositório tolera `tests/**`; a suíte inteira ainda precisa passar.
 - `gate.cache` (padrão `true`): o gate guarda só as passagens, por conteúdo do código e dos comandos, e não repete
   uma verificação idêntica; `gate.cache: false` desliga.
 - `gate.repair_attempts` (padrão `1`; `0` desativa): quando o gate determinístico ou a checagem estrita de escopo reprova uma subtarefa, o Meister não descarta o worktree. Em vez disso, reabre um worker na mesma via e no mesmo worktree com uma seção REPAIR trazendo o motivo da rejeição, a lista de testes falhos e o resumo da falha. O worker ganha até `repair_attempts` tentativas para consertar quebras colaterais antes de o trabalho ser arquivado e reprovado.
