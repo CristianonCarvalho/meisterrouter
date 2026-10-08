@@ -127,6 +127,38 @@ def _dashboard_messages() -> Dict[str, str]:
     return {key: t(f"reports.dashboard.{key}") for key in keys}
 
 
+def _timeline_messages() -> Dict[str, str]:
+    keys = (
+        "waiting_first_run",
+        "live",
+        "live_newest",
+        "run_not_found",
+        "tasks",
+        "completed",
+        "failed",
+        "running",
+        "stalled",
+        "peak_parallel",
+        "avg_parallel",
+        "cost",
+        "baseline",
+        "duration",
+        "lanes",
+        "phase_worker",
+        "phase_gate",
+        "phase_integrate",
+        "phase_wait",
+        "escalation",
+        "critical_path",
+        "now",
+        "cost_river",
+        "dashboard",
+        "select_run",
+        "unassigned",
+    )
+    return {key: t(f"cli.timeline.web.{key}") for key in keys}
+
+
 def _price_tables() -> Tuple[Dict[str, float], Dict[str, float]]:
     """Preços do catálogo atual: (US$ por 1M de tokens, US$ por crédito) por via."""
     try:
@@ -188,6 +220,19 @@ def index():
         messages=_dashboard_messages(),
         language=get_language(),
     )
+
+
+@app.route("/timeline")
+def timeline():
+    now = datetime.now(timezone.utc)
+    _touch_call_time()
+    _touch_project_state(now)
+    return render_template(
+        "timeline.html",
+        messages=_timeline_messages(),
+        language=get_language(),
+    )
+
 
 
 @app.route("/api/meta")

@@ -189,3 +189,81 @@ def test_timeline_api_truncated_log(dashboard_client):
     assert data["schema"] == 1
     assert data["rows"] == []
 
+
+def test_timeline_page_returns_200_and_localized_html(dashboard_client, monkeypatch):
+    client, log_dir, _ = dashboard_client
+    from meister.i18n import reset_language_cache
+
+    monkeypatch.setenv("MEISTER_LANG", "en")
+    reset_language_cache()
+    resp_en = client.get("/timeline")
+    assert resp_en.status_code == 200
+    assert "text/html" in resp_en.content_type
+    html_en = resp_en.get_data(as_text=True)
+    assert "waiting for the first run" in html_en
+    assert "Meister" in html_en
+
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    resp_pt = client.get("/timeline")
+    assert resp_pt.status_code == 200
+    assert "text/html" in resp_pt.content_type
+    html_pt = resp_pt.get_data(as_text=True)
+    assert "aguardando a primeira run" in html_pt
+
+
+def test_timeline_html_no_inner_html_and_no_cdn(dashboard_client):
+    client, _, _ = dashboard_client
+    resp = client.get("/timeline")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "innerHTML" not in html
+    assert "outerHTML" not in html
+    assert "document.write" not in html
+    assert "cdn." not in html.lower()
+    assert "unpkg.com" not in html.lower()
+    assert "jsdelivr.net" not in html.lower()
+    assert "cdnjs" not in html.lower()
+    assert "https://" not in html
+
+
+def test_timeline_html_uses_create_element_ns_and_text_content_for_xss_prevention(dashboard_client):
+    client, log_dir, _ = dashboard_client
+    malicious_title = '<img src=x onerror=alert("xss")>'
+    _write_log(log_dir, [
+        {"event_type": "orchestration_start", "run_id": "run-xss", "ts": "2026-10-08T00:00:00Z"},
+        {
+            "event_type": "plan_parsed",
+            "run_id": "run-xss",
+            "task_id": "orchestrator",
+            "ts": "2026-10-08T00:00:01Z",
+            "task_ids": ["t1"],
+            "task_titles": {"t1": malicious_title},
+        },
+        {"event_type": "worker_spawn", "run_id": "run-xss", "task_id": "t1", "ts": "2026-10-08T00:00:02Z", "tier": "worker1"},
+    ])
+    api_resp = client.get("/api/timeline")
+    assert api_resp.status_code == 200
+    assert api_resp.get_json()["rows"][0]["title"] == malicious_title
+
+    resp = client.get("/timeline")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "<img src=x onerror=" not in html
+    assert "createElementNS" in html
+    assert "textContent" in html
+    assert "innerHTML" not in html
+
+
+def test_timeline_page_with_real_run_log(dashboard_client):
+    client, log_dir, project = dashboard_client
+    events = parallel_events(run="run-sample")
+    _write_log(log_dir, events)
+    resp = client.get("/timeline?run_id=run-sample")
+    assert resp.status_code == 200
+    html = resp.get_data(as_text=True)
+    assert "Meister" in html
+    assert "/api/timeline" in html
+
+
+
