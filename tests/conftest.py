@@ -1,11 +1,13 @@
 import math
 import os
 import pathlib
+import shlex
 import signal
 import subprocess
 import tempfile
 import time
 import warnings
+import webbrowser
 from contextlib import contextmanager
 from dataclasses import dataclass
 
@@ -355,6 +357,50 @@ def block_network_and_stub_jev(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def forbid_real_dashboard_and_browser(monkeypatch):
+    """Prevent tests from starting a real dashboard server or browser."""
+    real_popen = subprocess.Popen
+
+    class GuardedPopen(real_popen):
+        def __init__(self, args, *popenargs, **kwargs):
+            command = os.fsdecode(args) if isinstance(args, (str, bytes, os.PathLike)) else list(args)
+            if isinstance(command, str):
+                try:
+                    parts = shlex.split(command)
+                except ValueError:
+                    parts = command.split()
+            else:
+                parts = [os.fsdecode(part) for part in command]
+
+            has_dashboard_command = any(
+                parts[index:index + 2] == ["meister.cli", "dashboard"]
+                for index in range(len(parts) - 1)
+            )
+            has_app_argument = any(part.startswith("--app=") for part in parts)
+            executable = pathlib.Path(parts[0]).name.lower() if parts else ""
+            is_browser = any(
+                browser in executable
+                for browser in ("chrome", "chromium", "brave", "edge", "msedge", "firefox")
+            )
+            if has_dashboard_command or has_app_argument or is_browser:
+                raise AssertionError(
+                    "test tried to launch a real dashboard server or browser: "
+                    f"{args!r}"
+                )
+            super().__init__(args, *popenargs, **kwargs)
+
+    def block_webbrowser(*args, **kwargs):
+        raise AssertionError(
+            "test tried to launch a real dashboard server or browser: "
+            f"{args or kwargs!r}"
+        )
+
+    monkeypatch.setattr(subprocess, "Popen", GuardedPopen)
+    monkeypatch.setattr(webbrowser, "open", block_webbrowser)
+    monkeypatch.setattr(webbrowser, "open_new_tab", block_webbrowser)
+
+
+@pytest.fixture(autouse=True)
 def default_test_language(monkeypatch):
     """Keep test suite in Portuguese during transition, with clean cache."""
     from meister.i18n import reset_language_cache
@@ -363,4 +409,3 @@ def default_test_language(monkeypatch):
     reset_language_cache()
     yield
     reset_language_cache()
-
