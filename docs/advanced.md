@@ -320,6 +320,7 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
 
 **Router**
 - `router.mode`: `jev` (default) or `first` (always the first lane, no network, deterministic offline operation).
+- This repository's `meister.config.yaml` uses `router.mode: first`; Jev is not used, and the `tier_order` fallback remains active.
 - `router.timeout_seconds` (10) limits each call to Jev; `router.max_attempts` (2) sets the attempts;
   `router.unavailable_cooldown_seconds` (300) sets how long new calls are avoided after a failure.
 - `router.context_max_chars` (4000, minimum 500) limits the context sent to Jev: the task header and its
@@ -349,7 +350,7 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
   `meister.config.example.yaml`. It replaces the full gate only before and after a merge; the final integration
   gate always runs the full checks. A failure that only the full gate would catch is therefore reported at the
   final gate and fails the entire run, rather than rejecting an individual task.
-- `scope.tolerated_files`: tolerated generated artifacts outside `target_files` (the list replaces the default).
+- `scope.tolerated_files`: tolerated files outside `target_files` (the list replaces the default). Each changed tolerated file emits a `scope_tolerated` event and a progress line. This repository tolerates `tests/**`; the full test suite must still pass.
 - `gate.cache` (default `true`): the gate caches only successful passes, by code content and commands, and does not repeat
   an identical check; `gate.cache: false` disables it.
 - `gate.repair_attempts` (default `1`; `0` disables): when the deterministic gate or strict scope check rejects a subtask, Meister does not discard the worktree. Instead, it reopens a worker on the same lane and worktree with a REPAIR section containing the rejection reason, failed tests list, and failure summary excerpt. The worker gets up to `repair_attempts` tries to fix collateral breakages before the subtask is archived and rejected.

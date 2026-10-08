@@ -4,6 +4,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+- Tolerated scope changes emit `scope_tolerated` events and progress lines; this repository tolerates `tests/**` but still requires the full test suite to pass. Its `meister.config.yaml` uses `router.mode: first` (no Jev; `tier_order` fallback remains active).
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
 - Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.
 - Harness process-group cleanup on worker termination, with PID-identity-checked orphan reaping before retries.
