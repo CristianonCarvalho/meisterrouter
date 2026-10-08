@@ -5,6 +5,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 ## [Unreleased]
 
 ### Changed (incompatible)
+- **Python mínimo é 3.10.** O piso declarado era 3.9, que nunca foi testado; `requires-python`, `meister setup` e a matriz do CI agora usam 3.10, a versão que o CI e o mypy já assumiam.
 - **Vias com nomes neutros.** Nomes que traziam modelo ou harness foram substituídos; atualize `workers.tier_order`, o `meister.config.yaml`, os argumentos `--model` e qualquer script que os use. Os nomes antigos deixam de existir na configuração padrão.
 
   | Nome antigo | Nome novo |
