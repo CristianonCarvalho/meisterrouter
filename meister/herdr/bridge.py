@@ -1224,7 +1224,7 @@ class HerdrEventBridge:
 
                     timeout_message = ""
                     if timeout_kind:
-                        self._reap_worker_harness(task_dict, task_id, attempt_count)
+                        reap_status = self._reap_worker_harness(task_dict, task_id, attempt_count)
                         seconds_label = f"{timeout_seconds:g}"
                         if timeout_kind == "idle":
                             timeout_message = t(
@@ -1253,6 +1253,14 @@ class HerdrEventBridge:
                                         os.remove(task_file)
                                 except OSError:
                                     pass
+                            if (
+                                prompt_result is not None
+                                and reap_status == "killed"
+                                and prompt_result.get("status") == "error"
+                            ):
+                                # O erro foi gravado pelo run-task por causa da nossa própria morte do harness:
+                                # o timeout manda (retry, escalonamento ou aproveitamento do trabalho).
+                                prompt_result = None
 
                         timeout_salvaged = False
                         if prompt_result is None and subtask_wt is not None and self._integration_pipeline is not None:

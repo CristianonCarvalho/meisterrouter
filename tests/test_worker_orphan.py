@@ -484,3 +484,104 @@ async def test_cleanup_run_panes_reaps_active_worker_harness(tmp_path):
                 pass
             if process.poll() is None:
                 process.wait(timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_timeout_ignores_error_result_written_because_of_our_own_reap(tmp_path, monkeypatch):
+    """O run-task morto pelo reap grava um resultado de erro (-9); o timeout manda: retry, não worker_error."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0")
+    config_file = tmp_path / "bridge.yaml"
+    config_file.write_text(
+        "router:\n"
+        "  mode: first\n"
+        "retry:\n"
+        "  pane_lost_attempts: 1\n"
+        "  pane_lost_backoff_seconds: 0\n"
+        "workers:\n"
+        "  idle_timeout_seconds: 0.05\n"
+        "  max_runtime_seconds: 0\n"
+        "  tier_order:\n"
+        "    - name: orphan-test\n"
+        "      harness: codex\n"
+        "      model: default\n"
+        "concurrency:\n"
+        "  parallel_tasks: false\n"
+        "  max_parallel_workers: 1\n"
+        "  layout_strategy: tiled\n"
+        "  isolation_mode: none\n",
+        encoding="utf-8",
+    )
+    config = load_config(str(config_file))
+    client = AsyncMock()
+    client.read_pane.return_value = "no changes"
+    state = StateManager(":memory:")
+    bridge = HerdrEventBridge(config=config, client=client, state_manager=state)
+    contexts = []
+    harnesses = []
+    events = []
+
+    async def fake_spawn(tier_name, task_context=None, **kwargs):
+        attempt = len(contexts) + 1
+        contexts.append(task_context)
+        if attempt == 1:
+            process = subprocess.Popen(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            harnesses.append(process)
+            pid_file = f"{os.path.splitext(task_context['task_file'])[0]}.harness.json"
+            write_atomic_json(
+                pid_file,
+                {
+                    "pid": process.pid,
+                    "pgid": process.pid,
+                    "start": process_start_signature(process.pid),
+                    "cwd": str(tmp_path),
+                },
+            )
+        else:
+            write_atomic_json(
+                task_context["result_file"],
+                {"status": "done", "modified_files": []},
+            )
+        return f"pane-{attempt}", bridge.spawner.get_tier(tier_name)
+
+    async def interrupt_like_killed_run_task(pane_id):
+        # No fluxo real, o run-task cujo harness acabou de ser morto grava este resultado antes do bridge lê-lo.
+        if pane_id == "pane-1":
+            write_atomic_json(
+                contexts[0]["result_file"],
+                {"status": "error", "error": "Harness codex failed with exit code -9", "exit_code": 1},
+            )
+
+    client.send_interrupt.side_effect = interrupt_like_killed_run_task
+    bridge.spawner.spawn_worker_pane = fake_spawn
+
+    try:
+        with patch("meister.herdr.bridge.log_event", side_effect=lambda **fields: events.append(fields)):
+            result = await asyncio.wait_for(
+                bridge.execute_subtask(
+                    {"id": "reap-error", "description": "timeout after reap", "cwd": str(tmp_path)}
+                ),
+                timeout=8,
+            )
+        assert result is True
+        assert len(contexts) == 2
+        types = [event.get("event_type") for event in events]
+        assert "harness_reaped" in types
+        assert "worker_retry" in types or "worker_timeout" in types
+        assert not any(
+            event.get("event_type") == "subtask_rejected" and event.get("reason") == "worker_error"
+            for event in events
+        )
+    finally:
+        for process in harnesses:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except (OSError, ProcessLookupError):
+                pass
+            if process.poll() is None:
+                process.wait(timeout=5)
