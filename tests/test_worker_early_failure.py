@@ -81,7 +81,7 @@ def _fake_cli(tmp_path: Path) -> str:
 def test_unknown_lane_writes_error_result_and_logs_event(tmp_path):
     cfg = _config(tmp_path, ENABLED_TIER_1)
     result_file = tmp_path / "result.json"
-    task_file = _task_file(tmp_path, model="agy_gemini_flash", config_path=cfg, result_file=result_file)
+    task_file = _task_file(tmp_path, model="via_inexistente", config_path=cfg, result_file=result_file)
 
     with pytest.raises(UnknownTierError):
         execute_task_file(task_file)
@@ -93,11 +93,11 @@ def test_unknown_lane_writes_error_result_and_logs_event(tmp_path):
     assert saved["exit_code"] == 1
     assert saved["task_id"] == "early-1"
     assert "Unknown lane" in saved["error"]
-    assert "agy_gemini_flash" in saved["error"]
+    assert "via_inexistente" in saved["error"]
     assert "tier_1" in saved["error"]
     assert saved["harness"] is None
     assert saved["cli"] is None
-    assert saved["model"] == "agy_gemini_flash"
+    assert saved["model"] == "via_inexistente"
     assert saved["modified_files"] == []
     assert saved["output"] == ""
 
@@ -109,7 +109,7 @@ def test_unknown_lane_writes_error_result_and_logs_event(tmp_path):
 def test_run_task_cli_unknown_lane_exits_1_and_writes_result(tmp_path):
     cfg = _config(tmp_path, ENABLED_TIER_1)
     result_file = tmp_path / "result.json"
-    task_file = _task_file(tmp_path, model="agy_gemini_flash", config_path=cfg, result_file=result_file)
+    task_file = _task_file(tmp_path, model="via_inexistente", config_path=cfg, result_file=result_file)
 
     env = os.environ.copy()
     env["PYTHONPATH"] = os.pathsep.join(
@@ -194,7 +194,7 @@ def test_happy_path_still_writes_done_and_no_error(tmp_path):
 
 def test_early_failure_without_result_path_raises_and_creates_nothing(tmp_path):
     cfg = _config(tmp_path, ENABLED_TIER_1)
-    task_file = _task_file(tmp_path, model="agy_gemini_flash", config_path=cfg)
+    task_file = _task_file(tmp_path, model="via_inexistente", config_path=cfg)
     (tmp_path / "logs").mkdir()
     before = sorted(p.name for p in tmp_path.iterdir())
 
