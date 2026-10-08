@@ -77,25 +77,29 @@ Each **lane** is a subscription (CLI) with a model. The **order** is the fallbac
 meister models
 ```
 ```
-  #  NOME                     HARNESS          MODELO                         CUSTO/1M  STATUS
-  1  copilot_luna             copilot          gpt-6-luna                   $0.200  ligada
-  2  agy_gemini_flash         agy              gemini-3.8-flash-high        $1.500  ligada
-  3  claude_sonnet            claude           sonnet                       $4.000  ligada
-  4  codex_luna               codex            gpt-6-luna                   $0.200  desligada
+  #  NOME                     HARNESS          MODELO                       ESFORÇO      CUSTO/1M  STATUS
+  1  tier_1                   copilot          claude-haiku-5.5             -              $0.200  ligada
+  2  tier_1b                  copilot          gpt-6-luna                   -              $0.200  ligada
+  3  tier_2                   agy              gemini-3.8-flash-high        -              $1.500  ligada
+  4  tier_3                   claude           sonnet                       -              $4.000  ligada
+  5  tier_1c                  codex            gpt-6-luna                   -              $0.200  desligada
+  6  tier_3b                  claude           opus                         -              $8.000  desligada
 ```
-(Column labels are in Portuguese: `ligada` = on, `desligada` = off, `CUSTO/1M` = cost per 1M tokens.) To change them, create the project file with the default lanes and edit it:
+(Column labels are in Portuguese: `ligada` = on, `desligada` = off, `CUSTO/1M` = cost per 1M tokens, `ESFORÇO` = reasoning effort, `-` = harness default.) To change them, create the project file with the default lanes and edit it:
 ```bash
 meister config init        # writes meister.config.yaml (lanes, order and comments)
 ```
 ```yaml
 router:
-  mode: jev                # jev picks the starting lane of each task; first = always the first lane (no network)
+  mode: jev                # jev escolhe a via inicial de cada tarefa; first = sempre a primeira (sem rede)
 workers:
-  tier_order:              # the ORDER of these lines is the fallback chain
-    - {name: copilot_luna, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: codex_luna, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
-    - {name: agy_gemini_flash, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
-    - {name: claude_sonnet, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
+  tier_order:              # a ORDEM destas linhas é a cadeia de fallback
+    - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
+    - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
+    - {name: tier_1c, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
+    - {name: tier_2, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
+    - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
+    - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}
 ```
 (`meister models` lists disabled lanes last; they are not part of the chain.)
 
@@ -105,8 +109,18 @@ workers:
 | **enable or disable** a lane | `enabled: true` or `enabled: false` |
 | restrict a lane to certain task **classes** (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (Jev only sends the lane what it accepts) |
 | ignore Jev and always use the first lane | `router.mode: first` |
+| turn a lane **on or off** from the command line | `meister models --enable tier_1c` or `meister models --disable tier_1b` |
+| set the **reasoning effort** of a lane | `effort: high` (values depend on the harness, below) |
 
 Note: the project's `tier_order` list **replaces** the default one entirely. After editing, check it with `meister config validate` and `meister models`. The fields and the remaining settings (timeouts, gate, scope) are in [advanced configuration](docs/advanced.md#advanced-configuration).
+
+Effort values per harness:
+
+| Harness | `effort` values (optional; omit it to keep the harness default) |
+|---|---|
+| `copilot` | none, minimal, low, medium, high, xhigh, max |
+| `claude`, `agy` | low, medium, high, xhigh, max |
+| `codex` | minimal, low, medium, high, xhigh |
 
 ## 📚 More documentation
 
