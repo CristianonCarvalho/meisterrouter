@@ -486,8 +486,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
 
     if isinstance(workers_data, dict) and "tier_order" in workers_data:
         raw_tiers = workers_data["tier_order"] or []
-        tier_list: List[WorkerTier] = []
-        disabled_list: List[WorkerTier] = []
+        parsed_tiers: List[WorkerTier] = []
         for i, tier in enumerate(raw_tiers):
             if isinstance(tier, dict):
                 raw_enabled = tier.get("enabled", True)
@@ -589,10 +588,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                     eligible_classes=eligible_classes,
                     effort=effort,
                 )
-                if enabled_val:
-                    tier_list.append(tier_obj)
-                else:
-                    disabled_list.append(tier_obj)
+                parsed_tiers.append(tier_obj)
             elif isinstance(tier, WorkerTier):
                 if not isinstance(tier.enabled, bool):
                     parse_issues.append(
@@ -602,10 +598,57 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
                             message=t("reports.config.enabled_boolean", value=repr(tier.enabled)),
                         )
                     )
-                if tier.enabled:
-                    tier_list.append(tier)
-                else:
-                    disabled_list.append(tier)
+                parsed_tiers.append(tier)
+
+        enabled_overrides = workers_data.get("enabled", {})
+        if not isinstance(enabled_overrides, dict):
+            parse_issues.append(
+                ConfigIssue("error", "workers.enabled", t("reports.config.expected_object"))
+            )
+            enabled_overrides = {}
+
+        tiers_by_name = {tier.name: tier for tier in parsed_tiers}
+        for lane_name, enabled in enabled_overrides.items():
+            if not isinstance(lane_name, str):
+                parse_issues.append(
+                    ConfigIssue(
+                        "error",
+                        "workers.enabled",
+                        t("tiers.enabled_name_string"),
+                    )
+                )
+                continue
+            if lane_name not in tiers_by_name:
+                parse_issues.append(
+                    ConfigIssue(
+                        "warning",
+                        f"workers.enabled.{lane_name}",
+                        t("tiers.unknown_enabled_lane", lane=lane_name),
+                    )
+                )
+            if not isinstance(enabled, bool):
+                parse_issues.append(
+                    ConfigIssue(
+                        "error",
+                        f"workers.enabled.{lane_name}",
+                        t("reports.config.expected_boolean"),
+                    )
+                )
+                continue
+            for tier in parsed_tiers:
+                if tier.name == lane_name:
+                    tier.enabled = enabled
+
+        tier_list = [tier for tier in parsed_tiers if tier.enabled]
+        disabled_list = [tier for tier in parsed_tiers if not tier.enabled]
+        if "enabled" in workers_data and not tier_list:
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    "workers.enabled",
+                    t("reports.config.no_enabled_lanes"),
+                )
+            )
         workers = WorkersConfig(
             tier_order=tier_list,
             disabled=disabled_list,
