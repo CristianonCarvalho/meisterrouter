@@ -1,0 +1,17 @@
+gate:
+  commands:
+    # O lint rápido falha cedo e mantém o feedback ágil.
+    - name: ruff
+      run: "{python} -m ruff check ."
+      timeout_seconds: 120
+      required: true
+    # O mypy também roda no gate local, não apenas no CI.
+    - name: mypy
+      run: "{python} -m mypy meister"
+      timeout_seconds: 300
+      required: true
+    # A suíte pode levar até três minutos; 900 s evita timeout sob carga.
+    - name: pytest
+      run: "{python} -m pytest -q -p no:cacheprovider"
+      timeout_seconds: 900
+      required: true
