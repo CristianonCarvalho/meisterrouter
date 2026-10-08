@@ -60,6 +60,12 @@ scope:
 environment:
   install_dependencies: true
   install_timeout_seconds: 300
+dashboard:
+  open: auto
+  idle_exit_minutes: 30
+  window:
+    width: 1280
+    height: 800
 gate:
   install: null
   python: null
