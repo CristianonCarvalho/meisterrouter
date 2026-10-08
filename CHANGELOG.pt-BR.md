@@ -4,6 +4,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+- Alterações em arquivos de escopo tolerado geram eventos `scope_tolerated` e linhas de progresso; este repositório tolera `tests/**`, mas ainda exige que a suíte inteira passe. Seu `meister.config.yaml` usa `router.mode: first` (sem Jev; o fallback de `tier_order` continua ativo).
 - Alicerce de internacionalização (`en` padrão, `pt-BR` configurável), códigos de motivo para rejeições no pipeline e catraca de literais acentuados.
 - Laço de reparo do gate determinístico (`gate.repair_attempts`) e preservação do diagnóstico da rejeição de subtarefas.
 - Encerramento do grupo do harness na saída do worker e recolha de órfãos com validação da identidade do PID antes de retentativas.

@@ -59,6 +59,16 @@ def format_event_line(
 
     prefix = f"[{task_number}/{total}] {task_id}"
     tier = str(record.get("tier") or "-")
+    if event == "scope_tolerated":
+        files = record.get("files") or []
+        visible_files = ", ".join(str(path) for path in files[:5])
+        extra = f" (+{len(files) - 5})" if len(files) > 5 else ""
+        return t(
+            "scope_report.progress",
+            prefix=prefix,
+            files=visible_files,
+            extra=extra,
+        )
     if event == "worker_spawn":
         return t("commands.progress.started", prefix=prefix, tier=tier)
     if event == "subtask_completed":
@@ -223,6 +233,7 @@ class ProgressReporter:
         self.total: Optional[int] = total_hint
         self.durations: Dict[str, float] = {}
         self._started_at: Dict[str, datetime] = {}
+        self._pending_scope_events: list[Dict[str, Any]] = []
         self._lock = threading.Lock()
 
     def on_event(self, record: Dict[str, Any]) -> None:
@@ -231,6 +242,7 @@ class ProgressReporter:
         event = _event_name(record)
         if event == "orchestration_start":
             self.run_id = str(record.get("run_id") or "")
+            self._pending_scope_events.clear()
             return
         event_run_id = record.get("run_id")
         if self.run_id and event_run_id and event_run_id != self.run_id:
@@ -243,10 +255,18 @@ class ProgressReporter:
             line = format_event_line(record)
             if line:
                 self._write(line)
+            pending_scope_events = self._pending_scope_events
+            self._pending_scope_events = []
+            for pending_record in pending_scope_events:
+                pending_task_id = str(pending_record.get("task_id") or "")
+                if pending_task_id in self.task_order:
+                    self.on_event(pending_record)
             return
 
         task_id = str(record.get("task_id") or "")
         if task_id not in self.task_order:
+            if event == "scope_tolerated" and not self.task_order and task_id:
+                self._pending_scope_events.append(record)
             return
         if event == "worker_retry":
             record = dict(record)

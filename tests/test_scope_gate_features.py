@@ -209,7 +209,8 @@ gate:
     assert any(issue.path == "gate.allow_unverified" for issue in errors)
 
 
-def test_config_defaults_include_generated_lockfiles():
+def test_config_defaults_include_generated_lockfiles(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     defaults = load_config()
     assert {
         "pnpm-lock.yaml", "package-lock.json", "yarn.lock", "poetry.lock", "uv.lock",

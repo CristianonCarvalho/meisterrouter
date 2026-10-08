@@ -30,7 +30,7 @@ import subprocess
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import Any, List, Optional, Set, Tuple
 
 from meister.faults import crash_point
@@ -155,6 +155,26 @@ def scope_violations(
     ]
 
 
+def tolerated_touched(
+    files: List[str],
+    target_files: Optional[List[str]],
+    tolerated_files: Optional[List[str]],
+    ignored_files: Optional[Set[str]] = None,
+) -> List[str]:
+    """Return tolerated changed files that are outside the declared target scope."""
+    if not target_files:
+        return []
+    targets = [_normalize_scope_pattern(path) for path in target_files]
+    tolerated = [_normalize_scope_pattern(path) for path in tolerated_files or []]
+    ignored = ignored_files or set()
+    return [
+        path for path in files
+        if path not in ignored
+        and not any(_scope_matches(pattern, path) for pattern in targets)
+        and any(_scope_matches(pattern, path, basename_glob=True) for pattern in tolerated)
+    ]
+
+
 def compute_repo_hash(repo_root: str) -> str:
     """Calcula um hash determinístico curto para isolar worktrees de diferentes repositórios."""
     real_path = os.path.realpath(os.path.abspath(repo_root))
@@ -184,6 +204,7 @@ class PreparedSubtask:
     tier: Optional[str]
     early: Optional[Tuple[bool, str]] = None
     integrated_sha: Optional[str] = None
+    tolerated_touched: List[str] = field(default_factory=list)
 
 
 class WorktreeManager:
@@ -559,22 +580,27 @@ class WorktreeManager:
 
         modified = self.get_modified_files(worktree_path, base_ref=base_ref)
         tolerated_patterns = tolerated if tolerated is not None else load_config(cwd=self.repo_root).scope.tolerated_files
-        ignored: Set[str] = set()
-        if modified:
-            try:
-                result = subprocess.run(
-                    ["git", "check-ignore", "--no-index", "-z", "--stdin"],
-                    cwd=worktree_path,
-                    input="\0".join(modified) + "\0",
-                    capture_output=True,
-                    text=True,
-                )
-                ignored = {name for name in result.stdout.split("\0") if name}
-            except OSError as exc:
-                logger.warning(t("engine.worktree.check_ignore_failed", error=exc))
+        ignored = self._get_ignored_files(worktree_path, modified)
 
         out_of_scope = scope_violations(modified, target_files, tolerated_patterns, ignored)
         return len(out_of_scope) == 0, out_of_scope
+
+    @staticmethod
+    def _get_ignored_files(worktree_path: str, files: List[str]) -> Set[str]:
+        if not files:
+            return set()
+        try:
+            result = subprocess.run(
+                ["git", "check-ignore", "--no-index", "-z", "--stdin"],
+                cwd=worktree_path,
+                input="\0".join(files) + "\0",
+                capture_output=True,
+                text=True,
+            )
+            return {name for name in result.stdout.split("\0") if name}
+        except OSError as exc:
+            logger.warning(t("engine.worktree.check_ignore_failed", error=exc))
+            return set()
 
     def _archive_branch_if_unmerged(
         self,
@@ -1379,6 +1405,13 @@ class IntegrationPipeline:
         changed_files = self.wt_mgr.get_modified_files(
             subtask_wt.worktree_path,
             base_ref=subtask_wt.base_commit,
+        )
+        ignored_files = self.wt_mgr._get_ignored_files(subtask_wt.worktree_path, changed_files)
+        prepared.tolerated_touched = tolerated_touched(
+            changed_files,
+            target_files,
+            self.config.scope.tolerated_files,
+            ignored_files,
         )
         worker_result = self._run_gate(
             subtask_wt.worktree_path,

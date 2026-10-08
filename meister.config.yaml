@@ -1,3 +1,17 @@
+router:
+  # Primeira via do catálogo, sem Jev: o agy travou em planos e o Copilot concluiu os planos recentes; o fallback do tier_order continua valendo.
+  mode: first
+scope:
+  # Alterações em tests/ fora do escopo são aceitas se a suíte inteira passar e ficam registradas no evento scope_tolerated.
+  tolerated_files:
+    - pnpm-lock.yaml
+    - package-lock.json
+    - yarn.lock
+    - poetry.lock
+    - uv.lock
+    - "*.tsbuildinfo"
+    - .vitest/**
+    - tests/**
 gate:
   commands:
     # O lint rápido falha cedo e mantém o feedback ágil.
