@@ -6,8 +6,9 @@ import hashlib
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional, Sequence
 
+from meister.config import WorkerTier
 from meister.timeline import Timeline, build_timeline
 from meister.timeline_graph import Graph, build_graph
 
@@ -27,14 +28,47 @@ def _project_details(project: str) -> dict[str, Any]:
     return {"name": root.name or str(root), "hue": hue}
 
 
+def lane_catalog_details(
+    names: Iterable[str],
+    tiers: Sequence[WorkerTier],
+) -> dict[str, dict[str, Optional[str]]]:
+    """Map each via name to its catalog harness, model and effort (all None when unknown)."""
+    by_name = {tier.name: tier for tier in tiers}
+    details: dict[str, dict[str, Optional[str]]] = {}
+    for name in names:
+        tier = by_name.get(name)
+        if tier is None:
+            details[name] = {"harness": None, "model": None, "effort": None}
+        else:
+            details[name] = {
+                "harness": tier.harness or None,
+                "model": tier.model or None,
+                "effort": tier.effort or None,
+            }
+    return details
+
+
+def _catalog_tiers() -> list[WorkerTier]:
+    """Return workers.tier_order from the project config; a broken config yields no tiers."""
+    from meister.config import load_config
+
+    try:
+        return list(load_config().workers.tier_order)
+    except Exception:
+        return []
+
+
 def timeline_to_dict(
     timeline: Timeline,
     graph: Graph,
     *,
     project: str,
     now: datetime,
+    tiers: Optional[Sequence[WorkerTier]] = None,
 ) -> dict[str, Any]:
     """Convert a Timeline and its graph into the stable, JSON-compatible schema."""
+    catalog = _catalog_tiers() if tiers is None else tiers
+    details = lane_catalog_details((lane.via for lane in graph.lanes), catalog)
     return {
         "schema": 1,
         "project": _project_details(project),
@@ -62,6 +96,7 @@ def timeline_to_dict(
                 "tasks": lane.tasks,
                 "busy_s": lane.busy_s,
                 "utilization": lane.utilization,
+                **details[lane.via],
             }
             for lane in graph.lanes
         ],
