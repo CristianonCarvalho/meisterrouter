@@ -11,4 +11,15 @@ MESSAGES: dict[str, str] = {
     ),
     "tiers.unknown_enabled_lane": "workers.enabled references unknown lane '{lane}'; the entry is ignored.",
     "tiers.enabled_name_string": "workers.enabled lane names must be strings.",
+    "tiers.models.enable_help": "Enable a configured lane (may be repeated).",
+    "tiers.models.disable_help": "Disable a configured lane (may be repeated).",
+    "tiers.models.effort": "EFFORT",
+    "tiers.last_enabled_lane": (
+        "Cannot disable the last enabled lane; at least one lane must remain enabled."
+    ),
+    "tiers.unknown_lane": "Unknown lane(s): {lanes}. Valid lane names: {valid}",
+    "tiers.conflicting_toggle": "Cannot enable and disable the same lane: {lanes}",
+    "tiers.toggle_error": "Could not update enabled lanes: {error}",
+    "tiers.invalid_configuration": "Cannot update lanes because the configuration is invalid:",
+    "tiers.configuration_issue": "{path}: {message}",
 }
