@@ -61,6 +61,19 @@ Do not offer native execution or alternative workflows; if Meister is unavailabl
 6. `**Files:**` accepts globs (`src/text/*.ts`, `drizzle/*`). Declare all files the task may create or change; anything outside scope fails the task.
 7. At the end, the result is integrated into the project's `main` by fast-forward; nothing is included without passing the gates.
 
+### Timeline window
+At the start of `meister orchestrate`, MeisterRouter starts the project's local timeline server and opens the timeline in a browser. It shows the same live task timeline as `meister timeline`, in a browser window.
+
+Configure this in `meister.config.yaml`:
+```yaml
+dashboard:
+  open: auto # auto | app | tab | never
+  idle_exit_minutes: 30
+```
+`auto` (the default) and `app` try to open a Chromium app window, falling back to a tab in the default browser; `tab` opens a default-browser tab; `never` disables the timeline server and browser launch. `meister orchestrate --no-open` has the same effect for that invocation. There is at most one app window per project: later orchestrations reuse that project's server and window. Each project has its own port, URL, and `.meister/dashboard.json` state file.
+
+The server listens only on `127.0.0.1`. Without a graphical display (for example, over SSH or in CI), MeisterRouter does not try to open a browser and prints the timeline URL so you can open it yourself later. If Chromium is unavailable, it tries the default browser tab instead. A server or browser-launch failure does not stop orchestration. The server exits by itself after `dashboard.idle_exit_minutes` without use, once no run is active; to stop a forgotten server sooner, run `kill <PID>` using the PID recorded in `.meister/dashboard.json`.
+
 ## 4. When something fails: what you need to do
 `meister orchestrate` shows progress by task and the final summary on stderr; the success/failure message
 remains on stdout. Use `--quiet` (or `-q`) to omit progress and the summary.
