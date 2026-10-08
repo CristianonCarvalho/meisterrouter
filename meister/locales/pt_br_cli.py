@@ -281,4 +281,7 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.duration_minutes": "{value}min",
     "cli.timeline.web.duration_hours": "{value}h",
     "cli.timeline.web.no_runs": "Nenhuma run disponível",
+    "cli.timeline.web.tooltip_phase_duration": "Duração da fase",
+    "cli.timeline.web.tooltip_total_duration": "Duração total",
+    "cli.timeline.web.tooltip_wait_duration": "Tempo de espera",
 }

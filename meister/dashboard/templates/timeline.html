@@ -323,6 +323,7 @@
   <div id="tooltip" class="tooltip">
     <div id="tooltip-title" class="tooltip-title"></div>
     <div id="tooltip-body" class="tooltip-row"></div>
+    <div id="tooltip-timing" class="tooltip-row"></div>
   </div>
 </div>
 
@@ -352,6 +353,35 @@
   function firstWorkStartX(row, timeToX, fallbackX) {
     const seg = (row.segments || []).find((s) => s.phase !== "wait");
     return seg ? timeToX(seg.start) : fallbackX;
+  }
+  // Durations in seconds; null when not computable (never NaN or negative).
+  function taskTiming(row, seg, nowMs) {
+    const toMs = (value) => {
+      if (value === null || value === undefined || value === "") return null;
+      const ms = new Date(value).getTime();
+      return Number.isFinite(ms) ? ms : null;
+    };
+    const span = (startMs, endMs) => {
+      if (startMs === null || endMs === null) return null;
+      const sec = (endMs - startMs) / 1000;
+      return Number.isFinite(sec) && sec >= 0 ? sec : null;
+    };
+    const segEnd = (s) => {
+      const end = toMs(s.end);
+      return end === null ? nowMs : end;
+    };
+    const segments = Array.isArray(row.segments) ? row.segments : null;
+    const phaseSec = seg ? span(toMs(seg.start), segEnd(seg)) : null;
+    const workSeg = segments ? segments.find((s) => s.phase !== "wait") : null;
+    const totalEnd = toMs(row.end) ?? nowMs;
+    const totalSec = workSeg ? span(toMs(workSeg.start), totalEnd) : null;
+    let waitSec = null;
+    if (segments) {
+      waitSec = segments
+        .filter((s) => s.phase === "wait")
+        .reduce((sum, s) => sum + (span(toMs(s.start), segEnd(s)) || 0), 0);
+    }
+    return { phaseSec, totalSec, waitSec };
   }
   // Orthogonal elbow: horizontal stub, vertical trunk per lane, horizontal tail into dx.
   function edgePathD(sx, sy, dx, dy, laneIndex) {
@@ -448,12 +478,25 @@
     banner.hidden = false;
   }
 
-  function showTaskTooltip(event, row, via, phase) {
+  function showTaskTooltip(event, row, via, phase, seg) {
     const tip = byId("tooltip");
     byId("tooltip-title").textContent = row.title || row.task_id;
     byId("tooltip-body").textContent = [row.task_id, via, phase, row.status]
       .filter(Boolean)
       .join(" · ");
+    const timing = taskTiming(row, seg, Date.now());
+    const timingBox = byId("tooltip-timing");
+    timingBox.replaceChildren();
+    [
+      [timing.phaseSec, text.tooltip_phase_duration],
+      [timing.totalSec, text.tooltip_total_duration],
+      [timing.waitSec, text.tooltip_wait_duration],
+    ].forEach(([sec, label]) => {
+      if (sec === null || sec === undefined) return;
+      const line = document.createElement("div");
+      line.textContent = label + ": " + formatDuration(sec);
+      timingBox.appendChild(line);
+    });
     tip.style.display = "block";
 
     let left = event.clientX + 10;
@@ -956,10 +999,10 @@
           });
 
           bar.addEventListener("mouseenter", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase);
+            showTaskTooltip(event, row, lane.via, seg.phase, seg);
           });
           bar.addEventListener("mousemove", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase);
+            showTaskTooltip(event, row, lane.via, seg.phase, seg);
           });
           bar.addEventListener("mouseleave", hideTaskTooltip);
 
