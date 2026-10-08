@@ -361,3 +361,21 @@ def test_timeline_html_hides_notice_banner_and_draws_wait_distinctly(dashboard_c
     assert ".notice[hidden] { display: none; }" in html
     assert 'seg.phase === "wait"' in html
     assert 'segFill = "#475569"' in html
+
+
+def test_timeline_task_tooltips_are_visible_and_task_titles_have_tooltips(dashboard_client):
+    client, _, _ = dashboard_client
+    response = client.get("/timeline")
+    html = response.get_data(as_text=True)
+
+    assert ".tooltip {\n    position: fixed;" in html
+    assert "event.clientX" in html
+    assert "event.clientY" in html
+    assert "event.pageX" not in html
+    assert "event.pageY" not in html
+    assert "window.innerWidth" in html
+    assert "window.innerHeight" in html
+    assert 'taskText.addEventListener("mouseenter"' in html
+    assert 'taskText.addEventListener("mouseleave"' in html
+    assert "rawTitle.length > 25" not in html
+    assert "innerHTML" not in html

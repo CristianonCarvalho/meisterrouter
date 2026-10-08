@@ -190,8 +190,12 @@
     filter: brightness(1.25);
     cursor: pointer;
   }
+  .task-title-label {
+    cursor: default;
+    pointer-events: auto;
+  }
   .tooltip {
-    position: absolute;
+    position: fixed;
     display: none;
     padding: 8px 12px;
     background: #1a2234;
@@ -409,6 +413,30 @@
     const banner = byId("notice-banner");
     byId("notice-text").textContent = message;
     banner.hidden = false;
+  }
+
+  function showTaskTooltip(event, row, via, phase) {
+    const tip = byId("tooltip");
+    byId("tooltip-title").textContent = row.title || row.task_id;
+    byId("tooltip-body").textContent = [row.task_id, via, phase, row.status]
+      .filter(Boolean)
+      .join(" · ");
+    tip.style.display = "block";
+
+    let left = event.clientX + 10;
+    let top = event.clientY + 10;
+    if (left + tip.offsetWidth > window.innerWidth) {
+      left = event.clientX - tip.offsetWidth - 10;
+    }
+    if (top + tip.offsetHeight > window.innerHeight) {
+      top = event.clientY - tip.offsetHeight - 10;
+    }
+    tip.style.left = Math.max(0, left) + "px";
+    tip.style.top = Math.max(0, top) + "px";
+  }
+
+  function hideTaskTooltip() {
+    byId("tooltip").style.display = "none";
   }
 
   byId("notice-close").addEventListener("click", () => {
@@ -848,7 +876,19 @@
 
         // Task title on left
         const rawTitle = row.title || row.task_id;
-        const displayTitle = rawTitle.length > 25 ? rawTitle.slice(0, 23) + "…" : rawTitle;
+        const titleMaxChars = Math.floor((LABEL_W - 24 - 14) / 6.2);
+        let displayTitle = rawTitle;
+        if (rawTitle.length > titleMaxChars) {
+          if (!/\s/.test(rawTitle)) {
+            const visibleChars = titleMaxChars - 1;
+            const prefixChars = Math.ceil(visibleChars / 2);
+            const suffixChars = Math.floor(visibleChars / 2);
+            displayTitle = rawTitle.slice(0, prefixChars) + "…"
+              + rawTitle.slice(-suffixChars);
+          } else {
+            displayTitle = rawTitle.slice(0, titleMaxChars - 1) + "…";
+          }
+        }
         const taskText = createSvgText(displayTitle, {
           x: "24",
           y: rY + 20,
@@ -856,6 +896,13 @@
           "font-size": "11",
           class: "task-title-label",
         });
+        taskText.addEventListener("mouseenter", (event) => {
+          showTaskTooltip(event, row, lane.via);
+        });
+        taskText.addEventListener("mousemove", (event) => {
+          showTaskTooltip(event, row, lane.via);
+        });
+        taskText.addEventListener("mouseleave", hideTaskTooltip);
         lanesGroup.appendChild(taskText);
 
         // Task segments
@@ -886,18 +933,13 @@
             class: "task-bar",
           });
 
-          // Attach hover handlers
-          bar.addEventListener("mouseenter", (e) => {
-            const tip = byId("tooltip");
-            byId("tooltip-title").textContent = row.title || row.task_id;
-            byId("tooltip-body").textContent = (seg.phase || "phase") + " · " + (row.status || "");
-            tip.style.left = (e.pageX + 10) + "px";
-            tip.style.top = (e.pageY + 10) + "px";
-            tip.style.display = "block";
+          bar.addEventListener("mouseenter", (event) => {
+            showTaskTooltip(event, row, lane.via, seg.phase);
           });
-          bar.addEventListener("mouseleave", () => {
-            byId("tooltip").style.display = "none";
+          bar.addEventListener("mousemove", (event) => {
+            showTaskTooltip(event, row, lane.via, seg.phase);
           });
+          bar.addEventListener("mouseleave", hideTaskTooltip);
 
           lanesGroup.appendChild(bar);
 
