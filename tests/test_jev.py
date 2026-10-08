@@ -195,17 +195,19 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
 def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
     # tier_1c e tier_3b vêm desligadas: o Jev só recebe as vias ativas.
     configured_names = ["tier_1", "tier_1b", "tier_2", "tier_3"]
+    opaque_keys = ["lane_a", "lane_b", "lane_c", "lane_d"]
     response = {
         "answers": {
             "complexity": {"choice": "high"},
-            "recommended_implementer": {"choice": "tier_2"},
+            "recommended_implementer": {"choice": "lane_c"},
         },
         "usage": {},
     }
     with patch("meister.jev.call_decisions", return_value=response) as call:
         result = classify_task("A complex task")
-    assert list(call.call_args.kwargs["questions"]["recommended_implementer"]["criteria"]) == configured_names
+    assert list(call.call_args.kwargs["questions"]["recommended_implementer"]["criteria"]) == opaque_keys
     assert result["recommended_implementer"] == "tier_2"
+    assert result["fallback_chain"] == ["tier_3"]
 
     with patch("meister.jev.call_decisions", side_effect=RuntimeError("offline")):
         fallback = classify_task("A critical authentication migration")
@@ -347,7 +349,7 @@ def test_classify_task_configured_implementers_build_criteria_and_order():
     mock_raw = {
         "answers": {
             "complexity": {"choice": "medium", "confidence": 0.9},
-            "recommended_implementer": {"choice": "local", "confidence": 0.95},
+            "recommended_implementer": {"choice": "lane_b", "confidence": 0.95},
         },
         "usage": {},
     }
@@ -356,10 +358,10 @@ def test_classify_task_configured_implementers_build_criteria_and_order():
         result = classify_task("Configured routes", implementers=implementers)
 
     criteria = mock_call.call_args.kwargs["questions"]["recommended_implementer"]["criteria"]
-    assert list(criteria) == ["copilot", "local", "premium"]
-    assert criteria["copilot"] == "gpt-6-luna via copilot ($0.2/M): github_integration, code_completion"
-    assert criteria["local"] == "codex via codex: small_edits"
-    assert criteria["premium"] == "sonnet via claude"
+    assert list(criteria) == ["lane_a", "lane_b", "lane_c"]
+    assert criteria["lane_a"] == "gpt-6-luna via copilot ($0.2/M): github_integration, code_completion"
+    assert criteria["lane_b"] == "codex via codex: small_edits"
+    assert criteria["lane_c"] == "sonnet via claude"
     assert result["recommended_implementer"] == "local"
     assert result["fallback_chain"] == ["premium"]
 
@@ -408,7 +410,7 @@ def test_classify_task_configured_last_tier_has_empty_fallback_chain(monkeypatch
     mock_raw = {
         "answers": {
             "complexity": {"choice": "small"},
-            "recommended_implementer": {"choice": "custom"},
+            "recommended_implementer": {"choice": "lane_b"},
         },
         "usage": {},
     }
