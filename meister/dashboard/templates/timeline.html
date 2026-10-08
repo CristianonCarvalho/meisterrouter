@@ -333,6 +333,7 @@
 <script>
 (() => {
   const text = {{ messages|tojson }};
+  const byId = (id) => document.getElementById(id);
   // helpers:begin
   function formatDuration(seconds) {
     if (!Number.isFinite(seconds) || seconds < 0) return "—";
@@ -541,8 +542,6 @@
   document.addEventListener("pointerdown", unlockAudio, { once: true });
   document.addEventListener("keydown", unlockAudio, { once: true });
   renderSoundToggle();
-
-  const byId = (id) => document.getElementById(id);
 
   function reduce(current, action) {
     switch (action.type) {
