@@ -1,11 +1,12 @@
-import logging
+import io
 import subprocess
 
 import pytest
 
 from meister.config import load_config
 from meister.herdr.bridge import HerdrEventBridge
-from meister.i18n import t
+from meister.i18n import reset_language_cache
+from meister.progress import ProgressReporter, format_event_line
 from meister.state import StateManager, SubtaskState
 from meister.worktree import tolerated_touched
 
@@ -94,11 +95,9 @@ def _bridge_and_reuse(tmp_path, monkeypatch, *, tolerated_change):
 def test_bridge_reports_only_successfully_scoped_tolerated_changes(
     tmp_path,
     monkeypatch,
-    caplog,
     tolerated_change,
 ):
-    with caplog.at_level(logging.INFO, logger="meister.herdr.bridge"):
-        events = _bridge_and_reuse(tmp_path, monkeypatch, tolerated_change=tolerated_change)
+    events = _bridge_and_reuse(tmp_path, monkeypatch, tolerated_change=tolerated_change)
 
     reports = [event for event in events if event.get("event_type") == "scope_tolerated"]
     if tolerated_change:
@@ -107,12 +106,64 @@ def test_bridge_reports_only_successfully_scoped_tolerated_changes(
         assert reports[0]["task_id"] == "task_2"
         assert reports[0]["files"] == ["tests/a.py"]
         assert reports[0]["count"] == 1
-        expected_line = t(
-            "scope_report.progress",
-            prefix="[1/1] task_2",
-            files="tests/a.py",
-            extra="",
-        )
-        assert any(expected_line in record.message for record in caplog.records)
     else:
         assert reports == []
+
+
+@pytest.mark.parametrize(
+    ("language", "localized_label"),
+    [("en", "tolerated files"), ("pt-BR", "arquivos tolerados")],
+)
+@pytest.mark.parametrize(
+    ("file_count", "visible_count", "extra"),
+    [(1, 1, ""), (3, 3, ""), (7, 5, " (+2)")],
+)
+def test_scope_tolerated_event_line_is_localized_and_limits_visible_files(
+    monkeypatch,
+    language,
+    localized_label,
+    file_count,
+    visible_count,
+    extra,
+):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    files = [f"tests/file_{index}.py" for index in range(1, file_count + 1)]
+
+    line = format_event_line(
+        {"event_type": "scope_tolerated", "task_id": "task_2", "files": files},
+        task_number=1,
+        total=3,
+    )
+
+    visible_files = ", ".join(files[:visible_count])
+    assert line == f"[1/3] task_2 {localized_label}: {visible_files}{extra}"
+
+
+def test_progress_reporter_prints_scope_event_even_before_plan_is_parsed():
+    stream = io.StringIO()
+    reporter = ProgressReporter(stream=stream)
+    reporter.on_event({"event_type": "orchestration_start", "run_id": "run-123"})
+    reporter.on_event(
+        {
+            "event_type": "scope_tolerated",
+            "run_id": "run-123",
+            "task_id": "task_2",
+            "files": ["tests/a.py"],
+        }
+    )
+    assert stream.getvalue() == ""
+
+    reporter.on_event(
+        {
+            "event_type": "plan_parsed",
+            "run_id": "run-123",
+            "total": 3,
+            "batches": 2,
+            "task_ids": ["task_1", "task_2", "task_3"],
+        }
+    )
+
+    assert stream.getvalue().splitlines()[-1] == (
+        "[2/3] task_2 arquivos tolerados: tests/a.py"
+    )

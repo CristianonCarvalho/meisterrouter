@@ -307,22 +307,6 @@ class HerdrEventBridge:
             count=len(files),
         )
 
-        rows = self.state_manager.get_subtasks(run_id) if self.state_manager is not None and run_id else []
-        task_ids = [str(row.get("step_id") or "") for row in rows]
-        task_number = task_ids.index(task_id) + 1 if task_id in task_ids else 1
-        total = len(task_ids) or 1
-        prefix = f"[{task_number}/{total}] {task_id}"
-        visible_files = ", ".join(files[:5])
-        extra = f" (+{len(files) - 5})" if len(files) > 5 else ""
-        logger.info(
-            t(
-                "scope_report.progress",
-                prefix=prefix,
-                files=visible_files,
-                extra=extra,
-            )
-        )
-
     def _reuse_completed_subtasks(
         self,
         state_manager: StateManager,
