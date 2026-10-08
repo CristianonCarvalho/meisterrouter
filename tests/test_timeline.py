@@ -188,14 +188,14 @@ def test_run_without_events_is_empty_not_an_error():
 def test_jev_lane_tracks_run_calls_cost_duration_and_worker_tier():
     events = [
         ev("classify", "fix_28", 2, tier="jev", duration_ms=1500, cost=0.01),
-        ev("route_decision", "fix_28", 3, tier="agy_gemini_flash"),
-        ev("worker_spawn", "fix_28", 4, tier="agy_gemini_flash"),
-        ev("subtask_completed", "fix_28", 8, tier="agy_gemini_flash", cost=0.2),
+        ev("route_decision", "fix_28", 3, tier="tier_2"),
+        ev("worker_spawn", "fix_28", 4, tier="tier_2"),
+        ev("subtask_completed", "fix_28", 8, tier="tier_2", cost=0.2),
         ev("control", "fix_28", 9, tier="jev", duration_ms=2000, cost_usd=0.02),
         ev("control", "other", 10, run="other", duration_ms=5000, cost=10),
     ]
     timeline = build_timeline(events, "r1", at(20))
-    assert _row(timeline, "fix_28").tier == "agy_gemini_flash"
+    assert _row(timeline, "fix_28").tier == "tier_2"
     assert timeline.jev.classify_count == 1
     assert timeline.jev.control_count == 1
     assert timeline.jev.cost_usd == 0.03
@@ -255,7 +255,7 @@ def test_worker_cli_timeout_is_a_failed_task_and_closes_the_run():
     timeline = build_timeline(worker_cli_events(), "worker_cli", at(20))
     row = _row(timeline, "5b936c6b64348070")
     assert len(timeline.rows) == 1
-    assert row.title == "" and row.tier == "copilot_luna"
+    assert row.title == "" and row.tier == "tier_1b"
     assert row.status == "failed" and "timeout" in row.failure
     assert _spans(row) == [("worker", at(1), at(8))]
     assert (timeline.summary.total, timeline.summary.failed) == (1, 1)
@@ -265,7 +265,7 @@ def test_worker_cli_timeout_is_a_failed_task_and_closes_the_run():
 
 def test_worker_cli_success_and_failure_statuses():
     success = [
-        ev("worker_start", "success", 1, tier="copilot_luna"),
+        ev("worker_start", "success", 1, tier="tier_1b"),
         phase("success", 5, "worker", 4),
         ev("worker_end", "success", 6, status="done"),
     ]
@@ -278,7 +278,7 @@ def test_worker_cli_success_and_failure_statuses():
         ("error", "erro do worker"),
         ("", ""),
     ):
-        events = [ev("worker_start", "failed", 1, tier="copilot_luna")]
+        events = [ev("worker_start", "failed", 1, tier="tier_1b")]
         terminal = ev("worker_end", "failed", 2, status=worker_status)
         if error:
             terminal["error"] = error
@@ -288,7 +288,7 @@ def test_worker_cli_success_and_failure_statuses():
 
 
 def test_worker_cli_open_task_runs_and_stalls_using_existing_timeout():
-    events = [ev("worker_start", "open", 1, tier="copilot_luna")]
+    events = [ev("worker_start", "open", 1, tier="tier_1b")]
     running = build_timeline(events, "r1", at(20))
     row = _row(running, "open")
     assert running.status == row.status == "running"
@@ -302,8 +302,8 @@ def test_worker_cli_open_task_runs_and_stalls_using_existing_timeout():
 
 def test_worker_cli_run_waits_for_every_task_to_finish():
     events = [
-        ev("worker_start", "done", 1, tier="copilot_luna"),
-        ev("worker_start", "timed_out", 1.5, tier="copilot_luna"),
+        ev("worker_start", "done", 1, tier="tier_1b"),
+        ev("worker_start", "timed_out", 1.5, tier="tier_1b"),
         ev("worker_end", "done", 3, status="done"),
     ]
     pending = build_timeline(events, "r1", at(10))
@@ -320,10 +320,10 @@ def test_worker_cli_run_waits_for_every_task_to_finish():
 def test_worker_cli_start_does_not_duplicate_orchestrate_spawn():
     events = [
         ev("orchestration_start", "orchestrator", 0, task="plan"),
-        ev("worker_start", "task", 1, tier="copilot_luna"),
-        ev("worker_spawn", "task", 2, tier="copilot_luna"),
+        ev("worker_start", "task", 1, tier="tier_1b"),
+        ev("worker_spawn", "task", 2, tier="tier_1b"),
         phase("task", 5, "worker", 3),
-        ev("subtask_completed", "task", 6, tier="copilot_luna"),
+        ev("subtask_completed", "task", 6, tier="tier_1b"),
     ]
     row = _row(build_timeline(events, "r1", at(10)), "task")
     assert row.attempts == 1 and row.status == "completed"

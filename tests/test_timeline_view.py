@@ -23,7 +23,7 @@ def _timeline():
 def _stalled_timeline():
     events = [
         ev("orchestration_start", "orchestrator", 0, run="stale123", task="stale run"),
-        ev("worker_spawn", "task_stale", 1, run="stale123", tier="copilot_luna"),
+        ev("worker_spawn", "task_stale", 1, run="stale123", tier="tier_1b"),
         phase("task_stale", 10, "worker", 9, run="stale123"),
     ]
     return build_timeline(events, "stale123", at(5000))
@@ -116,7 +116,7 @@ def test_no_jev_frame_stays_unchanged_and_small_frames_respect_height():
     assert "jev" not in no_jev
     # Golden from the pre-Jev renderer for a run without Jev calls.
     assert hashlib.sha256(no_jev.encode()).hexdigest() == (
-        "9ad342ecd9895bcec209918beed017e26944639d658072bca072ae632c79e2f0"
+        "e0c865bee3b418fc4e96ceda74280342bb40178611f53c9a9902c8aae66f82bb"
     )
     assert len(render_frame(
         _timeline_with_jev(), width=120, height=5, now=at(30), color="none"
@@ -182,8 +182,8 @@ def test_badges_follow_state():
 
 
 def test_via_gets_a_color_from_catalog_position_without_model_names():
-    colored = _frame(color="truecolor", via_index={"copilot_luna": 0, "agy_gemini_flash": 1})
-    other = _frame(color="truecolor", via_index={"copilot_luna": 1, "agy_gemini_flash": 0})
+    colored = _frame(color="truecolor", via_index={"tier_1b": 0, "tier_2": 1})
+    other = _frame(color="truecolor", via_index={"tier_1b": 1, "tier_2": 0})
     assert colored != other
 
 

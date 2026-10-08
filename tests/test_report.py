@@ -145,7 +145,7 @@ def test_credit_prices_override_old_catalog_costs_and_are_reported_once():
         event(
             "subtask_completed",
             task_id="copilot",
-            tier="copilot_luna",
+            tier="tier_1b",
             cost=0.46,
             cost_source="estimated",
             credits=7.16,
@@ -153,7 +153,7 @@ def test_credit_prices_override_old_catalog_costs_and_are_reported_once():
         event(
             "subtask_completed",
             task_id="unknown",
-            tier="copilot_luna",
+            tier="tier_1b",
             cost=0,
             cost_source="unknown",
             credits=1,
@@ -161,7 +161,7 @@ def test_credit_prices_override_old_catalog_costs_and_are_reported_once():
         event(
             "subtask_completed",
             task_id="sonnet",
-            tier="claude_sonnet",
+            tier="tier_3",
             cost=0.2,
             cost_source="reported",
             credits=40,
@@ -169,7 +169,7 @@ def test_credit_prices_override_old_catalog_costs_and_are_reported_once():
         event(
             "subtask_completed",
             task_id="no-credits",
-            tier="copilot_luna",
+            tier="tier_1b",
             cost=0.01,
             cost_source="estimated",
         ),
@@ -178,31 +178,31 @@ def test_credit_prices_override_old_catalog_costs_and_are_reported_once():
     priced = compute_run_report(
         events,
         "run-alpha-0001",
-        credit_prices={"copilot_luna": 0.01},
+        credit_prices={"tier_1b": 0.01},
     )
-    copilot = priced["by_tier"]["copilot_luna"]
+    copilot = priced["by_tier"]["tier_1b"]
     assert copilot["cost_known_usd"] == 0.0916
     assert copilot["cost_reported_usd"] == 0.0816
     assert copilot["cost_estimated_usd"] == 0.01
     assert copilot["credits_usd"] == 0.0816
     assert copilot["events_unknown"] == 0
-    assert priced["by_tier"]["claude_sonnet"]["cost_known_usd"] == 0.2
-    assert sum("custo de copilot_luna calculado" in note for note in priced["notes"]) == 1
+    assert priced["by_tier"]["tier_3"]["cost_known_usd"] == 0.2
+    assert sum("custo de tier_1b calculado" in note for note in priced["notes"]) == 1
     assert any(
-        "custo de copilot_luna calculado por créditos × US$ 0.01 (cobrança)" in note
+        "custo de tier_1b calculado por créditos × US$ 0.01 (cobrança)" in note
         and "a estimativa de catálogo não foi usada" in note
         for note in priced["notes"]
     )
-    assert "by_tier.copilot_luna.credits_usd" in compute_group_report(
+    assert "by_tier.tier_1b.credits_usd" in compute_group_report(
         "A", [priced]
     )["metrics"]
-    assert "copilot_luna créditos (US$)" in render_report(
+    assert "tier_1b créditos (US$)" in render_report(
         {"groups": [], "runs": [priced]}, "table"
     )
 
     legacy = compute_run_report(events[:2] + events[-1:], "run-alpha-0001")
-    assert legacy["by_tier"]["copilot_luna"]["cost_known_usd"] == 0.46
-    assert legacy["by_tier"]["copilot_luna"]["credits_usd"] is None
+    assert legacy["by_tier"]["tier_1b"]["cost_known_usd"] == 0.46
+    assert legacy["by_tier"]["tier_1b"]["credits_usd"] is None
 
 
 def test_attempt_failures_reasons_escalation_and_unlinked_setup_note():
