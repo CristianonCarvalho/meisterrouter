@@ -12,6 +12,9 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 - [Plano e execução à mão (`plan`, `orchestrate`, `--resume`)](#plano-e-execução-à-mão-plan-orchestrate---resume)
 - [Limpar branches antigas (`clean`)](#limpar-branches-antigas-clean)
 - [Dashboard e linha do tempo: opções](#dashboard-e-linha-do-tempo-opções)
+- [Nomes das vias](#nomes-das-vias)
+- [Esforço por via](#esforço-por-via)
+- [Ligar e desligar vias](#ligar-e-desligar-vias)
 - [Configuração avançada](#configuração-avançada)
 - [Desenvolvimento e testes](#desenvolvimento-e-testes)
 - [Estrutura do projeto](#estrutura-do-projeto)
@@ -207,10 +210,10 @@ Retorna a ação autorizada: `COMPLETE` (pode comitar e concluir), `RETRY` (tent
 O `orchestrate` executa os workers por funções internas; o comando `worker` roda **uma tarefa isolada**, sem plano:
 ```bash
 # Execução pela via escolhida:
-meister worker --model copilot_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model tier_1 --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 
-# Se o modelo falhar ou estiver inativo, escale para a próxima via:
-meister worker --model codex_luna --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+# Se a via falhar ou estiver inativa, escale para a próxima:
+meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
 ```
 > ⚠️ **Zero implementação direta pelo orquestrador.** Modelos arquitetos (Claude, Codex) não devem escrever
 > código de implementação quando houver um worker configurado. Se a via recomendada falhar, a regra é o
@@ -308,6 +311,82 @@ linha própria e o custo. Somente leitura: não altera o log. Teclas: `[` e `]` 
 volta ao ao vivo, `a` um run/todos, `p` pausa, `+` e `-` zoom, setas rolam e andam no tempo, `?` ajuda, `q`
 sai. Mostra também as tarefas rodadas por `meister worker`. Um run sem fim e sem eventos além de
 `max_runtime_seconds` + 5 min aparece como `⚠ SEM SINAL`.
+
+---
+
+## Nomes das vias
+
+Cada entrada de `workers.tier_order` tem um `name`. É esse nome que você passa a `meister worker --model`,
+`meister models --enable/--disable`, ao `workers.enabled`, à linha do tempo e aos relatórios.
+
+A convenção:
+- `tier_N` é a via principal da posição N na cadeia (`tier_1` para edições pequenas, `tier_2` para raciocínio
+  profundo, `tier_3` para escalonamento).
+- `tier_Nb`, `tier_Nc`, ... são alternativas na mesma posição, em outro harness ou modelo.
+
+O nome descreve a posição na cadeia, não o modelo. Para ver qual harness, modelo e custo cada via usa, rode
+`meister models`. Os nomes usados em versões anteriores estão listados no [`CHANGELOG.pt-BR.md`](../../CHANGELOG.pt-BR.md).
+
+```bash
+meister worker --model tier_1 --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/components/SynastryPanel.tsx"
+```
+
+---
+
+## Esforço por via
+
+Uma via pode definir `effort`, o nível de esforço de raciocínio repassado ao seu harness. O campo é opcional:
+
+```yaml
+workers:
+  tier_order:
+    - {name: tier_2, harness: agy, model: <modelo>, effort: high, cost_per_m_tokens: 1.50, max_retries: 2}
+```
+
+- **Ausente** (padrão): o argv do harness fica exatamente igual ao de antes desta opção, e o harness usa o próprio
+  padrão.
+- **Definido**: o Meister acrescenta a flag do harness mostrada abaixo. Os valores não diferenciam maiúsculas.
+- **Inválido** (valor que o harness não aceita, ou `effort` em harness que não o suporta):
+  `meister config validate` aponta um erro em `workers.tier_order[i].effort`.
+
+| Harness | Valores aceitos em `effort` | Flag acrescentada ao comando |
+|---|---|---|
+| `copilot` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max` | `--reasoning-effort VALOR` |
+| `claude` | `low`, `medium`, `high`, `xhigh`, `max` | `--effort VALOR` |
+| `agy` | `low`, `medium`, `high`, `xhigh`, `max` | `--effort VALOR` |
+| `codex` | `minimal`, `low`, `medium`, `high`, `xhigh` | `-c model_reasoning_effort="VALOR"` |
+
+O arquiteto tem a própria configuração, `architect.effort`; ela é independente das vias.
+
+---
+
+## Ligar e desligar vias
+
+Uma via está ligada ou desligada. As vias desligadas continuam no arquivo de configuração e aparecem como
+desligadas em `meister models`.
+
+Há duas formas de trocar o estado de uma via:
+- **No arquivo**: defina `enabled: false` na entrada da via, ou use o mapa `workers.enabled`, que sobrescreve
+  o flag da entrada:
+  ```yaml
+  workers:
+    enabled:
+      tier_1c: true
+      tier_3b: false
+  ```
+- **Pelo comando**: `--enable` e `--disable` podem ser repetidos:
+  ```bash
+  meister models --enable tier_1c --disable tier_1
+  meister models --config meister.config.yaml --disable tier_3
+  ```
+  O comando grava o mapa `workers.enabled` no `meister.config.yaml` (ou no arquivo informado em `--config`).
+  Antes de gravar, salva o arquivo anterior como `<arquivo>.bak` e valida a configuração.
+
+Regras:
+- Não é possível desligar a última via ligada; pelo menos uma via deve continuar ligada.
+- Nomes de via desconhecidos são recusados, e a mesma via não pode aparecer em `--enable` e em `--disable`.
+- As mudanças valem no **próximo run**. Um run já em andamento mantém a configuração com que começou.
 
 ---
 
