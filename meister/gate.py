@@ -29,6 +29,35 @@ from meister.i18n import t
 logger = logging.getLogger(__name__)
 
 
+def format_timeout_detail(
+    label: str,
+    exc: subprocess.TimeoutExpired,
+    max_lines: int = 20,
+    max_chars: int = 1500,
+) -> str:
+    """Format a timeout message with a bounded tail of any partial command output."""
+    detail = f"[{label}] timeout: {exc}"
+    output_lines: List[str] = []
+    for stream in (exc.stdout, exc.stderr):
+        if isinstance(stream, bytes):
+            text = stream.decode(errors="replace")
+        elif isinstance(stream, str):
+            text = stream
+        else:
+            continue
+        output_lines.extend(line for line in text.splitlines() if line.strip())
+
+    line_limit = max(0, max_lines)
+    output_lines = output_lines[-line_limit:] if line_limit else []
+    if not output_lines:
+        return detail
+
+    partial_output = "\n".join(output_lines)
+    char_limit = max(0, max_chars)
+    partial_output = partial_output[-char_limit:] if char_limit else ""
+    return f"{detail}\n{t('gate_timeout.partial_output')}\n{partial_output}"
+
+
 def is_docs_only_change(changed_files: List[str], patterns: List[str]) -> bool:
     """Return whether every non-empty, safe relative path matches a docs-only pattern."""
     if not changed_files or not patterns:
@@ -526,7 +555,10 @@ class DeterministicGate:
                     return VerificationResult(False, "\n".join(outputs), skipped=skipped)
             except subprocess.TimeoutExpired as exc:
                 return VerificationResult(
-                    False, f"[{linter.upper()}] timeout: {exc}", infrastructure_error=True, skipped=skipped
+                    False,
+                    format_timeout_detail(linter.upper(), exc),
+                    infrastructure_error=True,
+                    skipped=skipped,
                 )
             except OSError as exc:
                 return VerificationResult(
@@ -579,7 +611,10 @@ class DeterministicGate:
                             return VerificationResult(False, "\n".join(outputs), skipped=skipped)
                 except subprocess.TimeoutExpired as exc:
                     return VerificationResult(
-                        False, f"[{runner}] timeout: {exc}", infrastructure_error=True, skipped=skipped
+                        False,
+                        format_timeout_detail(runner, exc),
+                        infrastructure_error=True,
+                        skipped=skipped,
                     )
                 except OSError as exc:
                     return VerificationResult(
@@ -652,7 +687,7 @@ class DeterministicGate:
                     shell=False,
                 )
             except subprocess.TimeoutExpired as exc:
-                detail = f"[{command.name}] timeout: {exc}"
+                detail = format_timeout_detail(command.name, exc)
                 outputs.append(detail)
                 return VerificationResult(False, "\n".join(outputs), infrastructure_error=True, skipped=skipped)
             except OSError as exc:
