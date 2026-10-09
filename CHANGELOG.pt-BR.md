@@ -25,6 +25,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **Claude Haiku 5.5 na via `tier_1`** (harness GitHub Copilot CLI) como primeira via padrão.
 
 ### Corrigido
+- **Um harness que termina na hora não esconde mais o erro real no macOS.** `HarnessWorker.run` chamava `os.getpgid` logo depois de iniciar o harness; no macOS isso levanta `ProcessLookupError` quando o harness já saiu, e a tarefa falhava com `[Errno 3] No such process` em vez da mensagem e do código de saída do próprio harness. O grupo de processos agora é o PID (o harness é líder de sessão) e gravar o arquivo de PID nunca derruba a tarefa.
+- `test_start_server_port_0_allocates_port_and_cleans_up` deixa de falhar em máquinas lentas: espera maior e reinício do relógio do vigia de inatividade, que testes anteriores podiam deixar velho.
 - **A integração não descarta mais trabalho solto.** `rollback_merge`, a reutilização de um worktree de integração (registrado ou não) e o retry com `branch -D` em `create_worktree` agora arquivam alterações soltas e commits não integrados (`refs/meister/archive/*`) antes de qualquer comando git destrutivo (`reset --hard`, `clean -fd`, `branch -D`, `rmtree`). Se o arquivamento falha, o passo não roda; um rollback bloqueado agora falha a subtarefa com erro de `integration`, e não como falha de gate. Coberto por `tests/test_worktree_integration_data_loss.py`.
 - **`current_run.json` é gravado de forma atômica**: uma interrupção não deixa mais um arquivo truncado que perde a correlação da run.
 - Falhas de limpeza deixam de ser silenciosas: geram `warning`, o evento `cleanup_failure` e a linha "Falhas de limpeza" no `meister report`.

@@ -25,6 +25,8 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed
+- **A harness that exits immediately no longer hides its real error on macOS.** `HarnessWorker.run` called `os.getpgid` right after launching the harness; on macOS that raises `ProcessLookupError` when the harness has already exited, so the task failed with `[Errno 3] No such process` instead of the harness's own message and exit code. The process group is now the PID (the harness is a session leader) and recording the PID file never aborts the task.
+- `test_start_server_port_0_allocates_port_and_cleans_up` no longer fails on slow runners: longer wait and a reset of the idle watchdog clock that earlier tests could leave stale.
 - **Integration no longer discards loose work.** `rollback_merge`, reuse of an integration worktree (registered or not) and the `branch -D` retry in `create_worktree` now archive loose changes and unmerged branch commits (`refs/meister/archive/*`) before any destructive git command (`reset --hard`, `clean -fd`, `branch -D`, `rmtree`). If archiving fails the step does not run; a blocked rollback now fails the subtask with an `integration` error instead of being reported as a gate failure. Covered by `tests/test_worktree_integration_data_loss.py`.
 - **`current_run.json` is written atomically**, so an interruption no longer leaves a truncated file that loses the run correlation.
 - Cleanup failures are no longer silent: they log a `warning`, emit a `cleanup_failure` event and appear as "Cleanup failures" in `meister report`.
