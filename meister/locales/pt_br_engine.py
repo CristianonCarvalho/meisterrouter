@@ -22,6 +22,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.archive_branch_failed": "Falha ao criar ref de arquivo para branch {branch}: {error}",
     "engine.worktree.uncommitted_check_failed": "Falha ao verificar alterações não commitadas em {path}: {error}",
     "engine.worktree.rollback_archive_blocked": "Rollback bloqueado em {path}: não foi possível arquivar alterações soltas; nada foi resetado",
+    "engine.worktree.rollback_blocked": "Rollback do merge da subtarefa {task_id} bloqueado: não foi possível arquivar suas alterações soltas. A branch de integração ainda contém esse merge; é necessária intervenção manual.",
     "engine.worktree.reuse_archive_blocked": "Reuso da integração bloqueado em {path}: não foi possível arquivar alterações soltas; nada foi resetado",
     "engine.worktree.branch_archive_blocked": "Branch {branch} não removida: não foi possível arquivar seus commits não integrados",
     "engine.worktree.uncommitted_commit": "meister: mudanças não commitadas de {task_id} (rejeitadas)",

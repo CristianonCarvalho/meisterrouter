@@ -15,7 +15,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from meister.worktree import IntegrationPipeline, WorktreeManager
+from meister.gate import VerificationResult
+from meister.herdr.bridge import extract_rejection_reason
+from meister.worktree import CodedMessage, IntegrationPipeline, WorktreeManager
 
 
 def git(repo, *args):
@@ -246,3 +248,56 @@ def test_create_worktree_transient_retry_keeps_same_name_branch_commit(tmp_path,
     assert state["failed_once"] is True
     assert os.path.isdir(info.worktree_path)
     assert reachable(repo, exclusive_sha)
+
+
+# ---------------------------------------------------------------------------
+# 4. IntegrationPipeline.merge_prepared: rollback bloqueado não pode virar 'gate'
+# ---------------------------------------------------------------------------
+
+
+def _integrate_failing_gate(ctx, task_id, rel="worker-change.txt"):
+    """Integra um worker cujo gate de integração reprova; o primeiro gate (do worker) passa."""
+    calls = {"n": 0}
+
+    def gate(repo_path, docs_only=False):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return VerificationResult(passed=True, output="worker ok")
+        return VerificationResult(passed=False, output="integration gate failed")
+
+    ctx.pipeline.gate.run_verification_ex = gate
+    worker = ctx.manager.create_worktree(task_id)
+    (Path(worker.worktree_path) / rel).write_text("worker change\n")
+    git(worker.worktree_path, "add", rel)
+    git(worker.worktree_path, "commit", "-m", f"{task_id} work")
+    return ctx.pipeline.integrate_subtask(worker, target_files=[rel])
+
+
+def test_rollback_blocked_returns_integration_code_and_keeps_failing_merge(integration_with_history, monkeypatch):
+    ctx = integration_with_history
+    monkeypatch.setattr(ctx.manager, "_archive_uncommitted", lambda *args, **kwargs: (False, None))
+    head_before = git_out(ctx.wt_path, "rev-parse", "HEAD")
+
+    ok, err = _integrate_failing_gate(ctx, "blocked-task")
+
+    assert ok is False
+    assert isinstance(err, CodedMessage)
+    assert err.code == "integration"
+    assert "blocked-task" in err
+    assert extract_rejection_reason(err) == "integration"
+    head_after = git_out(ctx.wt_path, "rev-parse", "HEAD")
+    assert head_after != head_before, "o merge reprovado deve permanecer na branch de integração"
+    assert (Path(ctx.wt_path) / "worker-change.txt").read_text() == "worker change\n"
+
+
+def test_rollback_archive_ok_still_resets_and_keeps_gate_code(integration_with_history):
+    ctx = integration_with_history
+    head_before = git_out(ctx.wt_path, "rev-parse", "HEAD")
+
+    ok, err = _integrate_failing_gate(ctx, "rollback-task")
+
+    assert ok is False
+    assert isinstance(err, CodedMessage)
+    assert err.code == "gate"
+    assert git_out(ctx.wt_path, "rev-parse", "HEAD") == head_before
+    assert not (Path(ctx.wt_path) / "worker-change.txt").exists()
