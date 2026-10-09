@@ -11,7 +11,7 @@ You pick an **orchestrator LLM** (for example Claude Code) to plan the work. Mei
 
 📐 **How it works:** see the [diagrams](docs/diagrams.md) (components, sequence, routing, failures, gates, states and more).
 
-> Heads-up: the CLI's own messages are currently in Portuguese. The documentation is available in English (here and under `docs/`) and in Portuguese (`README.pt-BR.md`, `docs/pt-BR/`).
+> Language: the CLI's messages and reports are in English by default. Set `language: pt-BR` in `meister.config.yaml` (or `MEISTER_LANG=pt-BR`) to switch them to Portuguese. The documentation is in English (here and under `docs/`) and in Portuguese (`README.pt-BR.md`, `docs/pt-BR/`).
 
 ## 👀 See it working
 
@@ -29,6 +29,7 @@ You pick an **orchestrator LLM** (for example Claude Code) to plan the work. Mei
 
 | | What | What for |
 |---|---|---|
+| **Required** | macOS or Linux. Windows is not supported (`meister` uses POSIX file locks). | Where MeisterRouter runs. |
 | **Required** | [Herdr](https://herdr.dev) | MeisterRouter runs as a plugin of it (worker tabs, popups, shortcuts). `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
 | **Recommended** | An orchestrator LLM with planning, for example **Claude Code** with the [Superpowers](https://github.com/obra/superpowers) plugin | It talks to you, writes the plan in the [plan format](docs/plan-format.md) and triggers Meister. Superpowers is optional: without it the plan only has to follow that format. |
@@ -77,15 +78,15 @@ Each **lane** is a subscription (CLI) with a model. The **order** is the fallbac
 meister models
 ```
 ```
-  #  NOME                     HARNESS          MODELO                       ESFORÇO      CUSTO/1M  STATUS
-  1  tier_1                   copilot          claude-haiku-5.5             -              $0.200  ligada
-  2  tier_1b                  copilot          gpt-6-luna                   -              $0.200  ligada
-  3  tier_2                   agy              gemini-3.8-flash-high        -              $1.500  ligada
-  4  tier_3                   claude           sonnet                       -              $4.000  ligada
-  5  tier_1c                  codex            gpt-6-luna                   -              $0.200  desligada
-  6  tier_3b                  claude           opus                         -              $8.000  desligada
+  #  NAME                     HARNESS          MODEL                        EFFORT        COST/1M  STATUS
+  1  tier_1                   copilot          claude-haiku-5.5             -          $0.200  enabled
+  2  tier_1b                  copilot          gpt-6-luna                   -          $0.200  enabled
+  3  tier_2                   agy              gemini-3.8-flash-high        -          $1.500  enabled
+  4  tier_3                   claude           sonnet                       -          $4.000  enabled
+  5  tier_1c                  codex            gpt-6-luna                   -          $0.200  disabled
+  6  tier_3b                  claude           opus                         -          $8.000  disabled
 ```
-(Column labels are in Portuguese: `ligada` = on, `desligada` = off, `CUSTO/1M` = cost per 1M tokens, `ESFORÇO` = reasoning effort, `-` = harness default.) To change them, create the project file with the default lanes and edit it:
+(The sample shows the default `language: en` labels: `COST/1M` = cost per 1M tokens, `EFFORT` = reasoning effort, `-` = harness default. With `language: pt-BR` the labels become `NOME`, `MODELO`, `ESFORÇO`, `ligada`/`desligada`.) To change them, create the project file with the default lanes and edit it:
 ```bash
 meister config init        # writes meister.config.yaml (lanes, order and comments)
 ```

@@ -27,6 +27,7 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 
 | | O quê | Para quê |
 |---|---|---|
+| **Obrigatório** | macOS ou Linux. Windows não é suportado (o `meister` usa travas de arquivo POSIX). | Onde o MeisterRouter roda. |
 | **Obrigatório** | [Herdr](https://herdr.dev) | O MeisterRouter roda como plugin dele (abas dos workers, popups, atalhos). `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Obrigatório** | Pelo menos uma CLI de IA com assinatura: `copilot`, `codex`, `agy` (Antigravity/Gemini) ou `claude` | São os workers. O `meister setup` mostra quais ele encontrou. |
 | **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
@@ -99,7 +100,7 @@ workers:
     - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
     - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}
 ```
-(O `meister models` lista as vias desligadas por último; elas não entram na cadeia.)
+(O `meister models` lista as vias desligadas por último; elas não entram na cadeia.) Os rótulos da tabela acima estão em português porque `language: pt-BR`; com o padrão `language: en` aparecem `enabled`/`disabled`, `COST/1M` e `EFFORT`.
 
 | Para... | Faça |
 |---|---|
