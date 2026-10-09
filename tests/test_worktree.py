@@ -336,3 +336,34 @@ def test_prune_archive_refs_removes_old_refs(git_repo):
 
 
 
+
+
+def test_failed_worktree_remove_warns_and_emits_cleanup_failure(tmp_path, git_repo, caplog, monkeypatch):
+    import logging
+
+    from meister.logger import get_log_file
+
+    manager = WorktreeManager(repo_root=str(git_repo), worktrees_dir=str(tmp_path / "worktrees"))
+    manager.create_worktree("worker")
+
+    original_run_git = manager._run_git
+
+    def failing_remove(args, cwd=None, env=None):
+        if args[:2] == ["worktree", "remove"]:
+            raise RuntimeError("simulated remove failure")
+        return original_run_git(args, cwd=cwd, env=env)
+
+    monkeypatch.setattr(manager, "_run_git", failing_remove)
+    with caplog.at_level(logging.WARNING, logger="meister.worktree"):
+        manager.cleanup_worktree("worker")
+
+    assert any("simulated remove failure" in r.getMessage() for r in caplog.records if r.levelno == logging.WARNING)
+    import json
+
+    with open(get_log_file(), encoding="utf-8") as f:
+        events = [json.loads(line) for line in f if line.strip()]
+    failures = [e for e in events if e.get("event_type") == "cleanup_failure"]
+    assert len(failures) == 1
+    assert failures[0]["task_id"] == "worker"
+    assert "simulated remove failure" in failures[0]["reason"]
+    assert failures[0]["path"].endswith("worker")

@@ -229,6 +229,7 @@ def test_attempt_failures_reasons_escalation_and_unlinked_setup_note():
         "timeouts": 1,
         "quota_errors": 1,
         "worker_errors": 1,
+        "cleanup_failures": 0,
     }
     assert report["phase_seconds"]["setup"] == 0.2
     assert any("setup não ligável" in note for note in report["notes"])
@@ -362,3 +363,20 @@ def test_long_titles_are_clipped_in_the_table_but_not_in_json():
     table_line = next(line for line in render_report(data, "table").splitlines() if line.startswith("Título"))
     assert "…" in table_line and table_line.count("x") < 48
     assert json.loads(render_report(data, "json"))["runs"][0]["title"].startswith("Task fix_5:")
+
+
+def test_cleanup_failures_are_counted_in_report():
+    events = [
+        event("orchestration_start", task="Limpeza"),
+        event("cleanup_failure", task_id="task-a", path="/tmp/a", reason="boom", offset=3),
+        event("cleanup_failure", task_id="task-b", path="/tmp/b", reason="boom", offset=4),
+    ]
+    report = compute_run_report(events, "run-alpha-0001")
+    assert report["attempts"]["cleanup_failures"] == 2
+    table = render_report({"groups": [], "runs": [report]}, "table")
+    assert "Cleanup failures" in table or "Falhas de limpeza" in table
+
+
+def test_run_without_cleanup_events_reports_zero():
+    report = compute_run_report([event("orchestration_start", task="Sem limpeza")], "run-alpha-0001")
+    assert report["attempts"]["cleanup_failures"] == 0

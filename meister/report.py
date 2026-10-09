@@ -288,6 +288,7 @@ def compute_run_report(
             "timeouts": sum(event_type(event) == "worker_timeout" for event in selected),
             "quota_errors": sum(event_type(event) == "quota_error" for event in selected),
             "worker_errors": sum(event_type(event) == "worker_error" for event in selected),
+            "cleanup_failures": sum(event_type(event) == "cleanup_failure" for event in selected),
         },
         "jev": {
             "classify_calls": jev["classify_calls"],
@@ -414,6 +415,7 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
     for key, label in (
         ("spawns", t("reports.spawns")), ("retries", t("reports.retries")), ("escalations", t("reports.escalations")),
         ("timeouts", t("reports.timeouts")), ("quota_errors", t("reports.quota_errors")), ("worker_errors", t("reports.worker_errors")),
+        ("cleanup_failures", t("reports.cleanup_failures")),
     ):
         add(label, [str(report["attempts"][key]) for report in reports])
     add(t("reports.rejections_by_reason"), [

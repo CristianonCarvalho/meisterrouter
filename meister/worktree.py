@@ -62,6 +62,13 @@ class ReplayError(RuntimeError):
     code = "replay_failed"
 
 
+def _log_cleanup_failure(task_id: str, path: str, reason: str) -> None:
+    """Emite telemetria de uma falha de limpeza que foi engolida (sem alterar o retorno)."""
+    from meister.logger import log_event
+
+    log_event(event_type="cleanup_failure", task_id=task_id, path=path, reason=reason)
+
+
 
 def _normalize_scope_pattern(value: str) -> str:
     raw = value.replace("\\", "/")
@@ -930,13 +937,14 @@ class WorktreeManager:
             try:
                 self._run_git(cmd)
             except Exception as e:
-                logger.debug(
+                logger.warning(
                     t(
                         "engine.worktree.remove_worktree_notice",
                         path=worktree_path,
                         error=e,
                     )
                 )
+                _log_cleanup_failure(task_id=task_id, path=worktree_path, reason=str(e))
                 if os.path.exists(worktree_path):
                     try:
                         shutil.rmtree(worktree_path, ignore_errors=True)
@@ -1252,7 +1260,8 @@ class IntegrationPipeline:
                     self.wt_mgr._run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
                     self.wt_mgr._run_git(["clean", "-fd"], cwd=worktree_path)
                 except Exception as e:
-                    logger.debug(t("engine.worktree.integration_cleanup_notice", error=e))
+                    logger.warning(t("engine.worktree.integration_cleanup_notice", error=e))
+                    _log_cleanup_failure(task_id=wt_task_id, path=worktree_path, reason=str(e))
             else:
                 stray_path = None
                 if os.path.exists(worktree_path):
