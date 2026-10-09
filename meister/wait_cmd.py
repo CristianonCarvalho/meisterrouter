@@ -32,6 +32,11 @@ class WaitUsageError(Exception):
     """Erro de uso: log inexistente, sem runs ou id de run não resolvido."""
 
 
+def _sleep(seconds: float) -> None:
+    """Costura para o intervalo de espera: testes trocam esta função, nunca `time.sleep` global."""
+    time.sleep(seconds)
+
+
 def _parse_ts(value: Any) -> Optional[datetime]:
     if not value:
         return None
@@ -132,7 +137,7 @@ def wait_for_run(
             return _report(log_file, resolved, state, datetime.now(timezone.utc))
         if deadline is not None and time.monotonic() >= deadline:
             return _report(log_file, resolved, state, datetime.now(timezone.utc))
-        time.sleep(interval)
+        _sleep(interval)
 
 
 def format_text(report: dict[str, Any]) -> str:
