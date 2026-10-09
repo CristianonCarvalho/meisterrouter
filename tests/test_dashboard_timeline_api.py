@@ -221,7 +221,7 @@ def _server_thread_stack(server_thread: threading.Thread, max_lines: int = 25, m
     except Exception:
         return "(sem pilha)"
     lines = stack.splitlines()[-max_lines:]
-    return "\n".join(lines)[:max_chars]
+    return "\n".join(lines)[-max_chars:]
 
 
 def _describe_dashboard_failure(
@@ -283,6 +283,32 @@ def test_describe_dashboard_failure_includes_server_thread_stack(tmp_path: Path)
 
     assert "pilha da thread do servidor:" in text
     assert "_blocked_in_fake_getfqdn" in text
+
+
+def test_server_thread_stack_keeps_innermost_frame_when_truncated():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _deep(depth: int) -> None:
+        if depth == 0:
+            _blocked_in_fake_getfqdn(entered, release)
+        else:
+            _deep(depth - 1)
+
+    blocked = threading.Thread(target=_deep, args=(40,), daemon=True)
+    blocked.start()
+    try:
+        assert entered.wait(5.0)
+        full = _server_thread_stack(blocked, max_lines=500, max_chars=100_000)
+        text = _server_thread_stack(blocked, max_lines=500, max_chars=300)
+    finally:
+        release.set()
+        blocked.join(5.0)
+
+    assert len(full) > 300
+    assert len(text) <= 300
+    # truncating keeps the END of the stack, where the thread is actually parked
+    assert full.endswith(text)
 
 
 def test_describe_dashboard_failure_reports_no_stack_for_finished_thread(tmp_path: Path):
