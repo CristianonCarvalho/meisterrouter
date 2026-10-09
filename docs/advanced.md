@@ -224,6 +224,7 @@ meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/c
 ### Other supporting commands
 ```bash
 meister report [--run-id ID] [--format table|json|markdown]   # cost, time, and attempts per run (read-only)
+meister wait [--run-id ID] [--timeout S] [--format text|json]   # wait for a run to finish; exit code says how (read-only)
 meister replay RUN_ID [--json]          # replay and deterministic audit of a run's events
 meister config show | validate          # display and validate the active configuration
 meister daemon --status                 # daemon status (starts automatically with Herdr)
@@ -253,6 +254,27 @@ meister orchestrate --plan-file plano.json --resume 0123456789abcdef
 ```
 Only tasks with unchanged descriptions and dependencies, an existing commit, and a compatible scope are resumed. Without
 `--resume`, the entire plan runs and Meister notifies you when there is a previous run that can be reused.
+
+### Wait for a run to finish (`wait`)
+
+`meister wait` blocks until a run ends and exits with a code that says how it ended, so a script or an
+orchestrator agent can be notified without reading the log by hand:
+
+| Exit code | Meaning |
+|---|---|
+| `0` | the run completed |
+| `1` | the run failed |
+| `130` | the run was interrupted (Ctrl+C or a termination signal), or you pressed Ctrl+C in `wait` itself (the run is not touched) |
+| `124` | `--timeout` expired; the run is still going and its current state is printed |
+| `2` | usage error: no log, no runs, run id not found or ambiguous |
+
+```bash
+meister wait --run-id 0123abcd            # prefix of the id printed by orchestrate ("Plan: ... (run 0123abcd)")
+meister wait --run-id 0123abcd --format json --timeout 1800
+```
+It only reads `orchestration_log.jsonl` (it never writes), and a resumed run is waited on again until its new end.
+**Always pass `--run-id`:** without it, `wait` takes the most recent run in the log, which may already have finished.
+Started in the background by an agent, it wakes the agent when the process exits.
 
 It also accepts `--task '<text or plan JSON>'` and `-c <config.yaml>`; the legacy format (free text) requires
 `--allow-freeform` and does not validate dependencies or schema. In Herdr, `prefix+m` starts orchestration.

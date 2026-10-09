@@ -598,6 +598,51 @@ def timeline_command(run_id, log_dir, once, all_runs, no_color, json_format):
     click.echo(frame)
 
 
+@main.command("wait", help=t("wait.help"))
+@click.option("--run-id", default=None, help=t("wait.run_id_help"))
+@click.option("--timeout", type=click.FloatRange(min=0), default=None, help=t("wait.timeout_help"))
+@click.option("--interval", type=click.FloatRange(min=0.05), default=1.0, show_default=True, help=t("wait.interval_help"))
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    show_default=True,
+    help=t("wait.format_help"),
+)
+def wait(run_id, timeout, interval, output_format):
+    """Wait until a run finishes and exit with a code describing how it ended."""
+    from meister.log_tail import resolve_log_file
+    from meister.wait_cmd import (
+        EXIT_INTERRUPTED,
+        EXIT_USAGE,
+        WaitUsageError,
+        format_text,
+        wait_for_run,
+    )
+
+    try:
+        report = wait_for_run(
+            resolve_log_file(None),
+            run_id,
+            timeout=timeout,
+            interval=interval,
+        )
+    except WaitUsageError as error:
+        click.echo(str(error), err=True)
+        raise click.exceptions.Exit(EXIT_USAGE)
+    except KeyboardInterrupt:
+        click.echo(t("wait.interrupted"), err=True)
+        raise click.exceptions.Exit(EXIT_INTERRUPTED)
+
+    if output_format == "json":
+        click.echo(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        click.echo(format_text(report))
+    if report["exit_code"]:
+        raise click.exceptions.Exit(report["exit_code"])
+
+
 @main.command("install-hooks", help=t("cli.hooks.help"))
 @click.option("--target", "-t", default=".", help=t("cli.common.repository_dir_help"))
 @click.option("--git", is_flag=True, default=False, help=t("cli.hooks.git_help"))
