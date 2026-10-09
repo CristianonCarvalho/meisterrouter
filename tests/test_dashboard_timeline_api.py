@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from meister.dashboard.server import app, start_server
+from meister.dashboard.server import _touch_call_time, app, start_server
 from meister.dashboard.state import ServerState, read_state, write_state
 from tests.timeline_fixtures import parallel_events
 
@@ -192,18 +192,21 @@ def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkey
     log_dir.mkdir()
     monkeypatch.setenv("MEISTER_LOG_DIR", str(log_dir))
 
+    # The idle watchdog compares against the last request time, which can be stale
+    # from earlier tests in the session; reset it so the idle window starts now.
+    _touch_call_time()
     # Run start_server in a thread with idle_exit_minutes to exit quickly
     # Or stop it via thread
     server_thread = threading.Thread(
-        target=lambda: start_server(port=0, idle_exit_minutes=0.01),
+        target=lambda: start_server(port=0, idle_exit_minutes=0.05),
         daemon=True,
     )
     server_thread.start()
 
-    # Wait for dashboard.json to appear
+    # Wait for dashboard.json to appear (generous deadline for slow CI runners)
     state_file = project / ".meister" / "dashboard.json"
     t0 = time.monotonic()
-    while time.monotonic() - t0 < 3.0 and not state_file.is_file():
+    while time.monotonic() - t0 < 20.0 and not state_file.is_file():
         time.sleep(0.05)
 
     assert state_file.is_file()
