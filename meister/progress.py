@@ -84,9 +84,27 @@ def format_event_line(
     if event == "worker_retry":
         retry = record.get("retry", record.get("attempt", 1))
         maximum = record.get("max_retries", record.get("max_attempts", retry))
-        if record.get("reason") == "timeout":
+        reason = record.get("reason")
+        if reason == "timeout":
             return t(
                 "commands.progress.retry_timeout",
+                prefix=prefix,
+                retry=retry,
+                maximum=maximum,
+                tier=tier,
+            )
+        if reason == "process_exit":
+            return t(
+                "process_exit.progress_retry",
+                prefix=prefix,
+                code=record.get("exit_code", "?"),
+                retry=retry,
+                maximum=maximum,
+                tier=tier,
+            )
+        if reason == "gate_repair":
+            return t(
+                "process_exit.progress_gate_repair",
                 prefix=prefix,
                 retry=retry,
                 maximum=maximum,

@@ -80,6 +80,20 @@ def _worker_has_salvageable_changes(path: str, base_commit: Optional[str]) -> bo
     return bool(status) or bool(base_commit and head != base_commit.strip())
 
 
+def _read_worker_exit_code(exit_file: str) -> int:
+    """Lê o código de saída gravado pelo shell do pane; -1 se ausente ou inválido."""
+    try:
+        with open(exit_file, encoding="utf-8") as fh:
+            return int(fh.read().strip())
+    except (OSError, ValueError):
+        return -1
+
+
+def _pane_tail(text: str, max_lines: int = 15, max_chars: int = 800) -> str:
+    tail = "\n".join(str(text).splitlines()[-max_lines:])
+    return tail[-max_chars:]
+
+
 class ResumeRequestError(ValueError):
     """Erro de validação de uma origem explicitamente solicitada para retomada."""
 
@@ -972,6 +986,7 @@ class HerdrEventBridge:
 
                 task_file = os.path.join(runs_dir, f"{active_run_id}_{task_id}_{attempt_count}_task.json")
                 result_file = os.path.join(runs_dir, f"{active_run_id}_{task_id}_{attempt_count}.json")
+                exit_file = os.path.splitext(result_file)[0] + ".exit"
 
                 resolved_config_path = getattr(self.config, "config_path", None) or os.environ.get("MEISTER_CONFIG_PATH")
                 if not resolved_config_path:
@@ -1009,7 +1024,11 @@ class HerdrEventBridge:
                 if active_run_id:
                     env_vars.append(f"MEISTER_RUN_ID={shlex.quote(active_run_id)}")
                 task_dict["command"] = cmd_parts
-                task_dict["command_str"] = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
+                # O shell do pane grava o código de saída mesmo se o run-task morrer sem resultado.
+                task_dict["exit_file"] = exit_file
+                run_line = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
+                wrapped = f"{run_line}; echo $? > {shlex.quote(exit_file)}"
+                task_dict["command_str"] = f"/bin/sh -c {shlex.quote(wrapped)}"
 
                 tab_id = None
                 pane_id = None
@@ -1026,6 +1045,11 @@ class HerdrEventBridge:
                         logger.debug("Could not inspect worker worktree before spawn at %s: %s", spawn_cwd, e)
                 worker_phase_start = time.monotonic()
                 try:
+                    try:
+                        if os.path.exists(exit_file):
+                            os.remove(exit_file)
+                    except OSError:
+                        pass
                     try:
                         if use_tabs and hasattr(self.spawner, "spawn_worker_tab"):
                             tab_id, pane_id, _ = await self.spawner.spawn_worker_tab(
@@ -1105,6 +1129,7 @@ class HerdrEventBridge:
 
                     prompt_result: Optional[Dict[str, Any]] = None
                     infra_error: Optional[str] = None
+                    process_exit_code: Optional[int] = None
                     timeout_kind: Optional[str] = None
                     timeout_seconds = 0.0
                     start_wait = time.monotonic()
@@ -1138,11 +1163,56 @@ class HerdrEventBridge:
                                 try:
                                     if os.path.exists(task_file):
                                         os.remove(task_file)
+                                    if os.path.exists(exit_file):
+                                        os.remove(exit_file)
                                 except Exception:
                                     pass
                                 break
 
                         if quota_event.is_set() or self.active_workers.get(pane_id, {}).get("status") == "quota_error":
+                            break
+
+                        if (
+                            not os.path.exists(result_file)
+                            and os.path.exists(exit_file)
+                        ):
+                            await asyncio.sleep(0.5)
+                            if os.path.exists(result_file):
+                                res_data = read_atomic_json(result_file)
+                                if res_data is not None:
+                                    prompt_result = res_data
+                                    try:
+                                        os.remove(result_file)
+                                        if os.path.exists(task_file):
+                                            os.remove(task_file)
+                                        if os.path.exists(exit_file):
+                                            os.remove(exit_file)
+                                    except Exception:
+                                        pass
+                                    break
+                                continue
+                            process_exit_code = _read_worker_exit_code(exit_file)
+                            try:
+                                pane_text = await self.client.read_pane(pane_id)
+                            except Exception:
+                                pane_text = ""
+                            infra_error = t(
+                                "process_exit.error",
+                                pane_id=pane_id,
+                                code=process_exit_code,
+                                tail=_pane_tail(pane_text),
+                            )
+                            log_event(
+                                event_type="worker_process_exited",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                attempt=attempt_count,
+                                tier=current_tier,
+                                pane_id=pane_id,
+                                exit_code=process_exit_code,
+                                tail=_pane_tail(pane_text),
+                            )
+                            self._reap_worker_harness(task_dict, task_id, attempt_count)
                             break
 
                         if exit_event.is_set():
@@ -1155,6 +1225,8 @@ class HerdrEventBridge:
                                         os.remove(result_file)
                                         if os.path.exists(task_file):
                                             os.remove(task_file)
+                                        if os.path.exists(exit_file):
+                                            os.remove(exit_file)
                                     except Exception:
                                         pass
                                     break
@@ -1203,6 +1275,8 @@ class HerdrEventBridge:
                                                     os.remove(result_file)
                                                     if os.path.exists(task_file):
                                                         os.remove(task_file)
+                                                    if os.path.exists(exit_file):
+                                                        os.remove(exit_file)
                                                 except Exception:
                                                     pass
                                                 break
@@ -1312,6 +1386,8 @@ class HerdrEventBridge:
                                     os.remove(result_file)
                                     if os.path.exists(task_file):
                                         os.remove(task_file)
+                                    if os.path.exists(exit_file):
+                                        os.remove(exit_file)
                                 except OSError:
                                     pass
                             if (
@@ -1575,9 +1651,10 @@ class HerdrEventBridge:
                                 task_id=task_id,
                                 tier=current_tier,
                                 attempt=attempt_count,
-                                reason="pane_lost",
+                                reason="pane_lost" if process_exit_code is None else "process_exit",
                                 retry=pane_lost_retries_used,
                                 backoff_seconds=backoff_seconds,
+                                **({} if process_exit_code is None else {"exit_code": process_exit_code}),
                             )
                             if tab_id and hasattr(self.client, "close_tab"):
                                 try:
