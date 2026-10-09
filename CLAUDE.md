@@ -121,6 +121,12 @@ meister orchestrate --plan-file plano.json
 > (`subagent-driven-development`, `executing-plans`) nesta etapa. O `orchestrate`
 > integra commits do worker, gerencia worktrees e aciona o evidence gate.
 
+### Ser avisado quando a run termina (`meister wait`)
+Depois de lançar `meister orchestrate`, o arquiteto não deve ficar consultando o log: leia o id da run na primeira linha
+(`Plan: ... (run 0123abcd)`) e rode `meister wait --run-id 0123abcd` **em segundo plano**. O processo sai quando a run termina
+e o código de saída diz como foi (`0` concluída, `1` falhou, `130` interrompida, `124` timeout, `2` erro de uso). Passe sempre
+o `--run-id`: sem ele, o `wait` usa a run mais recente, que pode já ter terminado.
+
 ### 5. Validar um plano JSON existente
 ```bash
 meister plan validate plano.json

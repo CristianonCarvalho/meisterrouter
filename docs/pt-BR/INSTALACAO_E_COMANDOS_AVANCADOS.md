@@ -225,6 +225,7 @@ meister worker --model tier_1b --task "Corrigir tooltip overflow" --files "src/c
 ### Outros comandos de apoio
 ```bash
 meister report [--run-id ID] [--format table|json|markdown]   # custo, tempo e tentativas por run (somente leitura)
+meister wait [--run-id ID] [--timeout S] [--format text|json]   # espera uma run terminar; o código de saída diz como (somente leitura)
 meister replay RUN_ID [--json]          # replay e auditoria determinística dos eventos de um run
 meister config show | validate          # exibe e valida a configuração ativa
 meister daemon --status                 # estado do daemon (sobe sozinho com o Herdr)
@@ -254,6 +255,27 @@ meister orchestrate --plan-file plano.json --resume 0123456789abcdef
 ```
 Só são retomadas tarefas com descrição e dependências inalteradas, commit existente e escopo compatível. Sem
 `--resume`, o plano inteiro é executado e o Meister avisa quando há um run anterior que pode ser reaproveitado.
+
+### Esperar uma run terminar (`wait`)
+
+O `meister wait` bloqueia até uma run terminar e sai com um código que diz como ela terminou, para um script ou
+um agente orquestrador ser avisado sem ler o log à mão:
+
+| Código de saída | Significado |
+|---|---|
+| `0` | a run concluiu |
+| `1` | a run falhou |
+| `130` | a run foi interrompida (Ctrl+C ou sinal de encerramento), ou você apertou Ctrl+C no próprio `wait` (a run não é tocada) |
+| `124` | o `--timeout` estourou; a run segue rodando e o estado atual é impresso |
+| `2` | erro de uso: sem log, sem runs, id da run não encontrado ou ambíguo |
+
+```bash
+meister wait --run-id 0123abcd            # prefixo do id que o orchestrate imprime ("Plan: ... (run 0123abcd)")
+meister wait --run-id 0123abcd --format json --timeout 1800
+```
+Ele só lê o `orchestration_log.jsonl` (nunca grava), e uma run retomada volta a ser esperada até o novo fim.
+**Passe sempre o `--run-id`:** sem ele, o `wait` pega a run mais recente do log, que pode já ter terminado.
+Lançado em segundo plano por um agente, ele acorda o agente quando o processo sai.
 
 Também aceita `--task '<texto ou JSON do plano>'` e `-c <config.yaml>`; o formato legado (texto livre) exige
 `--allow-freeform` e não valida dependências nem esquema. Dentro do Herdr, `prefix+m` inicia a orquestração.
