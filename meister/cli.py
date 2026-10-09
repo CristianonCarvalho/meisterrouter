@@ -1,5 +1,6 @@
 """Command-line interface for MeisterRouter."""
 
+import ipaddress
 import os
 import sys
 import json
@@ -122,6 +123,16 @@ def is_pid_alive(pid: int) -> bool:
         os.kill(pid, 0)
         return True
     except OSError:
+        return False
+
+
+def _is_loopback_host(host: str) -> bool:
+    """Return whether ``host`` only accepts connections from the local machine."""
+    if host.strip().lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip().strip("[]")).is_loopback
+    except ValueError:
         return False
 
 
@@ -406,6 +417,7 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
 @click.option("--host", default="127.0.0.1", help=t("cli.dashboard.host_help"))
 @click.option("--log-dir", type=click.Path(file_okay=False), default=None, help=t("cli.common.telemetry_log_dir_help"))
 @click.option("--tui", is_flag=True, default=False, help=t("cli.dashboard.tui_help"))
+@click.option("--allow-remote", is_flag=True, default=False, help=t("cli.dashboard.allow_remote_help"))
 @click.option(
     "--idle-exit-minutes",
     type=click.IntRange(min=1),
@@ -413,13 +425,18 @@ def control(diff_summary, test_result, attempts, security_sensitive, model, run_
     hidden=True,
     help=t("dashboard.idle_exit_minutes_help"),
 )
-def dashboard(port, host, log_dir, tui, idle_exit_minutes):
+def dashboard(port, host, log_dir, tui, allow_remote, idle_exit_minutes):
     """Start the local telemetry server or TUI overlay."""
     if tui:
         from meister.herdr.tui import run_tui_loop
         run_tui_loop()
     else:
         from meister.dashboard.server import start_server
+        if not _is_loopback_host(host):
+            if not allow_remote:
+                click.echo(t("cli.dashboard.remote_host_refused", host=host), err=True)
+                raise click.exceptions.Exit(2)
+            click.echo(t("cli.dashboard.remote_host_warning", host=host), err=True)
         start_server(
             host=host,
             port=port,
