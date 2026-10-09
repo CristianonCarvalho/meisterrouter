@@ -10,6 +10,7 @@ Envelope unificado (Achado #32):
 import hashlib
 import json
 import os
+import tempfile
 import time
 import uuid
 import threading
@@ -81,6 +82,27 @@ def get_log_file() -> str:
     return os.path.join(get_log_dir(), "orchestration_log.jsonl")
 
 
+def _atomic_write_json(path: str, data: Dict[str, Any]) -> None:
+    """Grava JSON em arquivo temporário no mesmo diretório e troca por `path` via os.replace.
+
+    Em caso de falha, o arquivo anterior em `path` permanece intacto.
+    """
+    directory = os.path.dirname(path)
+    fd, tmp_path = tempfile.mkstemp(prefix=".current_run.", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def save_current_run(run_id: str, task_id: Optional[str] = None) -> None:
     """Salva o contexto da execução atual para correlação determinística entre classify, worker e control (E2E-6)."""
     data = {
@@ -91,8 +113,7 @@ def save_current_run(run_id: str, task_id: Optional[str] = None) -> None:
     log_dir = get_log_dir()
     path = os.path.join(log_dir, "current_run.json")
     try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False)
+        _atomic_write_json(path, data)
     except Exception:
         pass
     root = find_project_root()
@@ -107,8 +128,7 @@ def save_current_run(run_id: str, task_id: Optional[str] = None) -> None:
                 except Exception:
                     pass
             try:
-                with open(os.path.join(meister_dir, "current_run.json"), "w", encoding="utf-8") as f:
-                    json.dump(data, f, ensure_ascii=False)
+                _atomic_write_json(os.path.join(meister_dir, "current_run.json"), data)
             except Exception:
                 pass
 
