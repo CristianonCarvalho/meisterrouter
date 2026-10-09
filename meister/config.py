@@ -229,6 +229,9 @@ class GateConfig:
     repair_attempts: int = field(
         default_factory=lambda: int(_default_section("gate").get("repair_attempts", 1))
     )
+    flaky_retries: int = field(
+        default_factory=lambda: int(_default_section("gate").get("flaky_retries", 2))
+    )
 
 
 @dataclass
@@ -810,6 +813,21 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             )
         )
         repair_attempts = gate_defaults.get("repair_attempts", 1)
+    flaky_retries = gate_data.get("flaky_retries", gate_defaults.get("flaky_retries", 2))
+    if isinstance(flaky_retries, bool) or not isinstance(flaky_retries, int):
+        parse_issues.append(
+            ConfigIssue("error", "gate.flaky_retries", t("reports.config.nonnegative_integer"))
+        )
+        flaky_retries = gate_defaults.get("flaky_retries", 2)
+    elif flaky_retries < 0:
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "gate.flaky_retries",
+                t("reports.config.nonnegative_value", value=flaky_retries),
+            )
+        )
+        flaky_retries = gate_defaults.get("flaky_retries", 2)
     raw_commands = gate_data.get("commands", gate_defaults["commands"])
     commands = _parse_gate_commands(raw_commands, "gate.commands", parse_issues)
     docs_only_data = gate_data.get("docs_only", {})
@@ -866,6 +884,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         cache=cache,
         docs_only=docs_only,
         repair_attempts=repair_attempts,
+        flaky_retries=flaky_retries,
     )
 
     return MeisterConfig(
@@ -1057,6 +1076,23 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                     "error",
                     "gate.repair_attempts",
                     t("reports.config.nonnegative_value", value=config.gate.repair_attempts),
+                )
+            )
+
+    if isinstance(config.gate.flaky_retries, bool) or not isinstance(
+        config.gate.flaky_retries, int
+    ):
+        if not any(issue.path == "gate.flaky_retries" for issue in issues):
+            issues.append(
+                ConfigIssue("error", "gate.flaky_retries", t("reports.config.nonnegative_integer"))
+            )
+    elif config.gate.flaky_retries < 0:
+        if not any(issue.path == "gate.flaky_retries" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "gate.flaky_retries",
+                    t("reports.config.nonnegative_value", value=config.gate.flaky_retries),
                 )
             )
 
