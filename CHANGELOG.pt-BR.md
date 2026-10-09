@@ -5,8 +5,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 ## [Unreleased]
 
 ### Changed (incompatible)
-- **Python mínimo é 3.10.** O piso declarado era 3.9, que nunca foi testado; `requires-python`, `meister setup` e a matriz do CI agora usam 3.10, a versão que o CI e o mypy já assumiam.
-- **Vias com nomes neutros.** Nomes que traziam modelo ou harness foram substituídos; atualize `workers.tier_order`, o `meister.config.yaml`, os argumentos `--model` e qualquer script que os use. Os nomes antigos deixam de existir na configuração padrão.
+- **`meister dashboard --host` fora de loopback exige `--allow-remote`.** O dashboard não tem autenticação, e antes qualquer endereço era aceito em silêncio. Sem a flag, o comando agora termina com erro; com ela, imprime um aviso e sobe. Loopback (`127.0.0.1`, `::1`, `localhost`) não muda. Quem expõe o dashboard na rede precisa acrescentar `--allow-remote`.
+- **Python mínimo é 3.10.** O piso declarado era 3.9, que nunca foi testado; `requires-python`, `meister setup` e a matriz do CI agora usam 3.10, a versão que o CI e o mypy já assumiam.- **Vias com nomes neutros.** Nomes que traziam modelo ou harness foram substituídos; atualize `workers.tier_order`, o `meister.config.yaml`, os argumentos `--model` e qualquer script que os use. Os nomes antigos deixam de existir na configuração padrão.
 
   | Nome antigo | Nome novo |
   |---|---|
@@ -18,7 +18,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
-- **Legibilidade da linha do tempo na web (`/timeline`):** eixo de tempo em minutos, setas de dependência em ângulo reto, tooltips com as durações da fase, da tarefa e da espera, cabeçalho da via com `harness · modelo (esforço)` e um som ao terminar ou falhar uma tarefa, com botão e tecla `s` (ligado por padrão, preferência salva por navegador).
+- **Página sobre os dados enviados ao Jev:** [docs/pt-BR/DADOS_ENVIADOS_AO_JEV.md](docs/pt-BR/DADOS_ENVIADOS_AO_JEV.md) lista, campo a campo, o que `classify` e `control` mandam à OpenRouter e o que nunca sai da máquina (os workers rodam pelos harnesses locais). O contrato é travado por `tests/test_jev_payload_contract.py`: mudar um campo exige atualizar a página.
+- **Legibilidade da linha do tempo na web (`/timeline`):** eixo de tempo em minutos, setas de dependência em ângulo reto, tooltips com as durações da fase, da tarefa e da espera, cabeçalho da via com `harness · modelo (esforço)` e um som ao terminar ou falhar uma tarefa, com botão e tecla `s` (desligado por padrão, preferência salva por navegador).
 - **`effort` por via:** nível de raciocínio opcional repassado ao harness (os valores dependem do harness: `copilot` e `github-copilot` aceitam nenhum, minimal, low, medium, high, xhigh, max). Sem `effort`, o argv do harness continua idêntico ao de antes.
 - **`workers.enabled`:** liga ou desliga vias na configuração, com gravação segura, sem nunca deixar a configuração sem nenhuma via ligada.
 - **`meister models --enable` / `--disable`:** liga ou desliga uma via pela linha de comando; a tabela de `models` mostra uma coluna com o esforço de cada via.

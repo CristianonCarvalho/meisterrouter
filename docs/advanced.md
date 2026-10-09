@@ -7,6 +7,7 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 - [Alternative installation](#alternative-installation)
 - [Herdr shortcuts manually](#herdr-shortcuts-manually)
 - [The OpenRouter key](#the-openrouter-key)
+- [Data sent to Jev](jev-data-sent.md)
 - [Set up a project (`init`, hooks, and guard)](#set-up-a-project-init-hooks-and-guard)
 - [Commands `orchestrate` already runs for you](#commands-orchestrate-already-runs-for-you) (`classify`, `control`, `worker`)
 - [Plan and execution manually (`plan`, `orchestrate`, `--resume`)](#plan-and-execution-manually-plan-orchestrate---resume)
@@ -153,6 +154,7 @@ export OPENROUTER_API_KEY="sk-or-v1-..."          # or
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
 Without a key, use `router: {mode: first}` in `meister.config.yaml`: the first lane is selected without network access.
+`router.mode: first` skips Jev only for routing; the `control` call at the end of `orchestrate` is still sent when a key is set. See [exactly what is sent to Jev](jev-data-sent.md).
 
 ---
 
@@ -320,7 +322,7 @@ The same timeline is also served in the browser by the dashboard, at `/timeline`
 - **Elbow arrows:** dependencies between tasks are drawn as right-angle arrows: a horizontal stub, a vertical trunk per lane, and a horizontal tail into the dependent task.
 - **Duration tooltips:** hovering over a bar shows the phase duration, the task's total duration, and the wait for Jev. Hovering over a lane label shows the lane details.
 - **Lane header:** each lane shows `harness · model (effort)`, for example `copilot · <model> (H)`. Effort abbreviations: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Other values appear in uppercase, and missing parts are omitted.
-- **Sound:** a short tone plays when a task finishes (rising notes) or fails (falling notes). Toggle it with the **Sound on / Sound off** button or the `s` key. The choice is saved in the browser (`localStorage`) and applies only to that browser. Sound is **on** by default; browsers block audio until you interact with the page, so it starts after your first click or key press.
+- **Sound:** a short tone plays when a task finishes (rising notes) or fails (falling notes). Toggle it with the **Sound on / Sound off** button or the `s` key. The choice is saved in the browser (`localStorage`) and applies only to that browser. Sound is **off** by default; press the button or the `s` key to turn it on; browsers block audio until you interact with the page, so it starts after your first click or key press.
 - **Open attempts:** when a worker is respawned, the previous attempt that was still open ends at the new spawn, instead of stretching to the end of the run.
 
 The keys match the terminal timeline (`[`, `]`, `l`, `a`, `p`, `+`, `-`, arrows, `?`), plus `s` for sound. Press `?` on the page to see the table.

@@ -57,6 +57,7 @@ def test_every_english_doc_has_a_portuguese_counterpart_or_is_listed():
         "execution-manual.md",
         "models-and-costs.md",
         "flow.md",
+        "jev-data-sent.md",
     }
     portuguese = {p.name for p in (REPO_ROOT / "docs" / "pt-BR").glob("*.md")}
     assert len(portuguese) == len(english)

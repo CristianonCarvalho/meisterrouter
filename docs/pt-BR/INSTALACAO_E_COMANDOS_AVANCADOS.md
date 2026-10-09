@@ -7,6 +7,7 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 - [Instalação alternativa](#instalação-alternativa)
 - [Atalhos do Herdr à mão](#atalhos-do-herdr-à-mão)
 - [A chave do OpenRouter](#a-chave-do-openrouter)
+- [Dados enviados ao Jev](DADOS_ENVIADOS_AO_JEV.md)
 - [Equipar um projeto (`init`, hooks e guard)](#equipar-um-projeto-init-hooks-e-guard)
 - [Comandos que o `orchestrate` já usa por você](#comandos-que-o-orchestrate-já-usa-por-você) (`classify`, `control`, `worker`)
 - [Plano e execução à mão (`plan`, `orchestrate`, `--resume`)](#plano-e-execução-à-mão-plan-orchestrate---resume)
@@ -153,6 +154,7 @@ export OPENROUTER_API_KEY="sk-or-v1-..."          # ou
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
 Sem chave, use `router: {mode: first}` no `meister.config.yaml`: a primeira via é escolhida sem rede.
+O `router.mode: first` pula o Jev só no roteamento; a chamada `control` ao fim do `orchestrate` continua sendo enviada quando há chave. Veja [o que é enviado ao Jev](DADOS_ENVIADOS_AO_JEV.md).
 
 ---
 
@@ -321,7 +323,7 @@ A mesma linha do tempo também é servida no navegador pelo dashboard, em `/time
 - **Setas em cotovelo:** as dependências entre tarefas são desenhadas como setas em ângulo reto: um trecho horizontal, um tronco vertical por via e uma cauda horizontal até a tarefa dependente.
 - **Tooltips com durações:** ao passar o mouse sobre uma barra, aparecem a duração da fase, a duração total da tarefa e a espera do Jev. Ao passar sobre o nome de uma via, aparecem os detalhes dela.
 - **Cabeçalho da via:** cada via mostra `harness · modelo (esforço)`, por exemplo `copilot · <modelo> (H)`. Siglas do esforço: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Outros valores aparecem em maiúsculas, e as partes ausentes são omitidas.
-- **Som:** um tom curto toca quando uma tarefa termina (notas ascendentes) ou falha (notas descendentes). Ligue ou desligue com o botão **Sound on / Sound off** (texto da interface, em inglês) ou com a tecla `s`. A escolha é salva no navegador (`localStorage`) e vale só para ele. O som vem **ligado** por padrão; os navegadores bloqueiam áudio até você interagir com a página, então ele começa após o primeiro clique ou tecla.
+- **Som:** um tom curto toca quando uma tarefa termina (notas ascendentes) ou falha (notas descendentes). Ligue ou desligue com o botão **Sound on / Sound off** (texto da interface, em inglês) ou com a tecla `s`. A escolha é salva no navegador (`localStorage`) e vale só para ele. O som vem **desligado** por padrão; ligue-o com o botão ou com a tecla `s`; os navegadores bloqueiam áudio até você interagir com a página, então ele começa após o primeiro clique ou tecla.
 - **Tentativas abertas:** quando um worker é reiniciado, a tentativa anterior que ainda estava aberta termina no novo spawn, em vez de se estender até o fim do run.
 
 As teclas são as mesmas da linha do tempo do terminal (`[`, `]`, `l`, `a`, `p`, `+`, `-`, setas, `?`), mais `s` para o som. Pressione `?` na página para ver a tabela.
