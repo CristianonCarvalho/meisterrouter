@@ -25,6 +25,9 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed
+- **Integration no longer discards loose work.** `rollback_merge`, reuse of an integration worktree (registered or not) and the `branch -D` retry in `create_worktree` now archive loose changes and unmerged branch commits (`refs/meister/archive/*`) before any destructive git command (`reset --hard`, `clean -fd`, `branch -D`, `rmtree`). If archiving fails the step does not run; a blocked rollback now fails the subtask with an `integration` error instead of being reported as a gate failure. Covered by `tests/test_worktree_integration_data_loss.py`.
+- **`current_run.json` is written atomically**, so an interruption no longer leaves a truncated file that loses the run correlation.
+- Cleanup failures are no longer silent: they log a `warning`, emit a `cleanup_failure` event and appear as "Cleanup failures" in `meister report`.
 - Web timeline: an attempt still open when a worker is respawned now ends at the new spawn, instead of stretching to the end of the run.
 - A worker that fails at startup on a configuration error (e.g. `Unknown lane`) now writes the error result and logs `worker_task_error` immediately, instead of waiting for the 600 s idle timeout and escalating to another lane.
 - The Jev now receives opaque lane keys (`lane_a`, `lane_b`...) instead of lane names: names like `tier_N` made it read a ranking and pick a more expensive lane. Its answer is translated back to the real lane name, so `recommended_implementer`, `fallback_chain` and the telemetry keep the real names.
