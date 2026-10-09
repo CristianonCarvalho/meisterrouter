@@ -4,10 +4,13 @@ import json
 import os
 import threading
 import time
+import traceback
 from pathlib import Path
+from typing import Callable
 
 import pytest
 
+import meister.dashboard.server as dashboard_server
 from meister.dashboard.server import _touch_call_time, app, start_server
 from meister.dashboard.state import ServerState, read_state, write_state
 from tests.timeline_fixtures import parallel_events
@@ -183,6 +186,56 @@ def test_timeline_api_advances_last_seen(dashboard_client):
     assert updated.port == 5050
 
 
+def _safe_call(fn: Callable[[], object]) -> str:
+    try:
+        return repr(fn())
+    except BaseException as exc:
+        return f"erro ao chamar: {type(exc).__name__}: {exc}"
+
+
+def _find_dashboard_json_files(roots: list[Path], max_items: int = 40, max_depth: int = 4) -> list[str]:
+    found: list[str] = []
+    for root in roots:
+        root_depth = str(root).rstrip(os.sep).count(os.sep)
+        for dirpath, dirnames, filenames in os.walk(root):
+            if dirpath.rstrip(os.sep).count(os.sep) - root_depth >= max_depth:
+                dirnames[:] = []
+            if "dashboard.json" in filenames:
+                found.append(os.path.realpath(os.path.join(dirpath, "dashboard.json")))
+                if len(found) >= max_items:
+                    return found
+    return found
+
+
+def _describe_dashboard_failure(
+    *,
+    tmp_path: Path,
+    project: Path,
+    server_thread: threading.Thread,
+    thread_errors: list[str],
+) -> str:
+    state_file = project / ".meister" / "dashboard.json"
+    meister_dir = project / ".meister"
+    found = _find_dashboard_json_files([tmp_path, tmp_path.parent])
+    lines = [
+        "diagnostico do dashboard:",
+        "excecao capturada na thread: " + (thread_errors[0] if thread_errors else "nenhuma exceção"),
+        f"thread viva: {server_thread.is_alive()}",
+        f"cwd: {_safe_call(os.getcwd)}",
+        f"project (realpath): {os.path.realpath(project)}",
+        f"state_file (realpath): {os.path.realpath(state_file)}",
+        f"MEISTER_LOG_DIR: {os.environ.get('MEISTER_LOG_DIR')!r}",
+        f"_current_project_root(): {_safe_call(dashboard_server._current_project_root)}",
+        f"get_log_file(): {_safe_call(dashboard_server.get_log_file)}",
+        f"conteudo de project/.meister: {_safe_call(lambda: sorted(os.listdir(meister_dir)))}",
+        f"arquivos dashboard.json sob tmp_path e pai ({len(found)}):",
+    ]
+    lines.extend(f"  {path}" for path in found)
+    if not found:
+        lines.append("  (nenhum)")
+    return "\n".join(lines)
+
+
 def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     project = tmp_path / "project"
     project.mkdir()
@@ -195,13 +248,26 @@ def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkey
     # The idle watchdog compares against the last request time, which can be stale
     # from earlier tests in the session; reset it so the idle window starts now.
     _touch_call_time()
+    thread_errors: list[str] = []
+
+    def _run_server() -> None:
+        try:
+            start_server(port=0, idle_exit_minutes=0.05)
+        except BaseException:
+            thread_errors.append(traceback.format_exc())
+
     # Run start_server in a thread with idle_exit_minutes to exit quickly
     # Or stop it via thread
-    server_thread = threading.Thread(
-        target=lambda: start_server(port=0, idle_exit_minutes=0.05),
-        daemon=True,
-    )
+    server_thread = threading.Thread(target=_run_server, daemon=True)
     server_thread.start()
+
+    def diag() -> str:
+        return _describe_dashboard_failure(
+            tmp_path=tmp_path,
+            project=project,
+            server_thread=server_thread,
+            thread_errors=thread_errors,
+        )
 
     # Wait for dashboard.json to appear (generous deadline for slow CI runners)
     state_file = project / ".meister" / "dashboard.json"
@@ -209,19 +275,20 @@ def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkey
     while time.monotonic() - t0 < 20.0 and not state_file.is_file():
         time.sleep(0.05)
 
-    assert state_file.is_file()
+    assert state_file.is_file(), diag()
     state = read_state(project)
-    assert state is not None
-    assert state.port > 0
-    assert state.port != 5050
-    assert f":{state.port}" in state.url
-    assert state.pid == os.getpid()
+    assert state is not None, diag()
+    assert state.port > 0, diag()
+    assert state.port != 5050, diag()
+    assert f":{state.port}" in state.url, diag()
+    assert state.pid == os.getpid(), diag()
 
     # Server should exit due to idle_exit_minutes
     server_thread.join(timeout=5.0)
-    assert not server_thread.is_alive()
+    assert not server_thread.is_alive(), diag()
     # dashboard.json should be removed on exit
-    assert not state_file.exists()
+    assert not state_file.exists(), diag()
+
 
 
 def test_timeline_api_run_without_plan_parsed(dashboard_client):
