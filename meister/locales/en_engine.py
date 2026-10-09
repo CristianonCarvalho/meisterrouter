@@ -22,6 +22,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.archive_branch_failed": "Failed to create archive ref for branch {branch}: {error}",
     "engine.worktree.uncommitted_check_failed": "Failed to check for uncommitted changes in {path}: {error}",
     "engine.worktree.rollback_archive_blocked": "Rollback blocked in {path}: could not archive loose changes; nothing was reset",
+    "engine.worktree.rollback_blocked": "Rollback of the merge of subtask {task_id} was blocked: its loose changes could not be archived. The integration branch still contains that merge; manual intervention is required.",
     "engine.worktree.reuse_archive_blocked": "Integration reuse blocked at {path}: could not archive loose changes; nothing was reset",
     "engine.worktree.branch_archive_blocked": "Branch {branch} not deleted: could not archive its unmerged commits",
     "engine.worktree.uncommitted_commit": "meister: uncommitted changes from {task_id} (rejected)",

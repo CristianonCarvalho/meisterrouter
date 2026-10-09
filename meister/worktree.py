@@ -1652,11 +1652,15 @@ class IntegrationPipeline:
                 )
             )
             # 6. Rollback atômico
-            self.wt_mgr.rollback_merge(
+            rolled_back = self.wt_mgr.rollback_merge(
                 self.integration_info.worktree_path,
                 rollback_sha,
                 task_id=self.integration_info.task_id,
             )
+            if not rolled_back:
+                blocked_msg = t("engine.worktree.rollback_blocked", task_id=subtask_wt.task_id)
+                logger.error(blocked_msg)
+                return False, CodedMessage(blocked_msg, code="integration")
             return False, CodedMessage(
                 t("engine.worktree.integration_gate_failed", output=int_out),
                 code="gate",
