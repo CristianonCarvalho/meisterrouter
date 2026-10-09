@@ -9,6 +9,7 @@ import time
 import pytest
 from click.testing import CliRunner
 
+from meister import wait_cmd
 from meister.cli import main
 from tests.timeline_fixtures import ev, parallel_events
 
@@ -242,11 +243,13 @@ def test_text_output_in_portuguese(log_dir, monkeypatch):
 def test_keyboard_interrupt_exits_130_without_touching_log(log_dir, monkeypatch):
     write_log(log_dir, parallel_events("ctrlcrun0001"))
     before = snapshot(log_dir)
+    original_sleep = time.sleep
 
     def interrupted_sleep(_seconds):
+        assert time.sleep is original_sleep, "time.sleep global não deve ser trocado"
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(time, "sleep", interrupted_sleep)
+    monkeypatch.setattr(wait_cmd, "_sleep", interrupted_sleep)
     result = run_wait("--interval", "0.05")
     assert result.exit_code == 130, result.output
     assert "Traceback" not in result.output
