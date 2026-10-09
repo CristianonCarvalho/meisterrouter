@@ -4,7 +4,8 @@ Propriedade verificada: nenhum commit, ou arquivo, que exista só no worktree ou
 afetado deixa de ser alcançável (por branch, por ref refs/meister/archive/* ou por arquivo
 preservado) depois de cada caminho testado.
 
-Cenários que hoje perdem trabalho são marcados com xfail estrito; os que preservam são guardas.
+Os cenários que perdiam trabalho antes da Tarefa 2 agora arquivam antes de qualquer comando
+destrutivo (refs/meister/archive/*); os demais são guardas. Nenhum teste usa xfail.
 """
 
 import os
@@ -112,10 +113,6 @@ def test_rollback_merge_returns_to_previous_sha_and_keeps_worker_commit(merged_i
     assert reachable(ctx.repo, ctx.worker_sha)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rollback_merge faz reset --hard sem arquivar: alteração rastreada solta é perdida",
-)
 def test_rollback_merge_loose_tracked_change_is_preserved(merged_integration):
     ctx = merged_integration
     (Path(ctx.integration_path) / "tracked.txt").write_text("loose tracked edit\n")
@@ -125,10 +122,6 @@ def test_rollback_merge_loose_tracked_change_is_preserved(merged_integration):
     assert loose_preserved(ctx.repo, ctx.integration_path, "tracked.txt", b"loose tracked edit\n")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rollback_merge faz clean -fd sem arquivar: arquivo não rastreado solto é perdido",
-)
 def test_rollback_merge_loose_untracked_file_is_preserved(merged_integration):
     ctx = merged_integration
     (Path(ctx.integration_path) / "scratch.txt").write_bytes(b"loose untracked\n")
@@ -172,10 +165,6 @@ def test_start_integration_reuse_keeps_branch_commits(integration_with_history):
     assert git_out(ctx.repo, "rev-parse", INTEGRATION_BRANCH) == ctx.history_sha
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="reuso com worktree registrado faz reset --hard e clean -fd sem arquivar: alteração rastreada solta é perdida",
-)
 def test_start_integration_reuse_registered_loose_tracked_change_is_preserved(integration_with_history):
     ctx = integration_with_history
     (Path(ctx.wt_path) / "tracked.txt").write_text("loose tracked edit\n")
@@ -185,10 +174,6 @@ def test_start_integration_reuse_registered_loose_tracked_change_is_preserved(in
     assert loose_preserved(ctx.repo, ctx.wt_path, "tracked.txt", b"loose tracked edit\n")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="reuso com worktree registrado faz reset --hard e clean -fd sem arquivar: arquivo novo solto é perdido",
-)
 def test_start_integration_reuse_registered_loose_untracked_file_is_preserved(integration_with_history):
     ctx = integration_with_history
     (Path(ctx.wt_path) / "scratch.txt").write_bytes(b"loose untracked\n")
@@ -214,10 +199,6 @@ def test_start_integration_reuse_unregistered_keeps_branch_commits(integration_w
     assert git_out(ctx.repo, "rev-parse", INTEGRATION_BRANCH) == ctx.history_sha
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="worktree não registrado é removido com shutil.rmtree sem arquivar: alteração rastreada solta é perdida",
-)
 def test_start_integration_reuse_unregistered_loose_tracked_change_is_preserved(integration_with_history):
     ctx = integration_with_history
     _unregister_worktree(ctx.manager, ctx.wt_path)
@@ -228,10 +209,6 @@ def test_start_integration_reuse_unregistered_loose_tracked_change_is_preserved(
     assert loose_preserved(ctx.repo, ctx.wt_path, "tracked.txt", b"loose tracked edit\n")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="worktree não registrado é removido com shutil.rmtree sem arquivar: arquivo novo solto é perdido",
-)
 def test_start_integration_reuse_unregistered_loose_untracked_file_is_preserved(integration_with_history):
     ctx = integration_with_history
     _unregister_worktree(ctx.manager, ctx.wt_path)
@@ -247,10 +224,6 @@ def test_start_integration_reuse_unregistered_loose_untracked_file_is_preserved(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="create_worktree executa `branch -D` antes do primeiro `worktree add` (e de cada retry) sem arquivar: commit exclusivo do branch homônimo é perdido",
-)
 def test_create_worktree_transient_retry_keeps_same_name_branch_commit(tmp_path, monkeypatch):
     repo = make_repo(tmp_path / "repo")
     manager = WorktreeManager(repo_root=str(repo), worktrees_dir=str(tmp_path / "worktrees"))

@@ -324,11 +324,8 @@ class WorktreeManager:
             # Se já existir worktree ou branch anterior com esse nome, limpa defensivamente
             if os.path.exists(worktree_path):
                 self.cleanup_worktree(safe_id, force=True)
-            else:
-                try:
-                    self._run_git(["branch", "-D", target_branch])
-                except Exception:
-                    pass
+            elif not self._delete_branch_archiving(target_branch, task_id, base_ref=base_ref):
+                raise RuntimeError(t("engine.worktree.branch_archive_blocked", branch=target_branch))
 
             # Obtém o hash exato do commit base
             base_commit = self._run_git(["rev-parse", base_ref])
@@ -363,10 +360,8 @@ class WorktreeManager:
                         self._run_git(["worktree", "prune"])
                     except Exception:
                         pass
-                    try:
-                        self._run_git(["branch", "-D", target_branch])
-                    except Exception:
-                        pass
+                    if not self._delete_branch_archiving(target_branch, task_id, base_ref=base_ref):
+                        raise exc
                     try:
                         if os.path.exists(worktree_path):
                             shutil.rmtree(worktree_path, ignore_errors=True)
@@ -490,10 +485,23 @@ class WorktreeManager:
         self,
         target_worktree_path: str,
         target_sha: str,
-    ) -> None:
-        """Executa rollback atômico do merge via git reset --hard e git clean."""
+        task_id: Optional[str] = None,
+    ) -> bool:
+        """Executa rollback atômico do merge via git reset --hard e git clean.
+
+        Retorna False, sem resetar, se as alterações soltas não puderem ser arquivadas.
+        """
+        archive_ok, _ = self._archive_uncommitted(
+            target_worktree_path,
+            task_id or os.path.basename(target_worktree_path),
+        )
+        if not archive_ok:
+            logger.error(t("engine.worktree.rollback_archive_blocked", path=target_worktree_path))
+            return False
+        # Archived above: loose changes are under refs/meister/archive/* before the reset/clean.
         self._run_git(["reset", "--hard", target_sha], cwd=target_worktree_path)
         self._run_git(["clean", "-fd"], cwd=target_worktree_path)
+        return True
 
     def fast_forward_repo(
         self,
@@ -745,6 +753,24 @@ class WorktreeManager:
                 return (False, None)
         return (True, None)
 
+    def _delete_branch_archiving(
+        self,
+        branch: str,
+        task_id: str,
+        base_ref: Optional[str] = None,
+    ) -> bool:
+        """Arquiva commits não integrados e só então remove a branch. Retorna False se o arquivamento falhar."""
+        archived_ok, _ = self._archive_branch_if_unmerged(branch, task_id, base_ref=base_ref)
+        if not archived_ok:
+            logger.error(t("engine.worktree.branch_archive_blocked", branch=branch))
+            return False
+        # Archived above (or the branch has no unique commits), so deleting it loses nothing.
+        try:
+            self._run_git(["branch", "-D", branch])
+        except Exception:
+            pass
+        return True
+
     def _archive_uncommitted(
         self,
         wt_path: str,
@@ -933,6 +959,7 @@ class WorktreeManager:
                             t("engine.worktree.archive_delete_blocked", branch=branch_name)
                         )
                 if can_delete:
+                    # Archived above (or no unique commits), so the branch deletion loses nothing.
                     try:
                         self._run_git(["branch", "-D", branch_name])
                     except Exception as e:
@@ -1048,6 +1075,7 @@ class WorktreeManager:
                             branch, task_id, base_ref=base_ref, base_commit=base_commit
                         )
                         if archive_ok:
+                            # Archived above (or no unique commits), so the branch deletion loses nothing.
                             try:
                                 self._run_git(["branch", "-D", branch])
                                 if task_id not in cleaned_ids:
@@ -1215,19 +1243,44 @@ class IntegrationPipeline:
                     is_valid_worktree = False
 
             if is_valid_worktree:
+                archived_ok, _ = self.wt_mgr._archive_uncommitted(worktree_path, wt_task_id)
+                if not archived_ok:
+                    logger.error(t("engine.worktree.reuse_archive_blocked", path=worktree_path))
+                    raise RuntimeError(t("engine.worktree.reuse_archive_blocked", path=worktree_path))
                 try:
+                    # Archived above: loose changes are preserved under refs/meister/archive/*.
                     self.wt_mgr._run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
                     self.wt_mgr._run_git(["clean", "-fd"], cwd=worktree_path)
                 except Exception as e:
                     logger.debug(t("engine.worktree.integration_cleanup_notice", error=e))
             else:
+                stray_path = None
                 if os.path.exists(worktree_path):
-                    shutil.rmtree(worktree_path, ignore_errors=True)
+                    stray_path = os.path.join(
+                        self.wt_mgr.metadata_dir,
+                        f"stray-{safe_id}-{int(time.time() * 1000)}",
+                    )
+                    os.rename(worktree_path, stray_path)
                 try:
                     self.wt_mgr._run_git(["worktree", "prune"])
                 except Exception:
                     pass
                 self.wt_mgr._run_git(["worktree", "add", worktree_path, branch_name])
+                if stray_path is not None:
+                    shutil.copytree(
+                        stray_path,
+                        worktree_path,
+                        ignore=shutil.ignore_patterns(".git"),
+                        dirs_exist_ok=True,
+                    )
+                    archived_ok, _ = self.wt_mgr._archive_uncommitted(worktree_path, wt_task_id)
+                    if not archived_ok:
+                        logger.error(t("engine.worktree.reuse_archive_blocked", path=stray_path))
+                        raise RuntimeError(t("engine.worktree.reuse_archive_blocked", path=stray_path))
+                    # Archived above; the stray copy is removed only after the reset succeeds.
+                    self.wt_mgr._run_git(["reset", "--hard", "HEAD"], cwd=worktree_path)
+                    self.wt_mgr._run_git(["clean", "-fd"], cwd=worktree_path)
+                    shutil.rmtree(stray_path, ignore_errors=True)
 
             base_commit = self.wt_mgr._run_git(["rev-parse", base_ref])
             info = WorktreeInfo(
@@ -1590,7 +1643,11 @@ class IntegrationPipeline:
                 )
             )
             # 6. Rollback atômico
-            self.wt_mgr.rollback_merge(self.integration_info.worktree_path, rollback_sha)
+            self.wt_mgr.rollback_merge(
+                self.integration_info.worktree_path,
+                rollback_sha,
+                task_id=self.integration_info.task_id,
+            )
             return False, CodedMessage(
                 t("engine.worktree.integration_gate_failed", output=int_out),
                 code="gate",
