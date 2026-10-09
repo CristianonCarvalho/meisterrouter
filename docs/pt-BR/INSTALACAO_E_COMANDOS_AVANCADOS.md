@@ -473,6 +473,7 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
 - `gate.cache` (padrão `true`): o gate guarda só as passagens, por conteúdo do código e dos comandos, e não repete
   uma verificação idêntica; `gate.cache: false` desliga.
 - `gate.repair_attempts` (padrão `1`; `0` desativa): quando o gate determinístico ou a checagem estrita de escopo reprova uma subtarefa, o Meister não descarta o worktree. Em vez disso, reabre um worker na mesma via e no mesmo worktree com uma seção REPAIR trazendo o motivo da rejeição, a lista de testes falhos e o resumo da falha. O worker ganha até `repair_attempts` tentativas para consertar quebras colaterais antes de o trabalho ser arquivado e reprovado.
+- `gate.flaky_retries` (padrão `2`; `0` desativa): antes de o gate reprovar uma falha do pytest, o Meister reexecuta só os testes que falharam (`python -m pytest -p no:cacheprovider -q <ids>`, até `flaky_retries` vezes, 180 s cada). Se todos passarem, o gate completo roda mais uma vez e é a autoridade final: aprova com `flaky_tests` preenchido com esses ids (e registra o evento `gate_flaky`), ou reprova. Se algum teste continuar falhando, der timeout, ou a falha não tiver ids de teste (lint, erro de coleta, erro de infraestrutura), a reprovação original é devolvida sem reabrir um worker de reparo para um teste que a tarefa nem tocou. Aprovações vão para o cache sem a lista de instáveis.
 - `environment.install_dependencies`: instala as dependências Node nos worktrees só quando há o que instalar.
 
 ---

@@ -87,6 +87,7 @@ class VerificationResult:
     skipped: List[str] = field(default_factory=list)
     cached: bool = False
     saved_seconds: float = 0.0
+    flaky_tests: List[str] = field(default_factory=list)
 
 
 def summarize_gate_failure(output: str) -> Dict[str, Any]:
@@ -400,11 +401,11 @@ class DeterministicGate:
         """Executa verificações ou reutiliza uma aprovação para a mesma árvore e configuração."""
         path = os.path.abspath(repo_path or self.repo_path)
         if not self.config.gate.cache:
-            return self._run_verification_uncached(path, docs_only=docs_only)
+            return self._run_with_flaky_retry(path, docs_only=docs_only)
 
         tree_hash = _worktree_tree_hash(path)
         if tree_hash is None:
-            return self._run_verification_uncached(path)
+            return self._run_with_flaky_retry(path)
 
         config_hash = self._verification_config_hash(docs_only=docs_only)
         cache_key = (tree_hash, config_hash)
@@ -415,13 +416,65 @@ class DeterministicGate:
             return replace(result, cached=True, saved_seconds=elapsed)
 
         started = time.monotonic()
-        result = self._run_verification_uncached(path, docs_only=docs_only)
+        result = self._run_with_flaky_retry(path, docs_only=docs_only)
         elapsed = time.monotonic() - started
         if result.passed and not result.infrastructure_error:
-            stored = replace(result, cached=False, saved_seconds=0.0)
+            stored = replace(result, cached=False, saved_seconds=0.0, flaky_tests=[])
             with self._pass_cache_lock:
                 self._pass_cache[cache_key] = (stored, elapsed)
         return result
+
+    def _run_with_flaky_retry(self, path: str, docs_only: bool = False) -> VerificationResult:
+        """Reexecuta só os testes pytest que falharam; a aprovação final sempre vem de um gate completo."""
+        result = self._run_verification_uncached(path, docs_only=docs_only)
+        retries = self.config.gate.flaky_retries
+        if result.passed or result.infrastructure_error or retries <= 0:
+            return result
+        ids = summarize_gate_failure(result.output)["failed_tests"]
+        if not ids:
+            return result
+        try:
+            python, _ = self._resolve_python()
+        except OSError:
+            return result
+        for _ in range(retries):
+            if self._rerun_failed_tests(path, python, ids):
+                break
+        else:
+            return result
+        retried = self._run_verification_uncached(path, docs_only=docs_only)
+        if not retried.passed or retried.infrastructure_error:
+            return retried
+        return replace(retried, flaky_tests=list(ids))
+
+    def _rerun_failed_tests(self, path: str, python: str, ids: List[str]) -> bool:
+        """Roda só os ids informados no mesmo ambiente do gate; True somente se todos passarem."""
+        env = os.environ.copy()
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
+        env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
+        path_entries = []
+        python_bin = self._project_python_bin(python)
+        if python_bin:
+            path_entries.append(python_bin)
+        local_bin = os.path.join(path, "node_modules", ".bin")
+        if os.path.isdir(local_bin):
+            path_entries.append(local_bin)
+        path_entries.append(env.get("PATH", ""))
+        env["PATH"] = os.pathsep.join(entry for entry in path_entries if entry)
+        cmd = [python, "-m", "pytest", "-p", "no:cacheprovider", "-q", *ids]
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=path,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                env=env,
+                shell=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        return proc.returncode == 0
 
     def _verification_config_hash(self, docs_only: bool = False) -> str:
         selected_commands = (
