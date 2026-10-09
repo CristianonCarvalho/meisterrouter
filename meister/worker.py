@@ -632,15 +632,21 @@ class HarnessWorker:
                 bufsize=1,
             )
             if harness_pid_file:
-                write_atomic_json(
-                    harness_pid_file,
-                    {
-                        "pid": process.pid,
-                        "pgid": os.getpgid(process.pid),
-                        "start": process_start_signature(process.pid),
-                        "cwd": self.cwd,
-                    },
-                )
+                # Com start_new_session=True o harness é líder do próprio grupo: pgid == pid.
+                # Evita os.getpgid, que falha se o harness já saiu (ProcessLookupError no macOS).
+                try:
+                    write_atomic_json(
+                        harness_pid_file,
+                        {
+                            "pid": process.pid,
+                            "pgid": process.pid,
+                            "start": process_start_signature(process.pid),
+                            "cwd": self.cwd,
+                        },
+                    )
+                except (ProcessLookupError, OSError) as pid_exc:
+                    # Defesa em profundidade: sem arquivo de PID a execução segue normalmente.
+                    logger.debug("Could not record harness PID file %s: %s", harness_pid_file, pid_exc)
 
             if isinstance(process.stdout, list):
                 for line in process.stdout:
