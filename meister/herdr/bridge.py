@@ -276,6 +276,24 @@ class HerdrEventBridge:
         # Reactive pane exit notification events: pane_id -> asyncio.Event (Achado #10)
         self._exit_events: Dict[str, asyncio.Event] = {}
 
+    @staticmethod
+    def _stored_attempt_count(sm: StateManager, subtask_id: str) -> int:
+        """Número de tentativas já registradas para a subtask na run (0 se indisponível).
+
+        Uma retomada com o mesmo run_id continua a numeração a partir deste valor.
+        """
+        try:
+            row = sm.get_subtask(subtask_id)
+        except Exception as e:
+            logger.debug("Falha ao ler tentativas da subtask %s: %s", subtask_id, e)
+            return 0
+        if not row:
+            return 0
+        attempts = row.get("attempts")
+        if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 0:
+            return 0
+        return attempts
+
     def _reap_worker_harness(
         self,
         task_context: Dict[str, Any],
@@ -949,7 +967,7 @@ class HerdrEventBridge:
                             pass
                     return False
 
-            attempt_count = 0
+            attempt_count = self._stored_attempt_count(sm, subtask_id) if active_run_id else 0
             pane_lost_retries_used = 0
             repair_used = 0
             original_description = description
