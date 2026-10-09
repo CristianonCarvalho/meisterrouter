@@ -19,7 +19,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Adicionado
 - **Página sobre os dados enviados ao Jev:** [docs/pt-BR/DADOS_ENVIADOS_AO_JEV.md](docs/pt-BR/DADOS_ENVIADOS_AO_JEV.md) lista, campo a campo, o que `classify` e `control` mandam à OpenRouter e o que nunca sai da máquina (os workers rodam pelos harnesses locais). O contrato é travado por `tests/test_jev_payload_contract.py`: mudar um campo exige atualizar a página.
- eixo de tempo em minutos, setas de dependência em ângulo reto, tooltips com as durações da fase, da tarefa e da espera, cabeçalho da via com `harness · modelo (esforço)` e um som ao terminar ou falhar uma tarefa, com botão e tecla `s` (ligado por padrão, preferência salva por navegador).
+- **Legibilidade da linha do tempo na web (`/timeline`):** eixo de tempo em minutos, setas de dependência em ângulo reto, tooltips com as durações da fase, da tarefa e da espera, cabeçalho da via com `harness · modelo (esforço)` e um som ao terminar ou falhar uma tarefa, com botão e tecla `s` (desligado por padrão, preferência salva por navegador).
 - **`effort` por via:** nível de raciocínio opcional repassado ao harness (os valores dependem do harness: `copilot` e `github-copilot` aceitam nenhum, minimal, low, medium, high, xhigh, max). Sem `effort`, o argv do harness continua idêntico ao de antes.
 - **`workers.enabled`:** liga ou desliga vias na configuração, com gravação segura, sem nunca deixar a configuração sem nenhuma via ligada.
 - **`meister models --enable` / `--disable`:** liga ou desliga uma via pela linha de comando; a tabela de `models` mostra uma coluna com o esforço de cada via.

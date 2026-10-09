@@ -19,8 +19,8 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
-- **Página sobre os dados enviados ao Jev:** [docs/jev-data-sent.md](docs/jev-data-sent.md) lista, campo a campo, o que `classify` e `control` mandam à OpenRouter e o que nunca sai da máquina (workers rodam pelos harnesses locais). O contrato é travado por `tests/test_jev_payload_contract.py`: mudar um campo exige atualizar a página.
- time axis in minutes, right-angle dependency arrows, tooltips with phase, task and wait durations, lane header with `harness · model (effort)`, and a completion/failure sound with a button and the `s` key (on by default, preference saved per browser).
+- **Page on the data sent to Jev:** [docs/jev-data-sent.md](docs/jev-data-sent.md) lists, field by field, what `classify` and `control` send to OpenRouter and what never leaves the machine (workers run through the local harnesses). The contract is locked by `tests/test_jev_payload_contract.py`: changing a field requires updating the page.
+- **Web timeline (`/timeline`) readability:** time axis in minutes, right-angle dependency arrows, tooltips with phase, task and wait durations, lane header with `harness · model (effort)`, and a completion/failure sound with a button and the `s` key (off by default, preference saved per browser).
 - **`effort` per lane:** an optional reasoning level passed to the harness (values depend on the harness: `copilot` and `github-copilot` accept none, minimal, low, medium, high, xhigh, max). When omitted, the harness argv is unchanged from before.
 - **`workers.enabled`:** turns lanes on or off in the configuration, written safely, without ever leaving the configuration with no lane enabled.
 - **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
