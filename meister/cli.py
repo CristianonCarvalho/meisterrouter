@@ -1454,18 +1454,34 @@ def orchestrate(
 
     cycle_error: Optional[Exception] = None
     error_exit_code = 1
+    interrupted = False
     started_at = time.monotonic()
+    from meister.worker import install_termination_handlers
     try:
-        success = asyncio.run(_run())
+        with install_termination_handlers():
+            success = asyncio.run(_run())
     except ResumeRequestError as e:
         cycle_error = e
         error_exit_code = 2
+    except KeyboardInterrupt:
+        interrupted = True
+    except SystemExit as e:
+        if e.code not in (128 + int(signal.SIGTERM), 128 + int(signal.SIGHUP)):
+            raise
+        interrupted = True
     except Exception as e:
         cycle_error = e
     finally:
         if reporter is not None:
             remove_event_observer(reporter.on_event)
 
+    if interrupted:
+        interrupted_run_id = bridge.current_run_id or (reporter.run_id if reporter is not None else None)
+        if interrupted_run_id:
+            click.echo(t("interrupt.cli_message", run_id=interrupted_run_id), err=True)
+        else:
+            click.echo(t("interrupt.cli_message_no_run"), err=True)
+        sys.exit(130)
     if cycle_error is not None:
         if isinstance(cycle_error, ResumeRequestError):
             click.echo(t("cli.common.error", error=cycle_error), err=True)

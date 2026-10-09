@@ -283,6 +283,37 @@ class HerdrEventBridge:
             )
         return status
 
+    def _record_interruption(self, run_id: str, interrupt: BaseException) -> None:
+        """Registra o término de uma run interrompida sem tocar em worktrees ou branches.
+
+        Falhas aqui são registradas e engolidas para que a exceção original siga adiante.
+        """
+        reason = t("interrupt.reason")
+        try:
+            log_event(
+                event_type="orchestration_end",
+                run_id=run_id,
+                task_id="orchestrator",
+                exit_code=130,
+                status="interrupted",
+                reason=reason,
+                error=reason,
+                interrupt_type=type(interrupt).__name__,
+            )
+        except Exception as e:
+            logger.error("Falha ao registrar orchestration_end de run interrompida %s: %s", run_id, e)
+        sm = self.get_state_manager()
+        try:
+            run = sm.get_run(run_id)
+            if run is not None and run["state"] == RunState.RUNNING.value:
+                sm.transition_run(
+                    run_id,
+                    to_state=RunState.FAILED,
+                    metadata={"interrupted": True, "reason": reason},
+                )
+        except Exception as e:
+            logger.error("Falha ao marcar run interrompida %s como FAILED: %s", run_id, e)
+
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
         if self.state_manager is None:
@@ -2498,6 +2529,9 @@ class HerdrEventBridge:
                     error=fail_reason,
                 )
                 return False
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit) as interrupt:
+            self._record_interruption(run_id, interrupt)
+            raise
         finally:
             # Varredura de panes registrados no SQLite ao terminar o run (Achados P-7, R-2)
             rid = run_id or self.current_run_id
