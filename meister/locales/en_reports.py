@@ -86,6 +86,7 @@ MESSAGES: dict[str, str] = {
     "reports.timeouts": "Timeouts",
     "reports.quota_errors": "Quota errors",
     "reports.worker_errors": "Worker errors",
+    "reports.cleanup_failures": "Cleanup failures",
     "reports.rejections_by_reason": "Rejections by reason",
     "reports.none": "none",
     "reports.jev_cost": "Jev cost",

@@ -25,6 +25,9 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **Claude Haiku 5.5 na via `tier_1`** (harness GitHub Copilot CLI) como primeira via padrão.
 
 ### Corrigido
+- **A integração não descarta mais trabalho solto.** `rollback_merge`, a reutilização de um worktree de integração (registrado ou não) e o retry com `branch -D` em `create_worktree` agora arquivam alterações soltas e commits não integrados (`refs/meister/archive/*`) antes de qualquer comando git destrutivo (`reset --hard`, `clean -fd`, `branch -D`, `rmtree`). Se o arquivamento falha, o passo não roda; um rollback bloqueado agora falha a subtarefa com erro de `integration`, e não como falha de gate. Coberto por `tests/test_worktree_integration_data_loss.py`.
+- **`current_run.json` é gravado de forma atômica**: uma interrupção não deixa mais um arquivo truncado que perde a correlação da run.
+- Falhas de limpeza deixam de ser silenciosas: geram `warning`, o evento `cleanup_failure` e a linha "Falhas de limpeza" no `meister report`.
 - Linha do tempo na web: uma tentativa ainda aberta quando o worker é reiniciado agora termina no novo spawn, em vez de se estender até o fim do run.
 - Um worker que falha ao iniciar por erro de configuração (ex.: `Unknown lane`) passa a gravar o resultado de erro e registrar `worker_task_error` imediatamente, em vez de esperar o timeout de inatividade de 600 s e escalar para outra via.
 - O Jev passa a receber chaves opacas das vias (`lane_a`, `lane_b`...) em vez dos nomes: nomes como `tier_N` faziam o Jev ler ranking e escolher uma via mais cara. A resposta é traduzida de volta para o nome real da via, então `recommended_implementer`, `fallback_chain` e a telemetria continuam com os nomes reais.
