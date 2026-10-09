@@ -470,6 +470,7 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
 - `gate.cache` (default `true`): the gate caches only successful passes, by code content and commands, and does not repeat
   an identical check; `gate.cache: false` disables it.
 - `gate.repair_attempts` (default `1`; `0` disables): when the deterministic gate or strict scope check rejects a subtask, Meister does not discard the worktree. Instead, it reopens a worker on the same lane and worktree with a REPAIR section containing the rejection reason, failed tests list, and failure summary excerpt. The worker gets up to `repair_attempts` tries to fix collateral breakages before the subtask is archived and rejected.
+- `gate.flaky_retries` (default `2`; `0` disables): before the gate rejects a pytest failure, Meister reruns only the failing test ids (`python -m pytest -p no:cacheprovider -q <ids>`, up to `flaky_retries` times, 180 s each). If they all pass, the full gate runs once more and is the final authority: it approves with `flaky_tests` set to those ids (a `gate_flaky` event is logged), or rejects. If a test still fails, times out, or the failure has no test ids (lint, collection errors, infrastructure errors), the original rejection is returned and the normal flow (`gate.repair_attempts`) applies. Approvals are cached without the flaky list.
 - `environment.install_dependencies`: installs Node dependencies in worktrees only when there is something to install.
 
 ---

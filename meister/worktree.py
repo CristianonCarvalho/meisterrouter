@@ -1761,6 +1761,16 @@ class IntegrationPipeline:
                 saved_seconds=float(getattr(result, "saved_seconds", 0.0)),
                 gate_mode=gate_mode,
             )
+            flaky_tests = getattr(result, "flaky_tests", None)
+            if flaky_tests:
+                log_event(
+                    event_type="gate_flaky",
+                    run_id=self.run_id,
+                    task_id=task_id or "final-integration",
+                    attempt=attempt,
+                    tier=tier or "integration",
+                    failed_tests=list(flaky_tests),
+                )
 
     def get_integration_diff_summary(self) -> str:
         """Obtém resumo de diff entre a branch de integração e a base para julgamento de conclusão."""
