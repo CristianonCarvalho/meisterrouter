@@ -6,7 +6,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ### Changed (incompatible)
 - **`meister dashboard --host` fora de loopback exige `--allow-remote`.** O dashboard não tem autenticação, e antes qualquer endereço era aceito em silêncio. Sem a flag, o comando agora termina com erro; com ela, imprime um aviso e sobe. Loopback (`127.0.0.1`, `::1`, `localhost`) não muda. Quem expõe o dashboard na rede precisa acrescentar `--allow-remote`.
-- **Python mínimo é 3.10.** O piso declarado era 3.9, que nunca foi testado; `requires-python`, `meister setup` e a matriz do CI agora usam 3.10, a versão que o CI e o mypy já assumiam.- **Vias com nomes neutros.** Nomes que traziam modelo ou harness foram substituídos; atualize `workers.tier_order`, o `meister.config.yaml`, os argumentos `--model` e qualquer script que os use. Os nomes antigos deixam de existir na configuração padrão.
+- **Python mínimo é 3.10.** O piso declarado era 3.9, que nunca foi testado; `requires-python`, `meister setup` e a matriz do CI agora usam 3.10, a versão que o CI e o mypy já assumiam.
+- **Vias com nomes neutros.** Nomes que traziam modelo ou harness foram substituídos; atualize `workers.tier_order`, o `meister.config.yaml`, os argumentos `--model` e qualquer script que os use. Os nomes antigos deixam de existir na configuração padrão.
 
   | Nome antigo | Nome novo |
   |---|---|
