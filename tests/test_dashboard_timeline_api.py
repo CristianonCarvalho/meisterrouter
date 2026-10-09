@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+import socket
+import sys
 import threading
 import time
 import traceback
@@ -207,6 +209,21 @@ def _find_dashboard_json_files(roots: list[Path], max_items: int = 40, max_depth
     return found
 
 
+def _server_thread_stack(server_thread: threading.Thread, max_lines: int = 25, max_chars: int = 2000) -> str:
+    """Pilha atual da thread (onde ela está parada), ou `(sem pilha)` se não houver."""
+    try:
+        if not server_thread.is_alive() or server_thread.ident is None:
+            return "(sem pilha)"
+        frame = sys._current_frames().get(server_thread.ident)
+        if frame is None:
+            return "(sem pilha)"
+        stack = "".join(traceback.format_stack(frame))
+    except Exception:
+        return "(sem pilha)"
+    lines = stack.splitlines()[-max_lines:]
+    return "\n".join(lines)[-max_chars:]
+
+
 def _describe_dashboard_failure(
     *,
     tmp_path: Path,
@@ -233,7 +250,83 @@ def _describe_dashboard_failure(
     lines.extend(f"  {path}" for path in found)
     if not found:
         lines.append("  (nenhum)")
+    lines.append("pilha da thread do servidor:")
+    lines.append(_server_thread_stack(server_thread))
     return "\n".join(lines)
+
+
+def _blocked_in_fake_getfqdn(entered: threading.Event, release: threading.Event) -> None:
+    entered.set()
+    release.wait(10.0)
+
+
+def test_describe_dashboard_failure_includes_server_thread_stack(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    entered = threading.Event()
+    release = threading.Event()
+    blocked = threading.Thread(
+        target=_blocked_in_fake_getfqdn, args=(entered, release), daemon=True
+    )
+    blocked.start()
+    try:
+        assert entered.wait(5.0), "a thread de teste não entrou na função bloqueante"
+        text = _describe_dashboard_failure(
+            tmp_path=tmp_path,
+            project=project,
+            server_thread=blocked,
+            thread_errors=[],
+        )
+    finally:
+        release.set()
+        blocked.join(5.0)
+
+    assert "pilha da thread do servidor:" in text
+    assert "_blocked_in_fake_getfqdn" in text
+
+
+def test_server_thread_stack_keeps_innermost_frame_when_truncated():
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _deep(depth: int) -> None:
+        if depth == 0:
+            _blocked_in_fake_getfqdn(entered, release)
+        else:
+            _deep(depth - 1)
+
+    blocked = threading.Thread(target=_deep, args=(40,), daemon=True)
+    blocked.start()
+    try:
+        assert entered.wait(5.0)
+        full = _server_thread_stack(blocked, max_lines=500, max_chars=100_000)
+        text = _server_thread_stack(blocked, max_lines=500, max_chars=300)
+    finally:
+        release.set()
+        blocked.join(5.0)
+
+    assert len(full) > 300
+    assert len(text) <= 300
+    # truncating keeps the END of the stack, where the thread is actually parked
+    assert full.endswith(text)
+
+
+def test_describe_dashboard_failure_reports_no_stack_for_finished_thread(tmp_path: Path):
+    project = tmp_path / "project"
+    project.mkdir()
+    finished = threading.Thread(target=lambda: None, daemon=True)
+    finished.start()
+    finished.join(5.0)
+
+    text = _describe_dashboard_failure(
+        tmp_path=tmp_path,
+        project=project,
+        server_thread=finished,
+        thread_errors=[],
+    )
+
+    assert "pilha da thread do servidor:" in text
+    assert "(sem pilha)" in text
 
 
 def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -244,6 +337,16 @@ def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkey
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
     monkeypatch.setenv("MEISTER_LOG_DIR", str(log_dir))
+
+    # On macOS, HTTPServer.server_bind calls socket.getfqdn(host), a reverse DNS lookup
+    # that can hang on runners without DNS. Replace it with a local stub that records calls.
+    getfqdn_calls: list[str] = []
+
+    def _fake_getfqdn(name: str = "") -> str:
+        getfqdn_calls.append(name)
+        return name or "localhost"
+
+    monkeypatch.setattr(socket, "getfqdn", _fake_getfqdn)
 
     # The idle watchdog compares against the last request time, which can be stale
     # from earlier tests in the session; reset it so the idle window starts now.
@@ -276,6 +379,7 @@ def test_start_server_port_0_allocates_port_and_cleans_up(tmp_path: Path, monkey
         time.sleep(0.05)
 
     assert state_file.is_file(), diag()
+    assert getfqdn_calls, "server_bind não chamou socket.getfqdn (o dublê não foi usado)"
     state = read_state(project)
     assert state is not None, diag()
     assert state.port > 0, diag()
