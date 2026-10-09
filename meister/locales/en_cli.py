@@ -69,6 +69,15 @@ MESSAGES: dict[str, str] = {
     "cli.dashboard.host_help": "Dashboard host (default: 127.0.0.1)",
     "cli.common.telemetry_log_dir_help": "Telemetry log directory",
     "cli.dashboard.tui_help": "Start the TUI overlay in Herdr",
+    "cli.dashboard.allow_remote_help": "Allow --host to be a non-loopback address (the dashboard has no authentication)",
+    "cli.dashboard.remote_host_refused": (
+        "Error: the dashboard has no authentication and --host {host!r} is not a loopback address. "
+        "Use the default --host 127.0.0.1, or pass --allow-remote to expose it anyway."
+    ),
+    "cli.dashboard.remote_host_warning": (
+        "WARNING: the dashboard has no authentication and is exposed on {host!r}. "
+        "Anyone who can reach this address can read its telemetry."
+    ),
     "cli.report.run_id_help": "Run to include (repeatable; accepts a unique prefix of >= 6 chars)",
     "cli.report.group_help": "Group of runs to compare",
     "cli.common.orchestration_log_dir_help": "Directory containing orchestration_log.jsonl",
