@@ -1,4 +1,5 @@
 import os
+import sys
 import tempfile
 import subprocess
 
@@ -62,7 +63,7 @@ def test_cli_models_shows_disabled_configured_via_only(tmp_path):
 def test_cli_init():
     with tempfile.TemporaryDirectory() as tmpdir:
         res = subprocess.run(
-            [BIN_MEISTER, "init", "--target", tmpdir, "--no-hooks"],
+            [sys.executable, BIN_MEISTER, "init", "--target", tmpdir, "--no-hooks"],
             stdout=subprocess.PIPE,
             text=True
         )

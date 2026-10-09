@@ -37,9 +37,9 @@
 
 **Depends on:** Task 1
 
-1. Matriz: acrescente `macos-latest` com Python 3.12 (uma versão só, para limitar minutos), mantendo a matriz atual do Ubuntu (3.10 a 3.13) e `fail-fast: false`. Reestruture com `include`/`os` conforme necessário; os passos de lint, tipos e testes rodam nas duas plataformas.
+1. Matriz: acrescente `macos-latest` com Python 3.12 (uma versão só, para limitar minutos), mantendo a matriz atual do Ubuntu (3.10 a 3.13) e `fail-fast: false`. Reestruture com `include`/`os` conforme necessário; os passos de lint, tipos e testes rodam nas duas plataformas. **Mantenha a chave `jobs.test.strategy.matrix.python-version` como a lista `["3.10", "3.11", "3.12", "3.13"]`** (`tests/test_python_floor.py::test_ci_matrix_floor_is_python_floor` lê essa lista e exige que o menor valor seja `3.10`; o macOS entra por `include` e não pode substituí-la) e continue com um único arquivo `.yml` em `.github/workflows/`. A perna do macOS começa **informativa** (`continue-on-error: true` só nela, com nome que diga isso) até o dono confirmar que ela passa de forma estável.
 2. Cobertura: adicione `pytest-cov` às dependências de desenvolvimento e rode `pytest --cov=meister --cov-report=term-missing` (apenas relatório, sem `--cov-fail-under`).
 3. Segurança: adicione `bandit` e `pip-audit` às dependências de desenvolvimento e dois passos novos, `bandit -r meister -q` e `pip-audit`, ambos com `continue-on-error: true` e nomes que indiquem "informativo".
 4. Se `pytest-xdist` e `--cov` interferirem no `-n auto` usado localmente, documente em comentário no workflow a decisão tomada.
 
-Critério de aceite: o YAML carrega sem erro; `pip install -e ".[dev]"` instala as dependências novas; localmente `pytest --cov=meister -q` passa; `bandit -r meister -q` e `pip-audit` rodam (a saída delas não precisa estar limpa, mas deve ser resumida no relatório final com a contagem de achados por severidade).
+Critério de aceite: o YAML carrega sem erro e `tests/test_python_floor.py` passa; `pip install -e ".[dev]"` instala as dependências novas; localmente `pytest --cov=meister -q` passa; `bandit -r meister -q` e `pip-audit` rodam (a saída delas não precisa estar limpa, mas deve ser resumida no relatório final com a contagem de achados por severidade).

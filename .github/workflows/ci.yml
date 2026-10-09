@@ -8,12 +8,20 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}${{ matrix.os == 'macos-latest' && ' (informativo)' || '' }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
+    # A perna macOS é informativa (não bloqueia o workflow) até o dono confirmar que passa de forma estável.
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
+        include:
+          # macOS só com 3.12 para limitar minutos de runner.
+          - os: macos-latest
+            python-version: "3.12"
 
     steps:
       - name: Checkout code
@@ -39,5 +47,18 @@ jobs:
           mypy meister
 
       - name: Run Pytest
+        # `-n auto` é explícito de propósito: o pytest-cov escolhe o modo de cobertura (central ou distribuído)
+        # antes de tests/conftest.py ligar o xdist sozinho; sem `-n` na linha de comando, `--cov` quebra com
+        # INTERNALERROR. Com `-n auto` a cobertura é combinada entre os workers. Só relatório, sem limite mínimo.
         run: |
-          pytest -v --durations=15
+          pytest -v --durations=15 -n auto --cov=meister --cov-report=term-missing
+
+      - name: Security scan with Bandit (informativo)
+        continue-on-error: true
+        run: |
+          bandit -r meister -q
+
+      - name: Dependency audit with pip-audit (informativo)
+        continue-on-error: true
+        run: |
+          pip-audit
