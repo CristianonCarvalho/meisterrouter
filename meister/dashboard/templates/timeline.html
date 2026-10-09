@@ -78,6 +78,7 @@
   .keyboard-help { margin-left: auto; color: var(--muted); }
   .keyboard-help table { position: absolute; z-index: 10; right: 24px; padding: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
   .keyboard-help td { padding: 3px 8px; }
+  .sound-toggle[aria-pressed="true"] { border-color: var(--cyan); color: var(--cyan); }
   .run-band { cursor: pointer; }
   .run-band:hover { filter: brightness(1.2); }
   .badge {
@@ -222,6 +223,7 @@
     <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
   </div>
   <div class="header-controls">
+    <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true" title="{{ messages.sound_title }}">{{ messages.sound_on }}</button>
     <span id="live-badge" class="badge live-badge" hidden>{{ messages.live }}</span>
     <a href="/" class="badge">{{ messages.dashboard }}</a>
   </div>
@@ -257,6 +259,7 @@
         <tr><td>l</td><td>{{ messages.shortcut_live }}</td></tr>
         <tr><td>a</td><td>{{ messages.shortcut_all }}</td></tr>
         <tr><td>p</td><td>{{ messages.shortcut_pause }}</td></tr>
+        <tr><td>s</td><td>{{ messages.shortcut_sound }}</td></tr>
         <tr><td>+ / -</td><td>{{ messages.shortcut_zoom }}</td></tr>
         <tr><td>← / →</td><td>{{ messages.shortcut_pan }}</td></tr>
         <tr><td>?</td><td>{{ messages.keyboard_shortcuts }}</td></tr>
@@ -323,12 +326,133 @@
   <div id="tooltip" class="tooltip">
     <div id="tooltip-title" class="tooltip-title"></div>
     <div id="tooltip-body" class="tooltip-row"></div>
+    <div id="tooltip-timing" class="tooltip-row"></div>
   </div>
 </div>
 
 <script>
 (() => {
   const text = {{ messages|tojson }};
+  const byId = (id) => document.getElementById(id);
+  // helpers:begin
+  function formatDuration(seconds) {
+    if (!Number.isFinite(seconds) || seconds < 0) return "—";
+    if (seconds < 60) return text.duration_seconds.replace("{value}", String(Math.round(seconds)));
+    if (seconds < 3600) {
+      return text.duration_minutes.replace("{value}", String(Math.floor(seconds / 60))) + " "
+        + text.duration_seconds.replace("{value}", String(Math.round(seconds % 60)));
+    }
+    return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
+      + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
+  }
+  function formatTickLabel(seconds) {
+    const total = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
+    if (total < 60) return "+" + total + "s";
+    if (total < 3600) {
+      const rest = total % 60;
+      return "+" + Math.floor(total / 60) + "m" + (rest ? String(rest).padStart(2, "0") + "s" : "");
+    }
+    return "+" + Math.floor(total / 3600) + "h" + String(Math.floor((total % 3600) / 60)).padStart(2, "0") + "m";
+  }
+  function firstWorkStartX(row, timeToX, fallbackX) {
+    const seg = (row.segments || []).find((s) => s.phase !== "wait");
+    return seg ? timeToX(seg.start) : fallbackX;
+  }
+  // Durations in seconds; null when not computable (never NaN or negative).
+  function taskTiming(row, seg, nowMs) {
+    const toMs = (value) => {
+      if (value === null || value === undefined || value === "") return null;
+      const ms = new Date(value).getTime();
+      return Number.isFinite(ms) ? ms : null;
+    };
+    const span = (startMs, endMs) => {
+      if (startMs === null || endMs === null) return null;
+      const sec = (endMs - startMs) / 1000;
+      return Number.isFinite(sec) && sec >= 0 ? sec : null;
+    };
+    const segEnd = (s) => {
+      const end = toMs(s.end);
+      return end === null ? nowMs : end;
+    };
+    const segments = Array.isArray(row.segments) ? row.segments : null;
+    const phaseSec = seg ? span(toMs(seg.start), segEnd(seg)) : null;
+    const workSeg = segments ? segments.find((s) => s.phase !== "wait") : null;
+    const totalEnd = toMs(row.end) ?? nowMs;
+    const totalSec = workSeg ? span(toMs(workSeg.start), totalEnd) : null;
+    let waitSec = null;
+    if (segments) {
+      waitSec = segments
+        .filter((s) => s.phase === "wait")
+        .reduce((sum, s) => sum + (span(toMs(s.start), segEnd(s)) || 0), 0);
+    }
+    return { phaseSec, totalSec, waitSec };
+  }
+  // Orthogonal elbow: horizontal stub, vertical trunk per lane, horizontal tail into dx.
+  function edgePathD(sx, sy, dx, dy, laneIndex) {
+    const straight = "M " + sx + " " + sy + " L " + dx + " " + dy;
+    if (sy === dy) return straight;
+    const trunkX = Math.min(sx + 12 + 6 * laneIndex, dx - 16);
+    if (trunkX < sx + 12) return straight;
+    return "M " + sx + " " + sy + " H " + trunkX + " V " + dy + " L " + dx + " " + dy;
+  }
+  // Short labels for the reasoning effort shown in the lane header.
+  const EFFORT_ABBREVIATIONS = new Map([
+    ["none", "N"],
+    ["minimal", "MIN"],
+    ["low", "L"],
+    ["medium", "M"],
+    ["high", "H"],
+    ["xhigh", "XH"],
+    ["max", "MAX"],
+  ]);
+  function effortAbbreviation(effort) {
+    const raw = effort === null || effort === undefined ? "" : String(effort).trim();
+    if (!raw) return "";
+    const known = EFFORT_ABBREVIATIONS.get(raw.toLowerCase());
+    return known || raw.toUpperCase();
+  }
+  // "harness · model (SIGLA)"; missing parts are omitted.
+  function laneDetailText(lane) {
+    const harness = lane.harness || "";
+    const model = lane.model || "";
+    if (!harness && !model) return "";
+    const effort = effortAbbreviation(lane.effort);
+    const modelPart = model && effort ? model + " (" + effort + ")" : model;
+    return [harness, modelPart].filter(Boolean).join(" · ");
+  }
+  // One line when "name  detail" fits beside the utilization figure, otherwise two.
+  function laneHeaderLayout(lane, labelWidthPx, charPx) {
+    const name = String(lane.via || "");
+    const detail = laneDetailText(lane);
+    if (!detail) return { name, detail: "", twoLines: false };
+    const available = labelWidthPx - 16 - 40;
+    const width = (name.length + 2 + detail.length) * charPx;
+    return { name, detail, twoLines: width > available };
+  }
+  // Statuses that mean a task has finished; "reused" counts as a completion.
+  const FINISHED_OK_STATUSES = ["completed", "reused"];
+  const FINISHED_STATUSES = ["completed", "reused", "failed"];
+  // A task only counts when it was seen before in a non-terminal status (null or empty map = first load).
+  function finishedTransitions(prevStatuses, rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    const next = {};
+    list.forEach((row) => { next[row.task_id] = row.status; });
+    const result = { completed: [], failed: [], next };
+    if (!prevStatuses || !Object.keys(prevStatuses).length) return result;
+    list.forEach((row) => {
+      const before = prevStatuses[row.task_id];
+      if (before === undefined || before === null) return;
+      if (FINISHED_STATUSES.includes(before)) return;
+      if (FINISHED_OK_STATUSES.includes(row.status)) result.completed.push(row.task_id);
+      else if (row.status === "failed") result.failed.push(row.task_id);
+    });
+    return result;
+  }
+  // Sound is off unless the stored preference is exactly "on".
+  function parseSoundPreference(stored) {
+    return stored === "on";
+  }
+  // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
   const requestedRunId = initialHash.get("run") || null;
@@ -340,8 +464,88 @@
   let runsCatalog = [];
   let runCosts = new Map();
   let catalogLoaded = false;
+  const SOUND_STORAGE_KEY = "meister.timeline.sound";
+  let soundOn = readSoundPreference();
+  let audioCtx = null;
+  let lastStatuses = null;
+  let lastStatusRunId = null;
 
-  const byId = (id) => document.getElementById(id);
+  function readSoundPreference() {
+    try {
+      return parseSoundPreference(window.localStorage.getItem(SOUND_STORAGE_KEY));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function saveSoundPreference() {
+    try {
+      window.localStorage.setItem(SOUND_STORAGE_KEY, soundOn ? "on" : "off");
+    } catch (_) {
+      // storage unavailable: the preference only lasts for this page
+    }
+  }
+
+  // Created only from a user gesture, because browsers block audio before one.
+  function unlockAudio() {
+    if (!audioCtx) {
+      try {
+        const Ctor = window.AudioContext || window.webkitAudioContext;
+        if (Ctor) audioCtx = new Ctor();
+      } catch (_) {
+        audioCtx = null;
+      }
+    }
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  }
+
+  function playNote(frequency, startAt) {
+    const gain = audioCtx.createGain();
+    const osc = audioCtx.createOscillator();
+    osc.frequency.value = frequency;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    gain.gain.setValueAtTime(0.0001, startAt);
+    gain.gain.exponentialRampToValueAtTime(0.15, startAt + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, startAt + 0.12);
+    osc.start(startAt);
+    osc.stop(startAt + 0.12);
+  }
+
+  function playFinishSound(kind) {
+    if (!soundOn || !audioCtx || audioCtx.state !== "running") return;
+    const start = audioCtx.currentTime;
+    const notes = kind === "failed" ? [330, 220] : [660, 990];
+    notes.forEach((frequency, index) => playNote(frequency, start + index * 0.14));
+  }
+
+  function renderSoundToggle() {
+    const button = byId("sound-toggle");
+    button.setAttribute("aria-pressed", String(soundOn));
+    button.textContent = soundOn ? text.sound_on : text.sound_off;
+  }
+
+  function toggleSound() {
+    soundOn = !soundOn;
+    saveSoundPreference();
+    unlockAudio();
+    renderSoundToggle();
+  }
+
+  function trackFinishedTasks(data) {
+    const runId = data.run && data.run.id ? data.run.id : null;
+    const previous = runId === lastStatusRunId ? lastStatuses : null;
+    const transitions = finishedTransitions(previous, data.rows);
+    lastStatuses = transitions.next;
+    lastStatusRunId = runId;
+    if (transitions.completed.length) playFinishSound("completed");
+    if (transitions.failed.length) playFinishSound("failed");
+  }
+
+  byId("sound-toggle").addEventListener("click", toggleSound);
+  document.addEventListener("pointerdown", unlockAudio, { once: true });
+  document.addEventListener("keydown", unlockAudio, { once: true });
+  renderSoundToggle();
 
   function reduce(current, action) {
     switch (action.type) {
@@ -415,12 +619,37 @@
     banner.hidden = false;
   }
 
-  function showTaskTooltip(event, row, via, phase) {
+  function showTaskTooltip(event, row, via, phase, seg) {
     const tip = byId("tooltip");
     byId("tooltip-title").textContent = row.title || row.task_id;
     byId("tooltip-body").textContent = [row.task_id, via, phase, row.status]
       .filter(Boolean)
       .join(" · ");
+    const timing = taskTiming(row, seg, Date.now());
+    const timingBox = byId("tooltip-timing");
+    timingBox.replaceChildren();
+    [
+      [timing.phaseSec, text.tooltip_phase_duration],
+      [timing.totalSec, text.tooltip_total_duration],
+      [timing.waitSec, text.tooltip_wait_duration],
+    ].forEach(([sec, label]) => {
+      if (sec === null || sec === undefined) return;
+      const line = document.createElement("div");
+      line.textContent = label + ": " + formatDuration(sec);
+      timingBox.appendChild(line);
+    });
+    placeTooltip(event);
+  }
+
+  function showLaneTooltip(event, title, detail) {
+    byId("tooltip-title").textContent = title;
+    byId("tooltip-body").textContent = detail;
+    byId("tooltip-timing").replaceChildren();
+    placeTooltip(event);
+  }
+
+  function placeTooltip(event) {
+    const tip = byId("tooltip");
     tip.style.display = "block";
 
     let left = event.clientX + 10;
@@ -442,17 +671,6 @@
   byId("notice-close").addEventListener("click", () => {
     byId("notice-banner").hidden = true;
   });
-
-  function formatDuration(seconds) {
-    if (!Number.isFinite(seconds) || seconds < 0) return "—";
-    if (seconds < 60) return text.duration_seconds.replace("{value}", String(Math.round(seconds)));
-    if (seconds < 3600) {
-      return text.duration_minutes.replace("{value}", String(Math.floor(seconds / 60))) + " "
-        + text.duration_seconds.replace("{value}", String(Math.round(seconds % 60)));
-    }
-    return text.duration_hours.replace("{value}", String(Math.floor(seconds / 3600))) + " "
-      + text.duration_minutes.replace("{value}", String(Math.floor((seconds % 3600) / 60)));
-  }
 
   function displayStatus(status) {
     return status ? (text[status] || status) : "—";
@@ -709,6 +927,7 @@
     const MARGIN_R = 30;
     const HEADER_H = 40;
     const LANE_HEADER_H = 26;
+    const LANE_DETAIL_LINE_H = 13;
     const ROW_H = 34;
     const BAR_H = 20;
 
@@ -783,7 +1002,7 @@
       });
       gridGroup.appendChild(gridLine);
 
-      const tickLabel = createSvgText("+" + tSec + "s", {
+      const tickLabel = createSvgText(formatTickLabel(tSec), {
         x: tx,
         y: HEADER_H - 8,
         "text-anchor": "middle",
@@ -826,7 +1045,9 @@
 
     lanesList.forEach((lane, laneIdx) => {
       if (!lane.rows.length && lanesList.length > 1) return;
-      const laneH = LANE_HEADER_H + lane.rows.length * ROW_H;
+      const layout = laneHeaderLayout(lane, LABEL_W, 6.2);
+      const headerH = layout.twoLines ? LANE_HEADER_H + LANE_DETAIL_LINE_H : LANE_HEADER_H;
+      const laneH = headerH + lane.rows.length * ROW_H;
       laneCenterY[lane.via] = currentY + LANE_HEADER_H / 2;
 
       // Lane background
@@ -841,8 +1062,8 @@
       });
       lanesGroup.appendChild(laneBg);
 
-      // Lane label
-      const viaText = createSvgText(lane.via, {
+      // Lane label: name, then harness · model (effort) beside it or on a second line
+      const viaText = createSvgText("", {
         x: "16",
         y: currentY + 17,
         fill: "var(--muted)",
@@ -850,6 +1071,23 @@
         "font-weight": "700",
         "letter-spacing": "0.04em",
       });
+      const nameSpan = createSvgEl("tspan");
+      nameSpan.textContent = layout.name;
+      viaText.appendChild(nameSpan);
+      if (layout.detail) {
+        const detailSpan = createSvgEl("tspan", layout.twoLines
+          ? { x: "16", dy: String(LANE_DETAIL_LINE_H), "font-size": "10", "font-weight": "400", "letter-spacing": "0" }
+          : { dx: "10", "font-size": "10", "font-weight": "400", "letter-spacing": "0" });
+        detailSpan.textContent = layout.detail;
+        viaText.appendChild(detailSpan);
+        viaText.addEventListener("mouseenter", (event) => {
+          showLaneTooltip(event, layout.name, layout.detail);
+        });
+        viaText.addEventListener("mousemove", (event) => {
+          showLaneTooltip(event, layout.name, layout.detail);
+        });
+        viaText.addEventListener("mouseleave", hideTaskTooltip);
+      }
       lanesGroup.appendChild(viaText);
 
       if (lane.utilization !== undefined && lane.utilization !== null && lane.utilization > 0) {
@@ -866,7 +1104,7 @@
 
       // Tasks in this lane
       lane.rows.forEach((row, rowIdx) => {
-        const rY = currentY + LANE_HEADER_H + rowIdx * ROW_H;
+        const rY = currentY + headerH + rowIdx * ROW_H;
         rowCenterY[row.task_id] = rY + ROW_H / 2;
 
         const rowStartXVal = timeToX(row.start);
@@ -934,10 +1172,10 @@
           });
 
           bar.addEventListener("mouseenter", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase);
+            showTaskTooltip(event, row, lane.via, seg.phase, seg);
           });
           bar.addEventListener("mousemove", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase);
+            showTaskTooltip(event, row, lane.via, seg.phase, seg);
           });
           bar.addEventListener("mouseleave", hideTaskTooltip);
 
@@ -1072,17 +1310,22 @@
     // Dependency edges
     if (Array.isArray(data.edges)) {
       const edgesGroup = createSvgEl("g", { class: "edges-group" });
+      const rowById = new Map(rows.map((r) => [r.task_id, r]));
+      const edgesPerSource = new Map();
       data.edges.forEach((edge) => {
         const sy = rowCenterY[edge.src];
         const dy = rowCenterY[edge.dst];
         const sx = rowEndX[edge.src];
-        const dx = rowStartX[edge.dst];
+        const dstRow = rowById.get(edge.dst);
+        const dx = dstRow && rowStartX[edge.dst] !== undefined
+          ? firstWorkStartX(dstRow, timeToX, rowStartX[edge.dst])
+          : rowStartX[edge.dst];
+        const laneIndex = edgesPerSource.get(edge.src) || 0;
+        edgesPerSource.set(edge.src, laneIndex + 1);
 
         if (sy !== undefined && dy !== undefined && sx !== undefined && dx !== undefined) {
-          const deltaX = Math.max(14, (dx - sx) * 0.4);
-          const dStr = "M " + sx + " " + sy + " C " + (sx + deltaX) + " " + sy + ", " + (dx - deltaX) + " " + dy + ", " + dx + " " + dy;
           const edgePath = createSvgEl("path", {
-            d: dStr,
+            d: edgePathD(sx, sy, dx, dy, laneIndex),
             fill: "none",
             stroke: edge.critical ? "#f59e0b" : "rgba(245, 158, 11, 0.45)",
             "stroke-width": edge.critical ? "2.5" : "1.2",
@@ -1264,9 +1507,7 @@
         stroke: "rgba(255,255,255,0.08)",
       });
       svg.appendChild(line);
-      const label = createSvgText("+" + text.duration_seconds.replace(
-        "{value}", String(Math.round((span * index) / 6000))
-      ), {
+      const label = createSvgText(formatTickLabel((span * index) / 6000), {
         x, y: 18, fill: "var(--muted)", "font-size": "10", "text-anchor": "middle",
       });
       svg.appendChild(label);
@@ -1385,6 +1626,7 @@
         && runsCatalog[0].run_id === state.runId
         && (!data.run || data.run.id !== state.runId)) return;
       latestTimeline = data;
+      trackFinishedTasks(data);
       if (data.run && data.run.id) {
         runCosts.set(data.run.id, data.summary ? data.summary.cost_usd : null);
         if (state.mode === "live" && state.runId !== data.run.id) {
@@ -1464,6 +1706,8 @@
       else loadTimelineCollection().then(scheduleNextPoll);
     } else if (event.key.toLowerCase() === "p") {
       updateState({ type: "TOGGLE_PAUSE" });
+    } else if (event.key.toLowerCase() === "s") {
+      toggleSound();
     } else if (event.key === "+" || event.key === "=") {
       event.preventDefault();
       updateState({ type: "ZOOM", factor: 1.25 });

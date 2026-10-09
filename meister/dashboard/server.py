@@ -184,6 +184,13 @@ def _timeline_messages() -> Dict[str, str]:
         "duration_minutes",
         "duration_hours",
         "no_runs",
+        "tooltip_phase_duration",
+        "tooltip_total_duration",
+        "tooltip_wait_duration",
+        "shortcut_sound",
+        "sound_on",
+        "sound_off",
+        "sound_title",
     )
     return {key: t(f"cli.timeline.web.{key}") for key in keys}
 

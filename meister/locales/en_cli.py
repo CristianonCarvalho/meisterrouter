@@ -269,6 +269,10 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.shortcut_live": "Return to live",
     "cli.timeline.web.shortcut_all": "Toggle all runs",
     "cli.timeline.web.shortcut_pause": "Pause or resume",
+    "cli.timeline.web.shortcut_sound": "Toggle the task completion sound",
+    "cli.timeline.web.sound_on": "Sound on",
+    "cli.timeline.web.sound_off": "Sound off",
+    "cli.timeline.web.sound_title": "Play a sound when a task finishes or fails",
     "cli.timeline.web.shortcut_zoom": "Zoom in or out",
     "cli.timeline.web.shortcut_pan": "Move along the timeline",
     "cli.timeline.web.run_started": "Started",
@@ -281,4 +285,7 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.duration_minutes": "{value}m",
     "cli.timeline.web.duration_hours": "{value}h",
     "cli.timeline.web.no_runs": "No runs available",
+    "cli.timeline.web.tooltip_phase_duration": "Phase duration",
+    "cli.timeline.web.tooltip_total_duration": "Total duration",
+    "cli.timeline.web.tooltip_wait_duration": "Wait duration",
 }

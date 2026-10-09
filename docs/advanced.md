@@ -311,6 +311,20 @@ returns to live, `a` one run/all, `p` pauses, `+` and `-` zoom, arrows scroll an
 quits. Also shows tasks run by `meister worker`. A run without an end and with no events beyond
 `max_runtime_seconds` + 5 min appears as `⚠ SEM SINAL` (no signal).
 
+### Web timeline
+
+The same timeline is also served in the browser by the dashboard, at `/timeline` (for example,
+`http://localhost:5050/timeline` while `meister dashboard` is running). It is read-only and shows the same data as the terminal version.
+
+- **Time axis in minutes:** the axis labels show the time elapsed since the start of the run (`+59s`, `+1m05s`), so long runs stay readable.
+- **Elbow arrows:** dependencies between tasks are drawn as right-angle arrows: a horizontal stub, a vertical trunk per lane, and a horizontal tail into the dependent task.
+- **Duration tooltips:** hovering over a bar shows the phase duration, the task's total duration, and the wait for Jev. Hovering over a lane label shows the lane details.
+- **Lane header:** each lane shows `harness · model (effort)`, for example `copilot · <model> (H)`. Effort abbreviations: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Other values appear in uppercase, and missing parts are omitted.
+- **Sound:** a short tone plays when a task finishes (rising notes) or fails (falling notes). Toggle it with the **Sound on / Sound off** button or the `s` key. The choice is saved in the browser (`localStorage`) and applies only to that browser. Sound is **on** by default; browsers block audio until you interact with the page, so it starts after your first click or key press.
+- **Open attempts:** when a worker is respawned, the previous attempt that was still open ends at the new spawn, instead of stretching to the end of the run.
+
+The keys match the terminal timeline (`[`, `]`, `l`, `a`, `p`, `+`, `-`, arrows, `?`), plus `s` for sound. Press `?` on the page to see the table.
+
 ---
 
 ## Lane names

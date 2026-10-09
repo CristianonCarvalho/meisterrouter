@@ -241,7 +241,7 @@ def _build_row(
 
     segments: List[Segment] = []
     previous_end: Optional[datetime] = None
-    for attempt in attempts:
+    for index, attempt in enumerate(attempts):
         if previous_end is not None and attempt["spawn"] > previous_end:
             segments.append(Segment("wait", previous_end, attempt["spawn"]))
         elif previous_end is None and depends_on and run_start and attempt["spawn"] > run_start:
@@ -267,6 +267,14 @@ def _build_row(
                     )
                 )
             previous_end = attempt["terminal"]
+        elif index + 1 < len(attempts):
+            # tentativa sem fim que foi seguida por outra: a nova tentativa prova que a anterior acabou
+            following = attempts[index + 1]["spawn"]
+            if following > attempt["last_end"]:
+                segments.append(
+                    Segment(_NEXT_PHASE[attempt["last_phase"]], attempt["last_end"], following)
+                )
+            previous_end = following
         else:
             segments.append(
                 Segment(
