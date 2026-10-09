@@ -7,6 +7,7 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 - [Alternative installation](#alternative-installation)
 - [Herdr shortcuts manually](#herdr-shortcuts-manually)
 - [The OpenRouter key](#the-openrouter-key)
+- [Data sent to Jev](jev-data-sent.md)
 - [Set up a project (`init`, hooks, and guard)](#set-up-a-project-init-hooks-and-guard)
 - [Commands `orchestrate` already runs for you](#commands-orchestrate-already-runs-for-you) (`classify`, `control`, `worker`)
 - [Plan and execution manually (`plan`, `orchestrate`, `--resume`)](#plan-and-execution-manually-plan-orchestrate---resume)
@@ -153,6 +154,7 @@ export OPENROUTER_API_KEY="sk-or-v1-..."          # or
 echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
 Without a key, use `router: {mode: first}` in `meister.config.yaml`: the first lane is selected without network access.
+`router.mode: first` skips Jev only for routing; the `control` call at the end of `orchestrate` is still sent when a key is set. See [exactly what is sent to Jev](jev-data-sent.md).
 
 ---
 
