@@ -137,6 +137,25 @@ def test_signals_and_terminate_tolerate_already_dead_process(tmp_path):
     assert (tmp_path / "quick.log").read_text().strip() == "bye"
 
 
+def test_signal_group_and_terminate_tolerate_permission_error(tmp_path, monkeypatch):
+    script = _write_script(tmp_path, "perm.py", "print('bye', flush=True)\n")
+    popen = _proc.start_detached(
+        [sys.executable, str(script)],
+        cwd=None,
+        env=dict(os.environ),
+        log_path=tmp_path / "perm.log",
+    )
+    popen.wait(timeout=20)
+
+    def _eperm(pid: int, sig: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(_proc.os, "killpg", _eperm)
+
+    _proc.signal_group(popen, signal.SIGTERM)
+    _proc.terminate_tree(popen, grace=0.5)
+
+
 def test_signal_group_stops_running_process(tmp_path):
     ready = tmp_path / "ready"
     script = _write_script(
