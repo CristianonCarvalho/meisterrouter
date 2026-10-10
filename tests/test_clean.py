@@ -14,6 +14,7 @@ from meister.clean import (
     apply_cleanup,
     plan_cleanup,
 )
+from tests.platform_marks import posix_only
 
 
 @pytest.fixture(autouse=True)
@@ -366,6 +367,7 @@ def test_prunable_worktree_does_not_protect_a_merged_branch_but_a_live_one_does(
     assert (live_path / "base.txt").exists()
 
 
+@posix_only
 def test_a_live_meister_process_on_the_machine_does_not_leak_into_these_tests(tmp_path):
     """Regressão: um `orchestrate` real vivo (aqui um processo-isca) não pode bloquear o `clean` dos testes."""
     decoy = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", "orchestrate"])
