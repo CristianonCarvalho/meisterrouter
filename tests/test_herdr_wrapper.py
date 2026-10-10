@@ -1,10 +1,12 @@
 import os
-import pty
 import re
-import select
 import subprocess
 from pathlib import Path
 
+from tests.platform_marks import posix_only
+
+
+pytestmark = posix_only
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_PATH = REPO_ROOT / "bin" / "herdr-meister.sh"
@@ -224,6 +226,9 @@ def test_herdr_wrapper_missing_herdr_fails_or_nonexistent(tmp_path: Path):
 
 
 def test_herdr_wrapper_interactive_terminal(tmp_path: Path):
+    import pty
+    import select
+
     master, slave = pty.openpty()
     env = _base_env(tmp_path)
 

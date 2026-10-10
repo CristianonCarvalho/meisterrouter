@@ -14,6 +14,7 @@ from meister.state import compute_subtask_id
 from meister.worker import write_atomic_json
 from meister.logger import add_event_observer, remove_event_observer
 from meister.progress import ProgressReporter
+from tests.platform_marks import posix_only
 
 
 def auto_write_result(search_dir, result_payload=None):
@@ -2122,6 +2123,7 @@ async def test_workers_in_same_run_get_distinct_worktree_paths(tmp_path, monkeyp
     assert spawned_cwds[0] != spawned_cwds[1], f"Worktree paths collided: {spawned_cwds}"
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_resumed_orchestration_closes_registered_panes_before_cleanup(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
