@@ -6,6 +6,7 @@ except ModuleNotFoundError:
 from pathlib import Path
 from click.testing import CliRunner
 from meister.cli import main
+from tests.platform_marks import posix_only
 
 
 def test_pyproject_toml_configuration():
@@ -83,6 +84,8 @@ def test_documentation_pricing_and_catalog_alignment():
     assert "$0.20" in agents_md
 
 
+# No Windows, os.kill(pid, 0) envia CTRL_C_EVENT e interrompe a sessão do pytest.
+@posix_only
 def test_daemon_pid_locking_race_prevention(tmp_path):
     runner = CliRunner()
     pid_file = tmp_path / "race_daemon.pid"
