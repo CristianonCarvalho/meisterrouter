@@ -5,6 +5,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from click.testing import CliRunner
 
 from tests.mocks.mock_herdr_server import run_mock_herdr_server
+from tests.platform_marks import posix_only
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.workers import WorkerSpawner
 from meister.config import MeisterConfig, WorkersConfig, WorkerTier
@@ -12,6 +13,7 @@ from meister.worker import run_worker_in_herdr_tab_async, write_atomic_json
 from meister.cli import main
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_herdr_client_tab_create_and_close(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -45,6 +47,7 @@ async def test_herdr_client_tab_create_and_close(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_herdr_client_wait_for_pane_exit(tmp_path):
     # Achado #10: Evento pane.exited
@@ -66,6 +69,7 @@ async def test_herdr_client_wait_for_pane_exit(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_worker_spawner_spawn_tab(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")

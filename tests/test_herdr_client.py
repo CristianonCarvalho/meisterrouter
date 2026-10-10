@@ -1,9 +1,11 @@
 import asyncio
 import pytest
 from tests.mocks.mock_herdr_server import run_mock_herdr_server
+from tests.platform_marks import posix_only
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_split_and_read(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -23,6 +25,7 @@ async def test_client_split_and_read(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_prompt_agent(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -39,6 +42,7 @@ async def test_client_prompt_agent(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_prompt_agent_raises_on_agent_not_found(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -58,6 +62,7 @@ async def test_client_prompt_agent_raises_on_agent_not_found(tmp_path):
 
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_subscribe_events(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -89,6 +94,7 @@ async def test_client_subscribe_events(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_send_keys_and_notification(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -109,6 +115,7 @@ async def test_client_send_keys_and_notification(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_socket_path_from_env(tmp_path, monkeypatch):
     sock_path = str(tmp_path / "herdr.sock")
@@ -126,6 +133,7 @@ async def test_client_socket_path_from_env(tmp_path, monkeypatch):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_connection_error(tmp_path):
     bad_sock_path = str(tmp_path / "nonexistent.sock")
@@ -142,6 +150,7 @@ def test_client_missing_socket_path(monkeypatch):
         HerdrSocketClient()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_rpc_error(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -161,6 +170,7 @@ async def test_client_rpc_error(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_sync_event_callback(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -189,6 +199,7 @@ async def test_client_sync_event_callback(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_get_current_pane(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -205,6 +216,7 @@ async def test_client_get_current_pane(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_mock_herdr_server_validates_schema_and_rejects_invalid_params(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -236,6 +248,7 @@ async def test_mock_herdr_server_validates_schema_and_rejects_invalid_params(tmp
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_wait_for_output_and_wait_pane_ready(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -278,6 +291,7 @@ async def test_wait_for_output_and_wait_pane_ready(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_wait_for_pane_exit_real_events(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
@@ -307,6 +321,7 @@ async def test_client_wait_for_pane_exit_real_events(tmp_path):
         await server.wait_closed()
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_client_pane_exists(tmp_path):
     sock_path = str(tmp_path / "herdr.sock")
