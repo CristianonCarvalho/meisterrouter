@@ -11,11 +11,13 @@ from meister.hosts.base import (
     WorkerHandle,
     WorkerHost,
 )
+from meister.hosts.herdr import HerdrHost
 
 __all__ = [
     "CAP_PUSH_EVENTS",
     "CAP_VISIBLE",
     "EventCallback",
+    "HerdrHost",
     "HostError",
     "WorkerCommand",
     "WorkerHandle",
