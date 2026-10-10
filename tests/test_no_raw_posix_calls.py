@@ -55,9 +55,7 @@ RAW_POSIX_ATTRIBUTES = {
     ("os", "getpgid"),
     ("signal", "SIGKILL"),
 }
-PENDING_MIGRATION_EXCEPTIONS = {
-    "meister/herdr/bridge.py": {("os", "killpg"), ("os", "getpgid")},
-}
+PENDING_MIGRATION_EXCEPTIONS: dict[str, set] = {}
 
 
 def _raw_posix_attributes(tree: ast.AST):
