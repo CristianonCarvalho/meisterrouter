@@ -1,6 +1,6 @@
 # Hosts de worker por adaptador: Meister sem dependência de terminal (Herdr, tmux ou nenhum)
 
-**Status:** fase 1 concluída (contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento). Fases 2 a 6 pendentes; ver seção 10.
+**Status:** fases 1 e 2 concluídas (fase 1: contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento; fase 2: adaptador `process` e seleção `runtime.host: auto`). Fases 3 a 6 pendentes; ver seção 10.
 **Base observada:** `main` em `19c875e` (2026-10-09). Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-09 com o dono do projeto. Decisões já tomadas: **mesmo repositório** (nada de fork), Herdr vira **um adaptador** entre outros (tmux e execução direta como irmãos), objetivo de usar o Meister **em qualquer harness**.
 
@@ -184,7 +184,12 @@ O que se perde sem Herdr ou tmux é só ver o terminal de cada worker ao vivo e 
 Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase se divide em tarefas de 3 a 5 arquivos.
 
 1. **Contrato e adaptador Herdr. (Concluída.)** Criado `meister/hosts/base.py` e `herdr.py`; bridge e spawner falam com `WorkerHost`, sem mudança de comportamento. Testes existentes do Herdr passam sem alteração de asserções; a sequência de chamadas ao cliente é verificada pelos testes de delegação.
-2. **Adaptador `process`.** Spawn, vivo/morto, `tail` por arquivo de log, interrupção por grupo de processos; seleção `runtime.host: auto`; teste de ponta a ponta sem Herdr; validar cota e worker parado.
+2. **Adaptador `process`. (Concluída.)** Spawn, vivo/morto, `tail` por arquivo de log, interrupção por grupo de processos; seleção `runtime.host: auto`; teste de ponta a ponta sem Herdr; validação de cota e worker parado.
+   Decisões efetivas:
+   - `WorkerCommand.log_file` (caminho da saída do worker) e `WorkerCommand.exit_file` (arquivo onde o código de saída é gravado ao término, via `_record_exit`). Ambos opcionais em `meister/hosts/base.py`.
+   - Seleção `runtime.host: auto` (valores válidos: `auto`, `process`, `herdr`, `tmux`): usa `herdr` quando o socket está acessível; caso contrário, `process`. A seleção é feita em `meister/hosts/select.py`.
+   - Log por worker em `<log_dir>/workers/<label>.log`, quando `log_file` não é informado.
+   - Varredura de cota por `tail`: o bridge lê periodicamente o final da saída do worker e passa ao `detect_quota_or_rate_limit`. Mesmo mecanismo do Herdr, agora sobre o log.
 3. **Experiência para qualquer harness.** Log por worker e `meister logs --follow`; documentação de execução em segundo plano com `meister wait`; modelos de instrução por harness; variável neutra `MEISTER_WORKER` (mantendo `MEISTER_IN_PANE` como alias, pois o guard hook depende dela).
 4. **Adaptador `tmux`.**
 5. **Documentação e instalador.** Herdr passa de pré-requisito a opcional; `meister setup` deixa de abortar sem ele; README e `CLAUDE.md`/`AGENTS.md` atualizados.
@@ -193,7 +198,7 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
 ## 11. Riscos
 
 - **Vazamento de abstração.** `workspace_id` e `architect_pane_id` aparecem no orquestrador; precisam virar opções do adaptador sem alterar o comportamento do Herdr.
-- **Cota no modo local.** Hoje a detecção reativa vem da saída do painel; no `process` ela depende de o log chegar ao `detect_quota_or_rate_limit`. É a principal hipótese a validar na fase 2.
+- **Cota no modo local.** Mitigado por varredura periódica do `tail` (log por worker) com `detect_quota_or_rate_limit`. Validar com o harness real.
 - **Velocidade do upstream.** Há muitos commits por dia em `bridge.py`; fazer a fase 1 em PRs pequenos reduz conflito.
 - **Worker que espera resposta.** Sem terminal, ninguém responde. O tempo limite de inatividade precisa continuar valendo no adaptador `process`.
 - **Segundo plano varia por harness.** Documentar o comando padrão (`nohup`/`setsid`) e testar nos harnesses suportados.
