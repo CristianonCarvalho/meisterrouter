@@ -3391,3 +3391,43 @@ async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(t
     assert mock_classify.call_count == subtask_count
     assert max_active == subtask_count
     assert spawned_tiers == ["copilot"] * subtask_count
+
+
+def test_bridge_builds_herdr_host_from_client():
+    from meister.hosts import HerdrHost
+
+    client = MagicMock()
+    bridge = HerdrEventBridge(config=MeisterConfig(), client=client)
+
+    assert isinstance(bridge.host, HerdrHost)
+    assert bridge.host.client is client
+
+
+def test_bridge_client_setter_rebuilds_host():
+    from meister.hosts import HerdrHost
+
+    bridge = HerdrEventBridge(config=MeisterConfig())
+    assert bridge.host is None
+
+    first = MagicMock()
+    bridge.client = first
+    assert bridge.client is first
+    assert isinstance(bridge.host, HerdrHost)
+    assert bridge.host.client is first
+
+    second = MagicMock()
+    bridge.client = second
+    assert bridge.host.client is second
+
+    bridge.client = None
+    assert bridge.host is None
+
+
+def test_bridge_accepts_explicit_host():
+    from meister.hosts import HerdrHost
+
+    explicit = HerdrHost(MagicMock())
+    bridge = HerdrEventBridge(config=MeisterConfig(), host=explicit)
+
+    assert bridge.host is explicit
+    assert bridge.client is None
