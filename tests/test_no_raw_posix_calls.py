@@ -45,3 +45,49 @@ def test_no_os_kill_liveness_probe_outside_osops():
     assert not offenders, (
         "os.kill(pid, 0) deve usar osops.pid_alive(pid); encontrado em: " + ", ".join(offenders)
     )
+
+
+# Chamadas POSIX cruas que só podem aparecer em meister/osops/. Cada arquivo listado
+# ainda não foi migrado; a lista só deve encolher. Quando um arquivo for migrado,
+# remova-o daqui (o teste falha se a exceção ficar sem uso).
+RAW_POSIX_ATTRIBUTES = {
+    ("os", "killpg"),
+    ("os", "getpgid"),
+    ("signal", "SIGKILL"),
+}
+PENDING_MIGRATION_EXCEPTIONS = {
+    "meister/herdr/bridge.py": {("os", "killpg"), ("os", "getpgid")},
+}
+
+
+def _raw_posix_attributes(tree: ast.AST):
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            key = (node.value.id, node.attr)
+            if key in RAW_POSIX_ATTRIBUTES:
+                yield key, node.lineno
+
+
+def test_no_raw_killpg_getpgid_sigkill_outside_osops():
+    offenders = []
+    used_by_exception: dict[str, set] = {}
+    for path in _python_files_outside_osops():
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        allowed = PENDING_MIGRATION_EXCEPTIONS.get(rel, set())
+        for key, lineno in _raw_posix_attributes(tree):
+            if key in allowed:
+                used_by_exception.setdefault(rel, set()).add(key)
+                continue
+            offenders.append(f"{rel}:{lineno} ({key[0]}.{key[1]})")
+    assert not offenders, (
+        "use meister.osops em vez de chamadas POSIX cruas; encontrado em: " + ", ".join(offenders)
+    )
+    stale = [
+        rel
+        for rel, keys in PENDING_MIGRATION_EXCEPTIONS.items()
+        if used_by_exception.get(rel, set()) != keys
+    ]
+    assert not stale, (
+        "exceções sem uso devem ser removidas de PENDING_MIGRATION_EXCEPTIONS: " + ", ".join(stale)
+    )
