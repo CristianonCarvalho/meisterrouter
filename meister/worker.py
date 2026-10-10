@@ -21,6 +21,7 @@ import signal
 import threading
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any, Tuple, Iterator
+from meister import osops
 from meister.logger import log_event
 from meister.usage import finalize_usage, parse_for_harness
 from meister.harness_effort import HARNESS_EFFORT_VALUES
@@ -229,12 +230,8 @@ def reap_harness(pid_file: str) -> str:
             or not recorded_start
         ):
             return status
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
+        if not osops.pid_alive(pid):
             status = "gone"
-        except PermissionError:
-            status = "mismatch"
         else:
             current_start = process_start_signature(pid)
             if current_start is None or current_start != recorded_start:
