@@ -24,6 +24,7 @@ from typing import Optional, List, Dict, Any, Tuple, Iterator
 from meister import osops
 from meister.logger import log_event
 from meister.usage import finalize_usage, parse_for_harness
+from meister.envvars import worker_env_assignments
 from meister.harness_effort import HARNESS_EFFORT_VALUES
 from meister.i18n import t
 
@@ -88,6 +89,7 @@ DEFAULT_SAFE_ENV_VARS = {
     "GITHUB_TOKEN",
     "GH_TOKEN",
     # Configurações do MeisterRouter para os workers
+    "MEISTER_WORKER",
     "MEISTER_IN_PANE",
     "MEISTER_CONFIG_PATH",
     "MEISTER_LOG_DIR",
@@ -794,7 +796,7 @@ async def run_worker_in_herdr_pane_async(
     write_atomic_json(task_file, task_payload)
 
     cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
-    env_vars = ["MEISTER_IN_PANE=1"]
+    env_vars = [f"{name}={value}" for name, value in worker_env_assignments().items()]
     if os.environ.get("MEISTER_LOG_DIR"):
         env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
     if resolved_run_id:
@@ -1003,7 +1005,7 @@ async def run_worker_in_herdr_tab_async(
     write_atomic_json(task_file, task_payload)
 
     cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
-    env_vars = ["MEISTER_IN_PANE=1"]
+    env_vars = [f"{name}={value}" for name, value in worker_env_assignments().items()]
     if os.environ.get("MEISTER_LOG_DIR"):
         env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
     if resolved_run_id:
