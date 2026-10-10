@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import click
 
-from meister import __version__
+from meister import __version__, osops
 from meister.dashboard.launcher import ensure_dashboard
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
@@ -118,13 +118,7 @@ def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, An
 
 def is_pid_alive(pid: int) -> bool:
     """Return whether a process with the given PID is active."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    return osops.pid_alive(pid)
 
 
 def _is_loopback_host(host: str) -> bool:

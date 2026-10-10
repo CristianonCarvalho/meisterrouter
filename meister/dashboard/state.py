@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
+from meister import osops
+
 
 @dataclass
 class ServerState:
@@ -124,13 +126,7 @@ def is_alive(
     # 2. Verificação do processo local
     if state.pid <= 0:
         return False
-    try:
-        os.kill(state.pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass
-    except OSError:
+    if not osops.pid_alive(state.pid):
         return False
 
     # 3. Consulta ao endpoint /api/meta

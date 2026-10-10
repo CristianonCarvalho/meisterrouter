@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence
 
+from meister import osops
 from meister.i18n import t
 
 try:
@@ -396,13 +397,7 @@ def ensure_herdr_plugin(
 
 def is_pid_alive(pid: int) -> bool:
     """Verifica se um processo com o PID fornecido está ativo."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    return osops.pid_alive(pid)
 
 
 def get_default_pid_file() -> str:
