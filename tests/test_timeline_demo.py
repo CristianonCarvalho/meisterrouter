@@ -1,9 +1,17 @@
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
+import pytest
+
+from meister import timeline_cli, timeline_json
+from meister.config import WorkerTier
 from meister.timeline import build_timeline
-from meister.timeline_demo import RUN_ID, build_scenario
+from meister.timeline_demo import RUN_ID, build_scenario, materialize
+from meister.timeline_graph import build_graph
+from meister.timeline_json import timeline_json_for_log
 from tests.timeline_fixtures import BASE
+
+NOW = datetime(2026, 10, 10, 11, 22, 48, tzinfo=timezone.utc)
 
 
 def _task_events(scenario, task_id):
@@ -209,3 +217,115 @@ def test_scenario_builds_a_valid_timeline_with_expected_statuses():
     assert statuses.count("running") == 1
     assert statuses.count("failed") == 1
     assert timeline.summary.peak_parallel >= 2
+
+
+def _parse(stamp):
+    return datetime.fromisoformat(stamp)
+
+
+def _static_events():
+    return materialize(build_scenario(), "static", NOW)
+
+
+def test_live_ts_is_non_decreasing_and_offsets_are_divided_by_speed():
+    scenario = build_scenario()
+    events = materialize(scenario, "live", NOW, speed=4.0)
+    stamps = [_parse(event["ts"]) for event in events]
+    assert stamps == sorted(stamps)
+    for item, event in zip(scenario, events):
+        assert _parse(event["ts"]) == NOW + timedelta(seconds=item.offset_s / 4.0)
+
+
+def test_live_divides_worker_phase_duration_ms_by_speed():
+    scenario = build_scenario()
+    events = materialize(scenario, "live", NOW, speed=4.0)
+    phases = [(item, event) for item, event in zip(scenario, events) if event["event_type"] == "worker_phase"]
+    assert phases
+    for item, event in phases:
+        assert event["duration_ms"] == pytest.approx(item.event["duration_ms"] / 4.0)
+
+
+def test_live_speed_one_keeps_original_duration_ms():
+    scenario = build_scenario()
+    events = materialize(scenario, "live", NOW)
+    for item, event in zip(scenario, events):
+        if event["event_type"] == "worker_phase":
+            assert event["duration_ms"] == item.event["duration_ms"]
+
+
+def test_static_has_no_future_ts_and_ends_a_few_seconds_before_now():
+    stamps = [_parse(event["ts"]) for event in _static_events()]
+    assert max(stamps) <= NOW
+    assert timedelta(0) < NOW - max(stamps) <= timedelta(seconds=10)
+
+
+def test_static_keeps_original_durations_and_offsets_in_real_time():
+    scenario = build_scenario()
+    events = _static_events()
+    origin = _parse(events[0]["ts"]) - timedelta(seconds=scenario[0].offset_s)
+    for item, event in zip(scenario, events):
+        assert event.get("duration_ms") == item.event.get("duration_ms")
+        assert _parse(event["ts"]) - origin == timedelta(seconds=item.offset_s)
+
+
+def test_materialize_rejects_unknown_mode_and_non_positive_speed():
+    with pytest.raises(ValueError):
+        materialize(build_scenario(), "replay", NOW)
+    with pytest.raises(ValueError):
+        materialize(build_scenario(), "live", NOW, speed=0)
+
+
+def _static_timeline():
+    events = _static_events()
+    return build_timeline(events, RUN_ID, NOW), events
+
+
+def test_static_timeline_has_all_tasks_and_expected_statuses():
+    timeline, _ = _static_timeline()
+    statuses = {row.task_id: row.status for row in timeline.rows}
+    assert len(timeline.rows) == 12
+    assert statuses["task_07"] == "failed"
+    assert statuses["task_10"] == "running"
+    assert [task for task, status in statuses.items() if status == "running"] == ["task_10"]
+    assert all(status == "completed" for task, status in statuses.items() if task not in {"task_07", "task_10"})
+
+
+def test_static_timeline_shows_retry_and_escalation_attempts():
+    timeline, _ = _static_timeline()
+    rows = {row.task_id: row for row in timeline.rows}
+    assert rows["task_04"].attempts == 2
+    assert rows["task_06"].attempts == 3
+    assert rows["task_06"].tier == "tier_3"
+
+
+def test_static_timeline_interrupted_task_has_no_inferred_segments():
+    timeline, _ = _static_timeline()
+    rows = {row.task_id: row for row in timeline.rows}
+    assert rows["task_08"].attempts == 2
+    assert not any(segment.inferred for segment in rows["task_08"].segments)
+
+
+def test_static_timeline_has_legacy_lane_and_fan_in_fan_out_edges():
+    timeline, events = _static_timeline()
+    rows = {row.task_id: row for row in timeline.rows}
+    assert rows["task_09"].tier == "legacy_lane"
+    graph = build_graph(timeline, {}, NOW, events=events)
+    assert "legacy_lane" in {lane.via for lane in graph.lanes}
+    assert sorted(edge.dst for edge in graph.edges if edge.src == "task_03") == ["task_04", "task_05", "task_06"]
+    assert sorted(edge.src for edge in graph.edges if edge.dst == "task_03") == ["task_01", "task_02"]
+
+
+def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monkeypatch):
+    log = tmp_path / "orchestration_log.jsonl"
+    log.write_text("".join(json.dumps(event) + "\n" for event in _static_events()), encoding="utf-8")
+    tiers = [WorkerTier(name="tier_1", harness="codex", model="luna-model")]
+    monkeypatch.setattr(timeline_cli, "_tiers", lambda: tiers)
+    monkeypatch.setattr(timeline_json, "_catalog_tiers", lambda: tiers)
+
+    data = timeline_json_for_log(str(log), run_id=None, now=NOW)
+
+    lanes = {lane["via"]: lane for lane in data["lanes"]}
+    assert lanes["tier_1"]["harness"] == "codex"
+    assert lanes["tier_1"]["model"] == "luna-model"
+    assert lanes["legacy_lane"]["harness"] is None
+    assert lanes["legacy_lane"]["model"] is None
