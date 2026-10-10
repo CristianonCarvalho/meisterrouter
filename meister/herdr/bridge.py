@@ -26,7 +26,7 @@ from meister.gate import summarize_gate_failure
 from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
-from meister.hosts import HerdrHost, WorkerHost
+from meister.hosts import HerdrHost, WorkerHandle, WorkerHost
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -233,6 +233,15 @@ def _step_title(step: Union[Dict[str, Any], SubtaskNode], size: int = 120) -> st
     return ""
 
 
+class _BridgeHerdrHost(HerdrHost):
+    """HerdrHost whose tail keeps the legacy ``read_pane(pane_id)`` RPC shape (no ``lines``)."""
+
+    async def tail(self, handle: WorkerHandle, lines: Optional[int] = None) -> str:
+        if lines is None:
+            return await self.client.read_pane(handle.id)
+        return await super().tail(handle, lines=lines)
+
+
 class HerdrEventBridge:
     """Central orchestration supervisor bridging Herdr socket events and task execution."""
 
@@ -289,7 +298,7 @@ class HerdrEventBridge:
     @client.setter
     def client(self, client: Optional[HerdrSocketClient]) -> None:
         self._client = client
-        self.host = HerdrHost(client) if client is not None else None
+        self.host = _BridgeHerdrHost(client) if client is not None else None
 
     @staticmethod
     def _stored_attempt_count(sm: StateManager, subtask_id: str) -> int:
@@ -360,6 +369,14 @@ class HerdrEventBridge:
                 )
         except Exception as e:
             logger.error("Falha ao marcar run interrompida %s como FAILED: %s", run_id, e)
+
+    @staticmethod
+    def _worker_handle(pane_id: str, tab_id: Any = None) -> WorkerHandle:
+        return WorkerHandle(id=pane_id, aux=tab_id)
+
+    def _require_host(self) -> WorkerHost:
+        assert self.host is not None
+        return self.host
 
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
@@ -609,9 +626,9 @@ class HerdrEventBridge:
                 sm.record_harness_failure(current_tier, is_quota=True)
 
             # Interrupt runaway worker pane immediately to preserve tokens
-            if self.client is not None:
+            if self.host is not None:
                 try:
-                    await self.client.send_interrupt(pane_id)
+                    await self.host.interrupt(self._worker_handle(pane_id))
                 except Exception as e:
                     logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
 
@@ -1179,7 +1196,7 @@ class HerdrEventBridge:
                     worktree_fingerprint = initial_worktree_fingerprint
                     pane_fingerprint: Optional[str] = None
                     try:
-                        pane_content = await self.client.read_pane(pane_id)
+                        pane_content = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                         pane_fingerprint = hashlib.sha256(str(pane_content).encode("utf-8")).hexdigest()
                     except Exception:
                         pass
@@ -1226,7 +1243,7 @@ class HerdrEventBridge:
                                 continue
                             process_exit_code = _read_worker_exit_code(exit_file)
                             try:
-                                pane_text = await self.client.read_pane(pane_id)
+                                pane_text = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pane_text = ""
                             infra_error = t(
@@ -1283,7 +1300,7 @@ class HerdrEventBridge:
                                 except (OSError, subprocess.SubprocessError) as e:
                                     logger.debug("Could not inspect worker worktree activity at %s: %s", spawn_cwd, e)
                             try:
-                                pane_content = await self.client.read_pane(pane_id)
+                                pane_content = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                                 current_pane_fingerprint = hashlib.sha256(
                                     str(pane_content).encode("utf-8")
                                 ).hexdigest()
@@ -1295,9 +1312,9 @@ class HerdrEventBridge:
                                 pane_fingerprint = current_pane_fingerprint
                             except Exception:
                                 pass
-                            if self.client is not None and hasattr(self.client, "pane_exists"):
+                            if self.host is not None:
                                 try:
-                                    exists = await self.client.pane_exists(pane_id)
+                                    exists = await self.host.alive(self._worker_handle(pane_id, tab_id))
                                     if exists is False:
                                         await asyncio.sleep(0.5)
                                         if os.path.exists(result_file):
@@ -1407,7 +1424,7 @@ class HerdrEventBridge:
                                 seconds=seconds_label,
                             )
                         try:
-                            await self.client.send_interrupt(pane_id)
+                            await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         except Exception as e:
                             logger.debug("Failed interrupting timed-out worker pane %s: %s", pane_id, e)
                         await asyncio.sleep(1.0)
@@ -1597,7 +1614,7 @@ class HerdrEventBridge:
                     if prompt_result is None:
                         terminal_output = ""
                         try:
-                            terminal_output = await self.client.read_pane(pane_id)
+                            terminal_output = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                         except Exception:
                             pass
 
@@ -1614,7 +1631,7 @@ class HerdrEventBridge:
                                 error="Terminal quota detected",
                             )
                             try:
-                                await self.client.send_interrupt(pane_id)
+                                await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pass
                             if active_run_id:
@@ -1723,7 +1740,7 @@ class HerdrEventBridge:
                             error=err_msg,
                         )
                         try:
-                            await self.client.send_interrupt(pane_id)
+                            await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         except Exception:
                             pass
                         if active_run_id:
@@ -1742,7 +1759,7 @@ class HerdrEventBridge:
                     # Inspect terminal output and prompt response for quota errors
                     terminal_output = ""
                     try:
-                        terminal_output = await self.client.read_pane(pane_id)
+                        terminal_output = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                     except Exception:
                         pass
 
@@ -1759,7 +1776,7 @@ class HerdrEventBridge:
                             exit_code=429,
                             error="Terminal quota detected",
                         )
-                        await self.client.send_interrupt(pane_id)
+                        await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         if active_run_id:
                             sm.unregister_pane(pane_id)
                             try:
@@ -2234,9 +2251,9 @@ class HerdrEventBridge:
             )
 
             # 1. Encerra o grupo de processos do worker órfão
-            if self.client is not None and self.client.is_connected and pane_id:
+            if self.host is not None and self.client is not None and self.client.is_connected and pane_id:
                 try:
-                    await self.client.send_interrupt(pane_id)
+                    await self.host.interrupt(self._worker_handle(pane_id, tab_id))
                 except Exception as e:
                     logger.debug(t("engine.bridge.interrupt_failed", pane_id=pane_id, error=e))
 
