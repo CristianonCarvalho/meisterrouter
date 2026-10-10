@@ -20,6 +20,8 @@ popen_session_kwargs = _impl.popen_session_kwargs
 signal_group = _impl.signal_group
 interrupt_group = _impl.interrupt_group
 terminate_tree = _impl.terminate_tree
+terminate_pid = _impl.terminate_pid
+terminate_group_of = _impl.terminate_group_of
 kill_tree = _impl.kill_tree
 lock_file = _impl.lock_file
 unlock_file = _impl.unlock_file
@@ -37,6 +39,8 @@ __all__ = [
     "popen_session_kwargs",
     "process_signature",
     "signal_group",
+    "terminate_group_of",
+    "terminate_pid",
     "terminate_tree",
     "unlock_file",
 ]

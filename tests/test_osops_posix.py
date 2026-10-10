@@ -57,6 +57,8 @@ def test_package_reexports_posix_implementation():
     assert osops.popen_session_kwargs is posix.popen_session_kwargs
     assert osops.interrupt_group is posix.interrupt_group
     assert osops.terminate_tree is posix.terminate_tree
+    assert osops.terminate_pid is posix.terminate_pid
+    assert osops.terminate_group_of is posix.terminate_group_of
     assert osops.kill_tree is posix.kill_tree
     assert osops.lock_file is posix.lock_file
     assert osops.unlock_file is posix.unlock_file
@@ -191,6 +193,54 @@ def test_terminate_tree_with_wait_callback_reaps_leader():
         assert calls == [10.0, 10.0]
     finally:
         _reap(child)
+
+
+def _spawn_non_leader() -> subprocess.Popen:
+    """Filho que NÃO é líder do próprio grupo (sem start_new_session)."""
+    return subprocess.Popen(
+        ["sleep", "300"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def test_terminate_pid_kills_non_leader_process():
+    child = _spawn_non_leader()
+    try:
+        assert os.getpgid(child.pid) != child.pid
+        osops.terminate_pid(child.pid)
+        assert child.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        _reap(child)
+
+
+def test_terminate_group_of_kills_non_leader_process():
+    child = _spawn_non_leader()
+    try:
+        assert os.getpgid(child.pid) != child.pid
+        osops.terminate_group_of(child.pid)
+        assert child.wait(timeout=10) == -signal.SIGTERM
+    finally:
+        _reap(child)
+
+
+def test_terminate_tree_does_not_kill_non_leader_process():
+    """Motivo das duas funções: ``terminate_tree`` assume líder de grupo e não mata o filho."""
+    child = _spawn_non_leader()
+    try:
+        started = time.monotonic()
+        posix.terminate_tree(child.pid, grace=0.3)
+        assert time.monotonic() - started < 5
+        assert child.poll() is None
+    finally:
+        _reap(child)
+
+
+def test_terminate_pid_and_group_of_ignore_missing_pid():
+    pid = _dead_pid()
+    osops.terminate_pid(pid)
+    osops.terminate_group_of(pid)
 
 
 def test_kill_tree_terminates_process_group():
