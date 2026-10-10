@@ -368,7 +368,7 @@ def test_server_uses_and_prints_selected_log_dir(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(app, "run", lambda **kwargs: None)
     start_server(log_dir=str(log_dir))
     output = capsys.readouterr().out
-    assert f"Lendo eventos de: {log_dir}/orchestration_log.jsonl" in output
+    assert f"Lendo eventos de: {log_dir / 'orchestration_log.jsonl'}" in output
 
 
 def test_event_pagination_endpoint_and_invalid_integer(dashboard_client):
@@ -557,8 +557,9 @@ def test_project_from_log_uses_the_log_owner_not_the_cwd(tmp_path, monkeypatch):
     odd = tmp_path / "logs-soltos" / "orchestration_log.jsonl"
     assert project_from_log(str(odd), "/x/meu_projeto") == {"name": "meu_projeto", "path": "/x/meu_projeto"}
     assert project_from_log(str(odd))["name"] == "logs-soltos"
-    # log global em ~/.meister
+    # log global em ~/.meister (expanduser usa USERPROFILE no Windows)
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     home_log = tmp_path / ".meister" / "logs" / "orchestration_log.jsonl"
     assert project_from_log(str(home_log))["name"] == "global (~/.meister)"
 

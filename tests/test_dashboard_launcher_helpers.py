@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import pytest
@@ -117,9 +116,12 @@ def test_find_chromium_macos_preference_order(
 ) -> None:
     from meister.dashboard import launcher
 
-    monkeypatch.setattr(launcher.Path, "is_file", lambda path: str(path) in available)
+    monkeypatch.setattr(launcher.Path, "is_file", lambda path: path.as_posix() in available)
 
-    assert find_chromium("darwin", {}) == expected
+    found = find_chromium("darwin", {})
+
+    assert found is not None
+    assert [Path(p).as_posix() for p in found] == expected
 
 
 def test_find_chromium_macos_returns_none_when_no_supported_browser(
@@ -238,8 +240,9 @@ def test_default_profile_dir_uses_home_without_creating_it(
 ) -> None:
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
 
     profile = default_profile_dir()
 
-    assert profile == os.path.join(str(home), ".meister", "browser-profile")
+    assert Path(profile).resolve() == (home / ".meister" / "browser-profile").resolve()
     assert not home.exists()
