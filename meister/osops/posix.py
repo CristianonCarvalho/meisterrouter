@@ -155,7 +155,7 @@ def unlock_file(fd: int) -> None:
 def list_processes() -> list[tuple[int, list[str]]]:
     """Lista ``(pid, argv)`` lendo o comando de cada processo sem casar texto dentro de outro argumento."""
     result = subprocess.run(
-        ["ps", "-axo", "pid=,command="],
+        ["ps", "-axww", "-o", "pid=,command="],
         capture_output=True,
         text=True,
         check=False,

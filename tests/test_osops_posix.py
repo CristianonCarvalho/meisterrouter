@@ -294,6 +294,21 @@ def test_list_processes_reports_argv_of_live_process():
         _reap(child)
 
 
+def test_list_processes_asks_ps_for_unlimited_width(monkeypatch):
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(posix.subprocess, "run", fake_run)
+    assert posix.list_processes() == []
+    assert len(calls) == 1
+    assert calls[0][0] == "ps"
+    assert "-axww" in calls[0]
+    assert "pid=,command=" in calls[0]
+
+
 def test_kill_self_terminates_with_sigkill():
     code = "from meister.osops import kill_self\nkill_self()\n"
     result = subprocess.run(
