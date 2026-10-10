@@ -54,10 +54,15 @@ def is_running(popen: subprocess.Popen) -> bool:
 
 
 def signal_group(popen: subprocess.Popen, sig: int) -> None:
-    """Envia ``sig`` ao grupo de processos iniciado por ``popen``; ignora se já encerrou."""
+    """Envia ``sig`` ao grupo de processos iniciado por ``popen``; ignora se já encerrou.
+
+    No macOS, ``killpg`` devolve EPERM quando o líder do grupo acabou de sair e ainda
+    é zumbi. O grupo foi criado por este processo (``start_new_session``), então
+    ``PermissionError`` aqui significa que o grupo já está encerrando, não falta de permissão.
+    """
     try:
         os.killpg(popen.pid, sig)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError):
         return
 
 
