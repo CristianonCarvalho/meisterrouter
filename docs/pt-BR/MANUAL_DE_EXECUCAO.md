@@ -74,6 +74,20 @@ dashboard:
 
 O servidor escuta somente em `127.0.0.1`. Sem tela gráfica (por exemplo, via SSH ou em CI), o MeisterRouter não tenta abrir um navegador e imprime a URL da linha do tempo para você abrir depois. Se o Chromium não estiver disponível, tenta abrir uma aba no navegador padrão. Uma falha ao iniciar o servidor ou o navegador não interrompe a orquestração. O servidor encerra sozinho após `dashboard.idle_exit_minutes` sem uso e quando não há run ativa; para pará-lo antes, execute `kill <PID>` usando o PID registrado em `.meister/dashboard.json`.
 
+### Rodar em segundo plano e de qualquer harness
+O `meister orchestrate` é um processo comum, então qualquer harness (não só o Herdr) pode iniciá-lo em segundo plano e seguir trabalhando:
+```bash
+nohup meister orchestrate --plan-file plano.json > .meister/orchestrate.log 2>&1 &
+# ou, desanexado da sessão do terminal:
+setsid meister orchestrate --plan-file plano.json > .meister/orchestrate.log 2>&1 &
+```
+1. **Leia o id da run** na primeira linha do log: `Plan: ... (run 0123abcd)`.
+2. **Seja avisado quando terminar:** `meister wait --run-id 0123abcd`, de preferência iniciado em segundo plano. Ele sai quando a run termina, e o código de saída diz como: `0` concluída, `1` falhou, `130` interrompida, `124` o `--timeout` estourou (a run segue rodando), `2` erro de uso. Passe sempre o `--run-id`; sem ele, o `wait` usa a run mais recente, que pode já ter terminado.
+3. **Veja o andamento sem ler o log à mão:** `meister timeline --json --once` imprime a linha do tempo em JSON (tarefas, fases, vias) e sai, o que serve para scripts e agentes.
+4. **Acompanhe a saída de um worker:** `meister logs -f` segue o log de worker modificado mais recentemente; `meister logs --list` lista os logs disponíveis, e `--run-id`, `--task` e `--lines` restringem a escolha. Os arquivos ficam em `<log_dir>/workers/` (veja [Onde olhar](#5-onde-olhar)).
+
+Onde os workers rodam é definido por `runtime.host` (`auto`, `process`, `herdr`, `tmux`); veja [`INSTALACAO_E_COMANDOS_AVANCADOS.md`](INSTALACAO_E_COMANDOS_AVANCADOS.md#host-dos-workers-e-logs).
+
 ## 4. Quando algo falha: o que você precisa fazer
 `meister orchestrate` mostra progresso por tarefa e o resumo final em stderr; a frase de sucesso/falha
 continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
@@ -94,6 +108,7 @@ continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
 - **Eventos:** JSONL em `~/.meister/logs` (ou `MEISTER_LOG_DIR`); `meister replay` reconstrói a linha do tempo. `meister dashboard` abre o painel agrupado por tarefa, com seleção de run, análise filtrável/paginada de eventos e indicação explícita do arquivo lido. Use `meister dashboard --log-dir CAMINHO` para apontar outro diretório. O painel não estima economia sem baseline medido, e custos de workers não registrados aparecem como “não medido”. Eventos úteis: `subtask_reused`/`subtask_not_reused` (retomada), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Relatório de runs:** `meister report --run-id ID` mostra tarefas, custo, fases e overhead; repita `--run-id` para comparar runs. Use `--group A=ID1,ID2` para mediana/mínimo/máximo de um grupo, `--format json|markdown` para exportar ou `--log-dir CAMINHO` para ler outro `orchestration_log.jsonl`. Prefixos de run precisam ter ao menos 6 caracteres; métricas ausentes em logs antigos aparecem como “não medido”. O custo do Copilot vem de créditos × `credit_usd`.
 - **Linha do tempo (Gantt):** `meister timeline` abre, no terminal (ex.: numa tab do Herdr), um Gantt colorido das tarefas do run mais novo: uma barra por tarefa no eixo do tempo, cor por fase (worker, gate, integração, espera), a faixa Jev para as chamadas de decisão, a ponta pulsando nas tarefas em andamento e o paralelismo visível (tarefas sobrepostas, pico e média no topo); também mostra tarefas rodadas por `meister worker`. Um run sem fim e sem eventos além de `max_runtime_seconds` + 5 min aparece como `⚠ SEM SINAL`. Teclas: `a` alterna entre um run e todos os runs empilhados, `[`/`]` trocam de run (replay), `l` volta ao ao vivo, `p` pausa, `+`/`-` zoom, `←`/`→` tempo, `↑`/`↓` linhas, `?` ajuda, `q` sai; `meister timeline --all` abre direto em todos os runs. `--once` imprime um quadro e sai (serve para pipe); `--no-color` ou `NO_COLOR=1` desligam as cores; precisa de 80 colunas. Dentro de `meister dashboard --tui`, a tecla `t` abre a mesma tela. Só lê o log; a fase corrente de uma tarefa em andamento é inferida (o log registra a fase ao terminar) e não há percentual por tarefa.
+- **Logs dos workers:** `<log_dir>/workers/<run>_<tarefa>_<tentativa>.log` (`<log_dir>` é `.meister/logs` no projeto, ou `MEISTER_LOG_DIR`). Leia com `meister logs`; com `runtime.host: process` é para lá que vai a saída de cada worker.
 - **Estado:** `.meister/meister.db` no projeto (runs, subtarefas, disjuntores). Um run retomado guarda `resumed_from`; o de origem recebe `superseded_by`.
 - **Trabalho rejeitado nunca é perdido:** commits e mudanças ainda não commitadas ficam em `refs/meister/archive/*` (estas últimas usam refs com sufixo `-uncommitted`). Recupere um diff com `git diff <base>..refs/meister/archive/<ref>` ou um arquivo com `git checkout <ref> -- <arquivo>`; commits reaproveitados numa retomada ficam fixados em `refs/meister/resume/*`.
 ### Sobras

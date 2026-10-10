@@ -12,6 +12,7 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 - [Equipar um projeto (`init`, hooks e guard)](#equipar-um-projeto-init-hooks-e-guard)
 - [Comandos que o `orchestrate` já usa por você](#comandos-que-o-orchestrate-já-usa-por-você) (`classify`, `control`, `worker`)
 - [Plano e execução à mão (`plan`, `orchestrate`, `--resume`)](#plano-e-execução-à-mão-plan-orchestrate---resume)
+- [Host dos workers e logs (`runtime.host`, `MEISTER_WORKER`, `logs`)](#host-dos-workers-e-logs)
 - [Limpar branches antigas (`clean`)](#limpar-branches-antigas-clean)
 - [Dashboard e linha do tempo: opções](#dashboard-e-linha-do-tempo-opções)
 - [Demonstração da timeline](#demonstração-da-timeline)
@@ -326,6 +327,41 @@ Lançado em segundo plano por um agente, ele acorda o agente quando o processo s
 
 Também aceita `--task '<texto ou JSON do plano>'` e `-c <config.yaml>`; o formato legado (texto livre) exige
 `--allow-freeform` e não valida dependências nem esquema. Dentro do Herdr, `prefix+m` inicia a orquestração.
+
+---
+
+## Host dos workers e logs
+
+### `runtime.host`
+O lugar onde os workers rodam é escolhido por `runtime.host` no `meister.config.yaml`:
+
+| Valor | Comportamento |
+|---|---|
+| `auto` (padrão) | usa o Herdr quando o socket está acessível; caso contrário, cai para `process` |
+| `process` | os workers são processos locais comuns, cada um em seu próprio grupo de processos, com a saída gravada em arquivo de log; sem abas de worker e sem eventos push |
+| `herdr` | exige o Herdr; falha com erro explícito quando o socket não está acessível |
+| `tmux` | aceito pelo esquema, mas ainda sem adaptador; selecioná-lo falha com mensagem explícita |
+
+```yaml
+runtime:
+  host: process
+```
+Com `process` (ou `auto` sem Herdr), o `meister orchestrate` funciona a partir de qualquer harness ou script, inclusive em segundo plano (veja o [manual de execução](MANUAL_DE_EXECUCAO.md#rodar-em-segundo-plano-e-de-qualquer-harness)).
+
+### `MEISTER_WORKER`
+O Meister define `MEISTER_WORKER=1` no ambiente de cada worker que lança. Hooks, o guard do Claude Code e os `AGENTS.md`/`CLAUDE.md`/`CODEX.md` gerados o usam para reconhecer um worker e deixá-lo editar código.
+
+> **Nota:** `MEISTER_IN_PANE=1` é o nome antigo. O Meister continua definindo-o junto com `MEISTER_WORKER`, porque um hook gerado por uma instalação antiga só confere `MEISTER_IN_PANE`. Não o remova de scripts próprios; scripts novos devem conferir `MEISTER_WORKER`.
+
+### `logs`
+```bash
+meister logs                        # últimas 50 linhas do log de worker modificado mais recentemente
+meister logs -f                     # idem, e segue as novas linhas (Ctrl+C para sair)
+meister logs --list                 # tabela dos logs disponíveis (run, tarefa, tentativa, tamanho, modificação)
+meister logs --run-id 0123abcd --task task_3 -n 200
+meister logs --log-dir /caminho/para/logs
+```
+Os logs de worker são arquivos `<run>_<tarefa>_<tentativa>.log` em `<log_dir>/workers/`, onde `<log_dir>` é `.meister/logs` no projeto (ou `MEISTER_LOG_DIR`, ou `--log-dir`). `--run-id` aceita prefixo de pelo menos 6 caracteres; `--task` é o id exato da tarefa; `--lines`/`-n` define quantas linhas mostrar (padrão 50). `--list` e `--follow` não podem ser combinados. O comando só lê arquivos. Sai com código `2` quando o diretório não tem logs, ou quando a run ou a tarefa não é encontrada ou o prefixo é ambíguo.
 
 ---
 
