@@ -27,6 +27,7 @@ from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.hosts import HerdrHost, WorkerHandle, WorkerHost
+from meister.hosts.base import CAP_PUSH_EVENTS
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -635,31 +636,34 @@ class HerdrEventBridge:
         if not pane_id or pane_id not in self.active_workers:
             return
 
-        worker_info = self.active_workers[pane_id]
-
         if detect_quota_or_rate_limit(str(output)):
-            logger.warning(
-                "Reactive quota/rate-limit detected in pane %s: %s",
-                pane_id,
-                output,
-            )
-            worker_info["status"] = "quota_error"
+            await self._on_quota_detected(pane_id, output)
 
-            current_tier = worker_info.get("current_tier")
-            if current_tier:
-                sm = self.get_state_manager()
-                sm.record_harness_failure(current_tier, is_quota=True)
+    async def _on_quota_detected(self, pane_id: str, output: Any) -> None:
+        """Marca o worker como em cota, interrompe o pane e acorda quem espera por ele."""
+        worker_info = self.active_workers[pane_id]
+        logger.warning(
+            "Reactive quota/rate-limit detected in pane %s: %s",
+            pane_id,
+            output,
+        )
+        worker_info["status"] = "quota_error"
 
-            # Interrupt runaway worker pane immediately to preserve tokens
-            if self.host is not None:
-                try:
-                    await self.host.interrupt(self._worker_handle(pane_id))
-                except Exception as e:
-                    logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
+        current_tier = worker_info.get("current_tier")
+        if current_tier:
+            sm = self.get_state_manager()
+            sm.record_harness_failure(current_tier, is_quota=True)
 
-            # Signal any waiting subtask execution coroutine
-            if pane_id in self._quota_events:
-                self._quota_events[pane_id].set()
+        # Interrupt runaway worker pane immediately to preserve tokens
+        if self.host is not None:
+            try:
+                await self.host.interrupt(self._worker_handle(pane_id))
+            except Exception as e:
+                logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
+
+        # Signal any waiting subtask execution coroutine
+        if pane_id in self._quota_events:
+            self._quota_events[pane_id].set()
 
     async def execute_subtask(
         self,
@@ -1350,6 +1354,12 @@ class HerdrEventBridge:
                                 ):
                                     last_activity = time.monotonic()
                                 pane_fingerprint = current_pane_fingerprint
+                                if (
+                                    CAP_PUSH_EVENTS not in getattr(self._require_host(), "capabilities", frozenset())
+                                    and pane_id in self.active_workers
+                                    and detect_quota_or_rate_limit(str(pane_content))
+                                ):
+                                    await self._on_quota_detected(pane_id, pane_content)
                             except Exception:
                                 pass
                             if self.host is not None:
