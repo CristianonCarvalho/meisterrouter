@@ -1,8 +1,8 @@
 """Harness de mentira para os testes e2e do host ``process``.
 
-Cada CLI simulado (``codex``, ``copilot``...) é um script de shell que chama este
-módulo com um modo como primeiro argumento, seguido dos argumentos que o
-MeisterRouter passaria ao CLI real:
+Cada CLI simulado (``codex``, ``copilot``...) é um wrapper (script de shell no POSIX,
+``.cmd`` no Windows) que chama ``sys.executable`` com este módulo e um modo como primeiro
+argumento, seguido dos argumentos que o MeisterRouter passaria ao CLI real:
 
 - ``write``: grava no worktree o arquivo indicado por ``FAKE_WRITE=<nome>`` no prompt e sai com 0.
 - ``silent``: sai com 1 sem gravar nada e sem imprimir resultado.

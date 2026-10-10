@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
+from meister import osops
 from meister.dashboard.state import is_alive, read_state
 
 
@@ -279,7 +280,7 @@ def ensure_dashboard(
                             subprocess.Popen(
                                 cmd,
                                 cwd=str(project_root),
-                                start_new_session=True,
+                                **osops.popen_session_kwargs(),
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
                                 stdin=subprocess.DEVNULL,
@@ -331,7 +332,7 @@ def ensure_dashboard(
             try:
                 subprocess.Popen(
                     argv,
-                    start_new_session=True,
+                    **osops.popen_session_kwargs(),
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL,

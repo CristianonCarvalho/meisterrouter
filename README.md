@@ -7,7 +7,7 @@
 You pick an **orchestrator LLM** (for example Claude Code) to plan the work. MeisterRouter spreads the tasks over **GitHub Copilot**, **Codex**, **Antigravity (Gemini)** and **Claude**, each one in its own git worktree and in a visible Herdr tab. Every result goes through a **deterministic gate** (tests and lint) and only then is integrated; `main` only moves, by fast-forward, at the very end. The only non-deterministic component is **Jev** (via OpenRouter), which picks the starting lane for each task and judges the outcome.
 
 > [!IMPORTANT]
-> **Herdr is a prerequisite**, and the plugin is not enough on its own. MeisterRouter is a Herdr plugin **plus a Python CLI (`meister`)**. `herdr plugin install` registers the plugin but does **not** install the CLI, so its actions fail until `meister` is on your `PATH`. If `meister` is not found, the plugin actions show a notification with the install command (the entry script looks for `meister` in `PATH` and `~/.local/bin`). Use the one-line installer below, which installs both.
+> **Herdr is a prerequisite** on macOS and Linux (on Windows the host is `process`, without Herdr: see [Windows](docs/advanced.md#windows)), and the plugin is not enough on its own. MeisterRouter is a Herdr plugin **plus a Python CLI (`meister`)**. `herdr plugin install` registers the plugin but does **not** install the CLI, so its actions fail until `meister` is on your `PATH`. If `meister` is not found, the plugin actions show a notification with the install command (the entry script looks for `meister` in `PATH` and `~/.local/bin`). Use the one-line installer below, which installs both.
 
 📐 **How it works:** see the [diagrams](docs/diagrams.md) (components, sequence, routing, failures, gates, states and more).
 
@@ -44,8 +44,8 @@ You can already delegate work to subagents inside one AI CLI. MeisterRouter exis
 
 | | What | What for |
 |---|---|---|
-| **Required** | macOS or Linux. Windows is not supported (`meister` uses POSIX file locks). | Where MeisterRouter runs. |
-| **Required** | [Herdr](https://herdr.dev) | MeisterRouter runs as a plugin of it (worker tabs, popups, shortcuts). `curl -fsSL https://herdr.dev/install.sh \| sh` |
+| **Required** | macOS, Linux, or Windows 10/11 (native, **under validation**; requires [Git for Windows](https://git-scm.com/download/win)). On Windows the host is `process` (no Herdr): workers run as plain processes, without tabs, popups or shortcuts. | Where MeisterRouter runs. See [Windows](docs/advanced.md#windows). |
+| **Required** (macOS/Linux) | [Herdr](https://herdr.dev) | MeisterRouter runs as a plugin of it (worker tabs, popups, shortcuts). `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
 | **Recommended** | An orchestrator LLM with planning, for example **Claude Code** with the [Superpowers](https://github.com/obra/superpowers) plugin | It talks to you, writes the plan in the [plan format](docs/plan-format.md) and triggers Meister. Superpowers is optional: without it the plan only has to follow that format. |
 | **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
@@ -63,7 +63,7 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 ```
 **Each project**, once, from inside it: `meister setup --project` (creates `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, the hooks and the guard).
 
-Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md).
+Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](docs/advanced.md#windows).
 
 ## 🛠️ How to use (directly, no commands to type)
 

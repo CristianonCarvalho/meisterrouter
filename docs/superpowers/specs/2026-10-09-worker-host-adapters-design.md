@@ -26,7 +26,7 @@ Isso impede usar o Meister de um harness qualquer (Claude Code, Codex, Copilot C
 **Não objetivos**
 
 - Reescrever o bridge, o gate, o Jev, o estado ou as worktrees.
-- Suporte a Windows (o código usa `fcntl`).
+- Suporte a Windows. Deixou de ser não objetivo: o Windows nativo está em validação (ver seção 8).
 - Isolamento de sistema de arquivos dos workers (sandbox). Está fora de escopo; ver seção 8.
 
 ## 3. O que já é independente do Herdr (verificado)
@@ -168,8 +168,16 @@ O que se perde sem Herdr ou tmux é só ver o terminal de cada worker ao vivo e 
 - Pelo menos um harness autenticado: `copilot`, `codex`, `agy` ou `claude`.
 - Git (cada worker roda num worktree).
 - Python 3.10 ou superior e as bibliotecas do projeto. `flask` hoje é obrigatório até para a CLI iniciar (a TUI importa o dashboard); torná-lo opcional é uma melhoria separada.
-- Linux ou macOS.
+- Linux, macOS ou Windows nativo (em validação; ver a nota abaixo).
 - Chave do OpenRouter **somente** para o Jev; sem ela, usar `router: {mode: first}`. O Jev tem fallback determinístico quando está fora do ar.
+
+**Windows nativo (em validação).** Deixou de ser "não suportado". O código específico de cada sistema operacional fica na camada `meister/osops/`: `posix.py` mantém o comportamento existente de Linux e macOS, e `windows.py` cobre o Windows. `psutil` é dependência apenas no Windows. A correção de `os.kill(pid, 0)` e a gravação dos hooks com final de linha LF fazem parte da entrega. Nenhum código fora de `meister/osops/` usa diretamente `os.killpg`, `os.getpgid`, `fcntl`, `signal.SIGKILL`/`SIGHUP`, `os.kill(pid, 0)` ou `ps`; um teste varre o código-fonte e falha se essas formas reaparecerem.
+
+Ficou de fora desta entrega:
+
+- **Hooks em Python.** Os hooks continuam como scripts de shell, gravados com LF; reescrevê-los em Python não entrou.
+- **Mitigação dos atalhos `.cmd`.** Os atalhos do Windows não receberam tratamento específico.
+- **Job do Windows obrigatório no CI.** Tornar o job do Windows obrigatório é uma decisão manual do dono do projeto, não automática.
 
 ## 9. Testes
 

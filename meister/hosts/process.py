@@ -8,20 +8,28 @@ from __future__ import annotations
 
 import asyncio
 import os
-import signal
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 from collections import deque
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
+from meister import osops
 from meister.hosts import _proc
 from meister.hosts.base import EventCallback, WorkerCommand, WorkerHandle
 from meister.logger import get_log_dir
 
 _DEFAULT_GRACE_S = 5.0
+
+
+def _resolve_argv(argv: Sequence[str]) -> list[str]:
+    """No Windows, resolve ``argv[0]`` pelo PATH com PATHEXT (shims ``.cmd`` de CLIs npm)."""
+    if sys.platform != "win32" or not argv:
+        return list(argv)
+    return [shutil.which(argv[0]) or argv[0], *argv[1:]]
 
 
 def _write_text_atomic(path: str, text: str) -> None:
@@ -87,7 +95,7 @@ class ProcessHost:
     async def spawn(self, command: WorkerCommand, *, layout: str = "tab") -> WorkerHandle:
         log_path = command.log_file or os.path.join(get_log_dir(), "workers", f"{command.label}.log")
         popen = _proc.start_detached(
-            command.argv,
+            _resolve_argv(command.argv),
             cwd=command.cwd,
             env={**os.environ, **command.env},
             log_path=log_path,
@@ -118,7 +126,7 @@ class ProcessHost:
     async def interrupt(self, handle: WorkerHandle) -> None:
         popen = self._procs.get(handle.id)
         if popen is not None:
-            _proc.signal_group(popen, signal.SIGINT)
+            osops.interrupt_group(popen.pid)
 
     async def close(self, handle: WorkerHandle) -> None:
         popen = self._procs.pop(handle.id, None)
@@ -133,7 +141,7 @@ class ProcessHost:
         popen = self._procs.get(handle.id)
         if popen is None:
             return None
-        # Com start_new_session, o líder é também líder do próprio grupo.
+        # Tanto no POSIX (setsid) quanto no Windows (CREATE_NEW_PROCESS_GROUP) o pid do líder é o id do grupo.
         return {"pid": popen.pid, "pgid": popen.pid}
 
     async def current_context(self) -> dict[str, Any] | None:

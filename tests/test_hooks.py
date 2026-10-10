@@ -182,6 +182,21 @@ def test_guard_hook_allow_orchestrator_override(monkeypatch):
         assert res.returncode == 0
 
 
+def test_installed_hooks_use_lf_line_endings(tmp_path):
+    (tmp_path / ".git").mkdir()
+    assert install_git_hook(str(tmp_path))[0] is True
+    assert install_claude_hook(str(tmp_path))[0] is True
+
+    written = [
+        tmp_path / ".git" / "hooks" / "pre-commit",
+        tmp_path / ".claude" / "hooks" / "meister-prompt-hook.sh",
+        tmp_path / ".claude" / "hooks" / "meister-guard-hook.sh",
+        tmp_path / ".claude" / "hooks" / "meister-agent-hook.sh",
+    ]
+    for hook in written:
+        assert b"\r" not in hook.read_bytes(), hook
+
+
 def test_install_git_hook_fail_closed_without_llm():
     with tempfile.TemporaryDirectory() as tmpdir:
         git_dir = os.path.join(tmpdir, ".git")

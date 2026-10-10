@@ -5,6 +5,7 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 [README](../../README.pt-BR.md).
 
 - [Instalação alternativa](#instalação-alternativa)
+- [Windows](#windows)
 - [Atalhos do Herdr à mão](#atalhos-do-herdr-à-mão)
 - [A chave do OpenRouter](#a-chave-do-openrouter)
 - [Dados enviados ao Jev](DADOS_ENVIADOS_AO_JEV.md)
@@ -100,6 +101,51 @@ Se você instalou apenas o plugin (por exemplo, pelo marketplace) ou se o execut
 ```bash
 herdr plugin log list --plugin dev.meisterrouter.orchestrator
 ```
+
+---
+
+## Windows
+
+> ⚠️ **O suporte nativo ao Windows está em validação.** Requer Windows 10/11 e o [Git for Windows](https://git-scm.com/download/win).
+> O instalador em bash (`bin/install.sh`) é para macOS e Linux; no Windows instale com `pipx` ou `pip`.
+
+### Instalar
+Com `pipx` (recomendado, ambiente isolado), a partir do repositório:
+```powershell
+pipx install git+https://github.com/CristianonCarvalho/meisterrouter.git
+```
+Ou a partir de um clone:
+```powershell
+git clone https://github.com/CristianonCarvalho/meisterrouter.git
+cd meisterrouter
+pip install .
+```
+O `pip` cria o `meister.exe` (com o `pipx`, em `%USERPROFILE%\.local\bin`). Confira com `meister --version`.
+
+### Caminhos longos
+```powershell
+git config --global core.longpaths true
+```
+Worktrees e pastas de dependências podem passar do limite de 260 caracteres do Windows; o Git precisa dessa configuração para lidar com eles.
+
+### Onde ficam os logs
+- Dentro de um projeto: `<projeto>\.meister\logs\` (ignorado pelo git via `.meister/.gitignore`).
+- Fora de um projeto: `%USERPROFILE%\.meister\logs\`.
+- `MEISTER_LOG_DIR` substitui os dois. A chave do OpenRouter, se usada, vai em `%USERPROFILE%\.meister\.env`.
+
+### Atalhos dos harnesses (`.cmd`)
+CLIs instaladas pelo npm (`copilot`, `codex`, `claude`...) costumam ser shims `.cmd`, executados pelo `cmd.exe`. O `cmd.exe` reinterpreta a linha de comando, então os prompts podem ser corrompidos. Os testes em `tests/test_windows_cmd_shim_args.py` medem esses casos (estão marcados como `xfail` até a correção):
+- aspas duplas dentro do prompt;
+- `%VAR%` (expandido pelo `cmd.exe`);
+- `&`, `|`, `^`, `<`, `>` fora de aspas;
+- quebras de linha (o restante do prompt se perde);
+- linhas de comando com mais de 8191 caracteres (prompts longos são truncados).
+
+Até a correção, evite esses caracteres no texto das tarefas e mantenha os prompts curtos.
+
+### Ainda não suportado
+- **Herdr:** não está disponível no Windows. O host é o `process`: os workers rodam como processos simples, sem abas de worker, popups nem atalhos `prefix+...`.
+- **tmux:** não suportado.
 
 ---
 

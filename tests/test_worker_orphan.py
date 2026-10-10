@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.platform_marks import posix_only
+from meister import osops
 from meister.worker import (
     install_termination_handlers,
     process_start_signature,
@@ -280,6 +281,27 @@ def test_reaper_rejects_pid_with_a_different_start_signature(tmp_path):
         except (OSError, ProcessLookupError):
             pass
         unrelated.wait(timeout=5)
+
+
+@posix_only
+def test_orphan_cleanup_terminates_non_leader_registered_pid():
+    # Equivale ao ponto de limpeza de meister/herdr/bridge.py que usa ``rec_pid``:
+    # ``osops.terminate_group_of(int(rec_pid))``. O processo NÃO é líder de grupo
+    # (sem start_new_session), então ``terminate_tree`` não serviria aqui.
+    process = subprocess.Popen(
+        ["sleep", "300"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert os.getpgid(process.pid) != process.pid
+        osops.terminate_group_of(process.pid)
+        assert process.wait(timeout=5) == -signal.SIGTERM
+        assert not _process_is_alive(process.pid)
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
 
 
 @posix_only
