@@ -41,7 +41,7 @@ from meister.state import (
     task_fingerprint,
 )
 from meister.faults import crash_point
-from meister.logger import log_event
+from meister.logger import get_log_dir, log_event
 from meister.plan import PlanError, load_plan
 from meister.jev_context import build_jev_context
 from meister.worker import (
@@ -1086,6 +1086,18 @@ class HerdrEventBridge:
                 if active_run_id:
                     env_vars.append(f"MEISTER_RUN_ID={shlex.quote(active_run_id)}")
                 task_dict["command"] = cmd_parts
+                task_dict["env"] = {
+                    key: value
+                    for key, value in (
+                        ("MEISTER_IN_PANE", "1"),
+                        ("MEISTER_LOG_DIR", os.environ.get("MEISTER_LOG_DIR")),
+                        ("MEISTER_RUN_ID", active_run_id),
+                    )
+                    if value
+                }
+                task_dict["log_file"] = os.path.join(
+                    get_log_dir(), "workers", f"{active_run_id}_{task_id}_{attempt_count}.log"
+                )
                 # O shell do pane grava o código de saída mesmo se o run-task morrer sem resultado.
                 task_dict["exit_file"] = exit_file
                 run_line = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
