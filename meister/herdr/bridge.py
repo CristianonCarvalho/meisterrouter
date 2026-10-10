@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import re
+import signal
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
@@ -2314,7 +2315,7 @@ class HerdrEventBridge:
                         pgid = pinfo.get("foreground_process_group_id") or pinfo.get("shell_pid")
                         if pgid:
                             try:
-                                osops.kill_tree(int(pgid))
+                                osops.signal_group(int(pgid), signal.SIGTERM)
                             except (OSError, ProcessLookupError):
                                 pass
                 except Exception as e:
@@ -2322,7 +2323,7 @@ class HerdrEventBridge:
 
             if rec_pid:
                 try:
-                    osops.terminate_tree(int(rec_pid))
+                    osops.terminate_group_of(int(rec_pid))
                 except (OSError, ProcessLookupError):
                     pass
 
