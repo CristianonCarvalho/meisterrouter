@@ -11,17 +11,32 @@ Você escolhe uma **LLM orquestradora** (por exemplo o Claude Code) para planeja
 
 📐 **Como funciona:** veja os [diagramas](docs/pt-BR/DIAGRAMAS.md) (componentes, sequência, roteamento, falhas, gates, estados e mais).
 
+## 🎯 Por que o MeisterRouter?
+
+Você já pode delegar trabalho a subagentes dentro de uma CLI de IA. O MeisterRouter existe para quando isso não basta: **um plano com muitas tarefas, uma cota de assinatura limitada e a necessidade de confiar no resultado sem ler cada diff.**
+
+| A dor | O que o MeisterRouter faz |
+|---|---|
+| **A cota do seu modelo premium acaba** na implementação | O orquestrador só planeja e verifica. As tarefas rodam na via de menor custo que serve (os preços de lista do catálogo vão de US$ 0,20 a US$ 8,00 por 1M de tokens), e as vias caras só entram no escalonamento. |
+| **"Pronto" é o que o agente diz** | Cada tarefa roda no seu próprio worktree e precisa passar por um **gate determinístico** (lint, tipos, a suíte inteira) antes de ser integrada. Tarefa rejeitada ganha uma tentativa de reparo automática; a `main` só avança, por fast-forward, no fim. |
+| **Agentes em paralelo pisam uns nos outros** | As tarefas declaram os arquivos que podem alterar. As que não compartilham arquivos rodam em paralelo; alteração fora do escopo é barrada. |
+| **Falhar na tarefa 7 significa recomeçar** | As runs retomam por tarefa: as concluídas são reaproveitadas, mesmo depois de você editar o plano. |
+| **Uma CLI, um modelo, um ponto de falha** | Copilot, Codex, Antigravity e Claude ficam numa cadeia de fallback ordenada, com tratamento de rate limit e circuit breaker. |
+| **Você não vê quanto custou nem onde o tempo foi** | Timeline e dashboard ao vivo, com custo por tarefa, fases (worker, gate, integração) e escalonamentos. |
+
+**Quando o subagente é a ferramenta melhor:** uma alteração pequena, uma exploração ou uma depuração interativa. O MeisterRouter acrescenta processo (um plano, tarefas com escopo, um gate completo em cada uma), então compensa em planos de várias tarefas, não em mudanças pontuais.
+
 ## 👀 Em funcionamento
 
-**Linha do tempo** (`prefix+t` no Herdr): uma barra por tarefa e por fase (worker, gate, integração), a via de cada uma, a linha do Jev e o custo, ao vivo.
+**Linha do tempo** (web, abre numa janela própria quando um run começa, em `/timeline`): uma barra por tarefa e por fase (worker, gate, integração), agrupadas por via, com setas de dependência, escalonamentos e o custo, ao vivo.
 
-![Linha do tempo de um run com 4 tarefas, ao vivo](docs/img/timeline.gif)
+![Linha do tempo web de um run ao vivo: tarefas por via, fases, dependências, escalonamentos e custo](docs/img/timeline-web.gif)
 
 **Dashboard** (`prefix+shift+m` no Herdr, ou `meister dashboard` em `http://localhost:5050`): métricas por run, custo, overhead e a tabela de tarefas.
 
 ![Dashboard web com as métricas e as tarefas de um run](docs/img/dashboard-web.png)
 
-> As imagens usam um run **de demonstração** (dados sintéticos) gerado pelos próprios renderizadores do MeisterRouter; nenhum projeto real aparece nelas.
+> As imagens usam um run **de demonstração** (dados sintéticos) gerado pelo próprio MeisterRouter; nenhum projeto real aparece nelas.
 
 ## ✅ Pré-requisitos
 
