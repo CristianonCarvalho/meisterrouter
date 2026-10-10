@@ -1145,7 +1145,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 pid = int(f.read().strip())
 
             if is_pid_alive(pid):
-                osops.terminate_tree(pid)
+                osops.terminate_pid(pid)
                 click.echo(f"Sent SIGTERM to Meister daemon (PID: {pid}).")
             else:
                 click.echo("Meister daemon was not running (stale PID file cleaned).")

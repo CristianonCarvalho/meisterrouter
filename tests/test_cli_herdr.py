@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
 from click import echo
@@ -64,12 +65,30 @@ def test_cli_daemon_status_and_stop_lifecycle(tmp_path):
     assert "already running" in res_start.output
 
     # Stop delega ao osops; o teste não mata o processo do runner
-    with patch("meister.cli.osops.terminate_tree") as mock_terminate:
+    with patch("meister.cli.osops.terminate_pid") as mock_terminate:
         res_stop = runner.invoke(main, ["daemon", "--stop", "--pid-file", str(pid_file)])
         assert res_stop.exit_code == 0
         assert "Sent SIGTERM to Meister daemon" in res_stop.output
         mock_terminate.assert_called_once_with(os.getpid())
         assert not pid_file.exists()
+
+
+@posix_only
+def test_cli_daemon_stop_terminates_real_non_leader_process(tmp_path):
+    # Processo que NÃO é líder de grupo: terminate_tree(pid) não o alcançaria.
+    child = subprocess.Popen(["sleep", "300"])
+    pid_file = tmp_path / "daemon.pid"
+    pid_file.write_text(str(child.pid))
+    try:
+        result = CliRunner().invoke(main, ["daemon", "--stop", "--pid-file", str(pid_file)])
+        assert result.exit_code == 0
+        assert f"Sent SIGTERM to Meister daemon (PID: {child.pid})." in result.output
+        assert child.wait(timeout=5) is not None
+        assert not pid_file.exists()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
 
 
 def test_cli_daemon_stop_when_not_running(tmp_path):
