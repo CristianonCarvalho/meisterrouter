@@ -639,6 +639,90 @@ def wait(run_id, timeout, interval, output_format):
         raise click.exceptions.Exit(report["exit_code"])
 
 
+@main.command("logs", help=t("cli.logs.help"))
+@click.option("--run-id", default=None, help=t("cli.logs.run_id_help"))
+@click.option("--task", "task_id", default=None, help=t("cli.logs.task_help"))
+@click.option("--lines", "-n", type=click.IntRange(min=1), default=50, show_default=True, help=t("cli.logs.lines_help"))
+@click.option("--list", "list_only", is_flag=True, default=False, help=t("cli.logs.list_help"))
+@click.option("--follow", "-f", is_flag=True, default=False, help=t("cli.logs.follow_help"))
+@click.option(
+    "--log-dir",
+    type=click.Path(file_okay=False),
+    default=None,
+    help=t("cli.common.orchestration_log_dir_help"),
+)
+def logs_command(run_id, task_id, lines, list_only, follow, log_dir):
+    """Show the worker logs of a run (the newest one by default)."""
+    from datetime import datetime
+
+    from meister import logs_cmd
+    from meister.log_tail import resolve_log_file
+
+    if list_only and follow:
+        raise click.UsageError(t("cli.logs.list_or_follow"))
+    workers_dir = os.path.join(os.path.dirname(resolve_log_file(log_dir)), "workers")
+    if not os.path.isdir(workers_dir):
+        click.echo(t("cli.logs.no_dir", path=workers_dir), err=True)
+        raise click.exceptions.Exit(2)
+    available = logs_cmd.list_worker_logs(workers_dir)
+    if not available:
+        click.echo(t("cli.logs.no_logs", path=workers_dir), err=True)
+        raise click.exceptions.Exit(2)
+
+    if list_only:
+        shown = available
+        if run_id is not None:
+            if len(run_id) < logs_cmd.MIN_RUN_PREFIX:
+                click.echo(t("cli.logs.short_prefix", identifier=run_id, minimum=logs_cmd.MIN_RUN_PREFIX), err=True)
+                raise click.exceptions.Exit(2)
+            shown = [log for log in shown if log.run_id.startswith(run_id)]
+        if task_id is not None:
+            shown = [log for log in shown if log.task_id == task_id]
+        if not shown:
+            click.echo(t("cli.logs.not_found"), err=True)
+            raise click.exceptions.Exit(2)
+        click.echo(
+            t(
+                "cli.logs.list_header",
+                run_id=t("cli.logs.col_run"),
+                task_id=t("cli.logs.col_task"),
+                attempt=t("cli.logs.col_attempt"),
+                size=t("cli.logs.col_size"),
+                modified=t("cli.logs.col_modified"),
+            )
+        )
+        for log in shown:
+            modified = datetime.fromtimestamp(log.mtime).strftime("%Y-%m-%d %H:%M:%S")
+            click.echo(f"{log.run_id:<10} {log.task_id:<32} {log.attempt:>9} {log.size:>10}  {modified}")
+        return
+
+    try:
+        chosen = logs_cmd.select_log(available, run_id=run_id, task_id=task_id)
+    except logs_cmd.LogSelectionError as error:
+        if error.kind == "short_prefix":
+            message = t("cli.logs.short_prefix", identifier=run_id, minimum=logs_cmd.MIN_RUN_PREFIX)
+        elif error.kind == "ambiguous":
+            message = t("cli.logs.ambiguous", identifier=run_id, candidates=", ".join(error.candidates))
+        else:
+            message = t("cli.logs.not_found")
+        click.echo(message, err=True)
+        raise click.exceptions.Exit(2)
+
+    click.echo(
+        t("cli.logs.header", path=chosen.path, run_id=chosen.run_id, task_id=chosen.task_id, attempt=chosen.attempt),
+        err=True,
+    )
+    for line in logs_cmd.read_tail(chosen.path, lines):
+        click.echo(line)
+    if not follow:
+        return
+    try:
+        for line in logs_cmd.follow(chosen.path):
+            click.echo(line)
+    except KeyboardInterrupt:
+        raise click.exceptions.Exit(130)
+
+
 @main.command("install-hooks", help=t("cli.hooks.help"))
 @click.option("--target", "-t", default=".", help=t("cli.common.repository_dir_help"))
 @click.option("--git", is_flag=True, default=False, help=t("cli.hooks.git_help"))
