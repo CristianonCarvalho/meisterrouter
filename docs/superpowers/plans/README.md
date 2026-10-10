@@ -22,10 +22,10 @@ meister orchestrate --plan-file plano.json
 | 3 | [hosts-fase2-adaptador-process](2026-10-10-hosts-fase2-adaptador-process.md) | 9 | 2 | Adaptador `process`, `runtime.host`, seleção `auto`, log por worker. A partir daqui o Meister roda sem Herdr. |
 | 4 | [windows-nativo-camada-de-plataforma](2026-10-10-windows-nativo-camada-de-plataforma.md) | 11 | 1 e 3 | Pacote `meister.osops`. A Tarefa 2 (troca de `os.kill(pid, 0)`) é pequena, independente das demais e pode ser adiantada. |
 | 5 | [hosts-fase3-qualquer-harness](2026-10-10-hosts-fase3-qualquer-harness.md) | 7 | 3 | `meister logs`, `MEISTER_WORKER`, manual de segundo plano. Edita `cli.py`, `worker.py` e `bridge.py`: rodar depois do item 4. |
-| 6 | [hosts-fase4-adaptador-tmux](2026-10-10-hosts-fase4-adaptador-tmux.md) | 5 | 3 | Adaptador `tmux`. Não toca nos arquivos da fase 3, então **pode rodar em paralelo com o item 5**. Edita `.github/workflows/ci.yml`. |
-| 7 | [hosts-fase5-docs-e-instalador](2026-10-10-hosts-fase5-docs-e-instalador.md) | 6 | 3 (e convém depois do 5) | O Herdr deixa de ser pré-requisito: `setup`, `install.sh`, README, diagramas, CHANGELOG. |
+| 6 | [hosts-fase4-adaptador-tmux](2026-10-10-hosts-fase4-adaptador-tmux.md) | 5 | 3 | Adaptador `tmux`. O código não toca nos arquivos da fase 3, então **pode rodar em paralelo com o item 5**, com uma ressalva: a Tarefa 5 (documentação) edita `docs/advanced.md` e `docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md`, os mesmos da Tarefa 7 da fase 3. Rode a Tarefa 5 da fase 4 só depois da Tarefa 7 da fase 3 (ou os dois planos em sequência). Edita `.github/workflows/ci.yml`. |
+| 7 | [hosts-fase5-docs-e-instalador](2026-10-10-hosts-fase5-docs-e-instalador.md) | 6 | 3, 4 e 5 | O Herdr deixa de ser pré-requisito: `setup`, `install.sh`, README, diagramas, CHANGELOG. Edita `meister/hosts/select.py` e `meister/hosts/__init__.py` (também alterados pela fase 4) e `meister/setup_cmd.py` (também alterado pelo Windows nativo). |
 
-Resumo da ordem: **1, 2, 3, 4, depois 5 e 6 (podem andar juntos), e 7 por último.**
+Resumo da ordem: **1, 2, 3, 4, depois 5 e 6 (podem andar juntos, respeitada a ressalva da documentação) e 7 por último.**
 
 Passo manual, depois do item 4: quando o job do Windows estiver verde de forma estável, tirar o `continue-on-error` dele em `.github/workflows/ci.yml`.
 
@@ -36,8 +36,14 @@ Desenho de referência da série de hosts: [`../specs/2026-10-09-worker-host-ada
 - `meister/herdr/bridge.py`: hosts fases 1, 2, 3 e Windows nativo.
 - `meister/cli.py`: hosts fases 2 e 3, Windows nativo.
 - `meister/worker.py`: hosts fase 3 e Windows nativo.
+- `meister/hosts/select.py` e `meister/hosts/__init__.py`: hosts fases 2, 4 e 5.
+- `meister/setup_cmd.py`: Windows nativo e hosts fase 5.
+- `bin/install.sh`: hosts fase 5.
 - `.github/workflows/ci.yml`: hosts fase 4 e o passo manual acima.
-- `meister/setup_cmd.py` e `bin/install.sh`: hosts fase 5.
+- `tests/conftest.py`: Windows base de testes e hosts fase 3.
+- `pyproject.toml` e `requirements.txt`: Windows base de testes, Windows nativo e (só `pyproject.toml`) hosts fase 5.
+- `docs/advanced.md` e `docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md`: hosts fases 3 e 4 e Windows nativo.
+- `README.md` e `README.pt-BR.md`: Windows nativo e hosts fase 5.
 
 ## Executados
 
@@ -52,7 +58,4 @@ Estado verificado pelos artefatos na `main` (o plano não traz uma data própria
 | [2026-10-09-integridade-do-trabalho](2026-10-09-integridade-do-trabalho.md) | `tests/test_worktree_integration_data_loss.py`, evento `cleanup_failure` |
 | [2026-10-09-ci-e-testes](2026-10-09-ci-e-testes.md) | Cobertura e `bandit` no `ci.yml`, perna do macOS |
 | [2026-10-09-seguranca-e-documentacao](2026-10-09-seguranca-e-documentacao.md) | `--allow-remote`, `docs/jev-data-sent.md` |
-
-## Estado não verificado
-
-- [2026-10-08-timeline-web-melhorias](2026-10-08-timeline-web-melhorias.md): não é parte da série acima e não foi conferido aqui. Veja o estado dele antes de executar a fila, porque pode mexer em `meister/cli.py` e em `meister/dashboard/`.
+| [2026-10-08-timeline-web-melhorias](2026-10-08-timeline-web-melhorias.md) | Commits `subtask(task_1)` a `subtask(task_9)` na `main` (incluindo "Documentação e CHANGELOG"); o `CHANGELOG.md` descreve eixo em minutos, setas, tooltips, cabeçalho da via e aviso sonoro. A suíte não foi rodada nesta verificação. |
