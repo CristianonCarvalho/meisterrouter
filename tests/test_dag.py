@@ -3,6 +3,7 @@
 import pytest
 from meister.herdr.dag import (
     SubtaskNode,
+    TaskDAG,
     build_subtask_dag,
     get_independent_batches,
     CycleDetectedError,
@@ -111,6 +112,20 @@ def test_subtask_node_properties():
     assert node1.conflicts_with(node3) is False
     assert node1.status == "pending"
     assert node1.depends_on == []
+
+
+def test_subtask_node_normalizes_backslash_and_dot_paths():
+    """Caminhos com `\\` ou `./` se normalizam para a forma com `/` e colidem entre si."""
+    node1 = SubtaskNode(id="t1", target_files=["src\\user.py"])
+    node2 = SubtaskNode(id="t2", target_files=["./src/user.py"])
+
+    assert node1.normalized_target_files() == {"src/user.py"}
+    assert node2.normalized_target_files() == {"src/user.py"}
+    assert node1.conflicts_with(node2) is True
+
+    dag = TaskDAG([node1, node2])
+    conflicts = dag.detect_file_conflicts()
+    assert conflicts == [{"task_ids": ["t1", "t2"], "overlapping_files": ["src/user.py"]}]
 
 
 def test_dag_two_independent_unscoped_tasks_serialized():
