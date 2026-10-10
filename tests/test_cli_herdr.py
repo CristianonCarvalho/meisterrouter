@@ -1,6 +1,5 @@
 import os
 import json
-import signal
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from click.testing import CliRunner
@@ -64,12 +63,12 @@ def test_cli_daemon_status_and_stop_lifecycle(tmp_path):
     assert res_start.exit_code == 0
     assert "already running" in res_start.output
 
-    # Mock os.kill for stopping daemon without killing our test runner process
-    with patch("os.kill") as mock_kill:
+    # Stop delega ao osops; o teste não mata o processo do runner
+    with patch("meister.cli.osops.terminate_tree") as mock_terminate:
         res_stop = runner.invoke(main, ["daemon", "--stop", "--pid-file", str(pid_file)])
         assert res_stop.exit_code == 0
         assert "Sent SIGTERM to Meister daemon" in res_stop.output
-        mock_kill.assert_any_call(os.getpid(), signal.SIGTERM)
+        mock_terminate.assert_called_once_with(os.getpid())
         assert not pid_file.exists()
 
 
