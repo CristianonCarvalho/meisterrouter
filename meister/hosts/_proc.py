@@ -1,18 +1,18 @@
 """Operações de processo usadas pelos hosts de workers.
 
-Implementação POSIX (grupos de processos e sinais). Este módulo é o ponto de
-troca para uma implementação de Windows: quem chama deve depender apenas das
-funções públicas aqui definidas.
+Os sinais e a identidade de processos vêm de ``meister.osops``, que escolhe a
+implementação da plataforma. Este módulo mantém apenas a orquestração sobre
+``subprocess.Popen``.
 """
 
 from __future__ import annotations
 
 import os
-import signal
 import subprocess
 from pathlib import Path
 from typing import Sequence
 
+from meister import osops
 from meister.worker import kill_process_tree as kill_tree
 from meister.worker import process_start_signature as process_signature
 
@@ -44,7 +44,7 @@ def start_detached(
             stdin=subprocess.DEVNULL,
             stdout=log,
             stderr=subprocess.STDOUT,
-            start_new_session=True,
+            **osops.popen_session_kwargs(),
         )
 
 
@@ -54,27 +54,18 @@ def is_running(popen: subprocess.Popen) -> bool:
 
 
 def signal_group(popen: subprocess.Popen, sig: int) -> None:
-    """Envia ``sig`` ao grupo de processos iniciado por ``popen``; ignora se já encerrou.
+    """Envia ``sig`` ao grupo de processos iniciado por ``popen``; ignora se já encerrou."""
+    osops.signal_group(popen.pid, sig)
 
-    No macOS, ``killpg`` devolve EPERM quando o líder do grupo acabou de sair e ainda
-    é zumbi. O grupo foi criado por este processo (``start_new_session``), então
-    ``PermissionError`` aqui significa que o grupo já está encerrando, não falta de permissão.
-    """
+
+def _wait_popen(popen: subprocess.Popen, timeout: float) -> bool:
     try:
-        os.killpg(popen.pid, sig)
-    except (ProcessLookupError, PermissionError):
-        return
+        popen.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return False
+    return True
 
 
 def terminate_tree(popen: subprocess.Popen, grace: float = 5.0) -> None:
     """Encerra o grupo: SIGTERM, espera até ``grace`` segundos e então SIGKILL."""
-    signal_group(popen, signal.SIGTERM)
-    try:
-        popen.wait(timeout=grace)
-    except subprocess.TimeoutExpired:
-        pass
-    signal_group(popen, signal.SIGKILL)
-    try:
-        popen.wait(timeout=grace)
-    except subprocess.TimeoutExpired:
-        pass
+    osops.terminate_tree(popen.pid, grace, wait=lambda timeout: _wait_popen(popen, timeout))
