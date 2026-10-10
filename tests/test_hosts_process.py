@@ -13,10 +13,8 @@ import pytest
 
 from meister.hosts import ProcessHost, WorkerCommand, WorkerHandle, WorkerHost
 from meister.hosts import _proc
+from meister.hosts.process import _resolve_argv
 from tests.hosts_contract import HostContract, wait_command
-from tests.platform_marks import posix_only
-
-pytestmark = posix_only
 
 _WAITER_SOURCE = """\
 import os
@@ -26,8 +24,14 @@ import time
 
 if len(sys.argv) > 1:
     print(sys.argv[1], flush=True)
-done = pathlib.Path(os.environ["CONTRACT_SIGNAL_DIR"]) / f"done-{os.getpid()}"
-while not done.exists():
+signal_dir = pathlib.Path(os.environ["CONTRACT_SIGNAL_DIR"])
+owners = [os.getpid()]
+if sys.platform == "win32":
+    # No Windows, contract-wait é um .cmd: o host registra o cmd.exe, ancestral deste processo.
+    import psutil
+
+    owners += [proc.pid for proc in psutil.Process().parents()]
+while not any((signal_dir / f"done-{pid}").exists() for pid in owners):
     time.sleep(0.02)
 """
 
@@ -49,11 +53,15 @@ def host_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     waiter = tmp_path / "waiter.py"
     waiter.write_text(_WAITER_SOURCE, encoding="utf-8")
     contract_wait = bin_dir / "contract-wait"
-    contract_wait.write_text(
-        f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(waiter))} \"$@\"\n",
-        encoding="utf-8",
-    )
-    contract_wait.chmod(0o755)
+    if sys.platform == "win32":
+        contract_wait = bin_dir / "contract-wait.cmd"
+        contract_wait.write_text(f'@echo off\n"{sys.executable}" "{waiter}" %*\n', encoding="utf-8")
+    else:
+        contract_wait.write_text(
+            f"#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(waiter))} \"$@\"\n",
+            encoding="utf-8",
+        )
+        contract_wait.chmod(0o755)
     signal_dir = tmp_path / "signals"
     signal_dir.mkdir()
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}")
@@ -97,6 +105,18 @@ def test_capabilities_and_protocol() -> None:
     assert process_host.name == "process"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="fora do Windows argv[0] é usado como está")
+def test_resolve_argv_keeps_argv_outside_windows() -> None:
+    assert _resolve_argv(["contract-wait", "x"]) == ["contract-wait", "x"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="resolução por PATHEXT existe só no Windows")
+def test_resolve_argv_finds_cmd_wrapper_on_path(host_env: Path) -> None:
+    resolved = _resolve_argv(["contract-wait", "x"])
+    assert resolved[0].lower().endswith("contract-wait.cmd")
+    assert resolved[1:] == ["x"]
+
+
 @pytest.mark.asyncio
 async def test_start_and_current_context_are_noops(host: ProcessHost) -> None:
     await host.start()
@@ -134,6 +154,10 @@ async def test_exit_file_records_nonzero(host: ProcessHost, host_env: Path) -> N
     assert _wait_for_file(exit_file) == "3\n"
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="no Windows, TerminateProcess grava o próprio código (15), sem a convenção 128+sinal",
+)
 @pytest.mark.asyncio
 async def test_exit_file_records_shell_code_when_closed_by_signal(host: ProcessHost, host_env: Path) -> None:
     exit_file = host_env / "closed.exit"
