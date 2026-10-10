@@ -91,6 +91,31 @@ def terminate_tree(pid: int, grace: float = 5.0, *, wait: Optional[WaitFn] = Non
     _wait_exit(pid, grace, wait)
 
 
+def terminate_pid(pid: int) -> None:
+    """Envia SIGTERM somente ao processo ``pid``; ignora se não existe mais."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+
+
+def terminate_group_of(pid: int) -> None:
+    """Envia SIGTERM uma vez ao grupo de ``pid``, sem esperar nem SIGKILL.
+
+    Se ``pid`` não tiver grupo verificável, ou o grupo for o do próprio processo
+    chamador (o que mataria quem chama), envia o SIGTERM só ao ``pid``.
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError):
+        terminate_pid(pid)
+        return
+    if pgid == os.getpgrp():
+        terminate_pid(pid)
+        return
+    signal_group(pgid, signal.SIGTERM)
+
+
 def kill_tree(pgid_or_pid: int, *, is_pgid: bool = True) -> None:
     """Finaliza de forma determinística um grupo de processos ou PID com SIGTERM e SIGKILL (Achado #8)."""
     try:

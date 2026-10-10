@@ -182,6 +182,44 @@ def test_kill_tree_terminates_then_kills_and_ignores_missing_pid(load_windows):
     assert calls == [("terminate", 5), ("kill", 5)]
 
 
+def test_terminate_pid_terminates_only_the_pid_once(load_windows):
+    calls: list = []
+    grandchild = FakeProcess(3, calls=calls)
+    child = FakeProcess(2, children=[grandchild], calls=calls)
+    root = FakeProcess(1, children=[child], calls=calls)
+    procs = {1: root, 2: child, 3: grandchild}
+    win = load_windows(_make_fake_psutil(procs, alive_after_wait=set()), _make_fake_msvcrt(_no_locking))
+
+    win.terminate_pid(1)
+
+    assert calls == [("terminate", 1)]
+
+
+def test_terminate_pid_ignores_missing_pid(load_windows):
+    win = load_windows(_make_fake_psutil({}, set()), _make_fake_msvcrt(_no_locking))
+
+    win.terminate_pid(999)
+
+
+def test_terminate_group_of_terminates_tree_once_without_kill(load_windows):
+    calls: list = []
+    grandchild = FakeProcess(3, calls=calls)
+    child = FakeProcess(2, children=[grandchild], calls=calls)
+    root = FakeProcess(1, children=[child], calls=calls)
+    procs = {1: root, 2: child, 3: grandchild}
+    win = load_windows(_make_fake_psutil(procs, alive_after_wait={2}), _make_fake_msvcrt(_no_locking))
+
+    win.terminate_group_of(1)
+
+    assert calls == [("terminate", 1), ("terminate", 2), ("terminate", 3)]
+
+
+def test_terminate_group_of_ignores_missing_pid(load_windows):
+    win = load_windows(_make_fake_psutil({}, set()), _make_fake_msvcrt(_no_locking))
+
+    win.terminate_group_of(999)
+
+
 def test_signal_group_maps_sigint_to_ctrl_break(load_windows, monkeypatch):
     monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", 1, raising=False)
     sent: list[tuple[int, int]] = []

@@ -105,6 +105,19 @@ def terminate_tree(pid: int, grace: float = 5.0, *, wait: Optional[WaitFn] = Non
     _settle(alive, grace, None)
 
 
+def terminate_pid(pid: int) -> None:
+    """Chama ``terminate`` somente no processo ``pid``; ignora se não existe mais."""
+    try:
+        psutil.Process(pid).terminate()
+    except psutil.Error:
+        return
+
+
+def terminate_group_of(pid: int) -> None:
+    """Chama ``terminate`` uma vez em ``pid`` e nos descendentes atuais, sem esperar nem kill."""
+    _signal_all(_tree(pid), "terminate")
+
+
 def kill_tree(pgid_or_pid: int, *, is_pgid: bool = True) -> None:
     """Finaliza a árvore de processos com terminate e kill; no Windows ``pgid == pid``."""
     procs = _tree(pgid_or_pid)
