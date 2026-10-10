@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import time
 from typing import Any
+
+from meister import osops
 
 # Global counter per crash-point name for NTH matching
 _hit_counts: dict[str, int] = {}
@@ -75,4 +76,4 @@ def crash_point(name: str, **ctx: Any) -> None:
             pass  # best-effort logging
 
     # SIGKILL — works from any thread, including asyncio.to_thread
-    os.kill(os.getpid(), signal.SIGKILL)
+    osops.kill_self()
