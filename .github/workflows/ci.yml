@@ -8,19 +8,23 @@ on:
 
 jobs:
   test:
-    name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}${{ matrix.os == 'macos-latest' && ' (informativo)' || '' }}
+    name: Test ${{ matrix.os }} / Python ${{ matrix.python-version }}${{ matrix.os != 'ubuntu-latest' && ' (informativo)' || '' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
-    # A perna macOS é informativa (não bloqueia o workflow) até o dono confirmar que passa de forma estável.
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
+    # As pernas macOS e Windows são informativas (não bloqueiam o workflow). A do macOS fica assim até o dono
+    # confirmar que passa de forma estável. A do Windows existe para medir quantos testes falham hoje: o código
+    # usa APIs de Unix (fcntl, killpg, ps) e ainda não declara suporte nativo ao Windows.
+    continue-on-error: ${{ matrix.os != 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
         include:
-          # macOS só com 3.12 para limitar minutos de runner.
+          # macOS e Windows só com 3.12 para limitar minutos de runner.
           - os: macos-latest
+            python-version: "3.12"
+          - os: windows-latest
             python-version: "3.12"
 
     steps:
