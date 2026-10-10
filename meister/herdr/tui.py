@@ -9,14 +9,21 @@ import os
 import sys
 import time
 import select
-import termios
-import tty
 import webbrowser
 from typing import Dict, Any, Optional, Tuple, List
 
 from meister.logger import read_events
 from meister.dashboard.server import compute_metrics
 from meister.i18n import t
+
+# termios e tty só existem em Unix. No Windows a importação não pode falhar (a CLI inteira importa este módulo);
+# sem eles a TUI apenas fica sem leitura de teclas: os usos abaixo já ficam dentro de try/except Exception.
+try:
+    import termios
+    import tty
+except ImportError:  # pragma: no cover - exercitado em subprocesso por tests/test_tui_without_termios.py
+    termios = None  # type: ignore[assignment]
+    tty = None  # type: ignore[assignment]
 
 
 # ANSI Color & Formatting Constants
