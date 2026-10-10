@@ -60,7 +60,7 @@ def test_copilot_find_cli_binary(fake_copilot_cli):
     assert bin_path is not None
     assert "copilot" in bin_path
     assert os.path.exists(bin_path)
-    assert bin_path == fake_copilot_cli
+    assert os.path.normcase(bin_path) == os.path.normcase(fake_copilot_cli)
 
 
 def test_copilot_find_cli_binary_not_found(monkeypatch):
@@ -80,7 +80,7 @@ def test_copilot_smoke_test(fake_copilot_cli):
     assert smoke["tier"] == "tier_1b"
     assert smoke["harness"] == HARNESS_COPILOT
     assert smoke["available"] is True
-    assert smoke["cli_binary"] == fake_copilot_cli
+    assert os.path.normcase(smoke["cli_binary"]) == os.path.normcase(fake_copilot_cli)
 
 
 def test_copilot_smoke_test_when_not_available(monkeypatch):
@@ -174,7 +174,7 @@ def test_copilot_harness_worker_run_task(tmp_path, fake_copilot_cli):
     """Verifica execução de tarefa no HarnessWorker com o harness copilot mockado."""
     worker = HarnessWorker(model="tier_1b", cwd=str(tmp_path))
     assert worker.harness == HARNESS_COPILOT
-    assert worker.cli_binary == fake_copilot_cli
+    assert os.path.normcase(worker.cli_binary) == os.path.normcase(fake_copilot_cli)
 
     with patch("subprocess.Popen") as mock_popen, patch(
         "meister.worker.get_git_status_files", side_effect=[set(), {"auth.py"}]
