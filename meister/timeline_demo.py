@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 RUN_ID = "demo_timeline"
@@ -213,3 +214,41 @@ def build_scenario() -> list[ScenarioEvent]:
     events += _done("task_12", 426.0, "tier_1b", 180.0, 25.0, 10.0, 0.09)
 
     return sorted(events, key=lambda item: item.offset_s)
+
+
+_STATIC_GRACE = timedelta(seconds=5)
+_MODES = ("static", "live")
+
+
+def materialize(
+    scenario: list[ScenarioEvent],
+    mode: str,
+    now: datetime,
+    speed: float = 1.0,
+) -> list[dict[str, Any]]:
+    """Dá `ts` ISO-8601 UTC a cada evento do cenário, sem alterar o cenário.
+
+    `static`: histórico que termina alguns segundos antes de `now`; durações não mudam.
+    `live`: começa em `now`; offsets e `duration_ms` são divididos por `speed`.
+    """
+    if mode not in _MODES:
+        raise ValueError(f"modo desconhecido: {mode!r}")
+    if speed <= 0:
+        raise ValueError("speed deve ser positivo")
+    moment = now if now.tzinfo is not None else now.replace(tzinfo=timezone.utc)
+    moment = moment.astimezone(timezone.utc)
+    if mode == "static":
+        last = max((item.offset_s for item in scenario), default=0.0)
+        origin = moment - timedelta(seconds=last) - _STATIC_GRACE
+        scale = 1.0
+    else:
+        origin = moment
+        scale = speed
+    out: list[dict[str, Any]] = []
+    for item in scenario:
+        event = dict(item.event)
+        event["ts"] = (origin + timedelta(seconds=item.offset_s / scale)).isoformat()
+        if mode == "live" and "duration_ms" in event:
+            event["duration_ms"] = float(event["duration_ms"]) / speed
+        out.append(event)
+    return out
