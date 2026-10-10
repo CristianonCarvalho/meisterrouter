@@ -21,6 +21,7 @@ import re
 import subprocess
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
+from meister import osops
 from meister.config import MeisterConfig, WorkerTier, effective_worker_timeouts, load_config
 from meister.gate import summarize_gate_failure
 from meister.i18n import CATALOGS, t
@@ -2313,7 +2314,7 @@ class HerdrEventBridge:
                         pgid = pinfo.get("foreground_process_group_id") or pinfo.get("shell_pid")
                         if pgid:
                             try:
-                                os.killpg(int(pgid), 15)
+                                osops.kill_tree(int(pgid))
                             except (OSError, ProcessLookupError):
                                 pass
                 except Exception as e:
@@ -2321,12 +2322,9 @@ class HerdrEventBridge:
 
             if rec_pid:
                 try:
-                    os.killpg(os.getpgid(int(rec_pid)), 15)
+                    osops.terminate_tree(int(rec_pid))
                 except (OSError, ProcessLookupError):
-                    try:
-                        os.kill(int(rec_pid), 15)
-                    except (OSError, ProcessLookupError):
-                        pass
+                    pass
 
             # 2. Fecha tab e pane no Herdr
             if self.host is not None and self._connected:
