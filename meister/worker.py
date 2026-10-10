@@ -175,40 +175,13 @@ def read_atomic_json(filepath: str) -> Optional[Dict[str, Any]]:
 
 
 def kill_process_tree(pgid_or_pid: int, is_pgid: bool = True) -> None:
-    """Finaliza de forma determinística um grupo de processos ou PID com SIGTERM e SIGKILL (Achado #8)."""
-    try:
-        if is_pgid and hasattr(os, "killpg"):
-            os.killpg(pgid_or_pid, signal.SIGTERM)
-        else:
-            os.kill(pgid_or_pid, signal.SIGTERM)
-    except (OSError, ProcessLookupError, PermissionError):
-        return
-
-    time.sleep(0.15)
-
-    try:
-        if is_pgid and hasattr(os, "killpg"):
-            os.killpg(pgid_or_pid, signal.SIGKILL)
-        else:
-            os.kill(pgid_or_pid, signal.SIGKILL)
-    except (OSError, ProcessLookupError, PermissionError):
-        pass
+    """Finaliza um grupo de processos ou PID (SIGTERM e depois SIGKILL) via ``osops``."""
+    osops.kill_tree(pgid_or_pid, is_pgid=is_pgid)
 
 
 def process_start_signature(pid: int) -> Optional[str]:
     """Return the OS-reported start time for a PID, or None when it cannot be verified."""
-    try:
-        result = subprocess.run(
-            ["ps", "-o", "lstart=", "-p", str(pid)],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=2,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    signature = result.stdout.strip()
-    return signature if result.returncode == 0 and signature else None
+    return osops.process_signature(pid)
 
 
 def reap_harness(pid_file: str) -> str:
@@ -258,11 +231,11 @@ def install_termination_handlers() -> Iterator[None]:
         return
 
     if _termination_handlers_depth == 0:
-        handled_signals = (
-            int(signal.SIGTERM),
-            int(signal.SIGHUP),
-            int(signal.SIGINT),
-        )
+        handled_signals = [int(signal.SIGTERM), int(signal.SIGINT)]
+        if hasattr(signal, "SIGHUP"):
+            handled_signals.append(int(signal.SIGHUP))
+        elif hasattr(signal, "SIGBREAK"):
+            handled_signals.append(int(signal.SIGBREAK))
         _previous_termination_handlers = {
             sig: signal.getsignal(sig) for sig in handled_signals
         }
@@ -624,13 +597,12 @@ class HarnessWorker:
                 stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL,
                 env=safe_env,
-                start_new_session=True,
                 text=True,
                 bufsize=1,
+                **osops.popen_session_kwargs(),
             )
             if harness_pid_file:
-                # Com start_new_session=True o harness é líder do próprio grupo: pgid == pid.
-                # Evita os.getpgid, que falha se o harness já saiu (ProcessLookupError no macOS).
+                # O harness é líder do próprio grupo (popen_session_kwargs): pgid == pid.
                 try:
                     write_atomic_json(
                         harness_pid_file,
