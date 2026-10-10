@@ -14,7 +14,7 @@
 
 ## If you are a MeisterRouter worker
 
-Consider yourself a worker if `MEISTER_IN_PANE=1` is set in the environment or if you
+Consider yourself a worker if `MEISTER_WORKER=1` (or, in older installations, `MEISTER_IN_PANE=1`) is set in the environment or if you
 are in a worktree created for a subtask. Implement the assigned task directly,
 only in the target files. Run relevant tests and report the evidence. Do NOT run the
 entire test suite: MeisterRouter's gate runs it afterward.
