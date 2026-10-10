@@ -8,7 +8,7 @@ conflicts, and computes optimal parallel execution batches for Herdr split panes
 from __future__ import annotations
 
 import logging
-import os
+import posixpath
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -32,7 +32,11 @@ class SubtaskNode:
 
     def normalized_target_files(self) -> Set[str]:
         """Return the normalized set of target file paths."""
-        return {os.path.normpath(f.strip()) for f in self.target_files if f and f.strip()}
+        return {
+            posixpath.normpath(f.strip().replace("\\", "/"))
+            for f in self.target_files
+            if f and f.strip()
+        }
 
     def conflicts_with(self, other: SubtaskNode) -> bool:
         """Check if this subtask conflicts with another subtask.
