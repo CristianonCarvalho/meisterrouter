@@ -26,6 +26,7 @@ from meister.gate import summarize_gate_failure
 from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
+from meister.hosts import HerdrHost, WorkerHost
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -242,9 +243,14 @@ class HerdrEventBridge:
         spawner: Optional[WorkerSpawner] = None,
         gate: Optional[Any] = None,
         state_manager: Optional[StateManager] = None,
+        host: Optional[WorkerHost] = None,
     ):
         self.config = config or load_config()
+        self._client: Optional[HerdrSocketClient] = None
+        self.host: Optional[WorkerHost] = None
         self.client = client
+        if host is not None:
+            self.host = host
         self.spawner = spawner or WorkerSpawner(self.config, herdr_client=self.client)
         if self.client is not None and self.spawner.herdr_client is None:
             self.spawner.herdr_client = self.client
@@ -275,6 +281,15 @@ class HerdrEventBridge:
 
         # Reactive pane exit notification events: pane_id -> asyncio.Event (Achado #10)
         self._exit_events: Dict[str, asyncio.Event] = {}
+
+    @property
+    def client(self) -> Optional[HerdrSocketClient]:
+        return self._client
+
+    @client.setter
+    def client(self, client: Optional[HerdrSocketClient]) -> None:
+        self._client = client
+        self.host = HerdrHost(client) if client is not None else None
 
     @staticmethod
     def _stored_attempt_count(sm: StateManager, subtask_id: str) -> int:
@@ -2279,16 +2294,18 @@ class HerdrEventBridge:
         resume_hint_callback: Optional[Callable[[str], None]] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
-        if self.client is None:
+        if self.client is None or self.host is None:
             raise RuntimeError("Herdr client is required for orchestration cycle")
+        host: WorkerHost = self.host
 
-        if not self.client.is_connected:
-            await self.client.connect()
+        # Conecta e assina eventos reativos do socket antes de consultar o contexto
+        handler: Callable[[Any], Any] = self.handle_herdr_event
+        await host.start(handler)
 
         # Auto-detect workspace and architect pane if not provided or default
         if not workspace_id or workspace_id == "default" or not architect_pane_id or architect_pane_id == "architect":
             try:
-                current_info = await self.client.get_current_pane()
+                current_info = await host.current_context()
                 if current_info:
                     if not workspace_id or workspace_id == "default":
                         workspace_id = current_info.get("workspace_id") or workspace_id or "default"
@@ -2300,11 +2317,8 @@ class HerdrEventBridge:
         workspace_id = workspace_id or "default"
         architect_pane_id = architect_pane_id or "architect"
 
-        # Subscribe to reactive socket events
-        await self.client.subscribe_events(self.handle_herdr_event)
-
         # Notify user in Herdr UI that orchestration has started
-        await self.client.show_notification(
+        await host.notify(
             t("engine.bridge.orchestration_started", workspace_id=workspace_id),
             title="MeisterRouter",
         )
@@ -2331,7 +2345,7 @@ class HerdrEventBridge:
                     reason="plan_invalid",
                     error=str(e)[:200],
                 )
-                await self.client.show_notification(f"MeisterRouter: {err_msg[:200]}", title="MeisterRouter")
+                await host.notify(f"MeisterRouter: {err_msg[:200]}", title="MeisterRouter")
                 return False
 
         sm = self.get_state_manager()
@@ -2363,8 +2377,7 @@ class HerdrEventBridge:
             )
             if resume_hint_callback is not None:
                 resume_hint_callback(message)
-            if self.client is not None:
-                await self.client.show_notification(message, title="MeisterRouter")
+            await host.notify(message, title="MeisterRouter")
 
         if resume_run_id is None and resume_hint_callback is not None:
             candidate = resumable_candidate
@@ -2394,7 +2407,7 @@ class HerdrEventBridge:
                 else:
                     warning = t("engine.bridge.resume_no_run")
                     logger.warning(warning)
-                    await self.client.show_notification(warning, title="MeisterRouter")
+                    await host.notify(warning, title="MeisterRouter")
         elif resume_run_id is not None:
             source_run = sm.get_run(resume_run_id)
             if source_run is None:
@@ -2483,7 +2496,7 @@ class HerdrEventBridge:
                     failure = f"{e}; rode sem --resume"
                     logger.error(failure)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
-                    await self.client.show_notification(f"MeisterRouter: {failure}", title="MeisterRouter")
+                    await host.notify(f"MeisterRouter: {failure}", title="MeisterRouter")
                     log_event(
                         event_type="orchestration_end",
                         run_id=run_id,
@@ -2509,7 +2522,7 @@ class HerdrEventBridge:
                     if not test_passed:
                         logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Gate test verification failed on integration branch: {test_output[:200]}"
                         log_event(
@@ -2532,7 +2545,7 @@ class HerdrEventBridge:
                     if not test_passed:
                         logger.warning("Deterministic quality gate failed: test verification did not pass.")
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed."
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Gate test verification failed: {test_output[:200]}"
                         log_event(
@@ -2558,7 +2571,7 @@ class HerdrEventBridge:
                 if action != "COMPLETE":
                     logger.warning("Deterministic completion rejected with action %s: %s", action, eval_result.get("reason"))
                     msg = f"MeisterRouter: Tasks executed but completion evaluation returned {action}."
-                    await self.client.show_notification(msg)
+                    await host.notify(msg)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
                     err_reason = f"Completion evaluation returned {action}: {eval_result.get('reason', '')[:200]}"
                     log_event(
@@ -2579,7 +2592,7 @@ class HerdrEventBridge:
                     if not ok_ff:
                         logger.error(t("engine.bridge.fast_forward_main_failed", error=ff_msg))
                         msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Fast-forward failed: {ff_msg[:200]}"
                         log_event(
@@ -2597,7 +2610,7 @@ class HerdrEventBridge:
                 crash_point("after_fast_forward_before_state", run_id=run_id)
                 sm.transition_run(run_id, to_state=RunState.COMPLETED)
                 msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
-                await self.client.show_notification(msg)
+                await host.notify(msg)
                 log_event(
                     event_type="orchestration_end",
                     run_id=run_id,
@@ -2612,7 +2625,7 @@ class HerdrEventBridge:
                     self._integration_pipeline.abort_integration()
                 sm.transition_run(run_id, to_state=RunState.FAILED)
                 msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
-                await self.client.show_notification(msg)
+                await host.notify(msg)
                 fail_reason = getattr(self, "last_failure_reason", None) or "Plan execution failed: one or more subtasks failed"
                 log_event(
                     event_type="orchestration_end",
