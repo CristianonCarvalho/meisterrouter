@@ -34,6 +34,17 @@ def test_worker_command_terminal_line_is_optional():
     assert cmd2.terminal_line == "ls"
 
 
+def test_worker_command_log_and_exit_files_default_to_none():
+    cmd = WorkerCommand(argv=["echo"], env={}, cwd="/tmp", label="w")
+    assert cmd.log_file is None
+    assert cmd.exit_file is None
+    cmd2 = WorkerCommand(
+        argv=["echo"], env={}, cwd="/tmp", label="w", log_file="/l.log", exit_file="/e.exit"
+    )
+    assert cmd2.log_file == "/l.log"
+    assert cmd2.exit_file == "/e.exit"
+
+
 def test_capability_constants_and_host_error():
     assert CAP_VISIBLE == "visible"
     assert CAP_PUSH_EVENTS == "push_events"

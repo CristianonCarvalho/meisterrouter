@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from tests.platform_marks import posix_only
 from meister.config import load_config
 from meister.herdr.bridge import HerdrEventBridge
 from meister.i18n import reset_language_cache
@@ -80,6 +81,92 @@ def _bridge(config, behavior):
 
 def _events(log_mock, event_type):
     return [c.kwargs for c in log_mock.call_args_list if c.kwargs.get("event_type") == event_type]
+
+
+@posix_only
+def test_task_context_carries_env_log_and_exit_file_into_worker_command(tmp_path, monkeypatch):
+    """Campos novos chegam ao WorkerCommand; o HerdrHost (aqui um host explícito) os recebe."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    repo = _repo(tmp_path)
+    captured = {}
+
+    def behavior(attempt, task_context):
+        captured["env"] = task_context["env"]
+        captured["log_file"] = task_context["log_file"]
+        captured["exit_file"] = task_context["exit_file"]
+        captured["command"] = task_context["command"]
+        _write_exit(task_context, 1)
+
+    bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
+    bridge.current_run_id = "runfields"
+    with patch("meister.herdr.bridge.log_event"):
+        asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo, "fields")), timeout=20))
+
+    assert spawns == ["A"]
+    assert captured["env"]["MEISTER_IN_PANE"] == "1"
+    assert captured["env"]["MEISTER_LOG_DIR"] == str(tmp_path / "logs")
+    assert captured["env"]["MEISTER_RUN_ID"] == "runfields"
+    assert captured["log_file"] == os.path.join(
+        str(tmp_path / "logs"), "workers", "runfields_fields_1.log"
+    )
+    assert captured["exit_file"].endswith("_1.exit")
+    assert captured["command"][:3] == [sys.executable, "-m", "meister.cli"]
+
+
+@posix_only
+def test_spawner_fills_worker_command_fields_from_task_context(tmp_path):
+    from meister.herdr.workers import WorkerSpawner
+    from meister.hosts import WorkerHandle
+
+    received = []
+
+    class _RecordingHost:
+        name = "rec"
+        capabilities = frozenset()
+
+        async def spawn(self, command, *, layout="tab"):
+            received.append(command)
+            return WorkerHandle(id="p1", aux="t1")
+
+    spawner = WorkerSpawner(_config(tmp_path), host=_RecordingHost())
+    ctx = {
+        "id": "ctx",
+        "command": ["codex", "exec", "x"],
+        "command_str": "codex exec x",
+        "env": {"MEISTER_IN_PANE": "1", "MEISTER_RUN_ID": "r"},
+        "log_file": str(tmp_path / "w.log"),
+        "exit_file": str(tmp_path / "w.exit"),
+    }
+    asyncio.run(spawner.spawn_worker_tab("A", task_context=ctx, cwd=str(tmp_path)))
+    cmd = received[0]
+    assert cmd.argv == ["codex", "exec", "x"]
+    assert cmd.env == {"MEISTER_IN_PANE": "1", "MEISTER_RUN_ID": "r"}
+    assert cmd.log_file == str(tmp_path / "w.log")
+    assert cmd.exit_file == str(tmp_path / "w.exit")
+    assert cmd.terminal_line == "codex exec x"
+
+
+def test_task_context_without_new_fields_keeps_empty_defaults(tmp_path):
+    from meister.herdr.workers import WorkerSpawner
+    from meister.hosts import WorkerHandle
+
+    received = []
+
+    class _RecordingHost:
+        name = "rec"
+        capabilities = frozenset()
+
+        async def spawn(self, command, *, layout="tab"):
+            received.append(command)
+            return WorkerHandle(id="p1", aux="t1")
+
+    spawner = WorkerSpawner(_config(tmp_path), host=_RecordingHost())
+    asyncio.run(spawner.spawn_worker_pane("A", task_context=None))
+    cmd = received[0]
+    assert cmd.env == {}
+    assert cmd.log_file is None
+    assert cmd.exit_file is None
 
 
 def _write_exit(task_context, code):
