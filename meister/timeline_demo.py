@@ -1,15 +1,24 @@
-"""Cenário sintético da demonstração da linha do tempo: eventos sem modelo, sem custo real, sem I/O.
+"""Cenário sintético da demonstração da linha do tempo: eventos sem modelo, sem custo real.
 
 Tempos são segundos simulados desde o início do run. Os eventos seguem o formato de
 `orchestration_log.jsonl`, sem `ts`; quem consumir o cenário decide o relógio.
+`main()` é o único ponto com I/O: grava um log temporário e sobe a timeline web local.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
+import os
+import shutil
+import tempfile
+import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+from meister.i18n import t
 
 RUN_ID = "demo_timeline"
 
@@ -252,3 +261,112 @@ def materialize(
             event["duration_ms"] = float(event["duration_ms"]) / speed
         out.append(event)
     return out
+
+
+_CHECKS = (
+    "timeline_demo.check_axis",
+    "timeline_demo.check_arrows",
+    "timeline_demo.check_tooltip",
+    "timeline_demo.check_lane_header",
+    "timeline_demo.check_sound",
+    "timeline_demo.check_ghost",
+)
+
+
+def _positive_float(text: str) -> float:
+    value = float(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError(t("timeline_demo.speed_invalid", value=text))
+    return value
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m meister.timeline_demo",
+        description=t("timeline_demo.description"),
+    )
+    parser.add_argument("--mode", choices=_MODES, default="live", help=t("timeline_demo.mode_help"))
+    parser.add_argument("--speed", type=_positive_float, default=30.0, help=t("timeline_demo.speed_help"))
+    parser.add_argument("--port", type=int, default=5052, help=t("timeline_demo.port_help"))
+    parser.add_argument("--host", default="127.0.0.1", help=t("timeline_demo.host_help"))
+    return parser
+
+
+def _append_live(
+    path: str,
+    scenario: list[ScenarioEvent],
+    start: datetime,
+    speed: float,
+    stop: threading.Event,
+) -> None:
+    """Acrescenta cada evento ao log no instante proporcional ao seu offset, dividido por `speed`."""
+    base = time.monotonic()
+    events = materialize(scenario, "live", start, speed)
+    for item, event in zip(scenario, events):
+        if stop.wait(max(base + item.offset_s / speed - time.monotonic(), 0.0)):
+            return
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Sobe a timeline web sobre o cenário sintético; Ctrl+C encerra e remove o log temporário."""
+    from werkzeug.serving import make_server
+
+    from meister.dashboard.server import app
+
+    try:
+        args = _build_parser().parse_args(argv)
+    except SystemExit as exit_request:
+        return int(exit_request.code or 0)
+
+    log_dir = tempfile.mkdtemp(prefix="meister_timeline_demo_")
+    log_path = os.path.join(log_dir, "orchestration_log.jsonl")
+    previous_log_dir = os.environ.get("MEISTER_LOG_DIR")
+    os.environ["MEISTER_LOG_DIR"] = log_dir
+    stop = threading.Event()
+    writer: threading.Thread | None = None
+    try:
+        start = datetime.now(timezone.utc)
+        scenario = build_scenario()
+        server = make_server(args.host, args.port, app)
+        if args.mode == "static":
+            with open(log_path, "w", encoding="utf-8") as handle:
+                for event in materialize(scenario, "static", start):
+                    handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+        else:
+            open(log_path, "w", encoding="utf-8").close()
+            writer = threading.Thread(
+                target=_append_live,
+                args=(log_path, scenario, start, args.speed, stop),
+                daemon=True,
+            )
+        print(t("timeline_demo.header", mode=args.mode, speed=args.speed))
+        print(t("timeline_demo.url", url=f"http://{args.host}:{args.port}/timeline"))
+        print(t("timeline_demo.checklist_heading"))
+        for key in _CHECKS:
+            print(f"  - {t(key)}")
+        print(t("timeline_demo.stop_hint"))
+        if writer is not None:
+            writer.start()
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            server.server_close()
+        print(t("timeline_demo.stopped"))
+        return 0
+    finally:
+        stop.set()
+        if writer is not None:
+            writer.join(timeout=1)
+        if previous_log_dir is None:
+            os.environ.pop("MEISTER_LOG_DIR", None)
+        else:
+            os.environ["MEISTER_LOG_DIR"] = previous_log_dir
+        shutil.rmtree(log_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

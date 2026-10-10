@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -6,7 +8,7 @@ import pytest
 from meister import timeline_cli, timeline_json
 from meister.config import WorkerTier
 from meister.timeline import build_timeline
-from meister.timeline_demo import RUN_ID, build_scenario, materialize
+from meister.timeline_demo import RUN_ID, build_scenario, main, materialize
 from meister.timeline_graph import build_graph
 from meister.timeline_json import timeline_json_for_log
 from tests.timeline_fixtures import BASE
@@ -329,3 +331,98 @@ def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monk
     assert lanes["tier_1"]["model"] == "luna-model"
     assert lanes["legacy_lane"]["harness"] is None
     assert lanes["legacy_lane"]["model"] is None
+
+
+def _fake_server(monkeypatch, on_serve):
+    """Substitui o servidor WSGI: registra (host, port, app) e executa `on_serve` no lugar do serve_forever."""
+    calls = []
+
+    class FakeServer:
+        def __init__(self, host, port, app):
+            calls.append((host, port, app))
+
+        def serve_forever(self):
+            on_serve()
+
+        def server_close(self):
+            pass
+
+    monkeypatch.setattr("werkzeug.serving.make_server", FakeServer)
+    return calls
+
+
+def _interrupt():
+    raise KeyboardInterrupt
+
+
+def test_help_prints_usage_and_returns_zero_without_serving(monkeypatch, capsys):
+    def boom(*args, **kwargs):
+        raise AssertionError("não deve subir servidor com --help")
+
+    monkeypatch.setattr("werkzeug.serving.make_server", boom)
+    assert main(["--help"]) == 0
+    out = capsys.readouterr().out
+    for flag in ("--mode", "--speed", "--port", "--host"):
+        assert flag in out
+
+
+def test_invalid_speed_is_usage_error_and_does_not_serve(monkeypatch):
+    calls = _fake_server(monkeypatch, _interrupt)
+    assert main(["--speed", "0"]) == 2
+    assert calls == []
+
+
+def test_static_mode_writes_log_serves_timeline_url_and_cleans_up(monkeypatch, capsys):
+    monkeypatch.delenv("MEISTER_LOG_DIR", raising=False)
+    seen = {}
+
+    def on_serve():
+        seen["log_dir"] = os.environ["MEISTER_LOG_DIR"]
+        log = os.path.join(seen["log_dir"], "orchestration_log.jsonl")
+        seen["lines"] = open(log, encoding="utf-8").read().splitlines()
+        raise KeyboardInterrupt
+
+    calls = _fake_server(monkeypatch, on_serve)
+    assert main(["--mode", "static"]) == 0
+
+    assert calls[0][:2] == ("127.0.0.1", 5052)
+    assert len(seen["lines"]) == len(build_scenario())
+    assert all("ts" in json.loads(line) for line in seen["lines"])
+    assert "MEISTER_LOG_DIR" not in os.environ
+    assert not os.path.exists(seen["log_dir"])
+    out = capsys.readouterr().out
+    assert "http://127.0.0.1:5052/timeline" in out
+
+
+def test_host_and_port_options_are_used(monkeypatch, capsys):
+    calls = _fake_server(monkeypatch, _interrupt)
+    assert main(["--mode", "static", "--host", "127.0.0.2", "--port", "6123"]) == 0
+    assert calls[0][:2] == ("127.0.0.2", 6123)
+    assert "http://127.0.0.2:6123/timeline" in capsys.readouterr().out
+
+
+def test_live_mode_is_default_and_appends_every_event(monkeypatch):
+    monkeypatch.delenv("MEISTER_LOG_DIR", raising=False)
+    total = len(build_scenario())
+    seen = {}
+
+    def on_serve():
+        log = os.path.join(os.environ["MEISTER_LOG_DIR"], "orchestration_log.jsonl")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if os.path.exists(log) and len(open(log, encoding="utf-8").read().splitlines()) == total:
+                break
+            time.sleep(0.01)
+        seen["lines"] = open(log, encoding="utf-8").read().splitlines()
+        seen["log_dir"] = os.environ["MEISTER_LOG_DIR"]
+        raise KeyboardInterrupt
+
+    _fake_server(monkeypatch, on_serve)
+    assert main(["--speed", "100000"]) == 0
+
+    events = [json.loads(line) for line in seen["lines"]]
+    assert len(events) == total
+    assert events[0]["event_type"] == "orchestration_start"
+    stamps = [_parse(event["ts"]) for event in events]
+    assert stamps == sorted(stamps)
+    assert not os.path.exists(seen["log_dir"])
