@@ -240,8 +240,12 @@ def configured_test_timeout():
 
 @pytest.fixture
 def tmp_path():
-    """Override tmp_path fixture to use /tmp to avoid macOS AF_UNIX 104-char path limit."""
-    with tempfile.TemporaryDirectory(dir="/tmp") as d:
+    """Override tmp_path fixture to use /tmp to avoid macOS AF_UNIX 104-char path limit.
+
+    Onde /tmp não existe (Windows) usa o diretório temporário padrão do sistema.
+    """
+    base = "/tmp" if os.path.isdir("/tmp") else None
+    with tempfile.TemporaryDirectory(dir=base) as d:
         yield pathlib.Path(d)
 
 
