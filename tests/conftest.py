@@ -243,9 +243,13 @@ def tmp_path():
     """Override tmp_path fixture to use /tmp to avoid macOS AF_UNIX 104-char path limit.
 
     Onde /tmp não existe (Windows) usa o diretório temporário padrão do sistema.
+
+    ignore_cleanup_errors=True: no Windows, um arquivo ainda aberto por um processo (worker, log, DB)
+    impede a remoção da pasta com WinError 32 e transformaria a limpeza em falha do teste. Ignorar o erro
+    de limpeza deixa só um resíduo temporário, sem mascarar a falha real do teste.
     """
     base = "/tmp" if os.path.isdir("/tmp") else None
-    with tempfile.TemporaryDirectory(dir=base) as d:
+    with tempfile.TemporaryDirectory(dir=base, ignore_cleanup_errors=True) as d:
         yield pathlib.Path(d)
 
 
