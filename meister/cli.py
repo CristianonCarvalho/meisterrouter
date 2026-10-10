@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 import click
 
-from meister import __version__
+from meister import __version__, osops
 from meister.dashboard.launcher import ensure_dashboard
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
@@ -118,13 +118,7 @@ def _worker_usage_event_fields(result: Optional[dict[str, Any]]) -> dict[str, An
 
 def is_pid_alive(pid: int) -> bool:
     """Return whether a process with the given PID is active."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
+    return osops.pid_alive(pid)
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -1151,7 +1145,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 pid = int(f.read().strip())
 
             if is_pid_alive(pid):
-                os.kill(pid, signal.SIGTERM)
+                osops.terminate_pid(pid)
                 click.echo(f"Sent SIGTERM to Meister daemon (PID: {pid}).")
             else:
                 click.echo("Meister daemon was not running (stale PID file cleaned).")
@@ -1172,10 +1166,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
             click.echo(f"Error opening PID file: {e}")
             return
 
-        import fcntl
-        try:
-            fcntl.flock(pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, OSError):
+        if not osops.lock_file(pid_fd):
             try:
                 with open(resolved_pid, "r") as f:
                     pid = int(f.read().strip())
@@ -1193,7 +1184,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 if is_pid_alive(existing_pid):
                     click.echo(f"Meister daemon is already running (PID: {existing_pid}).")
                     try:
-                        fcntl.flock(pid_fd, fcntl.LOCK_UN)
+                        osops.unlock_file(pid_fd)
                     except Exception:
                         pass
                     os.close(pid_fd)
@@ -1253,7 +1244,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
             asyncio.run(_run_loop())
         finally:
             try:
-                fcntl.flock(pid_fd, fcntl.LOCK_UN)
+                osops.unlock_file(pid_fd)
             except Exception:
                 pass
             try:
@@ -1515,7 +1506,11 @@ def orchestrate(
     except KeyboardInterrupt:
         interrupted = True
     except SystemExit as e:
-        if e.code not in (128 + int(signal.SIGTERM), 128 + int(signal.SIGHUP)):
+        expected_codes = {128 + int(signal.SIGTERM)}
+        sighup = getattr(signal, "SIGHUP", None)
+        if sighup is not None:
+            expected_codes.add(128 + int(sighup))
+        if e.code not in expected_codes:
             raise
         interrupted = True
     except Exception as e:

@@ -33,6 +33,7 @@ import time
 from dataclasses import dataclass, asdict, field
 from typing import Any, List, Optional, Set, Tuple
 
+from meister import osops
 from meister.faults import crash_point
 from meister.config import load_config
 from meister.env_setup import prepare_environment
@@ -1162,13 +1163,7 @@ class WorktreeManager:
 
     @staticmethod
     def _is_pid_alive(pid: int) -> bool:
-        if pid <= 0:
-            return False
-        try:
-            os.kill(pid, 0)
-            return True
-        except (OSError, ProcessLookupError):
-            return False
+        return osops.pid_alive(pid)
 
 
 class IntegrationPipeline:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -13,9 +14,6 @@ import pytest
 from click.testing import CliRunner
 
 from meister.cli import main
-from tests.platform_marks import posix_only
-
-pytestmark = posix_only
 
 FAKE_HARNESS = Path(__file__).resolve().parent / "fixtures" / "fake_harness.py"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -51,14 +49,20 @@ class E2EEnv:
     tmp_path: Path
 
     def install_cli(self, harness: str, mode: str) -> None:
-        script = self.bin_dir / _BINARY_BY_HARNESS[harness]
-        script.write_text(
-            "#!/bin/sh\n"
-            f"exec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_HARNESS))} "
-            f'{mode} "$@"\n',
-            encoding="utf-8",
-        )
-        script.chmod(0o755)
+        name = _BINARY_BY_HARNESS[harness]
+        if sys.platform == "win32":
+            script = self.bin_dir / f"{name}.cmd"
+            body = f'@echo off\n"{sys.executable}" "{FAKE_HARNESS}" {mode} %*\n'
+        else:
+            script = self.bin_dir / name
+            body = (
+                "#!/bin/sh\n"
+                f"exec {shlex.quote(sys.executable)} {shlex.quote(str(FAKE_HARNESS))} "
+                f'{mode} "$@"\n'
+            )
+        script.write_text(body, encoding="utf-8")
+        if sys.platform != "win32":
+            script.chmod(0o755)
 
     def orchestrate(self, tiers: list[Tier], plan: str):
         lines = [
@@ -109,7 +113,9 @@ def e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> E2EEnv:
     bin_dir.mkdir()
     log_dir = tmp_path / "logs"
     # PATH sem os CLIs reais de IA: só os wrappers falsos e o sistema.
-    monkeypatch.setenv("PATH", f"{bin_dir}:" + ":".join(SYSTEM_BIN_DIRS))
+    # No Windows o PATH real fica (o git precisa dele); o wrapper vem primeiro.
+    system_path = os.pathsep.join(SYSTEM_BIN_DIRS) if sys.platform != "win32" else os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(bin_dir), system_path]))
     monkeypatch.setenv("MEISTER_LOG_DIR", str(log_dir))
     monkeypatch.setenv("MEISTER_WORKTREES_DIR", str(tmp_path / "worktrees"))
     monkeypatch.setenv("MEISTER_DB_PATH", str(tmp_path / "meister.db"))
@@ -128,9 +134,10 @@ def e2e(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> E2EEnv:
     return env
 
 
-def _worktrees(repo: Path) -> list[str]:
+def _worktrees(repo: Path) -> list[Path]:
     return [
-        line for line in _git(repo, "worktree", "list", "--porcelain").splitlines()
+        Path(line.removeprefix("worktree ")).resolve()
+        for line in _git(repo, "worktree", "list", "--porcelain").splitlines()
         if line.startswith("worktree ")
     ]
 
@@ -149,7 +156,7 @@ def test_two_tasks_integrate_and_keep_worker_logs(e2e: E2EEnv):
     assert any("fake harness wrote beta.txt" in text for text in contents.values())
 
     # Worktrees dos workers já foram removidos; os logs continuam existindo.
-    assert _worktrees(e2e.repo) == [f"worktree {e2e.repo.resolve()}"]
+    assert _worktrees(e2e.repo) == [e2e.repo.resolve()]
     assert all(log.is_file() for log in logs)
 
 

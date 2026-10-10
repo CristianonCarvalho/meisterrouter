@@ -5,6 +5,7 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 [README](../README.md).
 
 - [Alternative installation](#alternative-installation)
+- [Windows](#windows)
 - [Herdr shortcuts manually](#herdr-shortcuts-manually)
 - [The OpenRouter key](#the-openrouter-key)
 - [Data sent to Jev](jev-data-sent.md)
@@ -100,6 +101,51 @@ If you installed only the plugin (for example, from the marketplace) or if the `
 ```bash
 herdr plugin log list --plugin dev.meisterrouter.orchestrator
 ```
+
+---
+
+## Windows
+
+> ⚠️ **Native Windows support is under validation.** Requires Windows 10/11 and [Git for Windows](https://git-scm.com/download/win).
+> The bash installer (`bin/install.sh`) is for macOS and Linux; on Windows install with `pipx` or `pip`.
+
+### Install
+With `pipx` (recommended, isolated environment), from the repository:
+```powershell
+pipx install git+https://github.com/CristianonCarvalho/meisterrouter.git
+```
+Or from a clone:
+```powershell
+git clone https://github.com/CristianonCarvalho/meisterrouter.git
+cd meisterrouter
+pip install .
+```
+`pip` creates `meister.exe` (with `pipx`, in `%USERPROFILE%\.local\bin`). Check with `meister --version`.
+
+### Long paths
+```powershell
+git config --global core.longpaths true
+```
+Worktrees and dependency folders can exceed the Windows 260-character path limit; Git needs this setting to handle them.
+
+### Where the logs are
+- Inside a project: `<project>\.meister\logs\` (git-ignored by `.meister/.gitignore`).
+- Outside a project: `%USERPROFILE%\.meister\logs\`.
+- `MEISTER_LOG_DIR` overrides both. The OpenRouter key, if used, goes in `%USERPROFILE%\.meister\.env`.
+
+### Harness shortcuts (`.cmd`)
+npm-installed CLIs (`copilot`, `codex`, `claude`...) are often `.cmd` shims, which `cmd.exe` runs. `cmd.exe` rewrites the command line, so prompts can be corrupted. The `tests/test_windows_cmd_shim_args.py` tests measure these cases (they are marked `xfail` until fixed):
+- double quotes inside the prompt;
+- `%VAR%` (expanded by `cmd.exe`);
+- `&`, `|`, `^`, `<`, `>` outside quotes;
+- line breaks (the rest of the prompt is lost);
+- command lines over 8191 characters (long prompts are truncated).
+
+Until this is fixed, avoid these characters in task descriptions and keep prompts short.
+
+### Not supported yet
+- **Herdr:** not available on Windows. The host is `process`: workers run as plain processes, with no worker tabs, popups or `prefix+...` shortcuts.
+- **tmux:** not supported.
 
 ---
 

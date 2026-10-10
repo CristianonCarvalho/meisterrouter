@@ -9,6 +9,7 @@ Instala:
 import json
 import os
 import stat
+import sys
 from typing import Tuple
 
 TEMPLATES_DIR = os.path.join(os.path.dirname(__file__), "templates")
@@ -39,10 +40,12 @@ def _is_managed_hook(path: str, template: str) -> bool:
 
 
 def _write_executable(path: str, content: str) -> None:
-    with open(path, "w", encoding="utf-8") as hook_file:
+    # newline="\n" evita CRLF no Windows, que quebraria o bash ao executar o hook.
+    with open(path, "w", encoding="utf-8", newline="\n") as hook_file:
         hook_file.write(content)
-    mode = os.stat(path).st_mode
-    os.chmod(path, mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    if sys.platform != "win32":
+        mode = os.stat(path).st_mode
+        os.chmod(path, mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
 
 def install_git_hook(repo_path: str = ".", force: bool = False) -> Tuple[bool, str]:
