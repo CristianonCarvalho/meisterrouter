@@ -155,4 +155,7 @@ def list_processes() -> list[tuple[int, list[str]]]:
 def kill_self() -> NoReturn:
     """Encerra o processo atual com SIGKILL (não pode ser capturado)."""
     os.kill(os.getpid(), signal.SIGKILL)
-    os._exit(128 + signal.SIGKILL)
+    # O kernel pode devolver o controle à thread antes de encerrar o processo;
+    # bloquear garante que só o SIGKILL termine a execução.
+    while True:
+        time.sleep(3600)

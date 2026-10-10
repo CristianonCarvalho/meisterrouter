@@ -10,6 +10,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+from meister import osops
 from meister.i18n import t
 
 
@@ -132,27 +133,10 @@ def resolve_base(repo: str, requested: Optional[str]) -> str:
 
 def list_processes() -> List[ProcessInfo]:
     """Read process argv without matching command text embedded in another argument."""
-    result = subprocess.run(
-        ["ps", "-axo", "pid=,command="],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode:
-        raise CleanError(t("commands.clean.process_inspection_failed", error=result.stderr.strip()))
-    processes = []
-    for line in result.stdout.splitlines():
-        fields = line.strip().split(None, 1)
-        if len(fields) != 2:
-            continue
-        try:
-            pid = int(fields[0])
-            argv = shlex.split(fields[1])
-        except ValueError:
-            continue
-        if argv:
-            processes.append(ProcessInfo(pid, argv))
-    return processes
+    try:
+        return [ProcessInfo(pid, argv) for pid, argv in osops.list_processes()]
+    except osops.ProcessInspectionError as exc:
+        raise CleanError(t("commands.clean.process_inspection_failed", error=str(exc).strip())) from exc
 
 
 def _active_meister_processes(processes: Iterable[ProcessInfo]) -> List[ProcessInfo]:
