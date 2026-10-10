@@ -9,7 +9,8 @@ determinísticas, execução verificável e configuração flexível.
   diretamente o código.
 - **Orquestrador:** executa o plano, coordena as subtarefas e integra as alterações.
 - **Jev:** fornece decisões determinísticas de classificação e controle.
-- **Workers:** implementam as subtarefas atribuídas e validam suas alterações.
+- **Workers:** implementam as subtarefas atribuídas e validam suas alterações. Os workers se
+  identificam com `MEISTER_WORKER=1` (ou `MEISTER_IN_PANE=1` em instalações antigas).
 
 As tarefas de implementação são executadas pelo orquestrador; o arquiteto planeja,
 acompanha as evidências e decide os próximos passos.
@@ -19,7 +20,7 @@ acompanha as evidências e decide os próximos passos.
 Para implementar tarefas e planos, o método é sempre `meister orchestrate`; para uma tarefa
 isolada, use `meister worker`.
 Não ofereça nem escolha `subagent-driven-development`, `executing-plans` ou implementar nativamente.
-Se o Meister não estiver disponível (daemon fora do ar ou sem Herdr), pergunte ao usuário
+Se o Meister não estiver disponível (daemon fora do ar ou sem um host de worker disponível), pergunte ao usuário
 antes de implementar por outro meio.
 Edições em documentação (`docs/**`, `*.md`) podem ser feitas diretamente.
 

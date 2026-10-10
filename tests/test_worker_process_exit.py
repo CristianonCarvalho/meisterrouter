@@ -104,6 +104,7 @@ def test_task_context_carries_env_log_and_exit_file_into_worker_command(tmp_path
         asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo, "fields")), timeout=20))
 
     assert spawns == ["A"]
+    assert captured["env"]["MEISTER_WORKER"] == "1"
     assert captured["env"]["MEISTER_IN_PANE"] == "1"
     assert captured["env"]["MEISTER_LOG_DIR"] == str(tmp_path / "logs")
     assert captured["env"]["MEISTER_RUN_ID"] == "runfields"

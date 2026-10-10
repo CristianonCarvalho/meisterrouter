@@ -271,6 +271,9 @@ def isolate_test_environment(tmp_path, monkeypatch):
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "ci@meisterrouter.local")
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Meister CI")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "ci@meisterrouter.local")
+    # O ambiente do teste não pode herdar a marca de worker de uma execução real do Meister.
+    monkeypatch.delenv("MEISTER_WORKER", raising=False)
+    monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     yield
 
 

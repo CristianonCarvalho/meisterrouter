@@ -45,6 +45,7 @@ from meister.state import (
     compute_subtask_id,
     task_fingerprint,
 )
+from meister.envvars import worker_env_assignments
 from meister.faults import crash_point
 from meister.logger import get_log_dir, log_event
 from meister.plan import PlanError, load_plan
@@ -1117,7 +1118,7 @@ class HerdrEventBridge:
                 task_dict["result_file"] = result_file
 
                 cmd_parts = [sys.executable, "-m", "meister.cli", "run-task", task_file]
-                env_vars = ["MEISTER_IN_PANE=1"]
+                env_vars = [f"{name}={value}" for name, value in worker_env_assignments().items()]
                 if os.environ.get("MEISTER_LOG_DIR"):
                     env_vars.append(f"MEISTER_LOG_DIR={shlex.quote(os.environ['MEISTER_LOG_DIR'])}")
                 if active_run_id:
@@ -1126,7 +1127,7 @@ class HerdrEventBridge:
                 task_dict["env"] = {
                     key: value
                     for key, value in (
-                        ("MEISTER_IN_PANE", "1"),
+                        *worker_env_assignments().items(),
                         ("MEISTER_LOG_DIR", os.environ.get("MEISTER_LOG_DIR")),
                         ("MEISTER_RUN_ID", active_run_id),
                     )

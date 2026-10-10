@@ -7,7 +7,7 @@
 # ==============================================================================
 
 # Workers podem editar a tarefa que receberam. O override também é útil para exceções.
-if [ "${MEISTER_IN_PANE}" = "1" ] || [ "${MEISTER_ALLOW_ORCHESTRATOR_EDIT}" = "1" ] || [ -f ".meister/allow_orchestrator" ]; then
+if [ "${MEISTER_WORKER}" = "1" ] || [ "${MEISTER_IN_PANE}" = "1" ] || [ "${MEISTER_ALLOW_ORCHESTRATOR_EDIT}" = "1" ] || [ -f ".meister/allow_orchestrator" ]; then
     exit 0
 fi
 

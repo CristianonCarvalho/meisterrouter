@@ -74,6 +74,20 @@ dashboard:
 
 The server listens only on `127.0.0.1`. Without a graphical display (for example, over SSH or in CI), MeisterRouter does not try to open a browser and prints the timeline URL so you can open it yourself later. If Chromium is unavailable, it tries the default browser tab instead. A server or browser-launch failure does not stop orchestration. The server exits by itself after `dashboard.idle_exit_minutes` without use, once no run is active; to stop a forgotten server sooner, run `kill <PID>` using the PID recorded in `.meister/dashboard.json`.
 
+### Run in the background and from any harness
+`meister orchestrate` is a regular process, so any harness (not only Herdr) can start it in the background and keep working:
+```bash
+nohup meister orchestrate --plan-file plan.json > .meister/orchestrate.log 2>&1 &
+# or, detached from the terminal session:
+setsid meister orchestrate --plan-file plan.json > .meister/orchestrate.log 2>&1 &
+```
+1. **Read the run id** on the first line of the log: `Plan: ... (run 0123abcd)`.
+2. **Be notified when it ends:** `meister wait --run-id 0123abcd`, preferably started in the background. It exits when the run ends, and the exit code says how: `0` completed, `1` failed, `130` interrupted, `124` `--timeout` expired (the run is still going), `2` usage error. Always pass `--run-id`; without it, `wait` uses the most recent run, which may already have finished.
+3. **Check progress without reading the log by hand:** `meister timeline --json --once` prints the timeline as JSON (tasks, phases, lanes) and exits, which suits scripts and agents.
+4. **Follow a worker's output:** `meister logs -f` follows the most recently modified worker log; `meister logs --list` lists the available logs, and `--run-id`, `--task`, and `--lines` narrow the choice. The files live in `<log_dir>/workers/` (see [Where to look](#5-where-to-look)).
+
+Where workers run is set by `runtime.host` (`auto`, `process`, `herdr`, `tmux`); see [`advanced.md`](advanced.md#worker-host-and-logs).
+
 ## 4. When something fails: what you need to do
 `meister orchestrate` shows progress by task and the final summary on stderr; the success/failure message
 remains on stdout. Use `--quiet` (or `-q`) to omit progress and the summary.
@@ -94,6 +108,7 @@ remains on stdout. Use `--quiet` (or `-q`) to omit progress and the summary.
 - **Events:** JSONL in `~/.meister/logs` (or `MEISTER_LOG_DIR`); `meister replay` reconstructs the timeline. `meister dashboard` opens the task-grouped dashboard, with run selection, filterable/paginated event analysis, and an explicit indication of the file read. Use `meister dashboard --log-dir PATH` to point to another directory. The dashboard does not estimate savings without a measured baseline, and unrecorded worker costs appear as “`não medido` (not measured)”. Useful events: `subtask_reused`/`subtask_not_reused` (resume), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Run report:** `meister report --run-id ID` shows tasks, cost, phases, and overhead; repeat `--run-id` to compare runs. Use `--group A=ID1,ID2` for the median/minimum/maximum of a group, `--format json|markdown` to export, or `--log-dir PATH` to read another `orchestration_log.jsonl`. Run prefixes must be at least 6 characters; missing metrics in old logs appear as “`não medido` (not measured)”. Copilot cost comes from credits × `credit_usd`.
 - **Timeline (Gantt):** `meister timeline` opens a colored Gantt chart in the terminal (e.g., in a Herdr tab) for the newest run: one bar per task on the time axis, color by phase (worker, gate, integration, wait), the Jev band for decision calls, a pulsing endpoint on tasks in progress, and visible parallelism (overlapping tasks, peak, and average at the top); it also shows tasks run by `meister worker`. A run with no end and no events beyond `max_runtime_seconds` + 5 min appears as `⚠ SEM SINAL` (no signal). Keys: `a` toggles between one run and all stacked runs, `[`/`]` switch runs (replay), `l` returns to live, `p` pauses, `+`/`-` zoom, `←`/`→` time, `↑`/`↓` lines, `?` help, `q` quits; `meister timeline --all` opens directly on all runs. `--once` prints one frame and exits (useful for piping); `--no-color` or `NO_COLOR=1` disables colors; requires 80 columns. Inside `meister dashboard --tui`, the `t` key opens the same screen. It only reads the log; the current phase of an in-progress task is inferred (the log records the phase on completion), and there is no percentage per task.
+- **Worker logs:** `<log_dir>/workers/<run>_<task>_<attempt>.log` (`<log_dir>` is `.meister/logs` in the project, or `MEISTER_LOG_DIR`). Read them with `meister logs`; with `runtime.host: process` this is where each worker's output goes.
 - **State:** `.meister/meister.db` in the project (runs, subtasks, circuit breakers). A resumed run stores `resumed_from`; its source run receives `superseded_by`.
 - **Rejected work is never lost:** commits and uncommitted changes remain in `refs/meister/archive/*` (the latter use refs with the `-uncommitted` suffix). Recover a diff with `git diff <base>..refs/meister/archive/<ref>` or a file with `git checkout <ref> -- <file>`; commits reused on resume are pinned in `refs/meister/resume/*`.
 ### Leftovers

@@ -538,3 +538,13 @@ def test_execute_task_file_without_timeout_uses_the_configured_ceiling(tmp_path)
 
     assert run({}) == 321
     assert run({"timeout": 42}) == 42
+
+
+def test_safe_worker_env_preserves_meister_worker(monkeypatch):
+    from meister.worker import build_safe_worker_env
+
+    monkeypatch.setenv("MEISTER_WORKER", "1")
+    monkeypatch.setenv("MEISTER_IN_PANE", "1")
+    env = build_safe_worker_env()
+    assert env["MEISTER_WORKER"] == "1"
+    assert env["MEISTER_IN_PANE"] == "1"
