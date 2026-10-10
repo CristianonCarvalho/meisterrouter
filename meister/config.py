@@ -25,6 +25,7 @@ import yaml
 
 VALID_ARCHITECT_EFFORTS: Set[str] = {"low", "medium", "high", "xhigh", "max"}
 VALID_WORKER_CLASSES: Set[str] = {"SMALL", "MEDIUM", "HIGH", "ESCALATE"}
+VALID_RUNTIME_HOSTS: Set[str] = {"auto", "process", "herdr", "tmux"}
 KNOWN_HARNESSES: Set[str] = {
     "codex", "agy", "antigravity", "claude", "copilot", "github-copilot"
 }
@@ -176,6 +177,11 @@ class WorkersConfig:
 
 
 @dataclass
+class RuntimeConfig:
+    host: str = field(default_factory=lambda: _default_section("runtime")["host"])
+
+
+@dataclass
 class ConcurrencyConfig:
     parallel_tasks: bool = field(default_factory=lambda: _default_section("concurrency")["parallel_tasks"])
     max_parallel_workers: int = field(default_factory=lambda: _default_section("concurrency")["max_parallel_workers"])
@@ -243,6 +249,7 @@ class MeisterConfig:
     retry: RetryConfig = field(default_factory=RetryConfig)
     architect: ArchitectConfig = field(default_factory=ArchitectConfig)
     workers: WorkersConfig = field(default_factory=WorkersConfig)
+    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
     scope: ScopeConfig = field(default_factory=ScopeConfig)
     environment: EnvironmentConfig = field(default_factory=EnvironmentConfig)
@@ -250,6 +257,10 @@ class MeisterConfig:
     gate: GateConfig = field(default_factory=GateConfig)
     config_source: str = field(default_factory=lambda: t("reports.config.default_source"))
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
+
+
+def _is_valid_runtime_host(value: object) -> bool:
+    return isinstance(value, str) and value in VALID_RUNTIME_HOSTS
 
 
 def _as_str(value: object, default: str = "") -> str:
@@ -664,6 +675,23 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             max_runtime_seconds=worker_max_runtime,
         )
 
+    # Runtime
+    runtime_data = data.get("runtime", {})
+    if not isinstance(runtime_data, dict):
+        parse_issues.append(ConfigIssue("error", "runtime", t("reports.config.expected_object")))
+        runtime_data = {}
+    runtime_host = runtime_data.get("host", _default_section("runtime")["host"])
+    if not _is_valid_runtime_host(runtime_host):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "runtime.host",
+                t("reports.config.runtime_host_invalid", value=repr(runtime_host)),
+            )
+        )
+        runtime_host = _default_section("runtime")["host"]
+    runtime = RuntimeConfig(host=runtime_host)
+
     # Concurrency
     concurrency_data = data["concurrency"]
     concurrency = ConcurrencyConfig(
@@ -895,6 +923,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         retry=retry,
         architect=architect,
         workers=workers,
+        runtime=runtime,
         concurrency=concurrency,
         scope=scope,
         environment=environment,
@@ -1408,6 +1437,16 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                         message=t("reports.config.max_parallel_minimum", value=tier.max_parallel),
                     )
                 )
+
+    if not _is_valid_runtime_host(config.runtime.host):
+        if not any(issue.path == "runtime.host" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "runtime.host",
+                    t("reports.config.runtime_host_invalid", value=repr(config.runtime.host)),
+                )
+            )
 
     # 5. concurrency.max_parallel_workers < 1
     if config.concurrency.max_parallel_workers < 1:
