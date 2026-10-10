@@ -195,6 +195,32 @@ workers:
     assert next_tier.name == "gemini_flash"
 
 
+@pytest.mark.asyncio
+async def test_worker_spawner_spawns_through_host_only():
+    from meister.hosts import WorkerHandle
+    from tests.hosts_fake import FakeHost
+
+    config = MeisterConfig(
+        workers=WorkersConfig(
+            tier_order=[WorkerTier(name="luna", harness="codex", model="openai/gpt-6-luna")]
+        )
+    )
+    host = FakeHost()
+    spawner = WorkerSpawner(config, host=host)
+    assert spawner.herdr_client is None
+    assert spawner.host is host
+
+    pane_id, tier = await spawner.spawn_worker_pane("luna", task_context={"description": "fix"})
+    assert tier.name == "luna"
+    pane_cmd = host.command_of(WorkerHandle(id=pane_id))
+    assert pane_cmd.argv[0] == "codex"
+    assert "fix" in pane_cmd.argv
+
+    _tab_id, tab_pane_id, tab_tier = await spawner.spawn_worker_tab("luna")
+    assert tab_tier.name == "luna"
+    assert host.command_of(WorkerHandle(id=tab_pane_id)).argv[0] == "codex"
+
+
 def test_get_first_available_tier():
     from meister.state import StateManager
 

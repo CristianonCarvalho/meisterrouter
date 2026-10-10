@@ -13,6 +13,7 @@ import json
 from typing import Optional, Tuple, Union, Any, List
 from meister.config import MeisterConfig, WorkerTier, load_config
 from meister.herdr.client import HerdrSocketClient
+from meister.hosts import HerdrHost, WorkerCommand, WorkerHost
 from meister.i18n import t
 
 logger = logging.getLogger(__name__)
@@ -109,9 +110,20 @@ class WorkerSpawner:
         self,
         config: MeisterConfig,
         herdr_client: Optional[HerdrSocketClient] = None,
+        host: Optional[WorkerHost] = None,
     ):
         self.config = config
         self.herdr_client = herdr_client
+        self._explicit_host = host
+
+    @property
+    def host(self) -> Optional[WorkerHost]:
+        """Host de workers: o informado, ou um ``HerdrHost`` sobre o cliente atual."""
+        if self._explicit_host is not None:
+            return self._explicit_host
+        if self.herdr_client is not None:
+            return HerdrHost(self.herdr_client)
+        return None
 
     def get_tier(self, name: str) -> Optional[WorkerTier]:
         """Lookup a WorkerTier by its identifier in config.workers.tier_order."""
@@ -283,10 +295,17 @@ class WorkerSpawner:
         if tier is None:
             raise ValueError(f"Worker tier '{tier_name}' not found in configuration")
 
+        cmd = self.resolve_command(tier, task_context)
+        if self._explicit_host is not None:
+            handle = await self._explicit_host.spawn(
+                WorkerCommand(argv=cmd, env={}, cwd=cwd or "", label=tier_name, terminal_line=" ".join(cmd)),
+                layout="pane",
+            )
+            return handle.id, tier
+
         if self.herdr_client is None:
             raise RuntimeError("Herdr client is required to spawn worker panes")
 
-        cmd = self.resolve_command(tier, task_context)
         split_kwargs: dict[str, Any] = {
             "direction": direction,
             "command": cmd,
@@ -314,11 +333,23 @@ class WorkerSpawner:
         if tier is None:
             raise ValueError(f"Worker tier '{tier_name}' not found in configuration")
 
+        cmd = self.resolve_command(tier, task_context)
+        tab_label = label or (f"worker:{task_context.get('id')}" if task_context else f"worker:{tier_name}")
+        cmd_str = (
+            task_context.get("command_str")
+            if task_context and "command_str" in task_context
+            else (" ".join(cmd) if isinstance(cmd, list) else str(cmd))
+        )
+        if self._explicit_host is not None:
+            handle = await self._explicit_host.spawn(
+                WorkerCommand(argv=cmd, env={}, cwd=cwd or "", label=tab_label, terminal_line=cmd_str),
+                layout="tab",
+            )
+            return handle.aux, handle.id, tier
+
         if self.herdr_client is None:
             raise RuntimeError("Herdr client is required to spawn worker tabs")
 
-        cmd = self.resolve_command(tier, task_context)
-        tab_label = label or (f"worker:{task_context.get('id')}" if task_context else f"worker:{tier_name}")
         tab_id, pane_id = await self.herdr_client.create_tab(
             cwd=cwd,
             label=tab_label,
@@ -326,11 +357,6 @@ class WorkerSpawner:
         )
 
         if cmd and pane_id:
-            cmd_str = (
-                task_context.get("command_str")
-                if task_context and "command_str" in task_context
-                else (" ".join(cmd) if isinstance(cmd, list) else str(cmd))
-            )
             try:
                 if hasattr(self.herdr_client, "wait_pane_ready"):
                     await self.herdr_client.wait_pane_ready(pane_id)
