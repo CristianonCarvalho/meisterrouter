@@ -265,12 +265,22 @@ class HerdrEventBridge:
         self.config = config or load_config()
         self._client: Optional[HerdrSocketClient] = None
         self.host: Optional[WorkerHost] = None
+        # HerdrHost vindo de select_host mantém o caminho legado baseado no cliente Herdr.
+        herdr_host = host if isinstance(host, HerdrHost) else None
+        self._herdr_io: Optional[_BridgeHerdrHost] = (
+            _BridgeHerdrHost(herdr_host.client) if herdr_host is not None else None
+        )
+        legacy_client = herdr_host.client if herdr_host is not None else client
         self.client = client
         if host is not None:
             self.host = host
-        self.spawner = spawner or WorkerSpawner(self.config, herdr_client=self.client)
-        if self.client is not None and self.spawner.herdr_client is None:
-            self.spawner.herdr_client = self.client
+        self.spawner = spawner or WorkerSpawner(
+            self.config,
+            herdr_client=legacy_client,
+            host=self.host if legacy_client is None else None,
+        )
+        if legacy_client is not None and self.spawner.herdr_client is None:
+            self.spawner.herdr_client = legacy_client
         self.gate = gate
         self.state_manager = state_manager
         self.current_run_id: Optional[str] = None
@@ -383,12 +393,15 @@ class HerdrEventBridge:
         return WorkerHandle(id=pane_id or "", aux=tab_id)
 
     def _require_host(self) -> WorkerHost:
+        """Host de E/S: no caminho Herdr, o shim preserva o RPC legado de leitura e fechamento."""
         assert self.host is not None
-        return self.host
+        return self._herdr_io or self.host
 
     @property
     def _connected(self) -> bool:
-        return self._client is not None and bool(self._client.is_connected)
+        # Sem cliente Herdr (host de processo) não há conexão a verificar: o host já é a fonte de verdade.
+        client = self._client if self._client is not None else (self._herdr_io.client if self._herdr_io else None)
+        return client is None or bool(client.is_connected)
 
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
@@ -1028,8 +1041,8 @@ class HerdrEventBridge:
                             pass
                     return False
 
-                if self.client is None:
-                    raise RuntimeError("Herdr client is required to execute subtask")
+                if self.host is None:
+                    raise RuntimeError("A worker host is required to execute subtask")
 
                 if active_run_id:
                     try:
@@ -1109,6 +1122,9 @@ class HerdrEventBridge:
                 tab_closed = False
                 pane_closed = False
                 spawn_cwd = subtask_wt.worktree_path if subtask_wt else (task_dict.get("cwd") or task_dict.get("worktree"))
+                if spawn_cwd is None and self.host is not None and not isinstance(self.host, HerdrHost):
+                    # Host de processo precisa de um diretório real; o Herdr resolve o cwd sozinho.
+                    spawn_cwd = os.getcwd()
                 initial_worktree_fingerprint: Optional[tuple[bytes, str]] = None
                 if spawn_cwd:
                     try:
@@ -2306,13 +2322,13 @@ class HerdrEventBridge:
             if self.host is not None and self._connected:
                 if tab_id:
                     try:
-                        await self.host.close(self._worker_handle(pane_id, tab_id))
+                        await self._require_host().close(self._worker_handle(pane_id, tab_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_tab_failed", tab_id=tab_id, error=e))
 
                 if pane_id:
                     try:
-                        await self.host.close(self._worker_handle(pane_id))
+                        await self._require_host().close(self._worker_handle(pane_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_pane_failed", pane_id=pane_id, error=e))
 
@@ -2335,8 +2351,8 @@ class HerdrEventBridge:
         resume_hint_callback: Optional[Callable[[str], None]] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
-        if self.client is None or self.host is None:
-            raise RuntimeError("Herdr client is required for orchestration cycle")
+        if self.host is None:
+            raise RuntimeError("A worker host is required for orchestration cycle")
         host: WorkerHost = self.host
 
         # Conecta e assina eventos reativos do socket antes de consultar o contexto
