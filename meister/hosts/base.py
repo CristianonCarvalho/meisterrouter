@@ -40,6 +40,8 @@ class WorkerCommand:
 
     ``terminal_line`` é uma linha opcional a ser digitada no terminal do
     worker após o start; ``None`` significa que nada é digitado.
+    ``log_file`` e ``exit_file`` são caminhos opcionais para a saída do worker
+    e para o código de saída gravado pelo shell; hosts que não os usam ignoram-nos.
     """
 
     argv: list[str]
@@ -47,6 +49,8 @@ class WorkerCommand:
     cwd: str
     label: str
     terminal_line: Optional[str] = field(default=None)
+    log_file: Optional[str] = field(default=None)
+    exit_file: Optional[str] = field(default=None)
 
 
 @runtime_checkable

@@ -298,7 +298,7 @@ class WorkerSpawner:
         cmd = self.resolve_command(tier, task_context)
         if self._explicit_host is not None:
             handle = await self._explicit_host.spawn(
-                WorkerCommand(argv=cmd, env={}, cwd=cwd or "", label=tier_name, terminal_line=" ".join(cmd)),
+                self._worker_command(cmd, tier_name, cwd, " ".join(cmd), task_context),
                 layout="pane",
             )
             return handle.id, tier
@@ -342,7 +342,7 @@ class WorkerSpawner:
         )
         if self._explicit_host is not None:
             handle = await self._explicit_host.spawn(
-                WorkerCommand(argv=cmd, env={}, cwd=cwd or "", label=tab_label, terminal_line=cmd_str),
+                self._worker_command(cmd, tab_label, cwd, cmd_str, task_context),
                 layout="tab",
             )
             return handle.aux, handle.id, tier
@@ -365,6 +365,27 @@ class WorkerSpawner:
                 logger.debug("Could not send command to new tab pane %s: %s", pane_id, e)
 
         return tab_id, pane_id, tier
+
+    def _worker_command(
+        self,
+        cmd: List[str],
+        label: str,
+        cwd: Optional[str],
+        terminal_line: Optional[str],
+        task_context: Optional[dict],
+    ) -> WorkerCommand:
+        """Monta o ``WorkerCommand`` a partir do comando resolvido e do ``task_context``."""
+        ctx = task_context or {}
+        env = ctx.get("env")
+        return WorkerCommand(
+            argv=cmd,
+            env=dict(env) if isinstance(env, dict) else {},
+            cwd=cwd or "",
+            label=label,
+            terminal_line=terminal_line,
+            log_file=ctx.get("log_file"),
+            exit_file=ctx.get("exit_file"),
+        )
 
     async def escalate_worker(
         self,
