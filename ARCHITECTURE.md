@@ -87,6 +87,11 @@ A ordem de `workers.tier_order` é a única cadeia de fallback.
 - **Anti-pattern:** A LLM orquestradora (ex.: no Claude Code ou no Codex) propor: *"Como a via falhou, eu mesmo implemento o código agora"*. Isso anula o ganho de custo da cadeia de workers.
 - **Pattern Correto:** O arquiteto delega imediatamente à próxima via da cadeia via `meister worker --model tier_2` (ou o nome da via seguinte). A implementação direta pelo arquiteto só é permitida se **todas** as vias de workers estiverem comprovadamente inacessíveis.
 
+### Hosts de worker
+O lugar onde um worker executa é um **host**, separado da lógica de orquestração. O contrato `WorkerHost` (`meister/hosts/base.py`) define as operações que o núcleo usa: `start`, `spawn` (recebe um `WorkerCommand` e devolve um `WorkerHandle(id, aux)`), `alive` (`True`, `False` ou `None` se desconhecido), `tail` (últimas linhas de saída), `interrupt`, `close`, `notify`, e os opcionais `process_info` e `current_context`. O núcleo consulta o host por polling; o host pode declarar `push_events` para enviar eventos sem consulta.
+
+O adaptador atual é o `HerdrHost` (`meister/hosts/herdr.py`), que embrulha o cliente do Herdr e preserva o comportamento anterior. Para suportar outro terminal ou runtime, implemente o protocolo `WorkerHost` em um novo módulo de `meister/hosts/`, exponha `name` e `capabilities` e injete a instância no bridge pelo parâmetro `host`. Sem ele, o bridge deriva o host do cliente do Herdr. O núcleo não conhece detalhes do host (layout, workspace, pane): esses conceitos ficam dentro do adaptador.
+
 ## 4. Custos e Eficiência
 
 Preços e modelos não fazem parte desta especificação: vivem na configuração (`meister/default_config.yaml` e `meister.config.yaml`). Para ver a cadeia ativa e o custo por milhão de tokens de cada via, rode `meister models`. Para o estudo comparativo, veja [docs/models-and-costs.md](docs/models-and-costs.md) (pt-BR: [docs/pt-BR/MODELOS_E_CUSTOS.md](docs/pt-BR/MODELOS_E_CUSTOS.md)). Os custos medidos de cada run aparecem em `meister report` e no dashboard.

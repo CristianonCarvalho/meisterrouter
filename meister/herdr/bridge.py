@@ -26,6 +26,7 @@ from meister.gate import summarize_gate_failure
 from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
+from meister.hosts import HerdrHost, WorkerHandle, WorkerHost
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -232,6 +233,23 @@ def _step_title(step: Union[Dict[str, Any], SubtaskNode], size: int = 120) -> st
     return ""
 
 
+class _BridgeHerdrHost(HerdrHost):
+    """HerdrHost whose tail keeps the legacy ``read_pane(pane_id)`` RPC shape (no ``lines``)."""
+
+    async def tail(self, handle: WorkerHandle, lines: Optional[int] = None) -> str:
+        if lines is None:
+            return await self.client.read_pane(handle.id)
+        return await super().tail(handle, lines=lines)
+
+    async def close(self, handle: WorkerHandle) -> None:
+        """Fecha aba (se houver ``aux``) ou pane, propagando falhas ao chamador."""
+        if handle.aux:
+            if hasattr(self.client, "close_tab"):
+                await self.client.close_tab(handle.aux)
+        elif hasattr(self.client, "close_pane"):
+            await self.client.close_pane(handle.id)
+
+
 class HerdrEventBridge:
     """Central orchestration supervisor bridging Herdr socket events and task execution."""
 
@@ -242,9 +260,14 @@ class HerdrEventBridge:
         spawner: Optional[WorkerSpawner] = None,
         gate: Optional[Any] = None,
         state_manager: Optional[StateManager] = None,
+        host: Optional[WorkerHost] = None,
     ):
         self.config = config or load_config()
+        self._client: Optional[HerdrSocketClient] = None
+        self.host: Optional[WorkerHost] = None
         self.client = client
+        if host is not None:
+            self.host = host
         self.spawner = spawner or WorkerSpawner(self.config, herdr_client=self.client)
         if self.client is not None and self.spawner.herdr_client is None:
             self.spawner.herdr_client = self.client
@@ -275,6 +298,15 @@ class HerdrEventBridge:
 
         # Reactive pane exit notification events: pane_id -> asyncio.Event (Achado #10)
         self._exit_events: Dict[str, asyncio.Event] = {}
+
+    @property
+    def client(self) -> Optional[HerdrSocketClient]:
+        return self._client
+
+    @client.setter
+    def client(self, client: Optional[HerdrSocketClient]) -> None:
+        self._client = client
+        self.host = _BridgeHerdrHost(client) if client is not None else None
 
     @staticmethod
     def _stored_attempt_count(sm: StateManager, subtask_id: str) -> int:
@@ -345,6 +377,18 @@ class HerdrEventBridge:
                 )
         except Exception as e:
             logger.error("Falha ao marcar run interrompida %s como FAILED: %s", run_id, e)
+
+    @staticmethod
+    def _worker_handle(pane_id: Optional[str], tab_id: Any = None) -> WorkerHandle:
+        return WorkerHandle(id=pane_id or "", aux=tab_id)
+
+    def _require_host(self) -> WorkerHost:
+        assert self.host is not None
+        return self.host
+
+    @property
+    def _connected(self) -> bool:
+        return self._client is not None and bool(self._client.is_connected)
 
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
@@ -594,9 +638,9 @@ class HerdrEventBridge:
                 sm.record_harness_failure(current_tier, is_quota=True)
 
             # Interrupt runaway worker pane immediately to preserve tokens
-            if self.client is not None:
+            if self.host is not None:
                 try:
-                    await self.client.send_interrupt(pane_id)
+                    await self.host.interrupt(self._worker_handle(pane_id))
                 except Exception as e:
                     logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
 
@@ -1164,7 +1208,7 @@ class HerdrEventBridge:
                     worktree_fingerprint = initial_worktree_fingerprint
                     pane_fingerprint: Optional[str] = None
                     try:
-                        pane_content = await self.client.read_pane(pane_id)
+                        pane_content = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                         pane_fingerprint = hashlib.sha256(str(pane_content).encode("utf-8")).hexdigest()
                     except Exception:
                         pass
@@ -1211,7 +1255,7 @@ class HerdrEventBridge:
                                 continue
                             process_exit_code = _read_worker_exit_code(exit_file)
                             try:
-                                pane_text = await self.client.read_pane(pane_id)
+                                pane_text = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pane_text = ""
                             infra_error = t(
@@ -1268,7 +1312,7 @@ class HerdrEventBridge:
                                 except (OSError, subprocess.SubprocessError) as e:
                                     logger.debug("Could not inspect worker worktree activity at %s: %s", spawn_cwd, e)
                             try:
-                                pane_content = await self.client.read_pane(pane_id)
+                                pane_content = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                                 current_pane_fingerprint = hashlib.sha256(
                                     str(pane_content).encode("utf-8")
                                 ).hexdigest()
@@ -1280,9 +1324,9 @@ class HerdrEventBridge:
                                 pane_fingerprint = current_pane_fingerprint
                             except Exception:
                                 pass
-                            if self.client is not None and hasattr(self.client, "pane_exists"):
+                            if self.host is not None:
                                 try:
-                                    exists = await self.client.pane_exists(pane_id)
+                                    exists = await self.host.alive(self._worker_handle(pane_id, tab_id))
                                     if exists is False:
                                         await asyncio.sleep(0.5)
                                         if os.path.exists(result_file):
@@ -1353,9 +1397,9 @@ class HerdrEventBridge:
                                 sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota/Rate-limit error in pane")
                             except Exception:
                                 pass
-                        if tab_id and hasattr(self.client, "close_tab"):
+                        if tab_id:
                             try:
-                                await self.client.close_tab(tab_id)
+                                await self._require_host().close(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pass
 
@@ -1392,7 +1436,7 @@ class HerdrEventBridge:
                                 seconds=seconds_label,
                             )
                         try:
-                            await self.client.send_interrupt(pane_id)
+                            await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         except Exception as e:
                             logger.debug("Failed interrupting timed-out worker pane %s: %s", pane_id, e)
                         await asyncio.sleep(1.0)
@@ -1490,15 +1534,15 @@ class HerdrEventBridge:
                                 pane_id=pane_id,
                             )
 
-                        if tab_id and hasattr(self.client, "close_tab"):
+                        if tab_id:
                             try:
-                                await self.client.close_tab(tab_id)
+                                await self._require_host().close(self._worker_handle(pane_id, tab_id))
                                 tab_closed = True
                             except Exception as e:
                                 logger.debug("Failed closing timed-out worker tab %s: %s", tab_id, e)
-                        elif pane_id and hasattr(self.client, "close_pane"):
+                        elif pane_id:
                             try:
-                                await self.client.close_pane(pane_id)
+                                await self._require_host().close(self._worker_handle(pane_id))
                                 pane_closed = True
                             except Exception as e:
                                 logger.debug("Failed closing timed-out worker pane %s: %s", pane_id, e)
@@ -1582,7 +1626,7 @@ class HerdrEventBridge:
                     if prompt_result is None:
                         terminal_output = ""
                         try:
-                            terminal_output = await self.client.read_pane(pane_id)
+                            terminal_output = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                         except Exception:
                             pass
 
@@ -1599,7 +1643,7 @@ class HerdrEventBridge:
                                 error="Terminal quota detected",
                             )
                             try:
-                                await self.client.send_interrupt(pane_id)
+                                await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pass
                             if active_run_id:
@@ -1608,9 +1652,9 @@ class HerdrEventBridge:
                                     sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota detected in terminal output")
                                 except Exception:
                                     pass
-                            if tab_id and not tab_closed and hasattr(self.client, "close_tab"):
+                            if tab_id and not tab_closed:
                                 try:
-                                    await self.client.close_tab(tab_id)
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
                                 except Exception:
                                     pass
                             base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
@@ -1674,14 +1718,14 @@ class HerdrEventBridge:
                                 backoff_seconds=backoff_seconds,
                                 **({} if process_exit_code is None else {"exit_code": process_exit_code}),
                             )
-                            if tab_id and hasattr(self.client, "close_tab"):
+                            if tab_id:
                                 try:
-                                    await self.client.close_tab(tab_id)
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
                                 except Exception as e:
                                     logger.debug("Failed closing worker tab %s: %s", tab_id, e)
-                            elif pane_id and hasattr(self.client, "close_pane"):
+                            elif pane_id:
                                 try:
-                                    await self.client.close_pane(pane_id)
+                                    await self._require_host().close(self._worker_handle(pane_id))
                                 except Exception as e:
                                     logger.debug("Failed closing worker pane %s: %s", pane_id, e)
                             self._quota_events.pop(pane_id, None)
@@ -1708,7 +1752,7 @@ class HerdrEventBridge:
                             error=err_msg,
                         )
                         try:
-                            await self.client.send_interrupt(pane_id)
+                            await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         except Exception:
                             pass
                         if active_run_id:
@@ -1717,9 +1761,9 @@ class HerdrEventBridge:
                                 sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
                             except Exception:
                                 pass
-                        if tab_id and hasattr(self.client, "close_tab"):
+                        if tab_id:
                             try:
-                                await self.client.close_tab(tab_id)
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pass
                         return False
@@ -1727,7 +1771,7 @@ class HerdrEventBridge:
                     # Inspect terminal output and prompt response for quota errors
                     terminal_output = ""
                     try:
-                        terminal_output = await self.client.read_pane(pane_id)
+                        terminal_output = await self._require_host().tail(self._worker_handle(pane_id, tab_id))
                     except Exception:
                         pass
 
@@ -1744,16 +1788,16 @@ class HerdrEventBridge:
                             exit_code=429,
                             error="Terminal quota detected",
                         )
-                        await self.client.send_interrupt(pane_id)
+                        await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         if active_run_id:
                             sm.unregister_pane(pane_id)
                             try:
                                 sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error="Quota detected in terminal output")
                             except Exception:
                                 pass
-                        if tab_id and hasattr(self.client, "close_tab"):
+                        if tab_id:
                             try:
-                                await self.client.close_tab(tab_id)
+                                await self._require_host().close(self._worker_handle(pane_id, tab_id))
                             except Exception:
                                 pass
 
@@ -2072,15 +2116,15 @@ class HerdrEventBridge:
                         crash_point("after_subtask_completed", task_id=task_id, run_id=active_run_id)
                     return True
                 finally:
-                    if tab_id and hasattr(self.client, "close_tab"):
+                    if tab_id:
                         try:
-                            await self.client.close_tab(tab_id)
+                            await self._require_host().close(self._worker_handle(pane_id, tab_id))
                         except Exception as e:
                             logger.debug("Failed closing worker tab %s: %s", tab_id, e)
                     if pane_id:
-                        if hasattr(self.client, "close_pane") and not tab_id and not pane_closed:
+                        if not tab_id and not pane_closed:
                             try:
-                                await self.client.close_pane(pane_id)
+                                await self._require_host().close(self._worker_handle(pane_id))
                             except Exception as e:
                                 logger.debug("Failed closing worker pane %s: %s", pane_id, e)
                         self._quota_events.pop(pane_id, None)
@@ -2219,14 +2263,14 @@ class HerdrEventBridge:
             )
 
             # 1. Encerra o grupo de processos do worker órfão
-            if self.client is not None and self.client.is_connected and pane_id:
+            if self.host is not None and self._connected and pane_id:
                 try:
-                    await self.client.send_interrupt(pane_id)
+                    await self.host.interrupt(self._worker_handle(pane_id, tab_id))
                 except Exception as e:
                     logger.debug(t("engine.bridge.interrupt_failed", pane_id=pane_id, error=e))
 
                 try:
-                    pinfo = await self.client._call("pane.process_info", {"pane_id": pane_id})
+                    pinfo = await self.host.process_info(self._worker_handle(pane_id, tab_id))
                     if isinstance(pinfo, dict):
                         pgid = pinfo.get("foreground_process_group_id") or pinfo.get("shell_pid")
                         if pgid:
@@ -2247,16 +2291,16 @@ class HerdrEventBridge:
                         pass
 
             # 2. Fecha tab e pane no Herdr
-            if self.client is not None and self.client.is_connected:
-                if tab_id and hasattr(self.client, "close_tab"):
+            if self.host is not None and self._connected:
+                if tab_id:
                     try:
-                        await self.client.close_tab(tab_id)
+                        await self.host.close(self._worker_handle(pane_id, tab_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_tab_failed", tab_id=tab_id, error=e))
 
-                if pane_id and hasattr(self.client, "close_pane"):
+                if pane_id:
                     try:
-                        await self.client.close_pane(pane_id)
+                        await self.host.close(self._worker_handle(pane_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_pane_failed", pane_id=pane_id, error=e))
 
@@ -2279,16 +2323,18 @@ class HerdrEventBridge:
         resume_hint_callback: Optional[Callable[[str], None]] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
-        if self.client is None:
+        if self.client is None or self.host is None:
             raise RuntimeError("Herdr client is required for orchestration cycle")
+        host: WorkerHost = self.host
 
-        if not self.client.is_connected:
-            await self.client.connect()
+        # Conecta e assina eventos reativos do socket antes de consultar o contexto
+        handler: Callable[[Any], Any] = self.handle_herdr_event
+        await host.start(handler)
 
         # Auto-detect workspace and architect pane if not provided or default
         if not workspace_id or workspace_id == "default" or not architect_pane_id or architect_pane_id == "architect":
             try:
-                current_info = await self.client.get_current_pane()
+                current_info = await host.current_context()
                 if current_info:
                     if not workspace_id or workspace_id == "default":
                         workspace_id = current_info.get("workspace_id") or workspace_id or "default"
@@ -2300,11 +2346,8 @@ class HerdrEventBridge:
         workspace_id = workspace_id or "default"
         architect_pane_id = architect_pane_id or "architect"
 
-        # Subscribe to reactive socket events
-        await self.client.subscribe_events(self.handle_herdr_event)
-
         # Notify user in Herdr UI that orchestration has started
-        await self.client.show_notification(
+        await host.notify(
             t("engine.bridge.orchestration_started", workspace_id=workspace_id),
             title="MeisterRouter",
         )
@@ -2313,7 +2356,7 @@ class HerdrEventBridge:
         if task and task.strip():
             raw_plan = task.strip()
         else:
-            raw_plan = await self.client.read_pane(architect_pane_id)
+            raw_plan = await self._require_host().tail(self._worker_handle(architect_pane_id))
 
         try:
             steps = load_plan(raw_plan, allow_freeform=allow_freeform)
@@ -2331,7 +2374,7 @@ class HerdrEventBridge:
                     reason="plan_invalid",
                     error=str(e)[:200],
                 )
-                await self.client.show_notification(f"MeisterRouter: {err_msg[:200]}", title="MeisterRouter")
+                await host.notify(f"MeisterRouter: {err_msg[:200]}", title="MeisterRouter")
                 return False
 
         sm = self.get_state_manager()
@@ -2363,8 +2406,7 @@ class HerdrEventBridge:
             )
             if resume_hint_callback is not None:
                 resume_hint_callback(message)
-            if self.client is not None:
-                await self.client.show_notification(message, title="MeisterRouter")
+            await host.notify(message, title="MeisterRouter")
 
         if resume_run_id is None and resume_hint_callback is not None:
             candidate = resumable_candidate
@@ -2394,7 +2436,7 @@ class HerdrEventBridge:
                 else:
                     warning = t("engine.bridge.resume_no_run")
                     logger.warning(warning)
-                    await self.client.show_notification(warning, title="MeisterRouter")
+                    await host.notify(warning, title="MeisterRouter")
         elif resume_run_id is not None:
             source_run = sm.get_run(resume_run_id)
             if source_run is None:
@@ -2483,7 +2525,7 @@ class HerdrEventBridge:
                     failure = f"{e}; rode sem --resume"
                     logger.error(failure)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
-                    await self.client.show_notification(f"MeisterRouter: {failure}", title="MeisterRouter")
+                    await host.notify(f"MeisterRouter: {failure}", title="MeisterRouter")
                     log_event(
                         event_type="orchestration_end",
                         run_id=run_id,
@@ -2509,7 +2551,7 @@ class HerdrEventBridge:
                     if not test_passed:
                         logger.warning("Deterministic quality gate failed on integration branch: %s", test_output)
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed on integration branch."
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Gate test verification failed on integration branch: {test_output[:200]}"
                         log_event(
@@ -2532,7 +2574,7 @@ class HerdrEventBridge:
                     if not test_passed:
                         logger.warning("Deterministic quality gate failed: test verification did not pass.")
                         msg = "MeisterRouter: Plan executed but quality gate test verification failed."
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Gate test verification failed: {test_output[:200]}"
                         log_event(
@@ -2558,7 +2600,7 @@ class HerdrEventBridge:
                 if action != "COMPLETE":
                     logger.warning("Deterministic completion rejected with action %s: %s", action, eval_result.get("reason"))
                     msg = f"MeisterRouter: Tasks executed but completion evaluation returned {action}."
-                    await self.client.show_notification(msg)
+                    await host.notify(msg)
                     sm.transition_run(run_id, to_state=RunState.FAILED)
                     err_reason = f"Completion evaluation returned {action}: {eval_result.get('reason', '')[:200]}"
                     log_event(
@@ -2579,7 +2621,7 @@ class HerdrEventBridge:
                     if not ok_ff:
                         logger.error(t("engine.bridge.fast_forward_main_failed", error=ff_msg))
                         msg = f"MeisterRouter: Plan verified but fast-forward failed: {ff_msg}"
-                        await self.client.show_notification(msg)
+                        await host.notify(msg)
                         sm.transition_run(run_id, to_state=RunState.FAILED)
                         err_reason = f"Fast-forward failed: {ff_msg[:200]}"
                         log_event(
@@ -2597,7 +2639,7 @@ class HerdrEventBridge:
                 crash_point("after_fast_forward_before_state", run_id=run_id)
                 sm.transition_run(run_id, to_state=RunState.COMPLETED)
                 msg = f"MeisterRouter: Plan verified and completed successfully in workspace {workspace_id}!"
-                await self.client.show_notification(msg)
+                await host.notify(msg)
                 log_event(
                     event_type="orchestration_end",
                     run_id=run_id,
@@ -2612,7 +2654,7 @@ class HerdrEventBridge:
                     self._integration_pipeline.abort_integration()
                 sm.transition_run(run_id, to_state=RunState.FAILED)
                 msg = f"MeisterRouter: Plan execution failed in workspace {workspace_id}."
-                await self.client.show_notification(msg)
+                await host.notify(msg)
                 fail_reason = getattr(self, "last_failure_reason", None) or "Plan execution failed: one or more subtasks failed"
                 log_event(
                     event_type="orchestration_end",

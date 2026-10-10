@@ -1,6 +1,6 @@
 # Hosts de worker por adaptador: Meister sem dependência de terminal (Herdr, tmux ou nenhum)
 
-**Status:** proposta de design (estudo por leitura do código; nada foi implementado nem executado contra um Herdr real).
+**Status:** fase 1 concluída (contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento). Fases 2 a 6 pendentes; ver seção 10.
 **Base observada:** `main` em `19c875e` (2026-10-09). Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-09 com o dono do projeto. Decisões já tomadas: **mesmo repositório** (nada de fork), Herdr vira **um adaptador** entre outros (tmux e execução direta como irmãos), objetivo de usar o Meister **em qualquer harness**.
 
@@ -64,27 +64,49 @@ Fora do host: `herdr-plugin.toml`, `bin/herdr-meister.sh`, `herdr-action`, `daem
 
 ### 5.2 Contrato
 
-O identificador do worker é uma **string opaca** (hoje já é: o `pane_id`, algo como `"w9:pFG"`). O bridge chaveia `active_workers`, eventos de saída e de cota por essa string, então o contrato preserva esse formato.
+O worker é referenciado por um **`WorkerHandle(id, aux)`**: `id` é a string opaca que o host devolve (no Herdr, o `pane_id`, algo como `"w9:pFG"`) e `aux` guarda dados extras do host (no Herdr, o `tab_id`, usado para fechar a aba). O bridge chaveia `active_workers`, eventos de saída e de cota pelo `id`, então esse formato é preservado.
+
+O que foi implementado em `meister/hosts/base.py` (a versão abaixo substitui o esboço original):
 
 ```python
-class WorkerHost(Protocol):
+class WorkerHost(Protocol):             # runtime_checkable
     name: str
-    capabilities: set[str]            # ex.: {"visible", "push_events"}
+    capabilities: frozenset[str]        # CAP_VISIBLE = "visible", CAP_PUSH_EVENTS = "push_events"
 
-    async def spawn(self, argv: list[str], *, cwd: str, env: dict[str, str], label: str) -> str: ...
-    async def alive(self, worker_id: str) -> bool: ...
-    async def tail(self, worker_id: str, lines: int = 200) -> str: ...   # impressão digital e detecção de cota
-    async def interrupt(self, worker_id: str) -> None: ...
-    async def close(self, worker_id: str) -> None: ...
-    async def notify(self, message: str) -> None: ...                    # opcional
-    def events(self): ...                                                # opcional (push); sem ele, o núcleo faz polling
+    async def start(self, on_event: Optional[EventCallback] = None) -> None: ...
+    async def spawn(self, command: WorkerCommand, *, layout: str = "tab") -> WorkerHandle: ...
+    async def alive(self, handle: WorkerHandle) -> bool | None: ...      # None = desconhecido
+    async def tail(self, handle: WorkerHandle, lines: int = 200) -> str: ...
+    async def interrupt(self, handle: WorkerHandle) -> None: ...
+    async def close(self, handle: WorkerHandle) -> None: ...
+    async def notify(self, message: str, title: Optional[str] = None) -> None: ...
+    async def process_info(self, handle: WorkerHandle) -> dict[str, Any] | None: ...  # None = não suportado
+    async def current_context(self) -> dict[str, Any] | None: ...                    # None = não suportado
+
+@dataclass
+class WorkerCommand:
+    argv: list[str]
+    env: dict[str, str]
+    cwd: str
+    label: str
+    terminal_line: Optional[str] = None  # linha digitada no terminal do worker após o start; None não digita nada
+
+class WorkerHandle:  # frozen dataclass
+    id: str
+    aux: Any = None
 ```
+
+Erros de operação são levantados como `HostError(RuntimeError)`.
 
 Regras:
 
-- **Polling é o padrão.** O núcleo consulta `alive` e `tail`; `events()` só acelera o que o adaptador conseguir empurrar (o Herdr tem fluxo de eventos; o tmux e o processo local não precisam).
-- **Layout é do adaptador.** O Herdr decide entre aba e painel (`workers.layout_strategy`); o contrato fala só em "um worker".
-- **Conceitos do Herdr (`workspace_id`, `architect_pane_id`) saem do núcleo** e viram opções do adaptador Herdr.
+- **Polling é o padrão.** O núcleo consulta `alive` e `tail`; `start(on_event)` só recebe eventos push quando o adaptador declara `CAP_PUSH_EVENTS` (o Herdr declara; o processo local não precisa).
+- **Layout é do adaptador.** `spawn` recebe `layout` (`"tab"` ou `"pane"`); o `HerdrHost` decide a forma a partir de `workers.layout_strategy`, e o contrato fala só em "um worker".
+- **`alive` pode responder `None`** quando o host não sabe dizer; o núcleo trata isso como desconhecido, não como morto.
+- **`process_info` e `current_context` são opcionais** e retornam `None` quando o host não os suporta.
+- **Conceitos do Herdr (`workspace_id`, `architect_pane_id`) saem do núcleo** e viram opções do adaptador Herdr (`HerdrHost(client, config)`).
+
+Adaptadores existentes: `HerdrHost` (`meister/hosts/herdr.py`), que embrulha o `HerdrSocketClient` e replica as mesmas chamadas, na mesma ordem e com os mesmos argumentos, que o código anterior fazia. Para testes há um host de mentira e um kit de contrato (`tests/hosts_fake.py`, `tests/hosts_contract.py`).
 
 ### 5.3 Adaptadores
 
@@ -161,7 +183,7 @@ O que se perde sem Herdr ou tmux é só ver o terminal de cada worker ao vivo e 
 
 Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase se divide em tarefas de 3 a 5 arquivos.
 
-1. **Contrato e adaptador Herdr.** Criar `meister/hosts/base.py` e `herdr.py`; trocar no bridge e no spawner as chamadas ao `client` pelo contrato, sem mudança de comportamento.
+1. **Contrato e adaptador Herdr. (Concluída.)** Criado `meister/hosts/base.py` e `herdr.py`; bridge e spawner falam com `WorkerHost`, sem mudança de comportamento. Testes existentes do Herdr passam sem alteração de asserções; a sequência de chamadas ao cliente é verificada pelos testes de delegação.
 2. **Adaptador `process`.** Spawn, vivo/morto, `tail` por arquivo de log, interrupção por grupo de processos; seleção `runtime.host: auto`; teste de ponta a ponta sem Herdr; validar cota e worker parado.
 3. **Experiência para qualquer harness.** Log por worker e `meister logs --follow`; documentação de execução em segundo plano com `meister wait`; modelos de instrução por harness; variável neutra `MEISTER_WORKER` (mantendo `MEISTER_IN_PANE` como alias, pois o guard hook depende dela).
 4. **Adaptador `tmux`.**
