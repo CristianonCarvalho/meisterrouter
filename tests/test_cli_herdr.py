@@ -8,6 +8,7 @@ from click import echo
 from meister.cli import main
 from meister.logger import log_event
 from meister.state import RunState, StateManager, SubtaskState
+from tests.platform_marks import posix_only
 
 
 def test_cli_has_herdr_commands():
@@ -44,6 +45,8 @@ def test_cli_daemon_status_when_stopped(tmp_path):
     assert "Meister daemon is not running." in result.output
 
 
+# No Windows, os.kill(pid, 0) envia CTRL_C_EVENT e interrompe a sessão do pytest.
+@posix_only
 def test_cli_daemon_status_and_stop_lifecycle(tmp_path):
     runner = CliRunner()
     pid_file = tmp_path / "daemon.pid"
