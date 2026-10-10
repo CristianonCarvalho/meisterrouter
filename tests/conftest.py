@@ -4,6 +4,7 @@ import pathlib
 import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import warnings
@@ -340,6 +341,20 @@ def timeout_each_test(request):
     """Interrupt a stuck test after MEISTER_TEST_TIMEOUT seconds (default 180)."""
     with test_watchdog(configured_test_timeout(), request.node.nodeid):
         yield
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """No Windows, o watchdog por SIGALRM não existe: usa a marca do pytest-timeout (método thread).
+
+    No Unix não faz nada; MEISTER_TEST_TIMEOUT=0 desliga a marca.
+    """
+    if sys.platform != "win32":
+        return
+    seconds = configured_test_timeout()
+    if seconds == 0:
+        return
+    for item in items:
+        item.add_marker(pytest.mark.timeout(seconds, method="thread"))
 
 
 @pytest.fixture(autouse=True)
