@@ -13,6 +13,7 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 - [Plano e execução à mão (`plan`, `orchestrate`, `--resume`)](#plano-e-execução-à-mão-plan-orchestrate---resume)
 - [Limpar branches antigas (`clean`)](#limpar-branches-antigas-clean)
 - [Dashboard e linha do tempo: opções](#dashboard-e-linha-do-tempo-opções)
+- [Demonstração da timeline](#demonstração-da-timeline)
 - [Nomes das vias](#nomes-das-vias)
 - [Esforço por via](#esforço-por-via)
 - [Ligar e desligar vias](#ligar-e-desligar-vias)
@@ -349,6 +350,22 @@ A mesma linha do tempo também é servida no navegador pelo dashboard, em `/time
 - **Tentativas abertas:** quando um worker é reiniciado, a tentativa anterior que ainda estava aberta termina no novo spawn, em vez de se estender até o fim do run.
 
 As teclas são as mesmas da linha do tempo do terminal (`[`, `]`, `l`, `a`, `p`, `+`, `-`, setas, `?`), mais `s` para o som. Pressione `?` na página para ver a tabela.
+
+---
+
+## Demonstração da timeline
+
+`python -m meister.timeline_demo` sobe a timeline web sobre um log sintético (sem modelo, sem custo real), para ver a tela sem precisar de um run real:
+```bash
+python -m meister.timeline_demo                    # live (padrão): os eventos chegam ao longo do tempo
+python -m meister.timeline_demo --mode static      # histórico concluído, exibido de uma vez
+python -m meister.timeline_demo --speed 60         # só no live: 60x mais rápido (padrão 30)
+```
+Abra a URL impressa pelo comando (`http://127.0.0.1:5052/timeline` por padrão; `--port` e `--host` mudam o endereço).
+Ctrl+C encerra e remove o log temporário.
+
+O que conferir: o eixo de tempo em minutos, as setas em cotovelo entre as vias, os tooltips com as durações da fase e total,
+o cabeçalho da via (`harness · tier`), o som com a tecla `s` e a ausência de fase fantasma na tentativa interrompida.
 
 ---
 
