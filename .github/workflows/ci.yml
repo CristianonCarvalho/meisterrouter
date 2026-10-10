@@ -51,6 +51,10 @@ jobs:
           mypy meister
 
       - name: Run Pytest
+        # Nas pernas informativas (macOS e Windows) o pytest roda mesmo que o lint ou o mypy tenham falhado: no Windows
+        # o mypy aponta APIs só de Unix (SIGKILL, killpg, termios) e, sem isto, os testes nunca seriam contados. O job
+        # continua vermelho nesse caso. No Ubuntu nada muda: o pytest só roda se os passos anteriores passaram.
+        if: ${{ success() || (!cancelled() && matrix.os != 'ubuntu-latest') }}
         # `-n auto` é explícito de propósito: o pytest-cov escolhe o modo de cobertura (central ou distribuído)
         # antes de tests/conftest.py ligar o xdist sozinho; sem `-n` na linha de comando, `--cov` quebra com
         # INTERNALERROR. Com `-n auto` a cobertura é combinada entre os workers. Só relatório, sem limite mínimo.
