@@ -13,6 +13,7 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 - [Plan and execution manually (`plan`, `orchestrate`, `--resume`)](#plan-and-execution-manually-plan-orchestrate---resume)
 - [Clean up old branches (`clean`)](#clean-up-old-branches-clean)
 - [Dashboard and timeline: options](#dashboard-and-timeline-options)
+- [Timeline demonstration](#timeline-demonstration)
 - [Lane names](#lane-names)
 - [Per-lane effort](#per-lane-effort)
 - [Enabling and disabling lanes](#enabling-and-disabling-lanes)
@@ -348,6 +349,22 @@ The same timeline is also served in the browser by the dashboard, at `/timeline`
 - **Open attempts:** when a worker is respawned, the previous attempt that was still open ends at the new spawn, instead of stretching to the end of the run.
 
 The keys match the terminal timeline (`[`, `]`, `l`, `a`, `p`, `+`, `-`, arrows, `?`), plus `s` for sound. Press `?` on the page to see the table.
+
+---
+
+## Timeline demonstration
+
+`python -m meister.timeline_demo` serves the web timeline over a synthetic log (no model, no real cost), so you can see the view without a real run:
+```bash
+python -m meister.timeline_demo                    # live (default): events arrive over time
+python -m meister.timeline_demo --mode static      # finished history, shown at once
+python -m meister.timeline_demo --speed 60         # live only: 60x faster (default 30)
+```
+Open the URL printed by the command (`http://127.0.0.1:5052/timeline` by default; `--port` and `--host` change it).
+Ctrl+C stops it and removes the temporary log.
+
+What to check: the time axis in minutes, elbow arrows between lanes, tooltips with phase and total durations,
+the lane header (`harness · tier`), the sound toggle with `s`, and no ghost phase for the interrupted attempt.
 
 ---
 
