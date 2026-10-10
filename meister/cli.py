@@ -1145,7 +1145,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 pid = int(f.read().strip())
 
             if is_pid_alive(pid):
-                os.kill(pid, signal.SIGTERM)
+                osops.terminate_tree(pid)
                 click.echo(f"Sent SIGTERM to Meister daemon (PID: {pid}).")
             else:
                 click.echo("Meister daemon was not running (stale PID file cleaned).")
@@ -1166,10 +1166,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
             click.echo(f"Error opening PID file: {e}")
             return
 
-        import fcntl
-        try:
-            fcntl.flock(pid_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, OSError):
+        if not osops.lock_file(pid_fd):
             try:
                 with open(resolved_pid, "r") as f:
                     pid = int(f.read().strip())
@@ -1187,7 +1184,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
                 if is_pid_alive(existing_pid):
                     click.echo(f"Meister daemon is already running (PID: {existing_pid}).")
                     try:
-                        fcntl.flock(pid_fd, fcntl.LOCK_UN)
+                        osops.unlock_file(pid_fd)
                     except Exception:
                         pass
                     os.close(pid_fd)
@@ -1247,7 +1244,7 @@ def daemon(start, stop, status, config_path, socket_path, pid_file):
             asyncio.run(_run_loop())
         finally:
             try:
-                fcntl.flock(pid_fd, fcntl.LOCK_UN)
+                osops.unlock_file(pid_fd)
             except Exception:
                 pass
             try:
@@ -1509,7 +1506,11 @@ def orchestrate(
     except KeyboardInterrupt:
         interrupted = True
     except SystemExit as e:
-        if e.code not in (128 + int(signal.SIGTERM), 128 + int(signal.SIGHUP)):
+        expected_codes = {128 + int(signal.SIGTERM)}
+        sighup = getattr(signal, "SIGHUP", None)
+        if sighup is not None:
+            expected_codes.add(128 + int(sighup))
+        if e.code not in expected_codes:
             raise
         interrupted = True
     except Exception as e:

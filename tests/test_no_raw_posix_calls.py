@@ -91,3 +91,23 @@ def test_no_raw_killpg_getpgid_sigkill_outside_osops():
     assert not stale, (
         "exceções sem uso devem ser removidas de PENDING_MIGRATION_EXCEPTIONS: " + ", ".join(stale)
     )
+
+
+def _imports_fcntl(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import) and any(alias.name == "fcntl" for alias in node.names):
+            return True
+        if isinstance(node, ast.ImportFrom) and node.module == "fcntl":
+            return True
+    return False
+
+
+def test_no_fcntl_import_outside_osops():
+    offenders = []
+    for path in _python_files_outside_osops():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if _imports_fcntl(tree):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+    assert not offenders, (
+        "import fcntl só é permitido em meister/osops/; encontrado em: " + ", ".join(offenders)
+    )
