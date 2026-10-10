@@ -19,6 +19,7 @@ import click
 
 from meister import __version__, osops
 from meister.dashboard.launcher import ensure_dashboard
+from meister.envvars import is_worker_env
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
 from meister.logger import (
@@ -821,7 +822,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
 
     if task:
         # Se estivermos no Herdr e não estivermos já dentro de um pane de worker, abre uma tab ou terminal visível (E2E-9)
-        in_pane = os.environ.get("MEISTER_IN_PANE") == "1"
+        in_pane = is_worker_env()
         herdr_disabled = (pane is False) or (tab is False)
         should_spawn_in_herdr = not herdr_disabled and not in_pane and is_herdr_available()
         use_split_pane = split or (pane is True)
