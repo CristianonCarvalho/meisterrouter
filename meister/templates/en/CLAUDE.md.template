@@ -9,7 +9,8 @@ decisions, verifiable execution, and flexible configuration.
   implement code directly.
 - **Orchestrator:** executes the plan, coordinates subtasks, and integrates changes.
 - **Jev:** provides deterministic classification and control decisions.
-- **Workers:** implement assigned subtasks and validate their changes.
+- **Workers:** implement assigned subtasks and validate their changes. Workers identify
+  themselves with `MEISTER_WORKER=1` (or `MEISTER_IN_PANE=1` in older installations).
 
 Implementation tasks are executed by the orchestrator; the architect plans,
 tracks evidence, and decides next steps.
@@ -19,7 +20,7 @@ tracks evidence, and decides next steps.
 For implementation tasks and plans, always use `meister orchestrate`; for a single task,
 use `meister worker`.
 Do not offer or choose `subagent-driven-development`, `executing-plans`, or native implementation.
-If MeisterRouter is unavailable (daemon down or Herdr unavailable), ask the user before
+If MeisterRouter is unavailable (daemon down or no worker host available), ask the user before
 implementing by another means.
 Documentation edits (`docs/**`, `*.md`) may be made directly.
 

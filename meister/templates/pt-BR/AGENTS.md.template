@@ -14,7 +14,7 @@
 
 ## Se você é um worker do MeisterRouter
 
-Considere-se um worker se `MEISTER_IN_PANE=1` estiver definido no ambiente ou se estiver
+Considere-se um worker se `MEISTER_WORKER=1` (ou, em instalações antigas, `MEISTER_IN_PANE=1`) estiver definido no ambiente ou se estiver
 em uma worktree criada para uma subtarefa. Implemente diretamente a tarefa recebida,
 somente nos arquivos-alvo. Execute os testes relevantes e informe as evidências. NÃO rode a suíte inteira: o portão do MeisterRouter a roda depois.
 Não execute comandos de classificação, execução de workers, orquestração ou controle do

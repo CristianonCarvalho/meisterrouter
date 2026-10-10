@@ -125,6 +125,21 @@ def test_agents_template_has_universal_worker_directive():
     assert template.count("não rode a suíte inteira: o portão do meisterrouter a roda depois") == 2
 
 
+TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "meister" / "templates"
+INSTRUCTION_TEMPLATES = [
+    TEMPLATES_DIR / lang / name
+    for lang in ("en", "pt-BR")
+    for name in ("AGENTS.md.template", "CODEX.md.template", "CLAUDE.md.template")
+]
+
+
+def test_instruction_templates_cite_neutral_worker_marker():
+    for template in INSTRUCTION_TEMPLATES:
+        content = template.read_text(encoding="utf-8")
+        assert "MEISTER_WORKER" in content, template.name
+        assert "MEISTER_IN_PANE" in content, template.name
+
+
 def test_architect_template_describes_current_plan_flow():
     template = (
         Path(__file__).resolve().parents[1]

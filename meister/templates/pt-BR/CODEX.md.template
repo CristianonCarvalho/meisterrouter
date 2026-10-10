@@ -9,7 +9,8 @@ determinísticas, execução verificável e configuração flexível.
   diretamente o código.
 - **Orquestrador:** executa o plano, coordena as subtarefas e integra as alterações.
 - **Jev:** fornece decisões determinísticas de classificação e controle.
-- **Workers:** implementam as subtarefas atribuídas e validam suas alterações.
+- **Workers:** implementam as subtarefas atribuídas e validam suas alterações. Os workers se
+  identificam com `MEISTER_WORKER=1` (ou `MEISTER_IN_PANE=1` em instalações antigas).
 
 As tarefas de implementação são executadas pelo orquestrador; o arquiteto planeja,
 acompanha as evidências e decide os próximos passos.
