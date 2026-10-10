@@ -17,6 +17,7 @@ from meister.i18n import t
 from meister.logger import get_events_by_run_id
 from meister.state import RunState, StateManager
 from meister.worktree import IntegrationPipeline
+from tests.platform_marks import posix_only
 
 
 PLAN = "1. Add feature"
@@ -246,6 +247,7 @@ def test_cli_interrupt_without_run_prints_short_message_and_exits_130():
     assert "Traceback" not in result.output
 
 
+@posix_only
 def test_cli_sigterm_during_orchestrate_exits_130_with_run_id():
     async def terminated(**_kwargs):
         os.kill(os.getpid(), signal.SIGTERM)
@@ -258,6 +260,7 @@ def test_cli_sigterm_during_orchestrate_exits_130_with_run_id():
     assert "Traceback" not in result.output
 
 
+@posix_only
 def test_cli_sighup_during_orchestrate_exits_130_with_run_id():
     async def hung_up(**_kwargs):
         os.kill(os.getpid(), signal.SIGHUP)
