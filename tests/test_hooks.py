@@ -18,6 +18,7 @@ def _run_guard(project, event, mode=None, env_overrides=None):
         (meister_dir / "guard_mode").write_text(mode, encoding="utf-8")
 
     env = dict(os.environ)
+    env.pop("MEISTER_WORKER", None)
     env.pop("MEISTER_IN_PANE", None)
     env.pop("MEISTER_ALLOW_ORCHESTRATOR_EDIT", None)
     if env_overrides:
@@ -170,6 +171,40 @@ def test_guard_bypasses_for_workers_and_explicit_override(tmp_path, env_override
     assert result.stderr == ""
 
 
+@pytest.mark.parametrize("template_lang", ["en", "pt-BR"])
+@pytest.mark.parametrize(
+    "env_overrides,expected_code",
+    [
+        ({"MEISTER_WORKER": "1"}, 0),
+        ({"MEISTER_IN_PANE": "1"}, 0),
+        ({}, 2),
+    ],
+)
+def test_guard_template_accepts_worker_env_vars(tmp_path, template_lang, env_overrides, expected_code):
+    from meister.hooks import TEMPLATES_DIR
+
+    script = os.path.join(TEMPLATES_DIR, template_lang, "claude_guard_hook.sh.template")
+    event = json.dumps({"tool_name": "Edit", "tool_input": {"file_path": "src/app.py"}})
+    env = dict(os.environ)
+    env.pop("MEISTER_WORKER", None)
+    env.pop("MEISTER_IN_PANE", None)
+    env.pop("MEISTER_ALLOW_ORCHESTRATOR_EDIT", None)
+    env.update(env_overrides)
+    result = subprocess.run(
+        ["bash", script], input=event, text=True, cwd=tmp_path, env=env,
+        capture_output=True, timeout=10,
+    )
+
+    assert result.returncode == expected_code
+    if expected_code == 0:
+        assert result.stdout == ""
+        assert result.stderr == ""
+    else:
+        assert result.stdout == ""
+        assert "meister orchestrate" in result.stderr
+        assert "blocked" in result.stderr or "bloqueada" in result.stderr
+
+
 def test_guard_hook_allow_orchestrator_override(monkeypatch):
     monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -227,6 +262,7 @@ def _guard_exit_code(tmp_path, file_path):
     script = os.path.join(TEMPLATES_DIR, "pt-BR", "claude_guard_hook.sh.template")
     event = {"tool_name": "Edit", "tool_input": {"file_path": file_path}}
     env = dict(os.environ)
+    env.pop("MEISTER_WORKER", None)
     env.pop("MEISTER_IN_PANE", None)
     env.pop("MEISTER_ALLOW_ORCHESTRATOR_EDIT", None)
     return subprocess.run(
