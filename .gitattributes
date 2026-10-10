@@ -1,0 +1,4 @@
+*.sh text eol=lf
+*.template text eol=lf
+bin/meister text eol=lf
+bin/cli.js text eol=lf
