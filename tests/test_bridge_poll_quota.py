@@ -115,6 +115,26 @@ def test_no_event_host_quota_in_tail_escalates_to_next_tier(tmp_path, monkeypatc
 
 
 @posix_only
+def test_no_event_host_quota_in_tail_logs_matched_line(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")
+    monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
+    repo = _repo(tmp_path)
+    host = _NoEventsHost(QUOTA_TEXT)
+    bridge, _ = _bridge(_config(tmp_path), host)
+    events: list[dict] = []
+    try:
+        with patch("meister.herdr.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
+            asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+    finally:
+        for info in bridge.active_workers.values():
+            info["status"] = "done"
+    quota_events = [e for e in events if e.get("event_type") == "quota_error"]
+    assert quota_events
+    assert any("rate_limit_error" in str(e.get("matched_line", "")) for e in quota_events)
+
+
+@posix_only
 def test_no_event_host_test_code_text_does_not_escalate(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MEISTER_PANE_LIVENESS_INTERVAL", "0.05")

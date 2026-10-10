@@ -54,19 +54,37 @@ FALSE_POSITIVE_INDICATORS = (
 )
 
 
-def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -> bool:
-    """Detecta deterministicamente se a saída de terminal ou API contém exaustão de cota ou rate limit.
+# Linhas de código: atribuição a identificador (NOME = "...", x: str = '...')
+CODE_ASSIGNMENT_RE = re.compile(r"^\s*[A-Za-z_][\w.]*(\s*:\s*[^=]+)?\s*=\s*\S")
+# Linhas que começam por literal de string (aspas, com ou sem prefixo f/r/b/u)
+STRING_LITERAL_START_RE = re.compile(r"^\s*(?:[fFrRbBuU]{1,2})?[\"']")
+# Linhas que começam por instrução de código ou chamada de log
+CODE_STATEMENT_START_RE = re.compile(r"^\s*(?:print\(|raise\s|return\b|yield\b|logger\.|logging\.)")
 
-    Elimina falsos positivos em código/testes (Achado #22) através de:
-    1. Detecção de sinais estruturados JSON (ex: codex exec --json e respostas de provedores).
-    2. Ancoragem estrita de regex com descarte de linhas de código, middleware e fixtures de teste.
+STRUCTURED_MATCH = "<structured>"
+MATCH_MAX_CHARS = 200
+
+
+def _is_code_line(line: str) -> bool:
+    return bool(
+        CODE_ASSIGNMENT_RE.search(line)
+        or STRING_LITERAL_START_RE.search(line)
+        or CODE_STATEMENT_START_RE.search(line)
+    )
+
+
+def find_quota_match(output: Optional[str], is_stderr: bool = False) -> Optional[str]:
+    """Retorna o trecho que casou o sinal de cota/rate limit, ou None.
+
+    - Sinal estruturado JSON: ``'<structured>'``.
+    - Linha de texto: o texto da linha que casou, cortado em 200 caracteres.
     """
     if not output:
-        return False
+        return None
 
     raw_text = str(output).strip()
     if not raw_text:
-        return False
+        return None
 
     # 1. Sinal estruturado por CLI / JSON (Achado #22)
     try:
@@ -75,13 +93,13 @@ def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -
             if isinstance(parsed, dict):
                 ev_type = parsed.get("type")
                 if ev_type in ("rate_limits", "rate_limit_error"):
-                    return True
+                    return STRUCTURED_MATCH
                 err = parsed.get("error")
                 if isinstance(err, dict):
                     if err.get("code") in STRUCTURED_ERROR_CODES or err.get("type") in STRUCTURED_ERROR_TYPES:
-                        return True
+                        return STRUCTURED_MATCH
                     if any(pattern.search(str(err.get("message", ""))) for pattern in ANCHORED_QUOTA_PATTERNS):
-                        return True
+                        return STRUCTURED_MATCH
     except Exception:
         pass
 
@@ -97,10 +115,24 @@ def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -
         if any(ind in line_lower for ind in FALSE_POSITIVE_INDICATORS):
             continue
 
-        if any(pattern.search(line_clean) for pattern in ANCHORED_QUOTA_PATTERNS):
-            return True
+        # Descarta linhas de código (atribuições, literais de string, instruções)
+        if _is_code_line(line_clean):
+            continue
 
-    return False
+        if any(pattern.search(line_clean) for pattern in ANCHORED_QUOTA_PATTERNS):
+            return line_clean[:MATCH_MAX_CHARS]
+
+    return None
+
+
+def detect_quota_or_rate_limit(output: Optional[str], is_stderr: bool = False) -> bool:
+    """Detecta deterministicamente se a saída de terminal ou API contém exaustão de cota ou rate limit.
+
+    Elimina falsos positivos em código/testes (Achado #22) através de:
+    1. Detecção de sinais estruturados JSON (ex: codex exec --json e respostas de provedores).
+    2. Ancoragem estrita de regex com descarte de linhas de código, middleware e fixtures de teste.
+    """
+    return find_quota_match(output, is_stderr=is_stderr) is not None
 
 
 class WorkerSpawner:

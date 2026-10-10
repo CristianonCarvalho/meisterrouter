@@ -281,3 +281,71 @@ def test_get_first_available_tier():
     res_g = spawner.get_first_available_tier("luna", state_manager=sm)
     assert res_g is not None
     assert res_g.name == "luna"
+
+
+def test_quota_ignores_code_assignment_line():
+    from meister.herdr.workers import find_quota_match
+
+    code_line = '_QUOTA_MESSAGE = "Error: You exceeded your current quota, please check your plan and billing details."'
+    assert detect_quota_or_rate_limit(code_line) is False
+    assert find_quota_match(code_line) is None
+
+    typed_line = "_QUOTA_MESSAGE: str = 'Error: You exceeded your current quota, please check your plan.'"
+    assert detect_quota_or_rate_limit(typed_line) is False
+
+
+def test_quota_ignores_string_prefixed_and_statement_lines():
+    from meister.herdr.workers import find_quota_match
+
+    for line in [
+        '"You exceeded your current quota, please check your plan"',
+        "'You exceeded your current quota, please check your plan'",
+        'f"You exceeded your current quota, {plan}"',
+        "r'You exceeded your current quota'",
+        'b"You exceeded your current quota"',
+        'print("You exceeded your current quota, check billing")',
+        'raise RuntimeError("You exceeded your current quota")',
+        'return "You exceeded your current quota"',
+        'yield "You exceeded your current quota"',
+        'logger.error("You exceeded your current quota")',
+        'logging.warning("You exceeded your current quota")',
+    ]:
+        assert detect_quota_or_rate_limit(line) is False, line
+        assert find_quota_match(line) is None, line
+
+
+def test_find_quota_match_returns_matching_line():
+    from meister.herdr.workers import find_quota_match
+
+    plain = "Error: You exceeded your current quota, please check your plan and billing details."
+    assert detect_quota_or_rate_limit(plain) is True
+    assert find_quota_match(plain) == plain
+
+    assert find_quota_match("Error: 429 Too Many Requests") == "Error: 429 Too Many Requests"
+    assert detect_quota_or_rate_limit("Error: 429 Too Many Requests") is True
+    assert find_quota_match("All 42 tests passed") is None
+    assert find_quota_match(None) is None
+
+
+def test_find_quota_match_structured_and_truncation():
+    from meister.herdr.workers import find_quota_match
+
+    structured = '{"error": {"code": 429, "message": "Rate limit reached"}}'
+    assert find_quota_match(structured) == "<structured>"
+
+    long_line = "Error: 429 Too Many Requests " + "x" * 400
+    match = find_quota_match(long_line)
+    assert match is not None
+    assert len(match) == 200
+    assert match == long_line[:200]
+
+
+def test_find_quota_match_finds_real_line_after_code_assignment():
+    from meister.herdr.workers import find_quota_match
+
+    terminal = (
+        '_QUOTA_MESSAGE = "Error: You exceeded your current quota, please check your plan and billing details."\n'
+        "Error: You exceeded your current quota, please check your plan and billing details.\n"
+    )
+    assert detect_quota_or_rate_limit(terminal) is True
+    assert find_quota_match(terminal) == "Error: You exceeded your current quota, please check your plan and billing details."

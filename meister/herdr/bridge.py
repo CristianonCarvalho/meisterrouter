@@ -32,8 +32,10 @@ from meister.hosts import HerdrHost, WorkerHandle, WorkerHost
 from meister.hosts.base import CAP_PUSH_EVENTS
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
+    STRUCTURED_MATCH,
     WorkerSpawner,
     detect_quota_or_rate_limit,
+    find_quota_match,
 )
 from meister.state import (
     StateManager,
@@ -96,6 +98,21 @@ def _read_worker_exit_code(exit_file: str) -> int:
 def _pane_tail(text: str, max_lines: int = 15, max_chars: int = 800) -> str:
     tail = "\n".join(str(text).splitlines()[-max_lines:])
     return tail[-max_chars:]
+
+
+def _quota_matched_line(text: Any) -> Optional[str]:
+    """Linha que casou o sinal de cota (até 200 caracteres), para o log do quota_error."""
+    raw = str(text)
+    match = find_quota_match(raw)
+    if match is None:
+        return None
+    if match == STRUCTURED_MATCH:
+        # Sinal JSON: o próprio JSON é a linha que casou.
+        match = next(
+            (line.strip() for line in raw.splitlines() if line.strip().startswith(("{", "["))),
+            raw.strip(),
+        )
+    return match[:200]
 
 
 class ResumeRequestError(ValueError):
@@ -650,6 +667,7 @@ class HerdrEventBridge:
             output,
         )
         worker_info["status"] = "quota_error"
+        worker_info["quota_matched_line"] = _quota_matched_line(output)
 
         current_tier = worker_info.get("current_tier")
         if current_tier:
@@ -1430,6 +1448,7 @@ class HerdrEventBridge:
                             tier=current_tier,
                             exit_code=429,
                             error="Reactive quota detected in pane",
+                            matched_line=self.active_workers.get(pane_id, {}).get("quota_matched_line"),
                         )
                         if active_run_id:
                             sm.unregister_pane(pane_id)
@@ -1681,6 +1700,7 @@ class HerdrEventBridge:
                                 tier=current_tier,
                                 exit_code=429,
                                 error="Terminal quota detected",
+                                matched_line=_quota_matched_line(terminal_output),
                             )
                             try:
                                 await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
@@ -1827,6 +1847,7 @@ class HerdrEventBridge:
                             tier=current_tier,
                             exit_code=429,
                             error="Terminal quota detected",
+                            matched_line=_quota_matched_line(combined_output),
                         )
                         await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         if active_run_id:
