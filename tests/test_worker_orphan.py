@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.platform_marks import posix_only
 from meister.worker import (
     install_termination_handlers,
     process_start_signature,
@@ -162,6 +163,7 @@ def _terminate_test_group(process_file: Path) -> None:
         pass
 
 
+@posix_only
 def test_start_helper_waits_for_complete_process_file(tmp_path):
     process, process_file = _start_run_task(tmp_path, slow_write=0.4)
     try:
@@ -175,7 +177,12 @@ def test_start_helper_waits_for_complete_process_file(tmp_path):
         _terminate_test_group(process_file)
 
 
-@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
+@posix_only
+# SIGHUP não existe no Windows; a lista é avaliada na importação do módulo.
+@pytest.mark.parametrize(
+    "sig",
+    [signal.SIGTERM, signal.SIGINT] + ([signal.SIGHUP] if hasattr(signal, "SIGHUP") else []),
+)
 def test_run_task_termination_does_not_orphan_harness_tree(tmp_path, sig):
     process, process_file = _start_run_task(tmp_path)
     try:
@@ -196,6 +203,7 @@ def test_run_task_termination_does_not_orphan_harness_tree(tmp_path, sig):
         _terminate_test_group(process_file)
 
 
+@posix_only
 def test_normal_run_task_exit_does_not_leave_harness_descendants(tmp_path):
     process, process_file = _start_run_task(tmp_path, finish_normally=True)
     try:
@@ -215,6 +223,7 @@ def test_normal_run_task_exit_does_not_leave_harness_descendants(tmp_path):
         _terminate_test_group(process_file)
 
 
+@posix_only
 def test_sigkill_run_task_leaves_harness_for_bridge_reaper(tmp_path):
     process, process_file = _start_run_task(tmp_path)
     pid_file = tmp_path / "task.harness.json"
@@ -241,6 +250,7 @@ def test_sigkill_run_task_leaves_harness_for_bridge_reaper(tmp_path):
         _terminate_test_group(process_file)
 
 
+@posix_only
 def test_reaper_rejects_pid_with_a_different_start_signature(tmp_path):
     unrelated = subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(60)"],
@@ -272,6 +282,7 @@ def test_reaper_rejects_pid_with_a_different_start_signature(tmp_path):
         unrelated.wait(timeout=5)
 
 
+@posix_only
 def test_reaper_reports_gone_and_ignores_missing_or_corrupt_files(tmp_path):
     completed = subprocess.run(
         [sys.executable, "-c", "pass"],
@@ -323,6 +334,7 @@ def test_termination_handlers_are_nested_restorable_and_safe_off_main_thread():
     assert errors == []
 
 
+@posix_only
 def test_import_does_not_install_termination_handlers(tmp_path):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
@@ -343,6 +355,7 @@ def test_import_does_not_install_termination_handlers(tmp_path):
     )
 
 
+@posix_only
 @pytest.mark.asyncio
 @pytest.mark.parametrize("trigger", ["timeout", "pane_lost"])
 async def test_bridge_reaps_orphan_before_retry_and_logs_only_killed(
@@ -467,6 +480,7 @@ async def test_bridge_reaps_orphan_before_retry_and_logs_only_killed(
                 process.wait(timeout=5)
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_cleanup_run_panes_reaps_active_worker_harness(tmp_path):
     process = subprocess.Popen(
@@ -525,6 +539,7 @@ async def test_cleanup_run_panes_reaps_active_worker_harness(tmp_path):
                 process.wait(timeout=5)
 
 
+@posix_only
 @pytest.mark.asyncio
 async def test_timeout_ignores_error_result_written_because_of_our_own_reap(tmp_path, monkeypatch):
     """O run-task morto pelo reap grava um resultado de erro (-9); o timeout manda: retry, não worker_error."""

@@ -26,6 +26,10 @@ from typing import Dict, List, Optional, Tuple
 
 import pytest
 
+from tests.platform_marks import posix_only
+
+pytestmark = posix_only
+
 
 # ---------------------------------------------------------------------------
 # Constants

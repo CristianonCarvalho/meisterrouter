@@ -6,6 +6,8 @@ import subprocess
 import sys
 import textwrap
 
+from tests.platform_marks import posix_only
+
 
 def test_crash_point_noop_without_env(monkeypatch):
     """crash_point returns immediately when MEISTER_CRASH_AT is unset."""
@@ -25,6 +27,7 @@ def test_crash_point_noop_wrong_name(monkeypatch):
     crash_point("after_run_created")  # different name — must not kill
 
 
+@posix_only
 def test_crash_point_kills_subprocess(tmp_path):
     """When MEISTER_CRASH_AT matches, the process is killed with SIGKILL."""
     script = tmp_path / "victim.py"
@@ -58,6 +61,7 @@ def test_crash_point_kills_subprocess(tmp_path):
     assert "SHOULD NOT REACH HERE" not in result.stdout
 
 
+@posix_only
 def test_crash_point_nth_occurrence(tmp_path):
     """MEISTER_CRASH_NTH=2 skips the first hit and kills on the second."""
     script = tmp_path / "victim_nth.py"
@@ -93,6 +97,7 @@ def test_crash_point_nth_occurrence(tmp_path):
     assert "SHOULD NOT REACH HERE" not in result.stdout
 
 
+@posix_only
 def test_crash_point_task_filter(tmp_path):
     """MEISTER_CRASH_TASK filters by task_id kwarg."""
     script = tmp_path / "victim_task.py"
@@ -128,6 +133,7 @@ def test_crash_point_task_filter(tmp_path):
     assert "SHOULD NOT REACH HERE" not in result.stdout
 
 
+@posix_only
 def test_crash_point_logs_event(tmp_path):
     """Fault injection writes a JSONL event before killing."""
     script = tmp_path / "victim_log.py"
