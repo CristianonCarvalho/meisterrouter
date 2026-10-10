@@ -32,6 +32,7 @@ from meister.logger import (
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
 from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
+from meister.hosts import HostError, select_host
 from meister.i18n import get_language, t
 
 logger = logging.getLogger(__name__)
@@ -1474,8 +1475,11 @@ def orchestrate(
                 )
             )
 
-    client = get_herdr_client(socket_path=socket_path)
-    bridge = HerdrEventBridge(config=cfg, client=client)
+    try:
+        host = select_host(cfg, socket_path=socket_path)
+    except HostError as error:
+        raise click.ClickException(str(error)) from error
+    bridge = HerdrEventBridge(config=cfg, host=host)
     from meister.progress import ProgressReporter, render_summary
     from meister.state import StateManager
 

@@ -46,6 +46,7 @@ MESSAGES: dict[str, str] = {
     "reports.config.invalid_architect_effort": "invalid architect.effort: '{effort}'. Valid values: {values}",
     "reports.config.openrouter_key_missing": "OPENROUTER_API_KEY is missing; without a key, routing falls back to the first lane",
     "reports.config.native_harness_removed": "harness 'native' has been removed; declare codex, agy, claude, or copilot",
+    "reports.config.runtime_host_invalid": "invalid runtime.host: {value}. Valid values: auto, process, herdr, tmux",
     "reports.config.unknown_harness": "Harness '{harness}' is unknown and was not found in PATH or as an executable file",
     "reports.config.executable_not_found": "Executable '{executable}' not found in PATH",
     "reports.config.empty_model": "empty model for lane with harness '{harness}'",

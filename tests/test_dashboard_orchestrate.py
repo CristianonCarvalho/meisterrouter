@@ -26,10 +26,10 @@ def _prepare_orchestrate(monkeypatch, tmp_path):
     import meister.config
 
     monkeypatch.setattr(meister.config, "validate_config", lambda cfg: [])
-    monkeypatch.setattr(cli, "get_herdr_client", lambda socket_path=None: None)
+    monkeypatch.setattr(cli, "select_host", lambda cfg, socket_path=None: None)
     bridge = Mock()
     bridge.run_orchestration_cycle = AsyncMock(return_value=True)
-    monkeypatch.setattr(cli, "HerdrEventBridge", lambda config, client: bridge)
+    monkeypatch.setattr(cli, "HerdrEventBridge", lambda config, host: bridge)
     monkeypatch.setattr(cli.threading, "Thread", _ImmediateThread, raising=False)
     return config
 

@@ -12,6 +12,8 @@ from meister.hosts.base import (
     WorkerHost,
 )
 from meister.hosts.herdr import HerdrHost
+from meister.hosts.process import ProcessHost
+from meister.hosts.select import select_host
 
 __all__ = [
     "CAP_PUSH_EVENTS",
@@ -19,7 +21,9 @@ __all__ = [
     "EventCallback",
     "HerdrHost",
     "HostError",
+    "ProcessHost",
     "WorkerCommand",
     "WorkerHandle",
     "WorkerHost",
+    "select_host",
 ]

@@ -27,6 +27,7 @@ from meister.i18n import CATALOGS, t
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
 from meister.herdr.events import parse_pane_event, PANE_GONE_TYPES
 from meister.hosts import HerdrHost, WorkerHandle, WorkerHost
+from meister.hosts.base import CAP_PUSH_EVENTS
 from meister.herdr.dag import SubtaskNode, build_subtask_dag
 from meister.herdr.workers import (
     WorkerSpawner,
@@ -41,7 +42,7 @@ from meister.state import (
     task_fingerprint,
 )
 from meister.faults import crash_point
-from meister.logger import log_event
+from meister.logger import get_log_dir, log_event
 from meister.plan import PlanError, load_plan
 from meister.jev_context import build_jev_context
 from meister.worker import (
@@ -265,12 +266,22 @@ class HerdrEventBridge:
         self.config = config or load_config()
         self._client: Optional[HerdrSocketClient] = None
         self.host: Optional[WorkerHost] = None
+        # HerdrHost vindo de select_host mantém o caminho legado baseado no cliente Herdr.
+        herdr_host = host if isinstance(host, HerdrHost) else None
+        self._herdr_io: Optional[_BridgeHerdrHost] = (
+            _BridgeHerdrHost(herdr_host.client) if herdr_host is not None else None
+        )
+        legacy_client = herdr_host.client if herdr_host is not None else client
         self.client = client
         if host is not None:
             self.host = host
-        self.spawner = spawner or WorkerSpawner(self.config, herdr_client=self.client)
-        if self.client is not None and self.spawner.herdr_client is None:
-            self.spawner.herdr_client = self.client
+        self.spawner = spawner or WorkerSpawner(
+            self.config,
+            herdr_client=legacy_client,
+            host=self.host if legacy_client is None else None,
+        )
+        if legacy_client is not None and self.spawner.herdr_client is None:
+            self.spawner.herdr_client = legacy_client
         self.gate = gate
         self.state_manager = state_manager
         self.current_run_id: Optional[str] = None
@@ -383,12 +394,15 @@ class HerdrEventBridge:
         return WorkerHandle(id=pane_id or "", aux=tab_id)
 
     def _require_host(self) -> WorkerHost:
+        """Host de E/S: no caminho Herdr, o shim preserva o RPC legado de leitura e fechamento."""
         assert self.host is not None
-        return self.host
+        return self._herdr_io or self.host
 
     @property
     def _connected(self) -> bool:
-        return self._client is not None and bool(self._client.is_connected)
+        # Sem cliente Herdr (host de processo) não há conexão a verificar: o host já é a fonte de verdade.
+        client = self._client if self._client is not None else (self._herdr_io.client if self._herdr_io else None)
+        return client is None or bool(client.is_connected)
 
     def get_state_manager(self) -> StateManager:
         """Retorna o gerenciador de estado SQLite instanciado ou inicializa um novo."""
@@ -622,31 +636,34 @@ class HerdrEventBridge:
         if not pane_id or pane_id not in self.active_workers:
             return
 
-        worker_info = self.active_workers[pane_id]
-
         if detect_quota_or_rate_limit(str(output)):
-            logger.warning(
-                "Reactive quota/rate-limit detected in pane %s: %s",
-                pane_id,
-                output,
-            )
-            worker_info["status"] = "quota_error"
+            await self._on_quota_detected(pane_id, output)
 
-            current_tier = worker_info.get("current_tier")
-            if current_tier:
-                sm = self.get_state_manager()
-                sm.record_harness_failure(current_tier, is_quota=True)
+    async def _on_quota_detected(self, pane_id: str, output: Any) -> None:
+        """Marca o worker como em cota, interrompe o pane e acorda quem espera por ele."""
+        worker_info = self.active_workers[pane_id]
+        logger.warning(
+            "Reactive quota/rate-limit detected in pane %s: %s",
+            pane_id,
+            output,
+        )
+        worker_info["status"] = "quota_error"
 
-            # Interrupt runaway worker pane immediately to preserve tokens
-            if self.host is not None:
-                try:
-                    await self.host.interrupt(self._worker_handle(pane_id))
-                except Exception as e:
-                    logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
+        current_tier = worker_info.get("current_tier")
+        if current_tier:
+            sm = self.get_state_manager()
+            sm.record_harness_failure(current_tier, is_quota=True)
 
-            # Signal any waiting subtask execution coroutine
-            if pane_id in self._quota_events:
-                self._quota_events[pane_id].set()
+        # Interrupt runaway worker pane immediately to preserve tokens
+        if self.host is not None:
+            try:
+                await self.host.interrupt(self._worker_handle(pane_id))
+            except Exception as e:
+                logger.debug("Failed sending interrupt to pane %s: %s", pane_id, e)
+
+        # Signal any waiting subtask execution coroutine
+        if pane_id in self._quota_events:
+            self._quota_events[pane_id].set()
 
     async def execute_subtask(
         self,
@@ -1028,8 +1045,8 @@ class HerdrEventBridge:
                             pass
                     return False
 
-                if self.client is None:
-                    raise RuntimeError("Herdr client is required to execute subtask")
+                if self.host is None:
+                    raise RuntimeError("A worker host is required to execute subtask")
 
                 if active_run_id:
                     try:
@@ -1086,6 +1103,18 @@ class HerdrEventBridge:
                 if active_run_id:
                     env_vars.append(f"MEISTER_RUN_ID={shlex.quote(active_run_id)}")
                 task_dict["command"] = cmd_parts
+                task_dict["env"] = {
+                    key: value
+                    for key, value in (
+                        ("MEISTER_IN_PANE", "1"),
+                        ("MEISTER_LOG_DIR", os.environ.get("MEISTER_LOG_DIR")),
+                        ("MEISTER_RUN_ID", active_run_id),
+                    )
+                    if value
+                }
+                task_dict["log_file"] = os.path.join(
+                    get_log_dir(), "workers", f"{active_run_id}_{task_id}_{attempt_count}.log"
+                )
                 # O shell do pane grava o código de saída mesmo se o run-task morrer sem resultado.
                 task_dict["exit_file"] = exit_file
                 run_line = f"{' '.join(env_vars)} {' '.join(shlex.quote(p) for p in cmd_parts)}"
@@ -1097,6 +1126,9 @@ class HerdrEventBridge:
                 tab_closed = False
                 pane_closed = False
                 spawn_cwd = subtask_wt.worktree_path if subtask_wt else (task_dict.get("cwd") or task_dict.get("worktree"))
+                if spawn_cwd is None and self.host is not None and not isinstance(self.host, HerdrHost):
+                    # Host de processo precisa de um diretório real; o Herdr resolve o cwd sozinho.
+                    spawn_cwd = os.getcwd()
                 initial_worktree_fingerprint: Optional[tuple[bytes, str]] = None
                 if spawn_cwd:
                     try:
@@ -1322,6 +1354,12 @@ class HerdrEventBridge:
                                 ):
                                     last_activity = time.monotonic()
                                 pane_fingerprint = current_pane_fingerprint
+                                if (
+                                    CAP_PUSH_EVENTS not in getattr(self._require_host(), "capabilities", frozenset())
+                                    and pane_id in self.active_workers
+                                    and detect_quota_or_rate_limit(str(pane_content))
+                                ):
+                                    await self._on_quota_detected(pane_id, pane_content)
                             except Exception:
                                 pass
                             if self.host is not None:
@@ -2294,13 +2332,13 @@ class HerdrEventBridge:
             if self.host is not None and self._connected:
                 if tab_id:
                     try:
-                        await self.host.close(self._worker_handle(pane_id, tab_id))
+                        await self._require_host().close(self._worker_handle(pane_id, tab_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_tab_failed", tab_id=tab_id, error=e))
 
                 if pane_id:
                     try:
-                        await self.host.close(self._worker_handle(pane_id))
+                        await self._require_host().close(self._worker_handle(pane_id))
                     except Exception as e:
                         logger.debug(t("engine.bridge.close_pane_failed", pane_id=pane_id, error=e))
 
@@ -2323,8 +2361,8 @@ class HerdrEventBridge:
         resume_hint_callback: Optional[Callable[[str], None]] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
-        if self.client is None or self.host is None:
-            raise RuntimeError("Herdr client is required for orchestration cycle")
+        if self.host is None:
+            raise RuntimeError("A worker host is required for orchestration cycle")
         host: WorkerHost = self.host
 
         # Conecta e assina eventos reativos do socket antes de consultar o contexto

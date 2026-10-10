@@ -149,4 +149,7 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.plan_rejected": "Plan rejected: {error}",
     "engine.bridge.resume_same_run": "Plan matches run {run_id} ({state}): resuming the same run; completed tasks will be skipped.",
     "engine.bridge.resume_hint": "Run {run_id} ({state}) has {count} reusable completed tasks; use --resume",
+    "engine.hosts.herdr_unavailable": "Herdr socket not accessible at {socket_path}. Start Herdr or set runtime.host to auto or process.",
+    "engine.hosts.tmux_unavailable": "tmux adapter not available yet. Set runtime.host to auto, process or herdr.",
+    "engine.hosts.unknown_mode": "Unknown runtime.host: {value}",
 }
