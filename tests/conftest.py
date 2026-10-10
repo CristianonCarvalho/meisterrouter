@@ -4,6 +4,7 @@ import pathlib
 import shlex
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import warnings
@@ -243,9 +244,13 @@ def tmp_path():
     """Override tmp_path fixture to use /tmp to avoid macOS AF_UNIX 104-char path limit.
 
     Onde /tmp não existe (Windows) usa o diretório temporário padrão do sistema.
+
+    ignore_cleanup_errors=True: no Windows, um arquivo ainda aberto por um processo (worker, log, DB)
+    impede a remoção da pasta com WinError 32 e transformaria a limpeza em falha do teste. Ignorar o erro
+    de limpeza deixa só um resíduo temporário, sem mascarar a falha real do teste.
     """
     base = "/tmp" if os.path.isdir("/tmp") else None
-    with tempfile.TemporaryDirectory(dir=base) as d:
+    with tempfile.TemporaryDirectory(dir=base, ignore_cleanup_errors=True) as d:
         yield pathlib.Path(d)
 
 
@@ -336,6 +341,20 @@ def timeout_each_test(request):
     """Interrupt a stuck test after MEISTER_TEST_TIMEOUT seconds (default 180)."""
     with test_watchdog(configured_test_timeout(), request.node.nodeid):
         yield
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """No Windows, o watchdog por SIGALRM não existe: usa a marca do pytest-timeout (método thread).
+
+    No Unix não faz nada; MEISTER_TEST_TIMEOUT=0 desliga a marca.
+    """
+    if sys.platform != "win32":
+        return
+    seconds = configured_test_timeout()
+    if seconds == 0:
+        return
+    for item in items:
+        item.add_marker(pytest.mark.timeout(seconds, method="thread"))
 
 
 @pytest.fixture(autouse=True)

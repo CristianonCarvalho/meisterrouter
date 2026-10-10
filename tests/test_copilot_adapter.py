@@ -1,4 +1,5 @@
 import os
+import sys
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -43,9 +44,13 @@ def fake_copilot_cli(tmp_path, monkeypatch):
         "exit 0\n"
     )
     fake_copilot.chmod(0o755)
+    if sys.platform == "win32":
+        # shutil.which só acha executáveis com extensão listada em PATHEXT.
+        fake_copilot = fake_bin_dir / "copilot.cmd"
+        fake_copilot.write_text("@echo off\r\nrem Fake GitHub Copilot CLI\r\nexit /b 0\r\n")
 
     orig_path = os.environ.get("PATH", "")
-    monkeypatch.setenv("PATH", f"{fake_bin_dir}:{orig_path}")
+    monkeypatch.setenv("PATH", f"{fake_bin_dir}{os.pathsep}{orig_path}")
     return str(fake_copilot)
 
 
