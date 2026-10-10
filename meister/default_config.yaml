@@ -48,6 +48,9 @@ workers:
     # Só roteada pelo Jev para classe ESCALATE; as demais vias ficam sem restrição.
     - {name: tier_3, harness: claude, model: sonnet, cost_per_m_tokens: 4.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions], eligible_classes: [ESCALATE]}
     - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, best_for: [architectural_recovery, systemic_regressions], eligible_classes: [ESCALATE]}
+runtime:
+  # auto, process, herdr ou tmux. auto usa Herdr quando acessível.
+  host: auto
 # Para alterar modelos, custos, ordem ou habilitação, sobrescreva este arquivo com
 # meister.config.yaml no projeto (listas como tier_order substituem a lista inteira).
 concurrency:
