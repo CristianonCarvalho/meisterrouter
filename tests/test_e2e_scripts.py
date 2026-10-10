@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.platform_marks import posix_only
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 E2E_DIR = REPO_ROOT / "tests" / "e2e"
@@ -26,6 +28,7 @@ def test_e2e_scripts_exist():
         assert exp in found_files, f"Arquivo esperado '{exp}' não encontrado em {E2E_DIR}"
 
 
+@posix_only
 def test_e2e_scripts_bash_syntax_valid():
     sh_files = list(E2E_DIR.glob("*.sh"))
     assert len(sh_files) >= 4, f"Esperava pelo menos 4 arquivos .sh, encontrou {len(sh_files)}"
@@ -60,6 +63,7 @@ def test_e2e_scripts_herdr_sampler_compiles(tmp_path):
     assert dest.is_file()
 
 
+@posix_only
 def test_e2e_scripts_no_pytest_collection_in_e2e_dir():
     # Nenhum arquivo dentro de tests/e2e/ deve ser um módulo de teste pytest
     e2e_tests = list(E2E_DIR.glob("test_*.py")) + list(E2E_DIR.glob("*_test.py"))
