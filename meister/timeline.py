@@ -183,6 +183,27 @@ def _event_detail(event: Dict[str, Any]) -> Optional[str]:
     return _clip_detail(event.get("detail") or event.get("matched_line") or event.get("error"))
 
 
+def _failed_tests_reason(event: Dict[str, Any]) -> Optional[str]:
+    failed_tests = event.get("failed_tests")
+    if not failed_tests or not isinstance(failed_tests, list):
+        return None
+    names = [str(item).split("::")[-1] for item in failed_tests]
+    if len(names) > 3:
+        names_str = f"{', '.join(names[:3])}, +{len(names) - 3}"
+    else:
+        names_str = ", ".join(names)
+    if len(failed_tests) == 1:
+        return t("gate_repair.timeline.failure_singular", tests=names_str)
+    return t(
+        "gate_repair.timeline.failure_plural",
+        count=len(failed_tests),
+        tests=names_str,
+    )
+
+
+_REPAIR_OUTCOMES = {"scope": "scope", "gate": "gate_rejected"}
+
+
 def _terminal_outcome(kind: str, event: Dict[str, Any]) -> str:
     if kind in ("subtask_completed", "subtask_reused"):
         return "completed"
@@ -212,6 +233,7 @@ def _new_attempt(spawn: datetime, last_end: datetime, via: Optional[str]) -> Dic
         "outcome": None,
         "detail": None,
         "failed_at": None,
+        "repair": None,
     }
 
 
@@ -253,6 +275,14 @@ def _build_row(
             current["reason"] = str(event.get("error") or kind)
             current["failed_at"] = timestamp
             continue
+        if kind == "gate_repair":
+            # o bridge grava gate_repair antes do worker_retry que fecha a tentativa
+            current["repair"] = {
+                "reason": str(event.get("reason") or ""),
+                "detail": _event_detail(event),
+                "failed": _failed_tests_reason(event),
+            }
+            continue
         if kind == "worker_phase":
             name = str(event.get("phase") or "")
             phase_duration = timedelta(milliseconds=_num(event.get("duration_ms")))
@@ -271,23 +301,7 @@ def _build_row(
             if current["outcome"] != "quota" or outcome == "completed":
                 current["outcome"] = outcome
                 current["detail"] = None if outcome == "completed" else _event_detail(event)
-            failed_tests = event.get("failed_tests")
-            if failed_tests and isinstance(failed_tests, list):
-                names = [str(item).split("::")[-1] for item in failed_tests]
-                if len(names) > 3:
-                    names_str = f"{', '.join(names[:3])}, +{len(names) - 3}"
-                else:
-                    names_str = ", ".join(names)
-                if len(failed_tests) == 1:
-                    formatted_reason = t("gate_repair.timeline.failure_singular", tests=names_str)
-                else:
-                    formatted_reason = t(
-                        "gate_repair.timeline.failure_plural",
-                        count=len(failed_tests),
-                        tests=names_str,
-                    )
-            else:
-                formatted_reason = None
+            formatted_reason = _failed_tests_reason(event)
 
             if kind == "worker_end":
                 current["worker_status"] = str(event.get("status") or "")
@@ -299,7 +313,12 @@ def _build_row(
             # aberta por cima da tentativa seguinte
             current["terminal"] = timestamp
             current["kind"] = "worker_retry"
-            if current["outcome"] is None:
+            if current["outcome"] is None and current["repair"] is not None:
+                repair = current["repair"]
+                current["outcome"] = _REPAIR_OUTCOMES.get(repair["reason"], "error")
+                current["detail"] = repair["detail"]
+                current["reason"] = repair["failed"] or str(event.get("reason") or event.get("error") or kind)
+            elif current["outcome"] is None:
                 current["outcome"] = "error"
                 current["detail"] = _event_detail(event)
                 current["reason"] = str(event.get("reason") or event.get("error") or kind)
