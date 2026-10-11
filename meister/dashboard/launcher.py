@@ -176,6 +176,8 @@ def resolve_project_root(path: Union[str, Path]) -> Path:
             timeout=2,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode == 0 and result.stdout.strip():

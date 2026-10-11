@@ -72,7 +72,14 @@ class DiagnosticItem:
 
 def default_runner(cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
     """Executor padrão de comandos de subprocesso."""
-    return subprocess.run(list(cmd), capture_output=True, text=True, check=False)
+    return subprocess.run(
+        list(cmd),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
 
 
 def resolve_meister_path() -> str:

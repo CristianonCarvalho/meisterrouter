@@ -44,7 +44,15 @@ def _tmux_usable() -> bool:
     if binary is None:
         return False
     try:
-        result = subprocess.run([binary, "-V"], capture_output=True, text=True, timeout=5, check=False)
+        result = subprocess.run(
+            [binary, "-V"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
         return result.returncode == 0 and _parse_version(result.stdout) >= _MIN_VERSION
     except (OSError, subprocess.SubprocessError, HostError):
         return False
