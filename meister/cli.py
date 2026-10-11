@@ -1829,7 +1829,7 @@ def plan_analyze(plan_json, max_workers, fmt):
 
 @plan_group.command("import", help=t("cli.plan.import.help"))
 @click.argument("plan_md", type=click.Path(exists=True, readable=True))
-@click.option("--format", "fmt", default="superpowers", show_default=True,
+@click.option("--format", "fmt", default="auto", show_default=True,
               help=t("cli.plan.import.format_help"))
 @click.option("-o", "--output", "output_path", default=None,
               help=t("cli.plan.import.output_help"))
@@ -1847,10 +1847,10 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
     running with 'meister orchestrate --plan-file'.
     """
     import meister.plan_adapters  # noqa: F401 — ensure all adapters are registered
-    from meister.plan import ADAPTERS, PlanError, canonical_json, validate_tasks
+    from meister.plan import ADAPTERS, PlanError, canonical_json, load_plan, validate_tasks
 
-    if fmt not in ADAPTERS:
-        known = ", ".join(sorted(ADAPTERS.keys())) or t("cli.plan.none")
+    if fmt not in ADAPTERS and fmt not in ("auto", "json"):
+        known = ", ".join(["auto", "json", *sorted(ADAPTERS.keys())])
         click.echo(t("cli.plan.unknown_format", format=fmt, adapters=known), err=True)
         sys.exit(1)
 
@@ -1861,23 +1861,32 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
         click.echo(t("cli.common.read_failed", path=plan_md, error=exc), err=True)
         sys.exit(1)
 
+    # auto: '[' abre JSON canônico; qualquer outro texto é Markdown de tarefas (o conversor diz o que falta).
+    detected = fmt == "auto"
+    if detected:
+        fmt = "json" if text.lstrip().startswith("[") else "markdown"
+
     try:
-        adapter_fn = ADAPTERS[fmt]
-        if fmt == "superpowers":
+        if fmt == "json" or not text.strip():
+            tasks = load_plan(text)
+        elif fmt in ("markdown", "superpowers"):
             cfg = load_config(cwd=os.getcwd())
-            tasks = adapter_fn(
+            tasks = ADAPTERS[fmt](
                 text,
                 deps=deps,
                 allow_unscoped=allow_unscoped,
                 tolerated_files=cfg.scope.tolerated_files,
             )
         else:
-            tasks = adapter_fn(text, deps=deps, allow_unscoped=allow_unscoped)
+            tasks = ADAPTERS[fmt](text, deps=deps, allow_unscoped=allow_unscoped)
         validate_tasks(tasks)
     except PlanError as exc:
         click.echo(t("cli.plan.convert_failed", format=fmt), err=True)
+        click.echo(t("cli.plan.invalid", path=plan_md), err=True)
         for msg in exc.messages:
             click.echo(f"  • {msg}", err=True)
+        if detected:
+            click.echo(t("cli.orchestrate.expected_plan_format"), err=True)
         sys.exit(2)
 
     # Print human-readable table
