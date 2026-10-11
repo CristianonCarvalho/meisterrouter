@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -28,6 +28,9 @@ _NEXT_PHASE = {
     "lock_wait": "integrate",
     "integrate": "integrate",
 }
+_DETAIL_SIZE = 200
+# tentativa que falhou sem evento terminal (cota): o trecho até a próxima via é espera, não gate
+_FAILED_GAP_PHASE = "wait"
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,18 @@ class Segment:
     start: datetime
     end: Optional[datetime]
     inferred: bool = False
+    # via da tentativa dona do segmento; fora da igualdade para não mudar comparações existentes
+    via: Optional[str] = field(default=None, compare=False)
+
+
+@dataclass(frozen=True)
+class Attempt:
+    via: Optional[str]
+    outcome: Optional[str]
+    reason: Optional[str]
+    detail: Optional[str]
+    start: datetime
+    end: Optional[datetime]
 
 
 @dataclass
@@ -51,6 +66,7 @@ class TaskRow:
     end: Optional[datetime]
     duration_s: Optional[float]
     failure: Optional[str]
+    attempt_details: List[Attempt] = field(default_factory=list)
 
 
 @dataclass
@@ -105,6 +121,18 @@ def _num(value: Any) -> float:
         return 0.0
 
 
+def _run_title(start_event: Optional[Dict[str, Any]]) -> str:
+    """`run_name`, depois `run_name_derived`; em logs antigos, a tarefa (o JSON bruto do plano vira
+    a primeira `description` ou nada, como antes)."""
+    if start_event is None:
+        return ""
+    for key in ("run_name", "run_name_derived"):
+        name = clip_title(start_event.get(key))
+        if name:
+            return name
+    return clip_title(start_event.get("task"))
+
+
 def _plan_dependencies(run_events: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     for event in run_events:
         if event_type(event) != "orchestration_start":
@@ -145,6 +173,48 @@ def _integrate_remainder(
     return out
 
 
+def _clip_detail(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text[:_DETAIL_SIZE] or None
+
+
+def _event_detail(event: Dict[str, Any]) -> Optional[str]:
+    """`detail` do evento; em logs antigos, a linha que casou a cota ou o texto do erro."""
+    return _clip_detail(event.get("detail") or event.get("matched_line") or event.get("error"))
+
+
+def _terminal_outcome(kind: str, event: Dict[str, Any]) -> str:
+    if kind in ("subtask_completed", "subtask_reused"):
+        return "completed"
+    if kind == "worker_end":
+        status = str(event.get("status") or "")
+        return "completed" if status == "done" else "timeout" if status == "timeout" else "error"
+    if kind == "worker_timeout":
+        return "timeout"
+    if kind == "subtask_rejected":
+        reason = str(event.get("reason") or "")
+        return "scope" if reason == "scope" else "gate_rejected" if reason == "gate" else "error"
+    return "error"
+
+
+def _new_attempt(spawn: datetime, last_end: datetime, via: Optional[str]) -> Dict[str, Any]:
+    return {
+        "spawn": spawn,
+        "worker_end": None,
+        "phases": [],
+        "last_phase": None,
+        "last_end": last_end,
+        "terminal": None,
+        "kind": None,
+        "reason": None,
+        "worker_status": None,
+        "via": via,
+        "outcome": None,
+        "detail": None,
+        "failed_at": None,
+    }
+
+
 def _build_row(
     task_id: str,
     events: List[Dict[str, Any]],
@@ -168,33 +238,20 @@ def _build_row(
         if timestamp is None:
             continue
         if kind == "worker_spawn" or (cli_worker and kind == "worker_start"):
-            current = {
-                "spawn": timestamp,
-                "worker_end": None,
-                "phases": [],
-                "last_phase": None,
-                "last_end": timestamp,
-                "terminal": None,
-                "kind": None,
-                "reason": None,
-                "worker_status": None,
-            }
+            current = _new_attempt(timestamp, timestamp, tier)
             attempts.append(current)
             continue
         if current is None and kind in terminal_events:
-            current = {
-                "spawn": run_start or timestamp,
-                "worker_end": None,
-                "phases": [],
-                "last_phase": None,
-                "last_end": timestamp,
-                "terminal": None,
-                "kind": None,
-                "reason": None,
-                "worker_status": None,
-            }
+            current = _new_attempt(run_start or timestamp, timestamp, tier)
             attempts.append(current)
         if current is None:
+            continue
+        if kind == "quota_error" and current["terminal"] is None:
+            # o bridge não fecha a tentativa na cota: guarda o desfecho para a próxima via
+            current["outcome"] = "quota"
+            current["detail"] = _event_detail(event)
+            current["reason"] = str(event.get("error") or kind)
+            current["failed_at"] = timestamp
             continue
         if kind == "worker_phase":
             name = str(event.get("phase") or "")
@@ -210,6 +267,10 @@ def _build_row(
         elif kind in terminal_events:
             current["terminal"] = timestamp
             current["kind"] = kind
+            outcome = _terminal_outcome(kind, event)
+            if current["outcome"] != "quota" or outcome == "completed":
+                current["outcome"] = outcome
+                current["detail"] = None if outcome == "completed" else _event_detail(event)
             failed_tests = event.get("failed_tests")
             if failed_tests and isinstance(failed_tests, list):
                 names = [str(item).split("::")[-1] for item in failed_tests]
@@ -238,14 +299,21 @@ def _build_row(
             # aberta por cima da tentativa seguinte
             current["terminal"] = timestamp
             current["kind"] = "worker_retry"
+            if current["outcome"] is None:
+                current["outcome"] = "error"
+                current["detail"] = _event_detail(event)
+                current["reason"] = str(event.get("reason") or event.get("error") or kind)
 
     segments: List[Segment] = []
     previous_end: Optional[datetime] = None
+    attempt_ends: List[Optional[datetime]] = []
     for index, attempt in enumerate(attempts):
         if previous_end is not None and attempt["spawn"] > previous_end:
             segments.append(Segment("wait", previous_end, attempt["spawn"]))
         elif previous_end is None and depends_on and run_start and attempt["spawn"] > run_start:
             segments.append(Segment("wait", run_start, attempt["spawn"]))
+        # as esperas antes da tentativa (dependências, retry) não pertencem a nenhuma via
+        first_own = len(segments)
         segments.extend(Segment(name, start, end) for name, start, end in attempt["phases"])
         if attempt["terminal"] is not None:
             if attempt["kind"] == "worker_retry":
@@ -267,24 +335,26 @@ def _build_row(
                     )
                 )
             previous_end = attempt["terminal"]
+            attempt_ends.append(attempt["terminal"])
         elif index + 1 < len(attempts):
             # tentativa sem fim que foi seguida por outra: a nova tentativa prova que a anterior acabou
             following = attempts[index + 1]["spawn"]
             if following > attempt["last_end"]:
-                segments.append(
-                    Segment(_NEXT_PHASE[attempt["last_phase"]], attempt["last_end"], following)
-                )
+                segments.append(Segment(_open_phase(attempt), attempt["last_end"], following))
             previous_end = following
+            attempt_ends.append(attempt["failed_at"] or following)
         else:
             segments.append(
                 Segment(
-                    _NEXT_PHASE[attempt["last_phase"]],
+                    _open_phase(attempt),
                     attempt["last_end"],
                     run_end,
                     inferred=True,
                 )
             )
             previous_end = None
+            attempt_ends.append(attempt["failed_at"] or run_end)
+        _tag_via(segments, first_own, attempt["via"])
 
     if not attempts:
         if run_start is not None:
@@ -314,6 +384,17 @@ def _build_row(
         status, end = "running", None
     start = attempts[0]["spawn"]
     duration = max(0.0, (end - start).total_seconds()) if end is not None else None
+    details = [
+        Attempt(
+            via=attempt["via"],
+            outcome=attempt["outcome"],
+            reason=attempt["reason"],
+            detail=attempt["detail"],
+            start=attempt["spawn"],
+            end=attempt_end,
+        )
+        for attempt, attempt_end in zip(attempts, attempt_ends)
+    ]
     return TaskRow(
         task_id,
         title,
@@ -326,7 +407,19 @@ def _build_row(
         end,
         duration,
         failure,
+        details,
     )
+
+
+def _open_phase(attempt: Dict[str, Any]) -> str:
+    """Fase do trecho após o último evento de uma tentativa sem fim; não é gate se ela falhou."""
+    if attempt["outcome"] in ("quota", "error"):
+        return _FAILED_GAP_PHASE
+    return _NEXT_PHASE[attempt["last_phase"]]
+
+
+def _tag_via(segments: List[Segment], first: int, via: Optional[str]) -> None:
+    segments[first:] = [replace(segment, via=via) for segment in segments[first:]]
 
 
 def _parallelism(rows: List[TaskRow], now_eff: datetime) -> Tuple[int, float]:
@@ -401,7 +494,7 @@ def build_timeline(
         if event_time is not None:
             event_times.append(event_time)
     last_event_at = max(event_times, default=None)
-    title = clip_title(start_event.get("task")) if start_event else ""
+    title = _run_title(start_event)
     stalled_since = (
         last_event_at
         if end_event is None
@@ -485,7 +578,7 @@ def build_timeline(
             if row.status == "running":
                 row.status = "stalled"
             row.segments = [
-                Segment(segment.phase, segment.start, stalled_since, segment.inferred)
+                replace(segment, end=stalled_since)
                 if segment.end is None
                 else segment
                 for segment in row.segments
