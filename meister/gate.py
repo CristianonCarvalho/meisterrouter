@@ -360,6 +360,8 @@ class DeterministicGate:
                 cwd=path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=15,
             )
             out = (res.stdout or "").strip()
@@ -369,6 +371,8 @@ class DeterministicGate:
                     cwd=path,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=15,
                 )
                 out = (res_cached.stdout or "").strip()
@@ -378,6 +382,8 @@ class DeterministicGate:
                     cwd=path,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=15,
                 )
                 out = (res_status.stdout or "").strip()
@@ -468,6 +474,8 @@ class DeterministicGate:
                 cwd=path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=180,
                 env=env,
                 shell=False,
@@ -599,6 +607,8 @@ class DeterministicGate:
                     cwd=path,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=60,
                     env=env,
                 )
@@ -645,6 +655,8 @@ class DeterministicGate:
                         cwd=path,
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=300,
                         env=env,
                         shell=False,
@@ -735,6 +747,8 @@ class DeterministicGate:
                     cwd=path,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=command.timeout_seconds,
                     env=env,
                     shell=False,
@@ -852,6 +866,8 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
             cwd=path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
         read_tree_command = ["git", "read-tree", "HEAD"] if head.returncode == 0 else ["git", "read-tree", "--empty"]
@@ -860,6 +876,8 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
             cwd=path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=env,
         )
@@ -870,6 +888,8 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
             cwd=path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=env,
         )
@@ -880,6 +900,8 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
             cwd=path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=env,
         )
