@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Optional, Callable, Awaitable, Any, Union
 
-from meister.herdr.events import is_pane_gone
+from meister.engine.events import is_pane_gone
 
 logger = logging.getLogger(__name__)
 

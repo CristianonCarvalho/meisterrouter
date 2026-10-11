@@ -33,7 +33,7 @@ from meister.logger import (
 )
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
-from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
+from meister.engine.bridge import HerdrEventBridge, ResumeRequestError
 from meister.hosts import HostError, select_host
 from meister.i18n import get_language, t
 
