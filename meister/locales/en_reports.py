@@ -13,6 +13,7 @@ MESSAGES: dict[str, str] = {
     "reports.config.invalid_field_type": "Field '{field}' has an invalid type: {value}",
     "reports.config.retry_object": "retry must be an object",
     "reports.config.nonnegative_integer": "must be an integer >= 0",
+    "reports.config.worker_error_attempts_invalid": "retry.worker_error_attempts must be an integer >= 0 (booleans are not accepted), received: {value}",
     "reports.config.nonnegative_number": "must be a number >= 0",
     "reports.config.workers_object": "workers must be an object",
     "reports.config.finite_nonnegative_number": "must be a finite number >= 0 (booleans are not accepted), received: {value}",

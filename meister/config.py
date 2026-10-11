@@ -107,6 +107,9 @@ class RetryConfig:
     pane_lost_backoff_seconds: float = field(
         default_factory=lambda: float(_default_section("retry")["pane_lost_backoff_seconds"])
     )
+    worker_error_attempts: int = field(
+        default_factory=lambda: _default_section("retry")["worker_error_attempts"]
+    )
 
 
 @dataclass
@@ -454,9 +457,26 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             ConfigIssue("error", "retry.pane_lost_backoff_seconds", t("reports.config.nonnegative_number"))
         )
         pane_lost_backoff = retry_defaults["pane_lost_backoff_seconds"]
+    worker_error_attempts = retry_data.get(
+        "worker_error_attempts", retry_defaults["worker_error_attempts"]
+    )
+    if (
+        isinstance(worker_error_attempts, bool)
+        or not isinstance(worker_error_attempts, int)
+        or worker_error_attempts < 0
+    ):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "retry.worker_error_attempts",
+                t("reports.config.worker_error_attempts_invalid", value=repr(worker_error_attempts)),
+            )
+        )
+        worker_error_attempts = retry_defaults["worker_error_attempts"]
     retry = RetryConfig(
         pane_lost_attempts=pane_lost_attempts,
         pane_lost_backoff_seconds=float(pane_lost_backoff),
+        worker_error_attempts=worker_error_attempts,
     )
 
     # Architect
@@ -1107,6 +1127,20 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                 "error",
                 "retry.pane_lost_backoff_seconds",
                 t("reports.config.nonnegative_value", value=config.retry.pane_lost_backoff_seconds),
+            )
+        )
+
+    worker_error_attempts = config.retry.worker_error_attempts
+    if (
+        isinstance(worker_error_attempts, bool)
+        or not isinstance(worker_error_attempts, int)
+        or worker_error_attempts < 0
+    ) and not any(issue.path == "retry.worker_error_attempts" for issue in issues):
+        issues.append(
+            ConfigIssue(
+                "error",
+                "retry.worker_error_attempts",
+                t("reports.config.worker_error_attempts_invalid", value=repr(worker_error_attempts)),
             )
         )
 
