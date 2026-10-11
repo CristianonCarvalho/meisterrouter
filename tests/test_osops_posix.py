@@ -10,9 +10,14 @@ import threading
 import time
 from pathlib import Path
 
-from meister import osops
-from meister.osops import posix
-from tests.platform_marks import posix_only
+import pytest
+
+# meister.osops.posix importa fcntl, que não existe no Windows: pular o módulo antes de importá-lo.
+pytest.importorskip("fcntl", reason="meister.osops.posix depende de fcntl, inexistente no Windows")
+
+from meister import osops  # noqa: E402
+from meister.osops import posix  # noqa: E402
+from tests.platform_marks import posix_only  # noqa: E402
 
 pytestmark = posix_only
 
