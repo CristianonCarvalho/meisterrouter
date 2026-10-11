@@ -50,6 +50,16 @@ jobs:
         run: |
           mypy meister
 
+      - name: Install tmux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y tmux
+
+      - name: Install tmux
+        if: runner.os == 'macOS'
+        run: |
+          brew install tmux
+
       - name: Run Pytest
         # Nas pernas informativas (macOS e Windows) o pytest roda mesmo que o lint ou o mypy tenham falhado: no Windows
         # o mypy aponta APIs só de Unix (SIGKILL, killpg, termios) e, sem isto, os testes nunca seriam contados. O job
