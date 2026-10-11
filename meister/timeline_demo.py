@@ -21,6 +21,7 @@ from typing import Any
 from meister.i18n import t
 
 RUN_ID = "demo_timeline"
+RUN_NAME = "Adaptador de Interface - Herdr/TMUX/Process"
 
 _PLAN: list[dict[str, Any]] = [
     {"id": "task_01", "depends_on": []},
@@ -53,6 +54,17 @@ _TITLES: dict[str, str] = {
 }
 
 
+# harness, modelo e esforço de cada via, como o bridge grava no `worker_spawn`;
+# `legacy_lane` não existe no catálogo padrão: o rótulo da raia vem só dos eventos
+_LANES: dict[str, dict[str, Any]] = {
+    "tier_1": {"harness": "copilot", "model": "claude-haiku-5.5", "effort": "medium"},
+    "tier_1b": {"harness": "copilot", "model": "gpt-6-luna", "effort": None},
+    "tier_2": {"harness": "agy", "model": "gemini-3.8-flash-high", "effort": "high"},
+    "tier_3": {"harness": "claude", "model": "sonnet", "effort": "high"},
+    "legacy_lane": {"harness": "codex", "model": "gpt-legacy", "effort": None},
+}
+
+
 @dataclass(frozen=True)
 class ScenarioEvent:
     offset_s: float
@@ -67,7 +79,15 @@ def _event(event_name: str, task_id: str, offset_s: float, /, **fields: Any) -> 
 
 
 def _spawn(task_id: str, at: float, tier: str, attempt: int = 1) -> ScenarioEvent:
-    return _event("worker_spawn", task_id, at, tier=tier, attempt=attempt, pane_id=f"demo-{task_id}-{attempt}")
+    return _event(
+        "worker_spawn",
+        task_id,
+        at,
+        tier=tier,
+        attempt=attempt,
+        pane_id=f"demo-{task_id}-{attempt}",
+        **_LANES[tier],
+    )
 
 
 def _phase(task_id: str, end: float, name: str, duration_s: float, tier: str, attempt: int = 1) -> ScenarioEvent:
@@ -135,7 +155,7 @@ def _done(
 def build_scenario() -> list[ScenarioEvent]:
     """Log sintético de ~38 min com os casos obrigatórios da demonstração, ordenado por `offset_s`."""
     events: list[ScenarioEvent] = [
-        _event("orchestration_start", "orchestrator", 0.0, task=json.dumps(_PLAN)),
+        _event("orchestration_start", "orchestrator", 0.0, task=json.dumps(_PLAN), run_name=RUN_NAME),
         _event(
             "plan_parsed",
             "orchestrator",
@@ -218,9 +238,44 @@ def build_scenario() -> list[ScenarioEvent]:
     # task_10: ainda em execução no fim do cenário (depende de task_09, sem terminal).
     events.append(_spawn("task_10", 237.0, "tier_1"))
 
-    # Tarefas finais que dependem de task_01 e encadeiam a documentação.
-    events += _done("task_11", 284.0, "tier_1", 120.0, 15.0, 5.0, 0.06)
-    events += _done("task_12", 426.0, "tier_1b", 180.0, 25.0, 10.0, 0.09)
+    # task_11: o worker falha na tier_1 e cai lateralmente para a tier_1b (mesmo nível), que conclui.
+    worker_error = "Harness copilot failed with exit code 1"
+    events.append(_spawn("task_11", 284.0, "tier_1"))
+    events.append(
+        _event(
+            "worker_retry",
+            "task_11",
+            314.0,
+            tier="tier_1",
+            attempt=1,
+            reason="worker_error",
+            retry=0,
+            max_retries=1,
+            next_tier="tier_1b",
+            error=worker_error,
+            detail=worker_error,
+        )
+    )
+    events += _done("task_11", 316.0, "tier_1b", 80.0, 15.0, 5.0, 0.06, attempt=2)
+
+    # task_12: depende de task_11; o worker edita arquivos fora do escopo e a tarefa é rejeitada.
+    scope_error = "Scope violation: files outside target_files: ['README.md', 'docs/index.md']"
+    events += [
+        _spawn("task_12", 426.0, "tier_1b"),
+        _phase("task_12", 606.0, "worker", 180.0, "tier_1b"),
+        _event(
+            "subtask_rejected",
+            "task_12",
+            607.0,
+            tier="tier_1b",
+            attempt=1,
+            reason="scope",
+            error=scope_error,
+            output=scope_error,
+            detail="README.md, docs/index.md",
+            exit_code=1,
+        ),
+    ]
 
     return sorted(events, key=lambda item: item.offset_s)
 

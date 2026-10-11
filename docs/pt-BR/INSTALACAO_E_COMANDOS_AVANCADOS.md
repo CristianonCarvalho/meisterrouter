@@ -445,6 +445,9 @@ A mesma linha do tempo também é servida no navegador pelo dashboard, em `/time
 - **Cabeçalho da via:** cada via mostra `harness · modelo (esforço)`, por exemplo `copilot · <modelo> (H)`. Siglas do esforço: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Outros valores aparecem em maiúsculas, e as partes ausentes são omitidas.
 - **Som:** um tom curto toca quando uma tarefa termina (notas ascendentes) ou falha (notas descendentes). Ligue ou desligue com o botão **Sound on / Sound off** (texto da interface, em inglês) ou com a tecla `s`. A escolha é salva no navegador (`localStorage`) e vale só para ele. O som vem **desligado** por padrão; ligue-o com o botão ou com a tecla `s`; os navegadores bloqueiam áudio até você interagir com a página, então ele começa após o primeiro clique ou tecla.
 - **Tentativas abertas:** quando um worker é reiniciado, a tentativa anterior que ainda estava aberta termina no novo spawn, em vez de se estender até o fim do run.
+- **Nome da run:** o cabeçalho, o seletor de runs e o título da página mostram o nome da run. Defina-o com `meister orchestrate --plan-file plano.json --name "Adaptador de interface"`; sem `--name`, o nome é derivado do plano (o título da primeira tarefa). Logs gravados antes desta opção mostram o texto da tarefa, como antes.
+- **Uma raia por tentativa:** uma tarefa que trocou de via é desenhada em cada raia onde uma tentativa rodou, ligada por uma ponte na altura da tarefa. O fallback lateral (mesmo nível, por exemplo `tier_1` para `tier_1b`) tem cor própria na legenda, distinta do escalonamento (`tier_1` para `tier_2`). O cabeçalho da via vem dos eventos `worker_spawn` da run (harness, modelo, esforço), então uma via hoje desligada ou ausente da configuração mantém o rótulo; logs antigos usam a configuração atual como reserva.
+- **Tooltip das tentativas:** ao passar o mouse sobre uma tarefa, aparece a lista das tentativas, cada uma com a via, o resultado (concluída, erro, cota, timeout, reprovada no gate, escopo) e o motivo: os arquivos fora do escopo, a primeira linha da falha do gate ou a linha que casou o erro de cota (até 200 caracteres). Uma tarefa reaproveitada pelo `--resume` mostra de qual run veio e a duração original.
 
 As teclas são as mesmas da linha do tempo do terminal (`[`, `]`, `l`, `a`, `p`, `+`, `-`, setas, `?`), mais `s` para o som. Pressione `?` na página para ver a tabela.
 
@@ -462,7 +465,10 @@ Abra a URL impressa pelo comando (`http://127.0.0.1:5052/timeline` por padrão; 
 Ctrl+C encerra e remove o log temporário.
 
 O que conferir: o eixo de tempo em minutos, as setas em cotovelo entre as vias, os tooltips com as durações da fase e total,
-o cabeçalho da via (`harness · tier`), o som com a tecla `s` e a ausência de fase fantasma na tentativa interrompida.
+o cabeçalho da via (`harness · modelo (esforço)`, inclusive na `legacy_lane`, que não está no catálogo), o som com a
+tecla `s` e a ausência de fase fantasma na tentativa interrompida. A run sintética se chama
+`Adaptador de Interface - Herdr/TMUX/Process`; a `task_11` cai lateralmente da `tier_1` para a `tier_1b` depois de um
+erro do worker, e a `task_12` é rejeitada por editar arquivos fora do escopo (o tooltip os lista).
 
 ---
 

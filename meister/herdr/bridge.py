@@ -12,6 +12,7 @@ import sys
 import time
 import uuid
 import shlex
+import ast
 import asyncio
 import hashlib
 import json
@@ -116,6 +117,57 @@ def _quota_matched_line(text: Any) -> Optional[str]:
             raw.strip(),
         )
     return match[:200]
+
+
+_DETAIL_MAX_CHARS = 200
+_GATE_FAILURE_LINE = re.compile(
+    r"^(?:FAILED |ERROR )"  # pytest
+    r"|^.+?:\d+:\d+:\s+[A-Z][A-Za-z0-9_]*\s+.+$"  # ruff
+    r"|^.+?:\d+(?::\d+)?:\s+error:\s+.+$"  # mypy
+)
+
+
+def _scope_files(text: str) -> Optional[List[str]]:
+    """Arquivos fora do escopo citados na mensagem de violação (lista no formato repr)."""
+    match = re.search(r"\[[^\[\]]*\]", text)
+    if match is None:
+        return None
+    try:
+        parsed = ast.literal_eval(match.group(0))
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(parsed, list) or not parsed:
+        return None
+    return [str(item) for item in parsed]
+
+
+def _gate_failure_line(text: str) -> Optional[str]:
+    """Primeira linha de falha de ruff, mypy ou pytest; senão a primeira linha não vazia."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return next((line for line in lines if _GATE_FAILURE_LINE.match(line)), lines[0] if lines else None)
+
+
+def _event_detail(reason: Optional[str], text: Any) -> Optional[str]:
+    """Resumo curto (até 200 caracteres) do motivo de uma rejeição ou reparo, para a timeline."""
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    detail: Optional[str] = None
+    if reason == "scope":
+        files = _scope_files(raw)
+        detail = ", ".join(files) if files else None
+    elif reason == "gate":
+        detail = _gate_failure_line(raw)
+    return (detail or raw)[:_DETAIL_MAX_CHARS]
+
+
+def _lane_fields(tier: Any) -> Dict[str, Any]:
+    """Harness, model e effort da via usada, para o evento worker_spawn (só valores texto)."""
+    fields: Dict[str, Any] = {}
+    for name in ("harness", "model", "effort"):
+        value = getattr(tier, name, None)
+        fields[name] = value if isinstance(value, str) else None
+    return fields
 
 
 class ResumeRequestError(ValueError):
@@ -253,6 +305,15 @@ def _step_title(step: Union[Dict[str, Any], SubtaskNode], size: int = 120) -> st
         line = line.strip()
         if line:
             return line if len(line) <= size else line[: size - 1] + "…"
+    return ""
+
+
+def derive_run_name(steps: Sequence[Union[Dict[str, Any], SubtaskNode]], size: int = 80) -> str:
+    """Título legível da run: o da primeira tarefa, sem nunca devolver o JSON bruto do plano."""
+    for step in steps[:1]:
+        title = _step_title(step, size=size)
+        if title and not title.startswith(("[", "{")):
+            return title
     return ""
 
 
@@ -1080,6 +1141,7 @@ class HerdrEventBridge:
                         task_id=task_id,
                         reason="worktree_create_failed",
                         error=str(e)[:200],
+                        detail=_event_detail("worktree_create_failed", e),
                     )
                     self.last_failure_reason = err_msg
                     if active_run_id:
@@ -1268,6 +1330,7 @@ class HerdrEventBridge:
                         attempt=attempt_count,
                         tier=current_tier,
                         pane_id=pane_id,
+                        **_lane_fields(tier_obj),
                     )
                     crash_point("after_worker_spawned", task_id=task_id, run_id=active_run_id)
 
@@ -1491,6 +1554,7 @@ class HerdrEventBridge:
                             exit_code=429,
                             error="Reactive quota detected in pane",
                             matched_line=self.active_workers.get(pane_id, {}).get("quota_matched_line"),
+                            detail=self.active_workers.get(pane_id, {}).get("quota_matched_line"),
                         )
                         if active_run_id:
                             sm.unregister_pane(pane_id)
@@ -1743,6 +1807,7 @@ class HerdrEventBridge:
                                 exit_code=429,
                                 error="Terminal quota detected",
                                 matched_line=_quota_matched_line(terminal_output),
+                                detail=_quota_matched_line(terminal_output),
                             )
                             try:
                                 await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
@@ -1890,6 +1955,7 @@ class HerdrEventBridge:
                             exit_code=429,
                             error="Terminal quota detected",
                             matched_line=_quota_matched_line(combined_output),
+                            detail=_quota_matched_line(combined_output),
                         )
                         await self._require_host().interrupt(self._worker_handle(pane_id, tab_id))
                         if active_run_id:
@@ -1976,6 +2042,7 @@ class HerdrEventBridge:
                             reason="worker_error",
                             error=err_text,
                             output=err_text,
+                            detail=_event_detail("worker_error", err_text),
                             exit_code=1,
                         )
                         if subtask_wt is not None and self._integration_pipeline is not None:
@@ -2124,6 +2191,7 @@ class HerdrEventBridge:
                                     tier=current_tier,
                                     failed_tests=failed_tests,
                                     failure_summary=failure_summary,
+                                    detail=_event_detail(reason, int_err),
                                 )
                                 log_event(
                                     event_type="worker_retry",
@@ -2192,6 +2260,7 @@ class HerdrEventBridge:
                                 "output": short_err,
                                 "error": short_err,
                                 "exit_code": 1,
+                                "detail": _event_detail(reason, int_err),
                             }
                             if reason in ("gate", "scope"):
                                 event_kwargs["failed_tests"] = failed_tests
@@ -2472,6 +2541,7 @@ class HerdrEventBridge:
         allow_freeform: bool = True,
         resume_run_id: Optional[str] = None,
         resume_hint_callback: Optional[Callable[[str], None]] = None,
+        run_name: Optional[str] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
         if self.host is None:
@@ -2630,11 +2700,17 @@ class HerdrEventBridge:
             sm.transition_run(run_id, to_state=RunState.RUNNING)
         if source_run is not None:
             sm.mark_superseded(source_run["run_id"], run_id)
+        name_fields: Dict[str, Any] = {}
+        if run_name and run_name.strip():
+            name_fields["run_name"] = run_name.strip()
+        elif derived_name := derive_run_name(steps):
+            name_fields["run_name_derived"] = derived_name
         log_event(
             event_type="orchestration_start",
             run_id=run_id,
             task_id="orchestrator",
             task=task or raw_plan[:200],
+            **name_fields,
         )
         sm.add_subtasks(run_id, steps)
         if source_run is not None:
