@@ -212,7 +212,7 @@ MESSAGES: dict[str, str] = {
     "cli.plan.new.output_help": "Output file path (default: print to the terminal)",
     "cli.plan.new.project_help": "Fill Global Constraints with rules found in CLAUDE.md and AGENTS.md of the current directory",
     "cli.plan.new.tasks_invalid": "must be at least 1 (got {count})",
-    "cli.plan.new.saved": "Plan skeleton saved to {path!r}",
+    "cli.plan.new.saved": "Plan skeleton saved to '{path}'",
     "cli.plan.guide.help": "Print the plan format guide (workflow, task rules, and examples).",
     "cli.plan.guide.lang_help": "Guide language (default: the configured language)",
     "cli.common.read_failed": "Error reading {path!r}: {error}",
