@@ -1,5 +1,6 @@
 """A CLI precisa importar mesmo sem termios e tty (Windows): a TUI só perde a leitura de teclas."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,8 @@ def test_cli_and_tui_import_without_termios_and_tty():
         capture_output=True,
         text=True,
         timeout=60,
+        # o stdout redirecionado no Windows usa cp1252, que não codifica os desenhos da TUI; o teste é sobre termios
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
     )
     assert result.returncode == 0, result.stderr
     assert "ok" in result.stdout
