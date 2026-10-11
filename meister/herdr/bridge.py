@@ -1091,6 +1091,7 @@ class HerdrEventBridge:
 
             attempt_count = self._stored_attempt_count(sm, subtask_id) if active_run_id else 0
             pane_lost_retries_used = 0
+            worker_error_retries: Dict[str, int] = {}
             repair_used = 0
             original_description = description
 
@@ -1921,6 +1922,50 @@ class HerdrEventBridge:
                     if prompt_result.get("status") == "error":
                         logger.warning("Subtask %s returned error status", task_id)
                         err_text = str(prompt_result.get("error", "Worker returned error status"))[:200]
+                        max_worker_error_retries = self.config.retry.worker_error_attempts
+                        worker_error_next_tier = None
+                        retry_worker_error = (
+                            worker_error_retries.get(current_tier, 0) < max_worker_error_retries
+                        )
+                        if retry_worker_error:
+                            worker_error_retries[current_tier] = worker_error_retries.get(current_tier, 0) + 1
+                        elif max_worker_error_retries > 0:
+                            worker_error_next_tier = self.spawner.get_next_available_tier(
+                                current_tier, state_manager=sm
+                            )
+                        if retry_worker_error or worker_error_next_tier is not None:
+                            log_event(
+                                event_type="worker_retry",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                tier=current_tier,
+                                attempt=attempt_count,
+                                reason="worker_error",
+                                retry=worker_error_retries.get(current_tier, 0),
+                                max_retries=max_worker_error_retries,
+                                next_tier=(
+                                    worker_error_next_tier.name
+                                    if worker_error_next_tier is not None
+                                    else current_tier
+                                ),
+                                error=err_text,
+                            )
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                                try:
+                                    sm.transition_subtask(subtask_id, to_state=SubtaskState.RETRYING, error=err_text)
+                                except Exception:
+                                    pass
+                            if tab_id:
+                                try:
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
+                                except Exception:
+                                    pass
+                            base_backoff = float(os.environ.get("MEISTER_RETRY_BACKOFF", "0.01"))
+                            await asyncio.sleep(base_backoff * (2 ** min(4, attempt_count - 1)))
+                            if worker_error_next_tier is not None:
+                                current_tier = worker_error_next_tier.name
+                            continue
                         self.last_failure_reason = f"Subtask {task_id} error: {err_text}"
                         log_event(
                             event_type="subtask_rejected",
