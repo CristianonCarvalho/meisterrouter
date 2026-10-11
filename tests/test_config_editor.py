@@ -1,6 +1,7 @@
 import hashlib
 import os
 import stat
+import sys
 
 from meister.config import _default_config_data
 import pytest
@@ -46,7 +47,7 @@ def _default_lanes() -> list:
 
 def test_reading_does_not_change_file_with_comments(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG, encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.encode("utf-8"))
 
     load_effective_lanes(str(path))
 
@@ -55,7 +56,7 @@ def test_reading_does_not_change_file_with_comments(tmp_path):
 
 def test_without_tier_order_returns_default_lanes_including_disabled(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text("# so comentario\nconcurrency:\n  max_parallel_workers: 2\n", encoding="utf-8")
+    path.write_bytes(("# so comentario\nconcurrency:\n  max_parallel_workers: 2\n").encode("utf-8"))
 
     document = load_effective_lanes(str(path))
 
@@ -81,7 +82,7 @@ def test_missing_file_returns_default_lanes_and_empty_stamp(tmp_path):
 
 def test_with_tier_order_returns_project_lanes(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG, encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.encode("utf-8"))
 
     document = load_effective_lanes(str(path))
 
@@ -101,13 +102,13 @@ def test_with_tier_order_returns_project_lanes(tmp_path):
 
 def test_stamp_changes_when_file_changes(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG, encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.encode("utf-8"))
     first = load_effective_lanes(str(path)).stamp
 
     assert load_effective_lanes(str(path)).stamp == first
     assert first == hashlib.sha256(PROJECT_CONFIG.encode("utf-8")).hexdigest()
 
-    path.write_text(PROJECT_CONFIG.replace("gpt-x", "gpt-y"), encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.replace("gpt-x", "gpt-y").encode("utf-8"))
 
     assert load_effective_lanes(str(path)).stamp != first
 
@@ -121,7 +122,7 @@ def test_lane_edit_holds_editable_fields():
 
 def _project_document(tmp_path) -> LaneDocument:
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG, encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.encode("utf-8"))
     return load_effective_lanes(str(path))
 
 
@@ -308,7 +309,7 @@ def test_lanes_must_be_a_list_of_objects(tmp_path):
 
 def test_config_validation_runs_on_resulting_document(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG.replace("cost_per_m_tokens: 0.2", "credit_usd: -5"), encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.replace("cost_per_m_tokens: 0.2", "credit_usd: -5").encode("utf-8"))
     document = load_effective_lanes(str(path))
 
     paths = [issue.path for issue in _errors(validate_lanes(document, _valid_request()))]
@@ -370,7 +371,7 @@ def _comments(text: str) -> list:
 
 def _realistic_document(tmp_path) -> LaneDocument:
     path = tmp_path / "meister.config.yaml"
-    path.write_text(REALISTIC_CONFIG, encoding="utf-8")
+    path.write_bytes(REALISTIC_CONFIG.encode("utf-8"))
     return load_effective_lanes(str(path))
 
 
@@ -504,7 +505,7 @@ def test_failure_after_replacing_restores_original_from_backup(tmp_path, monkeyp
 def test_different_stamp_is_refused_and_nothing_is_written(tmp_path):
     document = _realistic_document(tmp_path)
     changed = REALISTIC_CONFIG + "# editado a mao\n"
-    (tmp_path / "meister.config.yaml").write_text(changed, encoding="utf-8")
+    (tmp_path / "meister.config.yaml").write_bytes(changed.encode("utf-8"))
 
     with pytest.raises(ConfigStampError) as error:
         apply_lanes(document, _edit_request(document), document.stamp)
@@ -526,6 +527,7 @@ def test_invalid_lanes_are_refused_with_issues(tmp_path):
     assert (tmp_path / "meister.config.yaml").read_text(encoding="utf-8") == PROJECT_CONFIG
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.chmod nao define bits de permissao POSIX no Windows")
 def test_apply_lanes_preserves_file_mode(tmp_path):
     document = _realistic_document(tmp_path)
     path = tmp_path / "meister.config.yaml"
@@ -537,6 +539,7 @@ def test_apply_lanes_preserves_file_mode(tmp_path):
     assert stat.S_IMODE(os.stat(tmp_path / "meister.config.yaml.bak").st_mode) == 0o640
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.chmod nao define bits de permissao POSIX no Windows")
 def test_restore_default_removes_tier_order_and_empty_workers(tmp_path):
     document = _realistic_document(tmp_path)
     written = apply_lanes(document, _edit_request(document), document.stamp)
@@ -558,7 +561,7 @@ def test_restore_default_removes_tier_order_and_empty_workers(tmp_path):
 
 def test_restore_default_keeps_other_worker_keys(tmp_path):
     path = tmp_path / "meister.config.yaml"
-    path.write_text(PROJECT_CONFIG.replace("workers:\n", "workers:\n  enabled:\n    lane_a: true\n"), encoding="utf-8")
+    path.write_bytes(PROJECT_CONFIG.replace("workers:\n", "workers:\n  enabled:\n    lane_a: true\n").encode("utf-8"))
     document = load_effective_lanes(str(path))
 
     result = restore_default_lanes(document, document.stamp)
