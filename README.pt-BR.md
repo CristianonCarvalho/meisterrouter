@@ -42,7 +42,7 @@ Você já pode delegar trabalho a subagentes dentro de uma CLI de IA. O MeisterR
 | **Obrigatório** | macOS, Linux ou Windows 10/11 (nativo, **em validação**; requer [Git for Windows](https://git-scm.com/download/win)). No Windows o host é o `process` (sem Herdr): os workers rodam como processos simples, sem abas, popups nem atalhos. | Onde o MeisterRouter roda. Veja [Windows](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#windows). |
 | **Opcional** (recomendado para ver cada worker ao vivo) | [Herdr](https://herdr.dev) | O MeisterRouter pode rodar como plugin dele (abas dos workers, popups, atalhos). Sem ele, os workers rodam em segundo plano. `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Obrigatório** | Pelo menos uma CLI de IA com assinatura: `copilot`, `codex`, `agy` (Antigravity/Gemini) ou `claude` | São os workers. O `meister setup` mostra quais ele encontrou. |
-| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** com o plugin [Superpowers](https://github.com/obra/superpowers) | Ela conversa com você, escreve o plano no [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e dispara o Meister. O Superpowers é opcional: sem ele, o plano só precisa estar nesse formato. |
+| **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** | Ela conversa com você, escreve o plano no [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) (`meister plan guide` e `meister plan new` dão as regras e a moldura) e dispara o Meister. Se você usa a skill do [Superpowers](https://github.com/obra/superpowers), os planos dela já estão nesse formato. |
 | **Opcional** | Chave do OpenRouter | Só o **Jev** usa (escolhe a via de cada tarefa). Sem ela, use `router: {mode: first}`. |
 
 ## 🚀 Instalação
@@ -84,7 +84,7 @@ meister wait --run-id <id>   # bloqueia até o run terminar (o código de saída
 Depois do `meister setup --project`, o projeto passa a ter as regras e os hooks que **ensinam a sua LLM orquestradora a usar o Meister**. Você não digita `meister plan` nem `meister orchestrate`:
 
 1. **Abra a sua LLM orquestradora** (Claude Code ou Codex) no projeto, dentro do Herdr.
-2. **Peça em linguagem natural**, por exemplo: *"quero um filtro de busca por data na tela de pedidos"*. Com o Superpowers, ela conversa com você, desenha a solução e escreve o plano.
+2. **Peça em linguagem natural**, por exemplo: *"quero um filtro de busca por data na tela de pedidos"*. Ela conversa com você, desenha a solução e escreve o plano: lê as regras com `meister plan guide` e parte do `meister plan new` (ou, se você usa a skill do Superpowers, do plano da skill).
 3. **Ela faz o resto**: importa e valida o plano, e executa com o Meister. O `CLAUDE.md` e o hook de prompt (`UserPromptSubmit`) dizem a ela que o método de execução é sempre o Meister, e o **guard** (`PreToolUse`) recusa qualquer edição direta de código, então ela delega.
 4. **Você acompanha** no Herdr: cada worker abre numa aba visível, e os atalhos mostram o resto:
 
@@ -98,7 +98,15 @@ Depois do `meister setup --project`, o projeto passa a ter as regras e os hooks 
 
 Se o Meister não estiver disponível (daemon fora do ar, sem Herdr), a LLM pergunta antes de implementar por outro meio. Se um run falhar, peça para ela rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md)).
 
-Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? Veja o [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+Quer conferir ou escrever um plano à mão, ou rodar os comandos você mesmo? O fluxo nativo é:
+```bash
+meister plan guide                         # as regras do formato
+meister plan new -o plano.md               # plano vazio com N tarefas (--tasks N)
+meister plan import plano.md -o plano.json
+meister plan validate plano.json
+meister orchestrate --plan-file plano.json
+```
+Veja o [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
 ## 🎛️ Escolher os modelos e a ordem
 
@@ -154,7 +162,7 @@ Valores de effort por harness:
 
 ## 📚 Mais documentação
 
-- [Formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (Superpowers é recomendado, não obrigatório), dependências e paralelismo.
+- [Formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (`plan guide`, `plan new`; o Superpowers é opcional), dependências e paralelismo.
 - [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
 - [Diagramas](docs/pt-BR/DIAGRAMAS.md): componentes, sequência e fluxos.
 - [Manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.

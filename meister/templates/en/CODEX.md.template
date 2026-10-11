@@ -17,11 +17,19 @@ tracks evidence, and decides next steps.
 
 ## Workflow
 
-1. For work with multiple steps, create a structured Markdown plan.
+1. For work with multiple steps, read the planning rules and create the plan skeleton:
+
+   ```bash
+   meister plan guide
+   meister plan new -o plan.md
+   ```
+
+   Fill in the tasks in `plan.md`. If you use the `superpowers:writing-plans` skill, the format
+   is the same (accepted by `plan import`).
 2. Convert it to the canonical format and review the tasks and dependencies:
 
    ```bash
-   meister plan import --format superpowers <plan.md> -o plan.json
+   meister plan import plan.md -o plan.json
    meister plan validate plan.json
    ```
 
