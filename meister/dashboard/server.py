@@ -171,6 +171,7 @@ def _timeline_messages() -> Dict[str, str]:
         "now",
         "cost_river",
         "dashboard",
+        "config",
         "select_run",
         "unassigned",
         "mode_live",
@@ -204,6 +205,33 @@ def _timeline_messages() -> Dict[str, str]:
         "sound_title",
     )
     return {key: t(f"cli.timeline.web.{key}") for key in keys}
+
+
+def _config_messages() -> Dict[str, str]:
+    keys = (
+        "title",
+        "subtitle",
+        "back_timeline",
+        "dashboard",
+        "loading",
+        "load_failed",
+        "source",
+        "source_default",
+        "position",
+        "name",
+        "harness",
+        "model",
+        "effort",
+        "max_parallel",
+        "enabled",
+        "yes",
+        "no",
+        "no_lanes",
+        "blocked_run_active",
+        "read_only_remote",
+        "read_only_notice",
+    )
+    return {key: t(f"cli.config.web.{key}") for key in keys}
 
 
 def _price_tables() -> Tuple[Dict[str, float], Dict[str, float]]:
@@ -280,6 +308,14 @@ def timeline():
         language=get_language(),
     )
 
+
+@app.route("/config")
+def config_page():
+    return render_template(
+        "config.html",
+        messages=_config_messages(),
+        language=get_language(),
+    )
 
 
 @app.route("/api/meta")
