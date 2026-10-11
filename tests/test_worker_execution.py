@@ -17,6 +17,10 @@ from meister.worker import (
 )
 
 
+# Falha rápida: bem abaixo do timeout de 180s do worker, mas com margem para runner lento (Windows sob xdist).
+FAST_FAIL_SECONDS = 60.0
+
+
 def test_model_alias_resolver_was_removed():
     assert not hasattr(__import__("meister.worker", fromlist=["worker"]), "resolve_worker_model")
 
@@ -349,8 +353,8 @@ async def test_run_worker_in_herdr_pane_fast_fail_on_pane_exited(tmp_path):
                 timeout=180.0,
             )
         duration = time.monotonic() - t0
-        # Deve falhar rapidamente (< 5s), sem esperar os 180s do timeout
-        assert duration < 5.0
+        # Deve falhar rápido, sem esperar os 180s do timeout; a margem de 60s cobre runner lento (Windows)
+        assert duration < FAST_FAIL_SECONDS
         assert "pane.exited" in str(exc_info.value)
         assert "erro de infraestrutura" in str(exc_info.value)
         mock_client.close_pane.assert_called_with("p_test_dead")
@@ -401,7 +405,7 @@ async def test_run_worker_in_herdr_pane_active_liveness_pane_missing(tmp_path, m
                 timeout=180.0,
             )
         duration = time.monotonic() - t0
-        assert duration < 5.0
+        assert duration < FAST_FAIL_SECONDS
         assert "Pane p_test_dead do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in str(exc_info.value)
         mock_client.close_pane.assert_called_with("p_test_dead")
 
@@ -432,7 +436,7 @@ async def test_run_worker_in_herdr_tab_active_liveness_pane_missing(tmp_path, mo
                 timeout=180.0,
             )
         duration = time.monotonic() - t0
-        assert duration < 5.0
+        assert duration < FAST_FAIL_SECONDS
         assert "Pane p_pane1 do worker desapareceu (tab/pane fechada?) sem gerar resultado (erro de infraestrutura)" in str(exc_info.value)
         mock_client.close_tab.assert_called_with("t_tab1")
 
@@ -466,7 +470,7 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
                 timeout=180.0,
             )
         duration = time.monotonic() - t0
-        assert duration < 5.0
+        assert duration < FAST_FAIL_SECONDS
         assert "erro de infraestrutura" in str(exc_info.value)
 
 

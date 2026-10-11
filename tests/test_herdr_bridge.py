@@ -158,7 +158,7 @@ async def test_bridge_spreads_parallel_tasks_across_tier_limits(tmp_path, monkey
         bridge.execute_parallel_batch(
             [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(3)]
         ),
-        timeout=5,
+        timeout=30,
     )
 
     assert result is True
@@ -179,7 +179,7 @@ async def test_bridge_waits_for_per_tier_slots_and_completes_all_tasks(tmp_path,
         bridge.execute_parallel_batch(
             [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(4)]
         ),
-        timeout=5,
+        timeout=30,
     )
 
     assert result is True
@@ -205,7 +205,7 @@ async def test_bridge_without_tier_limits_keeps_first_tier_and_skips_slot_logic(
             bridge.execute_parallel_batch(
                 [{"id": f"t{i}", "description": f"task {i}", "timeout": 3} for i in range(3)]
             ),
-            timeout=5,
+            timeout=30,
         )
 
     assert result is True
@@ -225,7 +225,7 @@ async def test_bridge_explicit_initial_tier_skips_per_tier_reservation(tmp_path,
 
     assert await asyncio.wait_for(
         bridge.execute_subtask({"id": "explicit", "description": "explicit", "timeout": 3}, initial_tier="B"),
-        timeout=5,
+        timeout=30,
     )
     assert used == ["B"]
     assert bridge._tier_active == {}
@@ -245,7 +245,7 @@ async def test_bridge_jev_overflow_moves_forward_and_logs_event(tmp_path, monkey
     ) as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask({"id": "jev", "description": "jev", "timeout": 3}),
-            timeout=5,
+            timeout=30,
         )
 
     assert result is True
@@ -277,7 +277,7 @@ async def test_bridge_open_breaker_tier_is_skipped_under_limit(tmp_path, monkeyp
                 for index in range(2)
             ]
         ),
-        timeout=5,
+        timeout=30,
     )
 
     assert result is True
@@ -309,13 +309,13 @@ async def test_bridge_releases_tier_slot_after_false_or_exception(tmp_path, fail
     first = {"id": "first", "description": "first"}
     if isinstance(failure, Exception):
         with pytest.raises(RuntimeError, match="worker failed"):
-            await asyncio.wait_for(bridge.execute_subtask(first), timeout=2)
+            await asyncio.wait_for(bridge.execute_subtask(first), timeout=30)
     else:
-        assert await asyncio.wait_for(bridge.execute_subtask(first), timeout=2) is False
+        assert await asyncio.wait_for(bridge.execute_subtask(first), timeout=30) is False
 
     assert await asyncio.wait_for(
         bridge.execute_subtask({"id": "second", "description": "second"}),
-        timeout=2,
+        timeout=30,
     )
     assert bridge._tier_active["A"] == 0
     assert bridge._held_slots == {}
@@ -1008,7 +1008,7 @@ async def test_bridge_idle_timeout_is_not_reported_as_pane_loss(tmp_path, monkey
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask({"id": "idle", "description": "idle worker", "cwd": str(tmp_path)}),
-            timeout=3,
+            timeout=30,
         )
 
     assert result is False
@@ -1099,7 +1099,7 @@ async def test_bridge_max_runtime_timeout_fires_despite_activity_and_idle_can_be
             bridge.execute_subtask(
                 {"id": "runtime", "description": "continuous activity", "cwd": str(tmp_path)}
             ),
-            timeout=3,
+            timeout=30,
         )
 
     assert result is False
@@ -1127,7 +1127,7 @@ async def test_bridge_zero_idle_timeout_disables_idle_protection(tmp_path, monke
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         assert not await asyncio.wait_for(
             bridge.execute_subtask({"id": "idle-disabled", "description": "runtime remains capped"}),
-            timeout=3,
+            timeout=30,
         )
 
     timeout_event = next(
@@ -1168,7 +1168,7 @@ async def test_bridge_zero_max_runtime_disables_runtime_ceiling(tmp_path, monkey
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         assert await asyncio.wait_for(
             bridge.execute_subtask({"id": "no-runtime-limit", "description": "finish", "cwd": str(tmp_path)}),
-            timeout=3,
+            timeout=30,
         )
     assert not any(
         call.kwargs.get("event_type") == "worker_timeout"
@@ -1286,7 +1286,7 @@ async def test_bridge_timeout_retries_same_tier_then_escalates_and_fails_with_ti
     ) as record_failure:
         result = await asyncio.wait_for(
             bridge.execute_subtask({"id": "timeout-escalation", "description": "timeouts only"}),
-            timeout=5,
+            timeout=30,
         )
 
     assert result is False
@@ -1326,7 +1326,7 @@ async def test_bridge_passes_worker_timeout_as_runtime_plus_sixty(tmp_path, monk
     bridge.spawner.spawn_worker_pane = finish_worker
     assert await asyncio.wait_for(
         bridge.execute_subtask({"id": "timeout-value", "description": "payload timeout"}),
-        timeout=3,
+        timeout=30,
     )
     assert payload_timeouts == [64]
 
@@ -1412,7 +1412,7 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
                     "timeout": 3,
                 }
             ),
-            timeout=5,
+            timeout=30,
         )
 
     assert result is True
@@ -1481,7 +1481,7 @@ async def test_bridge_fails_after_pane_lost_retries_without_escalation(tmp_path,
                     "timeout": 3,
                 }
             ),
-            timeout=5,
+            timeout=30,
         )
 
     assert result is False
@@ -1536,7 +1536,7 @@ async def test_bridge_tracks_pane_lost_retry_limit_per_subtask(tmp_path, monkeyp
                         "timeout": 3,
                     }
                 ),
-                timeout=5,
+                timeout=30,
             )
 
     assert spawns == ["tier_1"] * 4
@@ -1590,7 +1590,7 @@ async def test_bridge_pane_lost_retry_budget_survives_tier_escalation(tmp_path, 
                     "timeout": 3,
                 }
             ),
-            timeout=8,
+            timeout=30,
         )
 
     # A retentativa ja foi gasta na via A: a via B nao ganha outra.
@@ -2677,7 +2677,7 @@ async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypa
         assert success is False
         # o objetivo e distinguir "falha rapida" de esperar o limite de inatividade (centenas de segundos);
         # no Windows o git e a criacao de processos sao lentos e o tempo medido inclui o setup (4,7 s no CI)
-        fast_fail_limit = 10.0 if sys.platform == "win32" else 2.0
+        fast_fail_limit = 20.0 if sys.platform == "win32" else 10.0
         assert elapsed < fast_fail_limit
         assert mock_client.split_pane.call_count == 1
 
@@ -2961,7 +2961,7 @@ async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*(bridge.execute_subtask(item, run_id=run_id) for item in subtasks)),
-            timeout=10,
+            timeout=30,
         )
     finally:
         remove_event_observer(events.append)

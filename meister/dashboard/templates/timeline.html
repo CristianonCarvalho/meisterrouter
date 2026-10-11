@@ -453,6 +453,21 @@
   function parseSoundPreference(stored) {
     return stored === "on";
   }
+  // Touch and pen have no mouseleave, so their tooltip needs an explicit way out.
+  function isTouchLikePointer(pointerType) {
+    return pointerType === "touch" || pointerType === "pen";
+  }
+  // Milliseconds before a touch tooltip hides by itself; 0 means never (mouse uses mouseleave).
+  function tooltipAutoHideMs(pointerType) {
+    return isTouchLikePointer(pointerType) ? 8000 : 0;
+  }
+  // What a tap should do to the tooltip: "show", "hide" or "keep" it as it is.
+  function tooltipNextAction({ visible, sameSource, pointerType, insideTooltip, onTarget }) {
+    if (!isTouchLikePointer(pointerType)) return "keep";
+    if (onTarget) return visible && sameSource ? "hide" : "show";
+    if (insideTooltip) return "hide";
+    return visible ? "hide" : "keep";
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -620,6 +635,11 @@
     banner.hidden = false;
   }
 
+  // Last pointer type seen (mouse, touch or pen) and which target the tooltip belongs to.
+  let lastPointerType = "mouse";
+  let tooltipSource = null;
+  let tooltipHideTimer = null;
+
   function showTaskTooltip(event, row, via, phase, seg) {
     const tip = byId("tooltip");
     byId("tooltip-title").textContent = row.title || row.task_id;
@@ -667,7 +687,66 @@
 
   function hideTaskTooltip() {
     byId("tooltip").style.display = "none";
+    tooltipSource = null;
+    if (tooltipHideTimer !== null) {
+      clearTimeout(tooltipHideTimer);
+      tooltipHideTimer = null;
+    }
   }
+
+  function tooltipVisible() {
+    return byId("tooltip").style.display === "block";
+  }
+
+  // Remembers the shown tooltip's origin; touch and pen also get an automatic hide.
+  function rememberTooltip(source, pointerType) {
+    tooltipSource = source;
+    if (tooltipHideTimer !== null) clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = null;
+    const delay = tooltipAutoHideMs(pointerType);
+    if (delay > 0) tooltipHideTimer = setTimeout(hideTaskTooltip, delay);
+  }
+
+  // Tapping a target toggles its tooltip; mouse keeps using mouseenter and mouseleave.
+  function bindTooltipTap(el, source, show) {
+    el.setAttribute("data-tooltip-target", "1");
+    el.addEventListener("pointerdown", (event) => {
+      if (!isTouchLikePointer(event.pointerType)) return;
+      const action = tooltipNextAction({
+        visible: tooltipVisible(),
+        sameSource: tooltipSource === source,
+        pointerType: event.pointerType,
+        insideTooltip: false,
+        onTarget: true,
+      });
+      if (action === "show") {
+        show(event);
+        rememberTooltip(source, event.pointerType);
+      } else if (action === "hide") {
+        hideTaskTooltip();
+      }
+    });
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    lastPointerType = event.pointerType;
+    const target = event.target;
+    const closest = (selector) => target instanceof Element && target.closest(selector) !== null;
+    if (closest("[data-tooltip-target]")) return;
+    const action = tooltipNextAction({
+      visible: tooltipVisible(),
+      sameSource: false,
+      pointerType: event.pointerType,
+      insideTooltip: closest("#tooltip"),
+      onTarget: false,
+    });
+    if (action === "hide") hideTaskTooltip();
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideTaskTooltip();
+  });
+  window.addEventListener("scroll", hideTaskTooltip, { passive: true });
+  window.addEventListener("resize", hideTaskTooltip);
 
   byId("notice-close").addEventListener("click", () => {
     byId("notice-banner").hidden = true;
@@ -1081,13 +1160,17 @@
           : { dx: "10", "font-size": "10", "font-weight": "400", "letter-spacing": "0" });
         detailSpan.textContent = layout.detail;
         viaText.appendChild(detailSpan);
+        const showLane = (event) => showLaneTooltip(event, layout.name, layout.detail);
         viaText.addEventListener("mouseenter", (event) => {
-          showLaneTooltip(event, layout.name, layout.detail);
+          if (isTouchLikePointer(lastPointerType)) return;
+          showLane(event);
         });
         viaText.addEventListener("mousemove", (event) => {
-          showLaneTooltip(event, layout.name, layout.detail);
+          if (isTouchLikePointer(lastPointerType)) return;
+          showLane(event);
         });
         viaText.addEventListener("mouseleave", hideTaskTooltip);
+        bindTooltipTap(viaText, "lane:" + lane.via, showLane);
       }
       lanesGroup.appendChild(viaText);
 
@@ -1135,13 +1218,17 @@
           "font-size": "11",
           class: "task-title-label",
         });
+        const showTitle = (event) => showTaskTooltip(event, row, lane.via);
         taskText.addEventListener("mouseenter", (event) => {
-          showTaskTooltip(event, row, lane.via);
+          if (isTouchLikePointer(lastPointerType)) return;
+          showTitle(event);
         });
         taskText.addEventListener("mousemove", (event) => {
-          showTaskTooltip(event, row, lane.via);
+          if (isTouchLikePointer(lastPointerType)) return;
+          showTitle(event);
         });
         taskText.addEventListener("mouseleave", hideTaskTooltip);
+        bindTooltipTap(taskText, "title:" + row.task_id, showTitle);
         lanesGroup.appendChild(taskText);
 
         // Task segments
@@ -1172,13 +1259,17 @@
             class: "task-bar",
           });
 
+          const showBar = (event) => showTaskTooltip(event, row, lane.via, seg.phase, seg);
           bar.addEventListener("mouseenter", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase, seg);
+            if (isTouchLikePointer(lastPointerType)) return;
+            showBar(event);
           });
           bar.addEventListener("mousemove", (event) => {
-            showTaskTooltip(event, row, lane.via, seg.phase, seg);
+            if (isTouchLikePointer(lastPointerType)) return;
+            showBar(event);
           });
           bar.addEventListener("mouseleave", hideTaskTooltip);
+          bindTooltipTap(bar, "bar:" + row.task_id + ":" + sIdx, showBar);
 
           lanesGroup.appendChild(bar);
 

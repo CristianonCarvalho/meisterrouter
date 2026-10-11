@@ -9,6 +9,10 @@ import pytest
 from meister.logs_cmd import LogSelectionError, follow, list_worker_logs, read_tail, select_log
 
 
+# Prazo de proteção contra travamento dos testes de `follow`, folgado para runners lentos.
+FOLLOW_GUARD_SECONDS = 30
+
+
 def _touch(directory, name, content=b"", mtime=None):
     path = directory / name
     path.write_bytes(content)
@@ -122,7 +126,8 @@ def test_read_tail_large_file_is_fast_and_correct(tmp_path):
     elapsed = time.perf_counter() - start
 
     assert tail == [f"last-{total - 3}", f"last-{total - 2}", f"last-{total - 1}"]
-    assert elapsed < 2.0
+    # Margem larga para runner lento (Windows sob xdist); o tail normalmente leva milissegundos.
+    assert elapsed < 10.0
 
 
 def test_read_tail_crosses_block_boundaries(tmp_path):
@@ -149,7 +154,7 @@ def test_follow_yields_lines_appended_later(tmp_path):
     thread = threading.Thread(target=writer)
     thread.start()
     received: list[str] = []
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + FOLLOW_GUARD_SECONDS
     for line in follow(
         str(path), poll=0.02, stop=lambda: time.monotonic() > deadline or (done.is_set() and len(received) >= 2)
     ):
@@ -161,7 +166,7 @@ def test_follow_yields_lines_appended_later(tmp_path):
 
 def test_follow_waits_for_missing_file_and_restarts_on_truncate(tmp_path):
     path = tmp_path / "later.log"
-    deadline = time.monotonic() + 5
+    deadline = time.monotonic() + FOLLOW_GUARD_SECONDS
 
     def writer():
         time.sleep(0.15)

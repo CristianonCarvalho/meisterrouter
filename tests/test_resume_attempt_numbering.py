@@ -14,6 +14,9 @@ from meister.worker import write_atomic_json
 RUN_ID = "resume-attempts-run"
 TASK_ID = "resume-task"
 DESCRIPTION = "Resume attempt numbering"
+# Limite de espera que existe só para a suíte não travar: folgado para runners lentos
+# (Windows sob xdist); o caminho normal termina em milissegundos.
+HANG_GUARD_SECONDS = 30
 
 
 def _init_repo(repo_dir: Path) -> None:
@@ -78,7 +81,7 @@ def _subtask_payload(repo_dir: Path) -> dict:
         "description": DESCRIPTION,
         "target_files": ["app.py"],
         "cwd": str(repo_dir),
-        "timeout": 3,
+        "timeout": HANG_GUARD_SECONDS,
     }
 
 
@@ -116,7 +119,7 @@ async def test_resumed_subtask_continues_attempt_numbering_from_stored_count(tmp
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
-            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5
+            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
 
     assert result is True
@@ -160,7 +163,7 @@ async def test_pane_lost_retry_after_resume_gets_next_attempt_number(tmp_path, m
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
-            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5
+            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
 
     assert result is True
@@ -188,7 +191,7 @@ async def test_first_attempt_stays_one_without_prior_attempts(tmp_path, monkeypa
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
-            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5
+            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
     assert [event["attempt"] for event in _spawn_events(log_event_mock)] == [1]
     assert result is True
@@ -220,7 +223,7 @@ async def test_invalid_stored_attempts_are_treated_as_zero(tmp_path, monkeypatch
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
-            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5
+            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
 
     assert result is True
@@ -242,7 +245,7 @@ async def test_stored_attempts_are_read_without_capping_small_values(tmp_path, m
 
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
-        await asyncio.wait_for(bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5)
+        await asyncio.wait_for(bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS)
 
     assert [event["attempt"] for event in _spawn_events(log_event_mock)] == [3]
 
@@ -268,7 +271,7 @@ async def test_recovered_stranded_run_resumes_with_higher_unique_attempts(tmp_pa
     bridge.spawner.spawn_worker_pane = fake_spawn
     with patch("meister.herdr.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
-            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=5
+            bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
 
     assert result is True

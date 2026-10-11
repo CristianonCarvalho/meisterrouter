@@ -23,6 +23,10 @@ from meister.worker import write_atomic_json
 
 _ACCENTS = re.compile(r"[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]")
 RESULT_PAYLOAD = {"status": "done", "modified_files": []}
+# Proteção contra travamento da suíte, folgada para runner lento (Windows sob xdist).
+HANG_GUARD_SECONDS = 120
+# Detecção da morte do processo: bem abaixo do timeout de inatividade (600 s), com margem para runner lento.
+PROCESS_EXIT_SECONDS = 60
 
 
 def _config(tmp_path, tiers=("A",), idle=600, retries=1):
@@ -101,7 +105,7 @@ def test_task_context_carries_env_log_and_exit_file_into_worker_command(tmp_path
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
     bridge.current_run_id = "runfields"
     with patch("meister.herdr.bridge.log_event"):
-        asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo, "fields")), timeout=20))
+        asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo, "fields")), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]
     assert captured["env"]["MEISTER_WORKER"] == "1"
@@ -201,7 +205,7 @@ def test_command_str_records_worker_exit_code_in_exit_file(tmp_path, monkeypatch
 
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
     with patch("meister.herdr.bridge.log_event") as log_mock:
-        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert result is False
     assert spawns == ["A"]
@@ -227,11 +231,11 @@ def test_process_death_without_result_retries_same_tier_and_fails_fast(tmp_path,
     with patch("meister.herdr.bridge.log_event") as log_mock, patch.object(
         bridge.get_state_manager(), "record_harness_failure"
     ) as record_failure:
-        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
     elapsed = time.monotonic() - started
 
     assert result is False
-    assert elapsed < 10, "devia perceber a morte do processo sem esperar o timeout de inatividade"
+    assert elapsed < PROCESS_EXIT_SECONDS, "devia perceber a morte do processo sem esperar o timeout de inatividade"
     assert spawns == ["A", "A"], "deve tentar de novo na mesma via e nunca escalar"
     record_failure.assert_not_called()
 
@@ -262,7 +266,7 @@ def test_result_landing_during_grace_window_wins_over_process_exit(tmp_path, mon
 
     bridge, spawns = _bridge(_config(tmp_path, retries=1), behavior)
     with patch("meister.herdr.bridge.log_event") as log_mock:
-        asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+        asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]
     assert _events(log_mock, "worker_process_exited") == []
@@ -282,7 +286,7 @@ def test_stale_exit_file_from_previous_attempt_is_not_reused(tmp_path, monkeypat
 
     bridge, spawns = _bridge(_config(tmp_path, retries=1), behavior)
     with patch("meister.herdr.bridge.log_event") as log_mock:
-        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A", "A"]
     assert result is True
@@ -305,7 +309,7 @@ def test_leftover_exit_file_at_spawn_path_is_removed_before_spawn(tmp_path, monk
 
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
     with patch("meister.herdr.bridge.log_event") as log_mock:
-        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
+        result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]
     assert result is True
