@@ -6,19 +6,41 @@ LLM orquestradora (por exemplo o Claude Code) o gera, importa e executa seguindo
 `meister setup --project` instala (`CLAUDE.md`, hooks e guard). Esta página explica o formato, para você
 revisar um plano ou escrever um do zero.
 
-## Superpowers: recomendado, não obrigatório
+## O fluxo
 
-O formato é o do plano gerado pela skill **`writing-plans`** do plugin
-[Superpowers](https://github.com/obra/superpowers) para o Claude Code. Por isso o Superpowers é o caminho
-recomendado: ele conduz a conversa (ideia, desenho, plano) e entrega o plano já no formato certo.
+O MeisterRouter tem comandos próprios para escrever um plano; nenhum plugin é necessário:
 
-```text
-/plugin marketplace add obra/superpowers-marketplace
-/plugin install superpowers@superpowers-marketplace
+```bash
+meister plan guide                 # as regras do formato (curto, em en ou pt-BR)
+meister plan new -o plano.md       # moldura pronta, com N tarefas vazias
+   (preencha as tarefas)
+meister plan import plano.md -o plano.json
+meister plan validate plano.json
+meister plan analyze plano.json
+meister orchestrate --plan-file plano.json
 ```
 
-Sem o Superpowers o MeisterRouter funciona do mesmo jeito: basta que o plano esteja neste formato (qualquer
-LLM, ou você, pode escrevê-lo) ou no JSON canônico descrito no fim da página.
+### `meister plan guide`
+
+Imprime o guia completo do formato: o fluxo acima, como dividir o trabalho em muitas tarefas pequenas,
+`**Files:**` como escopo, `**Depends on:**`, paralelismo, o que não fazer e exemplos em Markdown e JSON.
+
+| Opção | O que faz |
+|---|---|
+| `--lang en\|pt-BR` | Idioma do guia (padrão: o idioma configurado). |
+
+### `meister plan new`
+
+Imprime (ou grava) um plano vazio: o título, `## Global Constraints` e N blocos `### Task K:` com
+`**Files:**` e, a partir da segunda tarefa, `**Depends on:**`. Uma linha de comentário aponta para
+`meister plan guide`; o importador a ignora. A moldura passa por `plan import` e `plan validate` sem edição.
+
+| Opção | O que faz |
+|---|---|
+| `--tasks N` | Número de tarefas (padrão 3). |
+| `--format markdown\|json` | `markdown` (padrão) ou o array JSON canônico descrito no fim da página. |
+| `-o ARQUIVO` | Grava em `ARQUIVO`; sem ele, imprime no terminal. |
+| `--project` | Preenche `## Global Constraints` com regras lidas do `CLAUDE.md` e do `AGENTS.md` do diretório atual, se existirem (nunca inventa regras). |
 
 ## O plano em Markdown
 
@@ -101,14 +123,29 @@ tarefa tem `id`, `description` (o texto que o worker recebe), `target_files` e `
 ]
 ```
 
+## Superpowers (opcional)
+
+O formato é o mesmo do plano gerado pela skill **`writing-plans`** do plugin
+[Superpowers](https://github.com/obra/superpowers) para o Claude Code. Se você usa a skill, o plano dela
+entra direto no `meister plan import` (`--format superpowers` continua aceito e é o mesmo formato).
+
+```text
+/plugin marketplace add obra/superpowers-marketplace
+/plugin install superpowers@superpowers-marketplace
+```
+
 ## Comandos (para quem quiser rodar à mão)
 
 ```bash
+meister plan guide                                    # as regras do formato
+meister plan new --tasks 5 -o plano.md                # moldura de plano vazia
 meister plan import plano.md -o plano.json            # Markdown -> JSON (mostra a tabela de tarefas)
 meister plan import plano.md --deps files -o plano.json
 meister plan validate plano.json                      # confere esquema, dependências e chaves proibidas
 meister plan analyze plano.json                       # paralelismo previsto e avisos de plano serial
 meister orchestrate --plan-file plano.json            # executa
 ```
+O `plan import` detecta o formato sozinho (`--format auto`, o padrão): plano em Markdown ou JSON canônico.
+`--format markdown` e `--format superpowers` são nomes do mesmo formato nativo.
 Mais opções (`--resume`, `--quiet`, `--allow-unscoped`) em
 [Instalação alternativa e comandos avançados](INSTALACAO_E_COMANDOS_AVANCADOS.md).

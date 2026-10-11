@@ -94,17 +94,21 @@ Após coletar as evidências determinísticas:
 # Abre http://localhost:5050
 ```
 
-## 05. Fluxo de Trabalho com Planos Estruturados (superpowers → orchestrate)
+## 05. Fluxo de Trabalho com Planos Estruturados (plan → orchestrate)
 
-Use este fluxo para tarefas de múltiplos passos geradas pela skill `superpowers:writing-plans`:
+Use este fluxo para tarefas de múltiplos passos:
 
-### 1. Escrever o plano com `superpowers:writing-plans`
-A skill gera um arquivo em `docs/superpowers/plans/YYYY-MM-DD-<feature>.md`.
+### 1. Escrever o plano
+Leia as regras do formato com `meister plan guide` e parta da moldura de `meister plan new`:
+```bash
+meister plan guide
+meister plan new --tasks 5 -o docs/superpowers/plans/YYYY-MM-DD-<feature>.md
+```
+Se você usa a skill `superpowers:writing-plans`, ela gera o arquivo no mesmo formato e no mesmo caminho.
 
 ### 2. Converter para JSON canônico
 ```bash
-meister plan import --format superpowers docs/superpowers/plans/YYYY-MM-DD-<feature>.md \
-  -o plano.json
+meister plan import docs/superpowers/plans/YYYY-MM-DD-<feature>.md -o plano.json
 ```
 O comando imprime a tabela de tarefas (id, arquivos, dependências) para revisão humana.
 Opcionalmente adicione a linha `**Depends on:** Task 2, Task 5` em tarefas no plano para
