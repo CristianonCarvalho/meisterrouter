@@ -16,7 +16,7 @@ O fluxo completo "do plano à `main`" também está em [`FLUXO_MEISTERROUTER.md`
 | 8 | [Worktrees e branches](#8-worktrees-e-branches) | Onde o código de cada worker vive |
 | 9 | [Telemetria e visualização](#9-telemetria-e-visualização) | De onde vêm o dashboard, a linha do tempo e o relatório |
 | 10 | [Guard do Claude Code](#10-guard-do-claude-code) | Como a orquestradora é impedida de editar código |
-| 11 | [Instalação e integração com o Herdr](#11-instalação-e-integração-com-o-herdr) | O que o instalador e o `init` configuram |
+| 11 | [Instalação e integração com o Herdr](#11-instalação-e-integração-com-o-herdr) | O que o instalador e o `init` configuram (parte opcional do Herdr) |
 
 ---
 
@@ -36,7 +36,11 @@ flowchart LR
     CORE["Orquestração:<br/>DAG, estado, merge, gates"]
   end
   JEV["Jev (OpenRouter)<br/>classify e control<br/>única parte não determinística"]
-  HERDR["Herdr<br/>tabs visíveis, popups, atalhos"]
+  subgraph HOST["Host de worker (runtime.host)"]
+    H1["Herdr<br/>tabs visíveis, popups, atalhos"]
+    H2["processo local<br/>log em arquivo por worker"]
+    H3["tmux<br/>uma janela por worker"]
+  end
   subgraph W["Workers (CLIs nas suas assinaturas)"]
     W1["copilot"]
     W2["codex"]
@@ -51,13 +55,13 @@ flowchart LR
   CLI --> CORE
   CORE -- "qual via?" --> JEV
   JEV -- "via e julgamento" --> CORE
-  CORE -- "abre tab e roda" --> HERDR
-  HERDR --> W
+  CORE -- "inicia o worker" --> HOST
+  HOST --> W
   W -- "código no worktree" --> GIT
   CORE -- "gate, merge, fast-forward" --> GIT
   CORE -. "eventos JSONL" .-> OBS
   U -. "acompanha" .-> OBS
-  U -. "acompanha" .-> HERDR
+  U -. "acompanha" .-> HOST
 ```
 
 ---
@@ -98,8 +102,9 @@ flowchart TB
 
   subgraph EXEC["Execução dos workers"]
     WS["herdr/workers.py<br/>WorkerSpawner, tiers, detecção de cota"]
-    WK["worker.py<br/>HarnessWorker, tabs do Herdr"]
-    HC["herdr/client.py + events.py<br/>socket do Herdr"]
+    HS["hosts/<br/>select.py: runtime.host (auto, herdr, process, tmux)<br/>herdr.py, process.py, tmux.py"]
+    WK["worker.py<br/>HarnessWorker"]
+    HC["herdr/client.py + events.py<br/>socket do Herdr (só no host Herdr)"]
   end
 
   subgraph INTG["Integração"]
@@ -118,7 +123,7 @@ flowchart TB
   end
 
   EXT1["OpenRouter"]
-  EXT2["Herdr"]
+  EXT2["Host de worker:<br/>Herdr, processo local ou tmux"]
   EXT3["CLIs: copilot, codex, agy, claude"]
   EXT4[("Git")]
 
@@ -134,14 +139,16 @@ flowchart TB
   BR --> JC
   BR --> WS
   WS --> WK
-  WK --> HC
+  CLI --> HS
+  BR --> HS
+  HS --> HC
+  HS --> EXT2
   BR --> WT
   BR --> GT
   WT --> GT
   WT --> ENV
   GT --> ENV
   JEV --> EXT1
-  HC --> EXT2
   WK --> EXT3
   WT --> EXT4
   BR --> LG
@@ -172,7 +179,7 @@ sequenceDiagram
   participant B as Bridge (orquestrador)
   participant S as Estado (SQLite)
   participant J as Jev (OpenRouter)
-  participant H as Herdr
+  participant H as Host de worker (Herdr, processo ou tmux)
   participant W as Worker (CLI da assinatura)
   participant T as Worktrees e Git
   participant G as Gate determinístico
@@ -190,10 +197,10 @@ sequenceDiagram
       J-->>B: classe e via recomendada
       Note over B: elegibilidade, cooldown, disjuntor e vaga por via
       B->>T: cria worktree e branch da subtarefa
-      B->>H: abre tab visível e roda o worker
+      B->>H: inicia o worker (tab do Herdr, processo ou janela do tmux)
       H->>W: executa a tarefa no worktree
       W-->>H: termina
-      H-->>B: resultado do pane
+      H-->>B: resultado do worker
       B->>G: escopo e gate no worktree do worker
       G-->>B: aprovado
       B->>T: commit do worker
@@ -212,7 +219,7 @@ sequenceDiagram
   B->>T: fast-forward da main (único ponto que toca a main)
   B->>S: run COMPLETED, orchestration_end
   B->>T: limpa worktrees e branches
-  B->>H: fecha as tabs
+  B->>H: fecha as tabs ou janelas (Herdr, tmux)
   B-->>C: concluído
   C-->>O: resumo no terminal
 ```
@@ -467,7 +474,9 @@ flowchart TD
 
 ## 11. Instalação e integração com o Herdr
 
-O Herdr é pré-requisito. O instalador chama o `meister setup`, que faz o resto e é seguro rodar de novo.
+O Herdr não é obrigatório para rodar os workers: sem ele, `runtime.host: auto` os roda como processos locais (e
+`runtime.host: tmux` os roda em janelas do tmux). O fluxo abaixo é a instalação com o Herdr: o instalador chama o
+`meister setup`, que faz o resto e é seguro rodar de novo.
 
 ```mermaid
 flowchart TD
