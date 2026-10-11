@@ -27,7 +27,7 @@ VALID_ARCHITECT_EFFORTS: Set[str] = {"low", "medium", "high", "xhigh", "max"}
 VALID_WORKER_CLASSES: Set[str] = {"SMALL", "MEDIUM", "HIGH", "ESCALATE"}
 VALID_RUNTIME_HOSTS: Set[str] = {"auto", "process", "herdr", "tmux"}
 KNOWN_HARNESSES: Set[str] = {
-    "codex", "agy", "antigravity", "claude", "copilot", "github-copilot"
+    "codex", "agy", "antigravity", "claude", "copilot", "github-copilot", "kiro-cli", "kiro"
 }
 
 
@@ -1645,6 +1645,15 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                         level="warning",
                         path=f"workers.tier_order[{i}].harness",
                         message=t("reports.config.executable_not_found", executable="copilot"),
+                    )
+                )
+        elif h in ("kiro-cli", "kiro"):
+            if not (shutil.which("kiro-cli") or shutil.which("kiro")):
+                issues.append(
+                    ConfigIssue(
+                        level="warning",
+                        path=f"workers.tier_order[{i}].harness",
+                        message=t("reports.config.executable_not_found", executable="kiro-cli"),
                     )
                 )
 
