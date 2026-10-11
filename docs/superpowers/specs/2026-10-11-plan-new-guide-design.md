@@ -1,6 +1,6 @@
 # Planos sem depender do superpowers: `meister plan new` e `meister plan guide`
 
-**Status:** aprovado pelo dono em 2026-10-11 (decisões 1, 2 e 3 abaixo). Plano ainda não lançado.
+**Status:** implementado (aprovado pelo dono em 2026-10-11, decisões 1, 2 e 3 abaixo). Ficou de fora, como previsto na seção 4: a validação semântica do conteúdo das tarefas (o `plan validate` confere só a estrutura: ids, arquivos, dependências e chaves).
 **Origem:** item do `BACKLOG.md` "Tornar o superpowers opcional". O Meister não precisa do plugin instalado; o que o amarra é o **formato** de plano da skill e o texto que a apresenta como o caminho (`plan import --format superpowers` por padrão, modelos do `init`, README e `CLAUDE.md`).
 **Decisões do dono:** (1) o modelo de plano é em **Markdown** (JSON só como opção); (2) as regras ficam num comando à parte, `meister plan guide`, que o `CLAUDE.md` do projeto manda ler; (3) `plan new` vira o **primeiro passo** nos modelos do `init`.
 
