@@ -73,7 +73,8 @@ jobs:
           pytest -v --durations=15 -n auto --cov=meister --cov-report=term-missing
 
       - name: Real Maven gate test
-        # Roda o gate num projeto Maven de verdade (sem mvn simulado). No Windows o runner já traz Maven e o JDK 8
+        # Roda o gate num projeto Maven de verdade (sem mvn simulado) e também o orchestrate completo com harness falso
+        # (tests/test_e2e_maven_process_host.py). No Windows o runner já traz Maven e o JDK 8
         # (JAVA_HOME_8_X64), o que cobre mvn.cmd, PATHEXT e caminhos do Windows; no Ubuntu só a perna 3.12.
         if: matrix.os == 'windows-latest' || (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12')
         env:
@@ -81,7 +82,7 @@ jobs:
           # O limite padrão de 180 s por teste não bastaria na primeira execução, que baixa plugins do Maven Central.
           MEISTER_TEST_TIMEOUT: '600'
         run: |
-          pytest tests/test_gate_maven_real.py -v -p no:cacheprovider
+          pytest tests/test_gate_maven_real.py tests/test_e2e_maven_process_host.py -v -p no:cacheprovider
 
       - name: Security scan with Bandit (informativo)
         continue-on-error: true
