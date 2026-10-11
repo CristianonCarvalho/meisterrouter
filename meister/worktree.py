@@ -148,11 +148,15 @@ def scope_violations(
     target_files: Optional[List[str]],
     tolerated_files: Optional[List[str]] = None,
     ignored_files: Optional[Set[str]] = None,
+    dependency_files: Optional[List[str]] = None,
 ) -> List[str]:
-    """Retorna arquivos fora do escopo usando as mesmas regras do portão de worktrees."""
+    """Retorna arquivos fora do escopo usando as mesmas regras do portão de worktrees.
+
+    ``dependency_files`` são padrões de tarefas ancestrais, tratados como parte de ``target_files``.
+    """
     if not target_files:
         return []
-    targets = [_normalize_scope_pattern(path) for path in target_files]
+    targets = [_normalize_scope_pattern(path) for path in [*target_files, *(dependency_files or [])]]
     tolerated = [_normalize_scope_pattern(path) for path in tolerated_files or []]
     ignored = ignored_files or set()
     return [
@@ -598,6 +602,7 @@ class WorktreeManager:
         target_files: Optional[List[str]],
         base_ref: Optional[str] = None,
         tolerated: Optional[List[str]] = None,
+        dependency_files: Optional[List[str]] = None,
     ) -> Tuple[bool, List[str]]:
         """Verifica se as modificações no worktree respeitaram target_files (Achado #2).
 
@@ -610,7 +615,9 @@ class WorktreeManager:
         tolerated_patterns = tolerated if tolerated is not None else load_config(cwd=self.repo_root).scope.tolerated_files
         ignored = self._get_ignored_files(worktree_path, modified)
 
-        out_of_scope = scope_violations(modified, target_files, tolerated_patterns, ignored)
+        out_of_scope = scope_violations(
+            modified, target_files, tolerated_patterns, ignored, dependency_files=dependency_files
+        )
         return len(out_of_scope) == 0, out_of_scope
 
     @staticmethod
