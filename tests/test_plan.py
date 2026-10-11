@@ -684,7 +684,7 @@ class TestPlanCLI:
         runner = self._runner()
         # Mock the bridge so we don't actually connect to Herdr socket
         with patch(
-            "meister.herdr.bridge.HerdrEventBridge.run_orchestration_cycle",
+            "meister.engine.bridge.HerdrEventBridge.run_orchestration_cycle",
             new=AsyncMock(return_value=True),
         ):
             result = runner.invoke(main, [
@@ -701,7 +701,7 @@ class TestPlanCLI:
         runner = self._runner()
         # Mock bridge to avoid blocking socket connection
         with patch(
-            "meister.herdr.bridge.HerdrEventBridge.run_orchestration_cycle",
+            "meister.engine.bridge.HerdrEventBridge.run_orchestration_cycle",
             new=AsyncMock(return_value=True),
         ):
             result = runner.invoke(main, [
@@ -741,7 +741,7 @@ class TestSecurityCommandKey:
         it IS used directly. This test documents the existing behaviour (not a bug we must fix
         since D5 prevents it at load_plan, but we must confirm the path and test it)."""
         from meister.config import load_config
-        from meister.herdr.workers import WorkerSpawner
+        from meister.engine.workers import WorkerSpawner
         cfg = load_config()
         spawner = WorkerSpawner(cfg)
         # Simulate a task_context that somehow has 'command' (would only happen
@@ -811,7 +811,7 @@ import asyncio  # noqa: E402
 from unittest.mock import AsyncMock, MagicMock, patch  # noqa: E402
 
 from meister.config import load_config  # noqa: E402
-from meister.herdr.bridge import HerdrEventBridge  # noqa: E402
+from meister.engine.bridge import HerdrEventBridge  # noqa: E402
 from meister.state import StateManager  # noqa: E402
 
 _FREEFORM_PANE = "Please refactor the whole auth module and make it faster."

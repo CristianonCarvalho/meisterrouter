@@ -9,7 +9,7 @@ from meister.state import (
     compute_run_id,
     compute_subtask_id,
 )
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 
 
 def test_compute_ids_deterministic():

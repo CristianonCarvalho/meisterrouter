@@ -8,7 +8,7 @@ from click.testing import CliRunner
 
 from meister.cli import main
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge, ResumeRequestError
+from meister.engine.bridge import HerdrEventBridge, ResumeRequestError
 from meister.state import RunState, StateManager, SubtaskState, compute_run_id, task_fingerprint
 from meister.worktree import IntegrationPipeline
 
@@ -227,7 +227,7 @@ def test_bridge_reuse_rejects_invalid_origin_task(tmp_path, monkeypatch, change,
         updated_tasks[0]["target_files"] = ["elsewhere.txt"]
     bridge = _bridge(sm, repo, monkeypatch)
     reuse_events = []
-    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: reuse_events.append(event))
+    monkeypatch.setattr("meister.engine.bridge.log_event", lambda **event: reuse_events.append(event))
     new_run = sm.create_or_get_run(json.dumps(updated_tasks), cwd=str(repo), force_run_id=f"new-{change}")
     new_rows = sm.add_subtasks(new_run["run_id"], updated_tasks)
 
@@ -311,7 +311,7 @@ async def test_explicit_resume_of_same_run_keeps_completed_tasks(tmp_path, monke
     bridge = _bridge(sm, repo, monkeypatch)
     bridge.config.concurrency.isolation_mode = "none"
     events = []
-    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: events.append(event))
+    monkeypatch.setattr("meister.engine.bridge.log_event", lambda **event: events.append(event))
     dispatched = []
     bridge.gate = MagicMock()
     bridge.gate.run_verification.return_value = (True, "ok")
@@ -357,7 +357,7 @@ async def test_auto_resume_uses_same_run_when_no_other_run_is_eligible(tmp_path,
     bridge.config.concurrency.isolation_mode = "none"
     messages = []
     events = []
-    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: events.append(event))
+    monkeypatch.setattr("meister.engine.bridge.log_event", lambda **event: events.append(event))
     bridge.execute_plan = AsyncMock(return_value=False)
 
     assert await bridge.run_orchestration_cycle(

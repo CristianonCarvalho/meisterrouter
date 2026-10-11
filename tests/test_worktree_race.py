@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.state import SubtaskState, compute_subtask_id
 from meister.worktree import WorktreeManager
 
@@ -342,7 +342,7 @@ async def test_bridge_rejects_subtask_on_worktree_create_failure(tmp_path):
 
     logged_events: list = []
 
-    with patch("meister.herdr.bridge.log_event", side_effect=lambda **kw: logged_events.append(kw)):
+    with patch("meister.engine.bridge.log_event", side_effect=lambda **kw: logged_events.append(kw)):
         result = await bridge.execute_subtask(subtask, run_id=run_id)
 
     # Must return False
@@ -392,7 +392,7 @@ async def test_bridge_subtask_never_completed_on_worktree_failure(tmp_path):
 
     subtask = {"id": "t2", "description": "Regression check", "target_files": [], "depends_on": []}
 
-    with patch("meister.herdr.bridge.log_event"):
+    with patch("meister.engine.bridge.log_event"):
         result = await bridge.execute_subtask(subtask, run_id=run_id)
 
     assert result is False

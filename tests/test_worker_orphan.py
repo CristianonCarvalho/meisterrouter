@@ -19,7 +19,7 @@ from meister.worker import (
     write_atomic_json,
 )
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.state import StateManager
 from unittest.mock import AsyncMock, patch
 
@@ -464,7 +464,7 @@ async def test_bridge_reaps_orphan_before_retry_and_logs_only_killed(
         event_order.append(fields)
 
     try:
-        with patch("meister.herdr.bridge.log_event", side_effect=capture_event):
+        with patch("meister.engine.bridge.log_event", side_effect=capture_event):
             result = await asyncio.wait_for(
                 bridge.execute_subtask(
                     {
@@ -536,7 +536,7 @@ async def test_cleanup_run_panes_reaps_active_worker_harness(tmp_path):
         "attempt": 2,
         "subtask": {"task_file": str(task_file)},
     }
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         try:
             await bridge.cleanup_run_panes("run")
             assert process.wait(timeout=5) < 0
@@ -637,7 +637,7 @@ async def test_timeout_ignores_error_result_written_because_of_our_own_reap(tmp_
     bridge.spawner.spawn_worker_pane = fake_spawn
 
     try:
-        with patch("meister.herdr.bridge.log_event", side_effect=lambda **fields: events.append(fields)):
+        with patch("meister.engine.bridge.log_event", side_effect=lambda **fields: events.append(fields)):
             result = await asyncio.wait_for(
                 bridge.execute_subtask(
                     {"id": "reap-error", "description": "timeout after reap", "cwd": str(tmp_path)}
