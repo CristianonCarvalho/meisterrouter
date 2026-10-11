@@ -56,7 +56,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.replay_strict_failed": "Failed to replay {label}: {error}",
     "engine.worktree.integration_started": "Integration pipeline started on branch {branch} (worktree: {path})",
     "engine.worktree.integration_not_started": "Integration pipeline has not been initialized.",
-    "engine.worktree.scope_violation": "Scope violation in worktree: {files}. Declare the file under **Files:** (glob patterns accepted, e.g. drizzle/*) or add it to scope.tolerated_files in meister.config.yaml.",
+    "engine.worktree.scope_violation": "Scope violation in worktree: {files}. These files are outside the scope of this task. Undo your changes to them (git checkout -- <file> for tracked files; delete new files) and keep only the files declared under **Files:**. Never edit meister.config.yaml; only the project owner changes it. Note for the project owner: if these files belong to the task, declare them under **Files:** in the plan (glob patterns accepted, e.g. drizzle/*) or add them to scope.tolerated_files.",
     "engine.worktree.worker_gate_failed": "Deterministic gate failed in worker worktree:\n{output}",
     "engine.worktree.subtask_already_integrated": "Subtask {task_id} was already integrated ({sha}).",
     "engine.worktree.subtask_integrated": "Subtask {task_id} integrated successfully ({sha}).",
