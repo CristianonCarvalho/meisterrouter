@@ -19,6 +19,11 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
+- **`runtime.host` escolhe onde os workers rodam.** Define o adaptador que hospeda cada worker: `herdr`, `tmux` ou `process`. Veja [docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
+- **Adaptador `process`:** os workers rodam como processos em segundo plano, sem multiplexador de terminal, então o MeisterRouter funciona sem o Herdr instalado.
+- **Adaptador `tmux`:** os workers rodam em panes do tmux, como alternativa ao Herdr.
+- **`meister logs`** mostra a saída de um worker, o que importa sobretudo com o adaptador `process`, em que não há pane para olhar.
+- **Variável de ambiente `MEISTER_WORKER`** marca um processo como worker do MeisterRouter, qualquer que seja o host. `MEISTER_IN_PANE` continua existindo e é respeitada.
 - **Suporte nativo ao Windows (em validação):** camada `meister.osops` com o código específico de cada SO (POSIX em `posix.py`, Windows em `windows.py`), `psutil` como dependência apenas no Windows, correção de `os.kill(pid, 0)` e hooks gravados com final de linha LF. O comportamento no Linux e no macOS não muda.
 - **Detecção de teste instável no gate (`gate.flaky_retries`, padrão `2`; `0` desliga).** Quando o gate reprova por testes do pytest, ele reexecuta primeiro só esses testes no mesmo worktree (até `flaky_retries` vezes). Se passarem, o gate completo roda mais uma vez e é a autoridade final: se passar, a tarefa é aprovada com o evento `gate_flaky` listando os testes, e nenhum worker de reparo é aberto. Se um teste continuar falhando, ou a falha não tiver ids de teste (lint, coleta), a reprovação e o fluxo de reparo seguem como antes. Teste instável deixa de custar uma sessão de modelo e vários minutos de reparo.
 - **`meister wait [--run-id ID] [--timeout S] [--format text|json]`** bloqueia até uma run terminar e sai com um código que diz como: `0` concluída, `1` falhou, `130` interrompida, `124` timeout, `2` erro de uso. Só lê o log (nunca grava), acompanha runs retomadas e permite que um agente orquestrador seja avisado sem ficar consultando. Veja [docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
@@ -44,6 +49,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - O Jev passa a receber chaves opacas das vias (`lane_a`, `lane_b`...) em vez dos nomes: nomes como `tier_N` faziam o Jev ler ranking e escolher uma via mais cara. A resposta é traduzida de volta para o nome real da via, então `recommended_implementer`, `fallback_chain` e a telemetria continuam com os nomes reais.
 
 ### Outras alterações
+- O `meister setup` e o `bin/install.sh` não exigem mais o Herdr: quando ele falta, pulam os passos do Herdr e seguem, e quem tem o Herdr instalado vê os mesmos passos de antes. `MEISTER_ALLOW_NO_HERDR` agora não tem efeito.
 - Alterações em arquivos de escopo tolerado geram eventos `scope_tolerated` e linhas de progresso; este repositório tolera `tests/**`, mas ainda exige que a suíte inteira passe. Seu `meister.config.yaml` usa `router.mode: first` (sem Jev; o fallback de `tier_order` continua ativo).
 - Alicerce de internacionalização (`en` padrão, `pt-BR` configurável), códigos de motivo para rejeições no pipeline e catraca de literais acentuados.
 - Laço de reparo do gate determinístico (`gate.repair_attempts`) e preservação do diagnóstico da rejeição de subtarefas.
