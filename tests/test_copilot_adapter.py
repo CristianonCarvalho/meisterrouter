@@ -13,7 +13,7 @@ from meister.worker import (
     HarnessWorker,
 )
 from meister.config import WorkerTier, MeisterConfig
-from meister.herdr.workers import WorkerSpawner
+from meister.engine.workers import WorkerSpawner
 
 
 def test_copilot_harness_resolution():

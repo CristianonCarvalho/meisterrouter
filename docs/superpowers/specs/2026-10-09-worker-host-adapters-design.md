@@ -1,6 +1,6 @@
 # Hosts de worker por adaptador: Meister sem dependência de terminal (Herdr, tmux ou nenhum)
 
-**Status:** fases 1 a 5 concluídas (fase 1: contrato `WorkerHost` e `HerdrHost`; fase 2: adaptador `process` e `runtime.host: auto`; fase 3: `meister logs`, `MEISTER_WORKER`, manual de segundo plano; fase 4: adaptador `tmux`; fase 5: o Herdr passa a opcional em `meister setup`, `install.sh` e na documentação). Fase 6 (opcional: renomear `meister/herdr/` e tornar `flask` opcional) **pendente**, junto com as decisões da seção 12. Verificação real sem Herdr feita em 2026-10-11: `meister orchestrate` com `runtime.host: process` e o Copilot de verdade, num repositório temporário, integrou a tarefa por fast-forward, deixou o log do worker e não citou o Herdr nenhuma vez. Windows: o host `process` roda nativamente (`meister.osops`), com o job do CI verde; não verificado com um CLI de IA de verdade no Windows.
+**Status:** fases 1 a 5 concluídas (fase 1: contrato `WorkerHost` e `HerdrHost`; fase 2: adaptador `process` e `runtime.host: auto`; fase 3: `meister logs`, `MEISTER_WORKER`, manual de segundo plano; fase 4: adaptador `tmux`; fase 5: o Herdr passa a opcional em `meister setup`, `install.sh` e na documentação). Fase 6 concluída em 2026-10-11: o motor (`bridge`, `workers`, `dag`, `events`) foi para `meister/engine/`, com os caminhos antigos mantidos como aliases do mesmo módulo; `flask` continua obrigatório (seção 12, item 5). Todas as decisões da seção 12 estão fechadas. Verificação real sem Herdr feita em 2026-10-11: `meister orchestrate` com `runtime.host: process` e o Copilot de verdade, num repositório temporário, integrou a tarefa por fast-forward, deixou o log do worker e não citou o Herdr nenhuma vez. Windows: o host `process` roda nativamente (`meister.osops`), com o job do CI verde; não verificado com um CLI de IA de verdade no Windows.
 **Base observada:** `main` em `19c875e` (2026-10-09). Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-09 com o dono do projeto. Decisões já tomadas: **mesmo repositório** (nada de fork), Herdr vira **um adaptador** entre outros (tmux e execução direta como irmãos), objetivo de usar o Meister **em qualquer harness**.
 
@@ -201,7 +201,7 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
 3. **Experiência para qualquer harness.** Log por worker e `meister logs --follow`; documentação de execução em segundo plano com `meister wait`; modelos de instrução por harness; variável neutra `MEISTER_WORKER` (mantendo `MEISTER_IN_PANE` como alias, pois o guard hook depende dela).
 4. **Adaptador `tmux`. (Concluída.)** `meister/hosts/tmux.py`: uma janela por worker (`new-window -d`), `remain-on-exit`, `capture-pane` para o `tail`, `C-c` para interromper; exige `tmux` 3.0 ou mais novo; dentro de uma sessão usa a atual, fora cria `meister-<pid>`; `auto` nunca o escolhe. Testes com servidor isolado (`-L`). Limitação: processo que morre antes do `remain-on-exit` leva a janela junto (saída perdida). Documentado em `docs/advanced.md`.
 5. **Documentação e instalador.** Herdr passa de pré-requisito a opcional; `meister setup` deixa de abortar sem ele; README e `CLAUDE.md`/`AGENTS.md` atualizados.
-6. **Opcional:** renomear `meister/herdr/` e tornar `flask` opcional.
+6. **Renomear e flask.** (Renomear concluído: o motor está em `meister/engine/`, e `meister/herdr/` guarda só o que é do Herdr; os caminhos antigos `meister.herdr.bridge|workers|dag|events` são aliases de compatibilidade. Tornar `flask` opcional **não será feito**, por decisão do dono: o dashboard é parte do valor do projeto; revisitar se houver uso sem tela.)
 
 ## 11. Riscos
 
@@ -211,12 +211,15 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
 - **Worker que espera resposta.** Sem terminal, ninguém responde. O tempo limite de inatividade precisa continuar valendo no adaptador `process`.
 - **Segundo plano varia por harness.** Documentar o comando padrão (`nohup`/`setsid`) e testar nos harnesses suportados.
 
-## 12. Decisões em aberto
+## 12. Decisões
 
-1. `process` como padrão quando não houver Herdr (proposto) ou recusar e pedir escolha explícita?
-2. O nome `meister/hosts/` serve?
-3. Timeline mais dashboard mais log por worker bastam como experiência padrão, ou o `tmux` precisa estar na primeira entrega?
-4. Tornar `flask` opcional entra neste trabalho ou fica separado?
+Decisões fechadas pelo dono:
+
+1. `process` é o padrão quando não houver Herdr.
+2. O nome `meister/hosts/` serve.
+3. A experiência padrão é timeline + dashboard + log por worker; o `tmux` é adaptador opcional, não parte da experiência padrão.
+4. `flask` continua obrigatório por enquanto (ver item 6 da seção 10).
+5. Renomear o motor para `meister/engine/`: sim, com compatibilidade por alias (`sys.modules`). `flask` opcional: não por enquanto, o dashboard é parte do valor do projeto.
 
 ## 13. Lacunas desta análise
 

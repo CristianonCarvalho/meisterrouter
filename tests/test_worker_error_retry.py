@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from tests.platform_marks import posix_only
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.hosts.base import CAP_VISIBLE
 from meister.state import StateManager, SubtaskState, compute_subtask_id
 from meister.worker import write_atomic_json
@@ -101,7 +101,7 @@ def _run(tmp_path, monkeypatch, worker_error_attempts, results):
 
     bridge.spawner.spawn_worker_pane = fake_spawn
     events: list[dict] = []
-    with patch("meister.herdr.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
+    with patch("meister.engine.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
         ok = asyncio.run(
             asyncio.wait_for(bridge.execute_subtask(subtask, run_id=run_id), timeout=20)
         )

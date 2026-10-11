@@ -676,7 +676,9 @@ meisterrouter/
 │   ├── timeline*.py, log_tail.py  # linha do tempo (Gantt) em TUI, somente leitura
 │   ├── clean.py, hooks.py         # limpeza de branches; hooks Git/Claude e guard
 │   ├── faults.py                  # injeção de falhas para os testes de queda
-│   ├── herdr/                     # bridge.py (orquestrador), dag.py, workers.py, client.py, events.py, tui.py
+│   ├── engine/                    # bridge.py (orquestrador), dag.py, workers.py, events.py (sem dependência do Herdr)
+│   ├── herdr/                     # só do Herdr: client.py (socket), tui.py; caminhos antigos do motor como aliases
+│   ├── hosts/                     # hosts de worker: base.py, process.py, tmux.py, herdr.py (adaptador)
 │   ├── dashboard/                 # servidor Flask e interface web
 │   └── templates/                 # CLAUDE.md, CODEX.md, hooks
 ├── tests/                         # suíte de testes (pytest)

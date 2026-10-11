@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from meister.gate import DeterministicGate
-from meister.herdr.bridge import is_infrastructure_error
+from meister.engine.bridge import is_infrastructure_error
 from meister.i18n import reset_language_cache, t
 from meister.state import task_fingerprint
 from meister.worker import UnknownTierError, resolve_worker_harness_and_model

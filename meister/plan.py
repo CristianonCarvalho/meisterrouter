@@ -282,7 +282,7 @@ def load_plan(
     if tasks is None:
         if allow_freeform:
             # Legacy path: parse_architect_plan without schema validation
-            from meister.herdr.bridge import parse_architect_plan
+            from meister.engine.bridge import parse_architect_plan
             return parse_architect_plan(raw)
         # Not JSON list → give helpful error
         hint = "Expected a JSON array ([{...}, ...])"

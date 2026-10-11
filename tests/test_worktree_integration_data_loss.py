@@ -16,7 +16,7 @@ from types import SimpleNamespace
 import pytest
 
 from meister.gate import VerificationResult
-from meister.herdr.bridge import extract_rejection_reason
+from meister.engine.bridge import extract_rejection_reason
 from meister.worktree import CodedMessage, IntegrationPipeline, WorktreeManager
 
 

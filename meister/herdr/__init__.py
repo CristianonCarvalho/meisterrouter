@@ -1,27 +1,55 @@
 """MeisterRouter Herdr Integration Module."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from meister.herdr.client import HerdrSocketClient, HerdrRPCError, HerdrConnectionError
-from meister.herdr.workers import (
-    WorkerSpawner,
-    detect_quota_or_rate_limit,
-    spawn_worker_pane,
-    get_next_tier,
-)
-from meister.herdr.dag import (
-    SubtaskNode,
-    TaskDAG,
-    build_subtask_dag,
-    get_independent_batches,
-    CycleDetectedError,
-)
-from meister.herdr.bridge import (
-    HerdrEventBridge,
-    parse_architect_plan,
-)
 from meister.herdr.tui import (
     render_tui_dashboard,
     run_tui_loop,
 )
+
+if TYPE_CHECKING:
+    from meister.engine import (
+        WorkerSpawner,
+        detect_quota_or_rate_limit,
+        spawn_worker_pane,
+        get_next_tier,
+        SubtaskNode,
+        TaskDAG,
+        build_subtask_dag,
+        get_independent_batches,
+        CycleDetectedError,
+        HerdrEventBridge,
+        parse_architect_plan,
+    )
+
+# Nomes do motor, movidos para meister.engine; carregados sob demanda para evitar ciclo de importação.
+_ENGINE_NAMES = (
+    "WorkerSpawner",
+    "detect_quota_or_rate_limit",
+    "spawn_worker_pane",
+    "get_next_tier",
+    "SubtaskNode",
+    "TaskDAG",
+    "build_subtask_dag",
+    "get_independent_batches",
+    "CycleDetectedError",
+    "HerdrEventBridge",
+    "parse_architect_plan",
+)
+
+
+def __getattr__(name: str) -> Any:
+    if name not in _ENGINE_NAMES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import meister.engine
+
+    value = getattr(meister.engine, name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "HerdrSocketClient",
@@ -41,4 +69,3 @@ __all__ = [
     "render_tui_dashboard",
     "run_tui_loop",
 ]
-

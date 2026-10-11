@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from meister.cli import main
-from meister.herdr.workers import WorkerSpawner
+from meister.engine.workers import WorkerSpawner
 from tests.platform_marks import posix_only
 
 pytestmark = posix_only
@@ -65,7 +65,7 @@ def test_orchestrate_process_host_runs_cycle_without_herdr(tmp_path, monkeypatch
     with (
         patch.object(WorkerSpawner, "resolve_command", simulated_command),
         patch("meister.gate.DeterministicGate", return_value=gate),
-        patch("meister.herdr.bridge.HerdrSocketClient", side_effect=AssertionError("Herdr touched")),
+        patch("meister.engine.bridge.HerdrSocketClient", side_effect=AssertionError("Herdr touched")),
     ):
         result = CliRunner().invoke(
             main,

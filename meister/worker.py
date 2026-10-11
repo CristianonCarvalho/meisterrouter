@@ -36,7 +36,7 @@ _previous_termination_handlers: Dict[int, Any] = {}
 
 
 def _is_pane_gone(event: dict, pane_id: str) -> bool:
-    from meister.herdr.events import is_pane_gone
+    from meister.engine.events import is_pane_gone
 
     return is_pane_gone(event, pane_id)
 

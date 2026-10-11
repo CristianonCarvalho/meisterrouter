@@ -28,7 +28,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from meister.config import MeisterConfig, WorkerTier, load_config, validate_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.i18n import reset_language_cache, set_language
 from meister.logger import add_event_observer, remove_event_observer
 from meister.timeline import build_timeline

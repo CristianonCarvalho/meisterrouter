@@ -11,8 +11,8 @@ from click.testing import CliRunner
 
 from meister.cli import main
 from meister.config import MeisterConfig
-from meister.herdr import bridge as bridge_module
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine import bridge as bridge_module
+from meister.engine.bridge import HerdrEventBridge
 from meister.i18n import t
 from meister.logger import get_events_by_run_id
 from meister.state import RunState, StateManager
@@ -125,7 +125,7 @@ async def test_interrupt_still_reraises_and_sweeps_panes_when_event_write_fails(
         raise KeyboardInterrupt
 
     bridge.execute_plan = interrupt
-    monkeypatch.setattr("meister.herdr.bridge.log_event", failing_log_event)
+    monkeypatch.setattr("meister.engine.bridge.log_event", failing_log_event)
     with pytest.raises(KeyboardInterrupt):
         await _cycle(bridge)
 

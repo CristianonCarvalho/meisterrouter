@@ -363,7 +363,7 @@ async def run_orchestration(repo_dir: str, state_dir: str) -> int:
 
     # Import bridge and set up
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from meister.herdr.bridge import HerdrEventBridge
+    from meister.engine.bridge import HerdrEventBridge
     from meister.config import load_config
     from meister.state import StateManager
 
@@ -372,7 +372,7 @@ async def run_orchestration(repo_dir: str, state_dir: str) -> int:
         raise RuntimeError(
             f"Crash driver requires router.mode=first, got {config.router.mode!r}"
         )
-    from meister.herdr import bridge as bridge_module
+    from meister.engine import bridge as bridge_module
 
     def deterministic_classify_task(*, implementers, **_kwargs):
         """Keep unexpected classification calls local and deterministic."""

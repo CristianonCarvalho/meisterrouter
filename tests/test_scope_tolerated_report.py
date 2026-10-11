@@ -4,7 +4,7 @@ import subprocess
 import pytest
 
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.i18n import reset_language_cache
 from meister.progress import ProgressReporter, format_event_line
 from meister.state import StateManager, SubtaskState
@@ -86,7 +86,7 @@ def _bridge_and_reuse(tmp_path, monkeypatch, *, tolerated_change):
     monkeypatch.chdir(repo)
     bridge = HerdrEventBridge(config=config, state_manager=state)
     events = []
-    monkeypatch.setattr("meister.herdr.bridge.log_event", lambda **event: events.append(event))
+    monkeypatch.setattr("meister.engine.bridge.log_event", lambda **event: events.append(event))
     bridge._reuse_completed_subtasks(state, "source", "target", [task], str(repo))
     return events
 
