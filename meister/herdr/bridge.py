@@ -78,6 +78,8 @@ def _worker_git_activity(path: str) -> tuple[bytes, str]:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     ).stdout.strip()
     return status, head
 
@@ -549,6 +551,8 @@ class HerdrEventBridge:
                     ["git", "-C", repo_root, "cat-file", "-e", f"{sha}^{{commit}}"],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 if commit_exists.returncode != 0:
                     reason = "missing_commit"
@@ -561,6 +565,8 @@ class HerdrEventBridge:
                     ],
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 if touched.returncode != 0:
                     reason = "scope"
@@ -571,6 +577,8 @@ class HerdrEventBridge:
                         input="".join(f"{path}\0" for path in touched_files),
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     ignored = {path for path in ignored_result.stdout.split("\0") if path}
                     out_of_scope = scope_violations(
@@ -605,6 +613,8 @@ class HerdrEventBridge:
                 ["git", "-C", repo_root, "update-ref", ref, sha],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             if pin.returncode != 0:
                 raise RuntimeError(

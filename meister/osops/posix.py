@@ -35,6 +35,8 @@ def process_signature(pid: int) -> Optional[str]:
             ["ps", "-o", "lstart=", "-p", str(pid)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
             timeout=2,
         )
@@ -158,6 +160,8 @@ def list_processes() -> list[tuple[int, list[str]]]:
         ["ps", "-axww", "-o", "pid=,command="],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode:
