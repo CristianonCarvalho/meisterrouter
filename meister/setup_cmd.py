@@ -421,11 +421,23 @@ def check_herdr() -> DiagnosticItem:
     path = shutil.which("herdr")
     if path:
         return DiagnosticItem("herdr", "ok", t("commands.setup.herdr_found", path=path))
-    return DiagnosticItem(
-        "herdr",
-        "erro",
-        t("commands.setup.herdr_missing"),
-    )
+    return DiagnosticItem("herdr", "aviso", t("commands.setup.herdr_optional"))
+
+
+def check_host(cfg: Any = None) -> Optional[DiagnosticItem]:
+    """Diz qual host de workers o ``runtime.host`` escolheria e por quê (sem conectar)."""
+    try:
+        from meister.hosts import describe_host
+
+        if cfg is None:
+            from meister.config import load_config
+            cfg = load_config()
+        name, reason = describe_host(cfg)
+    except Exception:
+        # Configuração ilegível ou modo inválido: o diagnóstico de config já relata
+        return None
+    status = "aviso" if reason == "explicit_unavailable" else "ok"
+    return DiagnosticItem("host", status, t(f"commands.setup.host_{reason}", host=name))
 
 
 def check_daemon() -> DiagnosticItem:
@@ -579,86 +591,89 @@ def run_setup(
     if echo is None:
         echo = print
 
-    # 1. Diagnóstico inicial; herdr ausente -> imprime orientação e sai com 1
+    # 1. Diagnóstico inicial; o Herdr é opcional: sem ele, plugin e atalhos são pulados
     herdr_diag = check_herdr()
-    if herdr_diag.status == "erro":
-        echo(f"✗ {herdr_diag.message}")
-        return 1
+    has_herdr = herdr_diag.status == "ok"
+    if not has_herdr:
+        echo(t("commands.setup.herdr_skipped"))
 
     # 2. Plugin
-    plugin_status, plugin_msg = ensure_herdr_plugin(runner=runner, dry_run=dry_run)
+    plugin_status, plugin_msg = "ok", ""
+    if has_herdr:
+        plugin_status, plugin_msg = ensure_herdr_plugin(runner=runner, dry_run=dry_run)
 
     # 3. Atalhos
-    cfg_path = os.path.abspath(herdr_config_path or os.path.expanduser("~/.config/herdr/config.toml"))
-    existing_text = ""
-    if os.path.exists(cfg_path):
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                existing_text = f.read()
-        except Exception as e:
-            echo(t("commands.setup.read_warning", path=cfg_path, error=e))
+    shortcuts_status, shortcuts_msg = "ok", ""
+    if has_herdr:
+        cfg_path = os.path.abspath(herdr_config_path or os.path.expanduser("~/.config/herdr/config.toml"))
+        existing_text = ""
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    existing_text = f.read()
+            except Exception as e:
+                echo(t("commands.setup.read_warning", path=cfg_path, error=e))
 
-    meister_path = resolve_meister_path()
-    desired = get_desired_bindings(meister_path, direct_keys=direct_keys)
-    merge_result = merge_keys_block(existing_text, desired)
+        meister_path = resolve_meister_path()
+        desired = get_desired_bindings(meister_path, direct_keys=direct_keys)
+        merge_result = merge_keys_block(existing_text, desired)
 
-    shortcuts_status = "ok"
-    shortcuts_msg = t(
-        "commands.setup.shortcuts_configured",
-        keys=", ".join(b.key for b in desired),
-    )
+        shortcuts_msg = t(
+            "commands.setup.shortcuts_configured",
+            keys=", ".join(b.key for b in desired),
+        )
 
-    if dry_run:
-        echo(t("commands.setup.dry_run_shortcuts", path=cfg_path))
-        for b in desired:
-            action = merge_result.actions.get(b.key, "added")
-            if action == "already":
-                echo(
-                    t(
-                        "commands.setup.shortcut_already",
-                        shortcut=b.key,
-                        command=merge_result.details.get(b.key, ""),
+        if dry_run:
+            echo(t("commands.setup.dry_run_shortcuts", path=cfg_path))
+            for b in desired:
+                action = merge_result.actions.get(b.key, "added")
+                if action == "already":
+                    echo(
+                        t(
+                            "commands.setup.shortcut_already",
+                            shortcut=b.key,
+                            command=merge_result.details.get(b.key, ""),
+                        )
                     )
-                )
-            elif action == "conflict":
-                echo(
-                    t(
-                        "commands.setup.shortcut_conflict",
-                        shortcut=b.key,
-                        command=merge_result.details.get(b.key, ""),
+                elif action == "conflict":
+                    echo(
+                        t(
+                            "commands.setup.shortcut_conflict",
+                            shortcut=b.key,
+                            command=merge_result.details.get(b.key, ""),
+                        )
                     )
-                )
+                else:
+                    echo(t("commands.setup.shortcut_would_add", shortcut=b.key))
+
+            if merge_result.changed:
+                added_bindings = [b for b in desired if merge_result.actions.get(b.key) == "added"]
+                echo(t("commands.setup.block_would_write"))
+                echo(render_bindings_block(added_bindings))
             else:
-                echo(t("commands.setup.shortcut_would_add", shortcut=b.key))
+                echo(t("commands.setup.no_shortcut_changes"))
 
-        if merge_result.changed:
-            added_bindings = [b for b in desired if merge_result.actions.get(b.key) == "added"]
-            echo(t("commands.setup.block_would_write"))
-            echo(render_bindings_block(added_bindings))
+            if merge_result.conflict:
+                shortcuts_status = "aviso"
+                shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
         else:
-            echo(t("commands.setup.no_shortcut_changes"))
+            if merge_result.conflict:
+                shortcuts_status = "aviso"
+                shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
 
-        if merge_result.conflict:
-            shortcuts_status = "aviso"
-            shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
-    else:
-        if merge_result.conflict:
-            shortcuts_status = "aviso"
-            shortcuts_msg = t("commands.setup.shortcut_conflicts", keys=", ".join(merge_result.conflict))
-
-        if merge_result.changed:
-            write_ok, write_msg = write_herdr_config(cfg_path, merge_result, runner=runner)
-            if not write_ok:
-                shortcuts_status = "erro"
-                shortcuts_msg = write_msg
-            else:
-                if shortcuts_status != "aviso":
-                    shortcuts_msg = t(
-                        "commands.setup.shortcuts_updated",
-                        keys=", ".join(
-                            b.key for b in desired if merge_result.actions.get(b.key) == "added"
-                        ),
-                    )
+            if merge_result.changed:
+                write_ok, write_msg = write_herdr_config(cfg_path, merge_result, runner=runner)
+                if not write_ok:
+                    shortcuts_status = "erro"
+                    shortcuts_msg = write_msg
+                else:
+                    if shortcuts_status != "aviso":
+                        shortcuts_msg = t(
+                            "commands.setup.shortcuts_updated",
+                            keys=", ".join(
+                                b.key for b in desired if merge_result.actions.get(b.key) == "added"
+                            ),
+                        )
 
     # 4. Projeto
     if project_path is not None:
@@ -677,15 +692,23 @@ def run_setup(
     report_items.append((sym_py, py_item.message))
 
     # Herdr
-    report_items.append(("✓", herdr_diag.message))
+    sym_herdr = "✓" if herdr_diag.status == "ok" else "!"
+    report_items.append((sym_herdr, herdr_diag.message))
 
-    # Plugin
-    sym_plugin = "✓" if plugin_status == "ok" else ("!" if plugin_status == "aviso" else "✗")
-    report_items.append((sym_plugin, plugin_msg))
+    if has_herdr:
+        # Plugin
+        sym_plugin = "✓" if plugin_status == "ok" else ("!" if plugin_status == "aviso" else "✗")
+        report_items.append((sym_plugin, plugin_msg))
 
-    # Atalhos
-    sym_sc = "✓" if shortcuts_status == "ok" else ("!" if shortcuts_status == "aviso" else "✗")
-    report_items.append((sym_sc, shortcuts_msg))
+        # Atalhos
+        sym_sc = "✓" if shortcuts_status == "ok" else ("!" if shortcuts_status == "aviso" else "✗")
+        report_items.append((sym_sc, shortcuts_msg))
+
+    # Host dos workers
+    host_item = check_host()
+    if host_item is not None:
+        sym_host = "✓" if host_item.status == "ok" else ("!" if host_item.status == "aviso" else "✗")
+        report_items.append((sym_host, host_item.message))
 
     # Daemon
     daemon_item = check_daemon()
@@ -720,9 +743,12 @@ def run_setup(
         keys_summary += ", ctrl+alt+m, ctrl+alt+shift+m, ctrl+alt+t"
 
     echo(t("commands.setup.next_steps"))
-    echo(t("commands.setup.open_herdr"))
-    echo(t("commands.setup.run_plan"))
-    echo(t("commands.setup.shortcuts_summary", keys=keys_summary))
+    if has_herdr:
+        echo(t("commands.setup.open_herdr"))
+        echo(t("commands.setup.run_plan"))
+        echo(t("commands.setup.shortcuts_summary", keys=keys_summary))
+    else:
+        echo(t("commands.setup.run_plan_no_herdr"))
 
     if project_path is None:
         echo(t("commands.setup.project_tip"))
