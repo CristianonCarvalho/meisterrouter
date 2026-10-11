@@ -597,6 +597,14 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
 - `retry.pane_lost_attempts` (1; `0` desativa): retentativas extras na mesma via quando um pane desaparece ou
   encerra sem resultado. `retry.pane_lost_backoff_seconds` (5) é a espera inicial; dobra a cada retry, até 60 s.
   Esses retries preservam o worktree e não consomem `workers.tier_order[].max_retries` nem escalam de via.
+- `retry.worker_error_attempts` (1; `0` desativa): retentativas quando o worker devolve resultado de erro, por
+  exemplo quando o harness sai com código diferente de zero (`Harness copilot failed with exit code 1`) ou falha
+  por um erro transitório. O Meister registra o evento `worker_retry` (`reason: worker_error`), fecha o worker,
+  espera um backoff curto e tenta de novo na **mesma via** até `worker_error_attempts` vezes; esgotadas, passa para
+  a **próxima via** de `workers.tier_order` (que tem as próprias retentativas). A subtarefa só é reprovada
+  (`subtask_rejected`, `worker_error`) quando não sobra via. Com `0`, fica o comportamento antigo: o primeiro erro
+  do worker falha a subtarefa, sem retentativa nem fallback. Erros de cota e reprovações de gate e escopo seguem
+  as próprias regras.
 - `workers.idle_timeout_seconds` (600) encerra workers sem sinais de atividade; `workers.max_runtime_seconds`
   (3600) é o teto total. Ambos aceitam `0` para desligar e podem ser sobrescritos por via em `tier_order`. A
   atividade é detectada por mudanças no estado Git do worktree ou no conteúdo do pane; o teto não é estendido por
