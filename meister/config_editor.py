@@ -1,25 +1,34 @@
 """Edicao das vias (workers.tier_order) do meister.config.yaml para a tela /config.
 
-Logica pura, sem Flask. Le o arquivo em round-trip (ruamel.yaml) para que a
-gravacao futura preserve os comentarios do dono.
+Logica pura, sem Flask. Le e grava o arquivo em round-trip (ruamel.yaml) para
+preservar os comentarios do dono; a gravacao segue o padrao de meister/lane_toggle.py
+(.bak antes, troca atomica por arquivo temporario e restauracao em falha).
 """
 
 from __future__ import annotations
 
 import copy
 import hashlib
+import io
+import os
+import stat
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from ruamel.yaml import YAML
+from ruamel.yaml.comments import CommentedMap, CommentedSeq
+from ruamel.yaml.error import YAMLError
 
 from meister.config import ConfigIssue, _default_config_data, _parse_config_dict, validate_config
 from meister.harness_effort import HARNESS_EFFORT_VALUES
 from meister.i18n import CATALOGS, t
+from meister.lane_toggle import _restore_backup, _write_temp
 
 
 EMPTY_STAMP = hashlib.sha256(b"").hexdigest()
 EDITABLE_FIELDS = ("name", "harness", "model", "effort", "enabled", "max_parallel")
+GENERATED_COMMENT = "tier_order gerado pela tela /config do dashboard"
+NEW_FILE_MODE = 0o644
 
 # Mensagens da tela /config; registradas nos catalogos do i18n ao importar este modulo.
 _MESSAGES: Dict[str, Dict[str, str]] = {
@@ -39,6 +48,13 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.enabled_boolean": "enabled must be true or false.",
         "config_editor.max_parallel": "max_parallel must be an integer >= 1 or empty.",
         "config_editor.no_enabled_lane": "At least one lane must be enabled.",
+        "config_editor.stamp_mismatch": "The file changed on disk; reload before saving.",
+        "config_editor.invalid_lanes": "The lanes are invalid: {details}",
+        "config_editor.read_failed": "Cannot read configuration file {path}: {error}",
+        "config_editor.not_mapping": "Configuration file {path} must contain a YAML mapping.",
+        "config_editor.workers_not_mapping": "Configuration value workers in {path} must be a mapping.",
+        "config_editor.write_failed": "Cannot safely write configuration file {path}: {error}",
+        "config_editor.restore_failed": "{message}; could not restore the original file: {error}",
     },
     "pt-BR": {
         "config_editor.lanes_list": "lanes deve ser uma lista de objetos.",
@@ -56,11 +72,37 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.enabled_boolean": "enabled deve ser true ou false.",
         "config_editor.max_parallel": "max_parallel deve ser um inteiro >= 1 ou vazio.",
         "config_editor.no_enabled_lane": "Pelo menos uma via deve ficar ligada.",
+        "config_editor.stamp_mismatch": "O arquivo mudou no disco; recarregue antes de salvar.",
+        "config_editor.invalid_lanes": "As vias s\u00e3o inv\u00e1lidas: {details}",
+        "config_editor.read_failed": "N\u00e3o foi poss\u00edvel ler o arquivo de configura\u00e7\u00e3o {path}: {error}",
+        "config_editor.not_mapping": "O arquivo de configura\u00e7\u00e3o {path} deve conter um mapeamento YAML.",
+        "config_editor.workers_not_mapping": "O valor workers em {path} deve ser um mapeamento.",
+        "config_editor.write_failed": (
+            "N\u00e3o foi poss\u00edvel gravar com seguran\u00e7a o arquivo de configura\u00e7\u00e3o {path}: {error}"
+        ),
+        "config_editor.restore_failed": "{message}; n\u00e3o foi poss\u00edvel restaurar o arquivo original: {error}",
     },
 }
 for _language, _messages in _MESSAGES.items():
     for _key, _value in _messages.items():
         CATALOGS[_language].setdefault(_key, _value)
+
+
+class ConfigEditorError(Exception):
+    """A edicao das vias nao pode ser aplicada com seguranca."""
+
+
+class ConfigStampError(ConfigEditorError):
+    """O arquivo mudou no disco desde a leitura (carimbo diferente)."""
+
+
+class ConfigValidationError(ConfigEditorError):
+    """O pedido de edicao das vias nao passou na validacao."""
+
+    def __init__(self, issues: List[ConfigIssue]):
+        self.issues = issues
+        details = "; ".join(f"{issue.path}: {issue.message}" for issue in issues)
+        super().__init__(t("config_editor.invalid_lanes", details=details))
 
 
 @dataclass
@@ -86,6 +128,8 @@ class LaneDocument:
 def _round_trip_yaml() -> YAML:
     yaml = YAML(typ="rt")
     yaml.preserve_quotes = True
+    yaml.indent(mapping=2, sequence=4, offset=2)
+    yaml.width = 4096
     return yaml
 
 
@@ -125,9 +169,16 @@ def _project_tier_order(content: bytes) -> Optional[list]:
     return tier_order if isinstance(tier_order, list) else None
 
 
+def _stamp(content: Optional[bytes]) -> str:
+    return hashlib.sha256(content).hexdigest() if content is not None else EMPTY_STAMP
+
+
 def load_effective_lanes(config_path: str) -> LaneDocument:
     """Devolve as vias efetivas: as do projeto se houver tier_order, senao as do padrao (inclusive desligadas)."""
-    content = _read_bytes(config_path)
+    return _document_from_content(config_path, _read_bytes(config_path))
+
+
+def _document_from_content(config_path: str, content: Optional[bytes]) -> LaneDocument:
     tier_order = _project_tier_order(content) if content else None
     if tier_order is not None:
         lanes = [_plain(lane) for lane in tier_order]
@@ -137,7 +188,7 @@ def load_effective_lanes(config_path: str) -> LaneDocument:
         lanes=lanes,
         path=config_path,
         has_tier_order=tier_order is not None,
-        stamp=hashlib.sha256(content).hexdigest() if content is not None else EMPTY_STAMP,
+        stamp=_stamp(content),
     )
 
 
@@ -242,3 +293,177 @@ def validate_lanes(document: LaneDocument, lanes: Any) -> List[ConfigIssue]:
     data["workers"] = dict(workers) if isinstance(workers, dict) else {}
     data["workers"]["tier_order"] = merged
     return validate_config(_parse_config_dict(data))
+
+
+def _read_checked(document: LaneDocument, expected_stamp: str) -> Optional[bytes]:
+    """Le o arquivo uma vez e recusa se o carimbo atual diferir do esperado."""
+    try:
+        content = _read_bytes(document.path)
+    except OSError as exc:
+        raise ConfigEditorError(t("config_editor.read_failed", path=document.path, error=exc)) from exc
+    if _stamp(content) != expected_stamp:
+        raise ConfigStampError(t("config_editor.stamp_mismatch"))
+    return content
+
+
+def _load_round_trip(path: str, content: Optional[bytes]) -> CommentedMap:
+    if not content:
+        return CommentedMap()
+    try:
+        data = _round_trip_yaml().load(content.decode("utf-8"))
+    except (UnicodeError, YAMLError) as exc:
+        raise ConfigEditorError(t("config_editor.read_failed", path=path, error=exc)) from exc
+    if data is None:
+        return CommentedMap()
+    if not isinstance(data, CommentedMap):
+        raise ConfigEditorError(t("config_editor.not_mapping", path=path))
+    return data
+
+
+def _workers_map(path: str, data: CommentedMap, create: bool) -> Optional[CommentedMap]:
+    workers = data.get("workers")
+    if workers is None and create:
+        workers = CommentedMap()
+        data["workers"] = workers
+    if workers is not None and not isinstance(workers, CommentedMap):
+        raise ConfigEditorError(t("config_editor.workers_not_mapping", path=path))
+    return workers
+
+
+def _update_lane_node(node: CommentedMap, lane: Dict[str, Any]) -> None:
+    """Grava os campos editaveis no no existente; os demais campos e comentarios ficam como estao."""
+    for key in EDITABLE_FIELDS[1:]:
+        value = lane.get(key)
+        if value is None or (key == "enabled" and value is True and key not in node):
+            node.pop(key, None)
+        elif node.get(key) != value or type(node.get(key)) is not type(value):
+            node[key] = value
+
+
+def _new_lane_node(lane: Dict[str, Any]) -> CommentedMap:
+    node = CommentedMap()
+    for key, value in lane.items():
+        if (key in ("effort", "max_parallel") and value is None) or (key == "enabled" and value is True):
+            continue
+        node[key] = copy.deepcopy(value)
+    return node
+
+
+def _tier_order_seq(current: Any, merged: List[Dict[str, Any]]) -> CommentedSeq:
+    nodes: Dict[Any, CommentedMap] = {}
+    if isinstance(current, list):
+        nodes = {node.get("name"): node for node in current if isinstance(node, CommentedMap)}
+    seq = CommentedSeq()
+    for lane in merged:
+        node = nodes.get(lane["name"])
+        if node is None:
+            node = _new_lane_node(lane)
+        else:
+            _update_lane_node(node, lane)
+        seq.append(node)
+    return seq
+
+
+def _serialize(data: CommentedMap) -> bytes:
+    stream = io.StringIO()
+    _round_trip_yaml().dump(data, stream)
+    return stream.getvalue().encode("utf-8")
+
+
+def _check_written(path: str, content: bytes) -> None:
+    """Confere que o arquivo gravado e o esperado e que continua um YAML legivel."""
+    written = _read_bytes(path)
+    if written != content:
+        raise ConfigEditorError(t("config_editor.write_failed", path=path, error="content mismatch"))
+    _load_round_trip(path, written)
+
+
+def _write_safely(path: str, original: Optional[bytes], serialized: bytes) -> None:
+    """Grava com .bak antes e troca atomica; se algo falhar, devolve o arquivo e o .bak anteriores."""
+    directory = os.path.dirname(os.path.abspath(path))
+    mode = stat.S_IMODE(os.stat(path).st_mode) if original is not None else NEW_FILE_MODE
+    backup_path = f"{path}.bak"
+    backup_existed = os.path.exists(backup_path)
+    previous_backup = _read_bytes(backup_path) if backup_existed else None
+
+    config_temp: Optional[str] = None
+    backup_temp: Optional[str] = None
+    backup_installed = False
+    config_replaced = False
+    try:
+        os.makedirs(directory, exist_ok=True)
+        config_temp = _write_temp(directory, ".config-editor-config-", serialized, mode)
+        if original is not None:
+            backup_temp = _write_temp(directory, ".config-editor-backup-", original, mode)
+            os.replace(backup_temp, backup_path)
+            backup_temp = None
+            backup_installed = True
+        os.replace(config_temp, path)
+        config_temp = None
+        config_replaced = True
+        _check_written(path, serialized)
+    except Exception as exc:
+        rollback_error: Optional[Exception] = None
+        try:
+            if config_replaced:
+                if original is None:
+                    os.unlink(path)
+                else:
+                    restore_temp = _write_temp(directory, ".config-editor-restore-", original, mode)
+                    os.replace(restore_temp, path)
+            if backup_installed:
+                _restore_backup(backup_path, previous_backup, directory)
+        except Exception as restore_exc:
+            rollback_error = restore_exc
+        for temporary in (config_temp, backup_temp):
+            if temporary is not None and os.path.exists(temporary):
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+        message = t("config_editor.write_failed", path=path, error=exc)
+        if rollback_error is not None:
+            message = t("config_editor.restore_failed", message=message, error=rollback_error)
+        raise ConfigEditorError(message) from exc
+
+
+def apply_lanes(document: LaneDocument, lanes: Any, expected_stamp: str) -> LaneDocument:
+    """Grava workers.tier_order inteiro em round-trip, preservando comentarios e campos nao editaveis.
+
+    Recusa com ConfigStampError se o arquivo mudou no disco e com ConfigValidationError se o pedido
+    for invalido. Devolve o documento relido do disco, com o carimbo novo.
+    """
+    path = document.path
+    content = _read_checked(document, expected_stamp)
+    current = _document_from_content(path, content)
+    issues = validate_lanes(current, lanes)
+    errors = [issue for issue in issues if issue.level == "error"]
+    if errors:
+        raise ConfigValidationError(errors)
+    merged, _ = _merge_lanes(current, lanes)
+
+    data = _load_round_trip(path, content)
+    workers = _workers_map(path, data, create=True)
+    assert workers is not None
+    workers["tier_order"] = _tier_order_seq(workers.get("tier_order"), merged)
+    if content is None or GENERATED_COMMENT.encode("utf-8") not in content:
+        workers.yaml_set_comment_before_after_key("tier_order", before=GENERATED_COMMENT, indent=2)
+
+    _write_safely(path, content, _serialize(data))
+    return load_effective_lanes(path)
+
+
+def restore_default_lanes(document: LaneDocument, expected_stamp: str) -> LaneDocument:
+    """Remove workers.tier_order do arquivo (e workers, se ficar vazio) para voltar as vias do padrao."""
+    path = document.path
+    content = _read_checked(document, expected_stamp)
+    data = _load_round_trip(path, content)
+    workers = _workers_map(path, data, create=False)
+    if workers is None or "tier_order" not in workers:
+        return _document_from_content(path, content)
+    del workers["tier_order"]
+    if not workers:
+        del data["workers"]
+
+    _write_safely(path, content, _serialize(data))
+    return load_effective_lanes(path)
