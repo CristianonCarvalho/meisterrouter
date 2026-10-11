@@ -1,3 +1,4 @@
+import sys
 from dataclasses import asdict
 
 import pytest
@@ -618,7 +619,8 @@ def test_default_config_has_no_errors_or_warnings_and_metadata_is_info(tmp_path,
     fake_path = tmp_path / "bin"
     fake_path.mkdir()
     for name in ("claude", "copilot"):
-        executable = fake_path / name
+        # no Windows shutil.which só acha arquivos com extensão de PATHEXT
+        executable = fake_path / (f"{name}.cmd" if sys.platform == "win32" else name)
         executable.write_text("#!/bin/sh\n")
         executable.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_path))

@@ -270,8 +270,14 @@ def test_create_worktree_retry_cleans_residual_state_on_transient_failure(git_re
     assert counter.count == 2, f"Expected 2 git worktree add calls, got {counter.count}"
 
     # Worktree final deve existir e ser valido (git worktree list)
-    wt_list = manager._run_git(["worktree", "list"])
-    assert info.worktree_path in wt_list
+    # --porcelain: o git usa "/" e pode expandir nomes 8.3 no Windows, então compara caminhos normalizados
+    wt_list = manager._run_git(["worktree", "list", "--porcelain"])
+    listed = [
+        os.path.normcase(os.path.realpath(line[len("worktree "):]))
+        for line in wt_list.splitlines()
+        if line.startswith("worktree ")
+    ]
+    assert os.path.normcase(os.path.realpath(info.worktree_path)) in listed
     assert info.branch_name in wt_list
 
 

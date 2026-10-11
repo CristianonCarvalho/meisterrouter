@@ -1,4 +1,5 @@
 import json
+import os
 
 from meister.log_tail import LogTail, resolve_log_file
 
@@ -68,5 +69,8 @@ def test_resolve_log_file_never_creates_directories(tmp_path, monkeypatch):
     project = tmp_path / "proj"
     (project / ".meister").mkdir(parents=True)
     monkeypatch.chdir(project)
-    assert resolve_log_file() == str(project.resolve() / ".meister" / "logs" / "orchestration_log.jsonl")
+    # realpath: no Windows o cwd pode vir em nome 8.3 (RUNNER~1) e resolve() em nome longo
+    assert os.path.normcase(os.path.realpath(resolve_log_file())) == os.path.normcase(
+        os.path.realpath(project / ".meister" / "logs" / "orchestration_log.jsonl")
+    )
     assert not (project / ".meister" / "logs").exists()
