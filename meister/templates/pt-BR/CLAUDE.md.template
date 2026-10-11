@@ -26,11 +26,19 @@ Edições em documentação (`docs/**`, `*.md`) podem ser feitas diretamente.
 
 ## Fluxo de trabalho
 
-1. Para um trabalho com várias etapas, crie um plano estruturado em Markdown.
+1. Para um trabalho com várias etapas, leia as regras de planejamento e crie a moldura do plano:
+
+   ```bash
+   meister plan guide
+   meister plan new -o plano.md
+   ```
+
+   Preencha as tarefas em `plano.md`. Se você usa a skill `superpowers:writing-plans`, o formato
+   é o mesmo (aceito por `plan import`).
 2. Converta-o para o formato canônico e revise as tarefas e dependências:
 
    ```bash
-   meister plan import --format superpowers <plano.md> -o plano.json
+   meister plan import plano.md -o plano.json
    meister plan validate plano.json
    ```
 

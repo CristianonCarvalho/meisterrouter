@@ -12,6 +12,21 @@
 - Preserve pre-existing changes and avoid changes outside the scope.
 - Run relevant tests and clearly report results and limitations. Do NOT run the entire test suite: MeisterRouter's gate runs it afterward.
 
+## Writing a plan for MeisterRouter
+
+If you are asked to write a plan (not to implement a subtask), use the native flow:
+
+```bash
+meister plan guide
+meister plan new -o plan.md
+meister plan import plan.md -o plan.json
+meister plan validate plan.json
+```
+
+Read the rules with `plan guide`, fill in the tasks in the skeleton, then convert and validate
+it; the architect runs the validated plan. If you use the `superpowers:writing-plans` skill,
+the format is the same (accepted by `plan import`).
+
 ## If you are a MeisterRouter worker
 
 Consider yourself a worker if `MEISTER_WORKER=1` (or, in older installations, `MEISTER_IN_PANE=1`) is set in the environment or if you
