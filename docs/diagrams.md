@@ -16,7 +16,7 @@ The complete flow "from plan to `main`" is also shown in [`flow.md`](flow.md).
 | 8 | [Worktrees and branches](#8-worktrees-and-branches) | Where each worker's code lives |
 | 9 | [Telemetry and visualization](#9-telemetry-and-visualization) | Where the dashboard, timeline, and report come from |
 | 10 | [Claude Code guard](#10-claude-code-guard) | How the orchestrator is prevented from editing code |
-| 11 | [Installation and Herdr integration](#11-installation-and-herdr-integration) | What the installer and `init` configure |
+| 11 | [Installation and Herdr integration](#11-installation-and-herdr-integration) | What the installer and `init` configure (optional Herdr part) |
 
 ---
 
@@ -36,7 +36,11 @@ flowchart LR
     CORE["Orchestration:<br/>DAG, state, merge, gates"]
   end
   JEV["Jev (OpenRouter)<br/>classify and control<br/>only non-deterministic part"]
-  HERDR["Herdr<br/>visible tabs, popups, shortcuts"]
+  subgraph HOST["Worker host (runtime.host)"]
+    H1["Herdr<br/>visible tabs, popups, shortcuts"]
+    H2["local process<br/>log file per worker"]
+    H3["tmux<br/>one window per worker"]
+  end
   subgraph W["Workers (CLIs under your subscriptions)"]
     W1["copilot"]
     W2["codex"]
@@ -51,13 +55,13 @@ flowchart LR
   CLI --> CORE
   CORE -- "which lane?" --> JEV
   JEV -- "lane and judgment" --> CORE
-  CORE -- "opens tab and runs" --> HERDR
-  HERDR --> W
+  CORE -- "starts the worker" --> HOST
+  HOST --> W
   W -- "code in worktree" --> GIT
   CORE -- "gate, merge, fast-forward" --> GIT
   CORE -. "JSONL events" .-> OBS
   U -. "monitors" .-> OBS
-  U -. "monitors" .-> HERDR
+  U -. "monitors" .-> HOST
 ```
 
 ---
@@ -98,8 +102,9 @@ flowchart TB
 
   subgraph EXEC["Worker execution"]
     WS["herdr/workers.py<br/>WorkerSpawner, tiers, quota detection"]
-    WK["worker.py<br/>HarnessWorker, Herdr tabs"]
-    HC["herdr/client.py + events.py<br/>Herdr socket"]
+    HS["hosts/<br/>select.py: runtime.host (auto, herdr, process, tmux)<br/>herdr.py, process.py, tmux.py"]
+    WK["worker.py<br/>HarnessWorker"]
+    HC["herdr/client.py + events.py<br/>Herdr socket (Herdr host only)"]
   end
 
   subgraph INTG["Integration"]
@@ -118,7 +123,7 @@ flowchart TB
   end
 
   EXT1["OpenRouter"]
-  EXT2["Herdr"]
+  EXT2["Worker host:<br/>Herdr, local process, or tmux"]
   EXT3["CLIs: copilot, codex, agy, claude"]
   EXT4[("Git")]
 
@@ -134,14 +139,16 @@ flowchart TB
   BR --> JC
   BR --> WS
   WS --> WK
-  WK --> HC
+  CLI --> HS
+  BR --> HS
+  HS --> HC
+  HS --> EXT2
   BR --> WT
   BR --> GT
   WT --> GT
   WT --> ENV
   GT --> ENV
   JEV --> EXT1
-  HC --> EXT2
   WK --> EXT3
   WT --> EXT4
   BR --> LG
@@ -172,7 +179,7 @@ sequenceDiagram
   participant B as Bridge (orchestrator)
   participant S as State (SQLite)
   participant J as Jev (OpenRouter)
-  participant H as Herdr
+  participant H as Worker host (Herdr, process, or tmux)
   participant W as Worker (subscription CLI)
   participant T as Worktrees and Git
   participant G as Deterministic gate
@@ -190,10 +197,10 @@ sequenceDiagram
       J-->>B: class and recommended lane
       Note over B: eligibility, cooldown, circuit breaker, and slot per lane
       B->>T: creates subtask worktree and branch
-      B->>H: opens visible tab and runs the worker
+      B->>H: starts the worker (Herdr tab, process, or tmux window)
       H->>W: executes the task in the worktree
       W-->>H: finishes
-      H-->>B: pane result
+      H-->>B: worker result
       B->>G: scope and gate in the worker's worktree
       G-->>B: approved
       B->>T: worker commit
@@ -212,7 +219,7 @@ sequenceDiagram
   B->>T: fast-forward of main (the only point that touches main)
   B->>S: run COMPLETED, orchestration_end
   B->>T: cleans up worktrees and branches
-  B->>H: closes the tabs
+  B->>H: closes the tabs or windows (Herdr, tmux)
   B-->>C: completed
   C-->>O: terminal summary
 ```
@@ -467,7 +474,9 @@ flowchart TD
 
 ## 11. Installation and Herdr integration
 
-Herdr is a prerequisite. The installer calls `meister setup`, which does the rest and is safe to run again.
+Herdr is not required to run workers: without it, `runtime.host: auto` runs them as local processes (and `runtime.host: tmux`
+runs them in tmux windows). The flow below is the installation with Herdr: the installer calls `meister setup`, which does
+the rest and is safe to run again.
 
 ```mermaid
 flowchart TD

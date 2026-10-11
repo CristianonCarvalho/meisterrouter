@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="meisterrouter",
-    description="Multi-Model Autonomous Orchestration Framework for Claude Code & OpenAI Codex",
+    description="Multi-model orchestration for AI coding CLIs: runs workers as background processes, in Herdr or in tmux",
     author="Cristiano Carvalho",
     packages=find_packages(),
     include_package_data=True,

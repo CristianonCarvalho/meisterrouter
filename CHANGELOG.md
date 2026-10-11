@@ -19,6 +19,11 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
+- **`runtime.host` selects where workers run.** It chooses the adapter that hosts each worker: `herdr`, `tmux` or `process`. See [docs/advanced.md](docs/advanced.md).
+- **`process` adapter:** workers run as background processes, with no terminal multiplexer, so MeisterRouter works without Herdr installed.
+- **`tmux` adapter:** workers run in tmux panes, as an alternative to Herdr.
+- **`meister logs`** shows the output of a worker, which matters most with the `process` adapter, where there is no pane to look at.
+- **`MEISTER_WORKER` environment variable** marks a process as a MeisterRouter worker, whatever the host. `MEISTER_IN_PANE` is kept and still honored.
 - **Native Windows support (under validation):** new `meister.osops` layer that holds the OS-specific code (POSIX in `posix.py`, Windows in `windows.py`), `psutil` as a dependency only on Windows, a fix for `os.kill(pid, 0)`, and hooks written with LF line endings. Linux and macOS behavior is unchanged.
 - **Unstable-test detection in the gate (`gate.flaky_retries`, default `2`; `0` turns it off).** When the gate fails on pytest tests, it first reruns only those tests in the same worktree (up to `flaky_retries` times). If they pass, the full gate runs once more and is the final authority: if it passes, the task is approved with the `gate_flaky` event listing the tests, and no repair worker is opened. If a test keeps failing, or the failure has no test ids (lint, collection), the rejection and the repair flow stay as before. Unstable tests no longer cost a model session and several minutes of repair.
 - **`meister wait [--run-id ID] [--timeout S] [--format text|json]`** blocks until a run ends and exits with a code that says how: `0` completed, `1` failed, `130` interrupted, `124` timeout, `2` usage error. It only reads the log (never writes), follows resumed runs and lets an orchestrator agent be notified without polling. See [docs/advanced.md](docs/advanced.md).
@@ -44,6 +49,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - The Jev now receives opaque lane keys (`lane_a`, `lane_b`...) instead of lane names: names like `tier_N` made it read a ranking and pick a more expensive lane. Its answer is translated back to the real lane name, so `recommended_implementer`, `fallback_chain` and the telemetry keep the real names.
 
 ### Other changes
+- `meister setup` and `bin/install.sh` no longer require Herdr: when it is missing they skip the Herdr steps and carry on, and anyone who has Herdr installed sees the same steps as before. `MEISTER_ALLOW_NO_HERDR` now has no effect.
 - Tolerated scope changes emit `scope_tolerated` events and progress lines; this repository tolerates `tests/**` but still requires the full test suite to pass. Its `meister.config.yaml` uses `router.mode: first` (no Jev; `tier_order` fallback remains active).
 - Configurable language foundation (`en` default, `pt-BR`), pipeline failure reason codes, and i18n string ratchet.
 - Deterministic gate repair loop (`gate.repair_attempts`) and diagnostics preservation in subtask rejection events.

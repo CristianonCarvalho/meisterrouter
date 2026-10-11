@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "meisterrouter"
 dynamic = ["version"]
-description = "Multi-Model Autonomous Orchestration Framework for Claude Code & OpenAI Codex"
+description = "Multi-model orchestration for AI coding CLIs: runs workers as background processes, in Herdr or in tmux"
 authors = [
     { name = "Cristiano Carvalho" }
 ]

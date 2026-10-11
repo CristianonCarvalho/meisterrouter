@@ -31,7 +31,7 @@ flowchart TD
     CD --> SL
     T1 --> SL["Slot per lane (max_parallel)<br/>and circuit breaker, always forward"]
     SL --> W["Own worktree"]
-    W --> HT["Worker in a visible Herdr tab<br/>copilot, codex, agy or claude"]
+    W --> HT["Worker on the worker host (runtime.host):<br/>Herdr tab, local process or tmux window<br/>copilot, codex, agy or claude"]
     HT --> WAIT{"Result"}
     WAIT -- "429 quota" --> FB["Opens the circuit breaker<br/>and tries the next lane"]
     FB --> SL
@@ -53,12 +53,12 @@ flowchart TD
   NEXT -- "yes" --> G
   NEXT -- "no" --> JC["Jev control<br/>judges the result"]
   JC --> FF["Fast-forward main"]
-  FF --> CL["Cleanup: worktrees,<br/>branches and tabs"]
+  FF --> CL["Cleanup: worktrees,<br/>branches and tabs or windows"]
 
-  subgraph OBS["Observability (Herdr plugin)"]
+  subgraph OBS["Observability"]
     LOG[("JSONL events")]
     DASH["Dashboard and TUI"]
-    DMN["Daemon: Herdr events"]
+    DMN["Daemon: Herdr events<br/>(Herdr host only)"]
   end
   O -.-> LOG
   HT -.-> LOG
@@ -69,7 +69,7 @@ flowchart TD
 ## How to read
 
 - **1. Planning:** The plan becomes validated JSON, and the configuration is checked before anything else. Invalid configuration exits with rc 2 without creating anything.
-- **2. Each subtask:** Jev (or the first lane) chooses the initial lane. There is a slot per lane and a worker in a visible Herdr tab. An exhausted quota opens the circuit breaker and moves to the next lane; a pane that disappears is detected within 5 s.
+- **2. Each subtask:** Jev (or the first lane) chooses the initial lane. There is a slot per lane, and the worker runs on the worker host chosen by `runtime.host`: a visible Herdr tab, a local process (the fallback of `auto` without Herdr), or a tmux window. An exhausted quota opens the circuit breaker and moves to the next lane; a pane that disappears is detected within 5 s.
 - **3. Integration:** Nothing enters `main` without passing the gates. A failure at any stage leaves `main` untouched, and running the same command resumes where it stopped.
 
 ## Roles

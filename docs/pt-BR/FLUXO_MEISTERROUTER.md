@@ -31,7 +31,7 @@ flowchart TD
     CD --> SL
     T1 --> SL["Vaga por via (max_parallel)<br/>e disjuntor, sempre para a frente"]
     SL --> W["Worktree próprio"]
-    W --> HT["Worker em tab visível do Herdr<br/>copilot, codex, agy ou claude"]
+    W --> HT["Worker no host de worker (runtime.host):<br/>tab do Herdr, processo local ou janela do tmux<br/>copilot, codex, agy ou claude"]
     HT --> WAIT{"Resultado"}
     WAIT -- "cota 429" --> FB["Abre o disjuntor<br/>e tenta a próxima via"]
     FB --> SL
@@ -53,12 +53,12 @@ flowchart TD
   NEXT -- "sim" --> G
   NEXT -- "não" --> JC["Jev control<br/>julga o resultado"]
   JC --> FF["Fast-forward da main"]
-  FF --> CL["Limpeza: worktrees,<br/>branches e tabs"]
+  FF --> CL["Limpeza: worktrees,<br/>branches e tabs ou janelas"]
 
-  subgraph OBS["Observabilidade (plugin Herdr)"]
+  subgraph OBS["Observabilidade"]
     LOG[("JSONL de eventos")]
     DASH["Dashboard e TUI"]
-    DMN["Daemon: eventos do Herdr"]
+    DMN["Daemon: eventos do Herdr<br/>(só no host Herdr)"]
   end
   O -.-> LOG
   HT -.-> LOG
@@ -69,7 +69,7 @@ flowchart TD
 ## Como ler
 
 - **1. Planejamento:** O plano vira JSON validado, e a configuração é verificada antes de qualquer coisa. Configuração inválida encerra com rc 2 sem criar nada.
-- **2. Cada subtarefa:** O Jev (ou a primeira via) escolhe a via inicial. Há uma vaga por via e um worker numa tab visível do Herdr. Cota esgotada abre o disjuntor e passa para a próxima via; um pane que sumiu é detectado em até 5 s.
+- **2. Cada subtarefa:** O Jev (ou a primeira via) escolhe a via inicial. Há uma vaga por via, e o worker roda no host de worker escolhido por `runtime.host`: uma tab visível do Herdr, um processo local (o recurso do `auto` sem Herdr) ou uma janela do tmux. Cota esgotada abre o disjuntor e passa para a próxima via; um pane que sumiu é detectado em até 5 s.
 - **3. Integração:** Nada entra na main sem passar pelos gates. Falha em qualquer etapa deixa a main intacta, e rodar o mesmo comando retoma de onde parou.
 
 ## Papéis
