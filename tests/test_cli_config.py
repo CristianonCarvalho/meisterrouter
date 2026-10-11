@@ -386,7 +386,7 @@ workers:
 
     runs_before = _count_runs()
 
-    with patch("meister.herdr.bridge.HerdrEventBridge.run_orchestration_cycle") as mock_bridge:
+    with patch("meister.engine.bridge.HerdrEventBridge.run_orchestration_cycle") as mock_bridge:
         result = runner.invoke(main, [
             "orchestrate",
             "--config", str(invalid_cfg),
@@ -446,7 +446,7 @@ workers:
     sm = StateManager()
     with sm._get_connection() as conn:
         before = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    with patch("meister.herdr.bridge.HerdrEventBridge.run_orchestration_cycle") as bridge:
+    with patch("meister.engine.bridge.HerdrEventBridge.run_orchestration_cycle") as bridge:
         orchestrate = runner.invoke(
             main,
             [

@@ -1,7 +1,7 @@
 """Tests for Dependency Analysis & Parallel Task DAG."""
 
 import pytest
-from meister.herdr.dag import (
+from meister.engine.dag import (
     SubtaskNode,
     TaskDAG,
     build_subtask_dag,
