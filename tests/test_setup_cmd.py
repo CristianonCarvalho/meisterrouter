@@ -17,6 +17,7 @@ from meister.setup_cmd import (
     START_MARKER,
     END_MARKER,
     check_herdr,
+    check_host,
     check_openrouter_key,
     check_python,
     check_worker_clis,
@@ -27,7 +28,7 @@ from meister.setup_cmd import (
     resolve_meister_path,
     write_herdr_config,
 )
-from meister.config import MeisterConfig, RouterConfig, WorkerTier, WorkersConfig
+from meister.config import MeisterConfig, RouterConfig, RuntimeConfig, WorkerTier, WorkersConfig
 
 
 OWNER_FIXTURE = """# General settings
@@ -404,8 +405,31 @@ def test_check_python():
 def test_check_herdr_absent(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda cmd: None)
     item = check_herdr()
-    assert item.status == "erro"
+    assert item.status == "aviso"
+    assert "É opcional" in item.message
     assert "curl -fsSL https://herdr.dev/install.sh | sh" in item.message
+
+
+@pytest.mark.parametrize(
+    ("mode", "socket", "status", "fragment"),
+    [
+        ("auto", False, "ok", "process (socket do Herdr não encontrado)"),
+        ("auto", True, "ok", "herdr (socket do Herdr acessível)"),
+        ("process", False, "ok", "definido em runtime.host"),
+        ("herdr", False, "aviso", "mas indisponível"),
+    ],
+)
+def test_check_host(monkeypatch, mode, socket, status, fragment):
+    monkeypatch.setattr("meister.hosts.select.is_herdr_available", lambda socket_path=None: socket)
+    item = check_host(MeisterConfig(runtime=RuntimeConfig(host=mode)))
+    assert item is not None
+    assert item.name == "host"
+    assert item.status == status
+    assert fragment in item.message
+
+
+def test_check_host_invalid_mode_is_skipped():
+    assert check_host(MeisterConfig(runtime=RuntimeConfig(host="bogus"))) is None
 
 
 def test_check_openrouter_key_secret_never_leaked(monkeypatch):

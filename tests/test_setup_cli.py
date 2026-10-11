@@ -30,16 +30,48 @@ def _no_real_herdr_or_clis(monkeypatch):
 
     monkeypatch.setattr(setup_cmd, "default_runner", fake_runner)
     monkeypatch.setattr(worker_module, "find_cli_binary", lambda harness: f"/bin/{harness}")
+    monkeypatch.setattr("meister.hosts.select.is_herdr_available", lambda socket_path=None: False)
     return calls
 
 
-def test_cli_setup_herdr_absent_aborts(monkeypatch):
+def test_cli_setup_herdr_absent_succeeds(monkeypatch, tmp_path, _no_real_herdr_or_clis):
     monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    cfg_file = tmp_path / "config.toml"
     runner = CliRunner()
-    result = runner.invoke(main, ["setup"])
-    assert result.exit_code == 1
-    assert "Herdr não encontrado no PATH" in result.output
+    result = runner.invoke(main, ["setup", "--herdr-config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert "Herdr não encontrado no PATH. É opcional" in result.output
     assert "curl -fsSL https://herdr.dev/install.sh | sh" in result.output
+    assert "Host dos workers: process" in result.output
+    # nada de plugin nem de atalhos sem o Herdr
+    assert _no_real_herdr_or_clis == []
+    assert not cfg_file.exists()
+    assert "Abra o Herdr" not in result.output
+
+
+def test_cli_setup_dry_run_herdr_absent_binds_nothing(monkeypatch, tmp_path, _no_real_herdr_or_clis):
+    monkeypatch.setattr(shutil, "which", lambda cmd: None)
+    cfg_file = tmp_path / "config.toml"
+    runner = CliRunner()
+    result = runner.invoke(main, ["setup", "--dry-run", "--herdr-config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert _no_real_herdr_or_clis == []
+    assert "Bloco que seria gravado" not in result.output
+    assert "Host dos workers: process" in result.output
+    assert not cfg_file.exists()
+
+
+def test_cli_setup_with_herdr_keeps_the_flow(monkeypatch, tmp_path, _no_real_herdr_or_clis):
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/bin/" + cmd)
+    cfg_file = tmp_path / "config.toml"
+    cfg_file.write_text("", encoding="utf-8")
+    runner = CliRunner()
+    result = runner.invoke(main, ["setup", "--herdr-config", str(cfg_file)])
+    assert result.exit_code == 0
+    assert ["herdr", "plugin", "list"] in _no_real_herdr_or_clis
+    assert ["herdr", "config", "check"] in _no_real_herdr_or_clis
+    assert "Herdr encontrado em /bin/herdr" in result.output
+    assert "Abra o Herdr" in result.output
 
 
 def test_cli_setup_dry_run_owner_fixture(tmp_path, monkeypatch):
