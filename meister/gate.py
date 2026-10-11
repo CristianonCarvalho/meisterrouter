@@ -484,6 +484,20 @@ class DeterministicGate:
             return False
         return proc.returncode == 0
 
+    def _apply_gate_env(self, env: Dict[str, str]) -> None:
+        """Aplica gate.env e põe JAVA_HOME/bin no início do PATH, se houver JAVA_HOME.
+
+        Sem gate.env o ambiente fica intacto, mesmo com JAVA_HOME herdado.
+        """
+        if not self.config.gate.env:
+            return
+        env.update(self.config.gate.env)
+        java_home = env.get("JAVA_HOME")
+        if java_home:
+            java_bin = os.path.join(java_home, "bin")
+            current = env.get("PATH", "")
+            env["PATH"] = java_bin + (os.pathsep + current if current else "")
+
     def _verification_config_hash(self, docs_only: bool = False) -> str:
         selected_commands = (
             self.config.gate.docs_only.commands
@@ -505,6 +519,7 @@ class DeterministicGate:
             "commands": commands,
             "python": self.config.gate.python,
             "install": self.config.gate.install,
+            "env": self.config.gate.env,
             "install_dependencies": self.config.environment.install_dependencies,
         }
         serialized = json.dumps(config_data, sort_keys=True, default=str)
@@ -585,6 +600,7 @@ class DeterministicGate:
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         local_bin = os.path.join(path, "node_modules", ".bin")
         env["PATH"] = env_path
+        self._apply_gate_env(env)
 
         # 1. Executa linters se presentes
         for linter in linters:
@@ -725,6 +741,7 @@ class DeterministicGate:
             path_entries.append(local_bin)
         path_entries.append(env.get("PATH", ""))
         env["PATH"] = os.pathsep.join(entry for entry in path_entries if entry)
+        self._apply_gate_env(env)
 
         uses_python_marker = any(
             "{python}" in command.run
