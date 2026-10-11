@@ -194,6 +194,9 @@ class ScopeConfig:
     tolerated_files: List[str] = field(
         default_factory=lambda: list(_default_section("scope")["tolerated_files"])
     )
+    allow_dependency_files: bool = field(
+        default_factory=lambda: bool(_default_section("scope").get("allow_dependency_files", False))
+    )
 
 
 @dataclass
@@ -709,7 +712,23 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if not isinstance(tolerated_files, list) or any(not isinstance(item, str) for item in tolerated_files):
         parse_issues.append(ConfigIssue("error", "scope.tolerated_files", t("reports.config.string_list")))
         tolerated_files = _default_section("scope")["tolerated_files"]
-    scope = ScopeConfig(tolerated_files=list(tolerated_files))
+    scope_defaults = _default_section("scope")
+    allow_dependency_files = scope_data.get(
+        "allow_dependency_files", scope_defaults.get("allow_dependency_files", False)
+    )
+    if not isinstance(allow_dependency_files, bool):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "scope.allow_dependency_files",
+                t("reports.config.allow_dependency_files_boolean", value=repr(allow_dependency_files)),
+            )
+        )
+        allow_dependency_files = bool(scope_defaults.get("allow_dependency_files", False))
+    scope = ScopeConfig(
+        tolerated_files=list(tolerated_files),
+        allow_dependency_files=allow_dependency_files,
+    )
 
     environment_data = data.get("environment", {})
     if not isinstance(environment_data, dict):
@@ -1437,6 +1456,19 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
                         message=t("reports.config.max_parallel_minimum", value=tier.max_parallel),
                     )
                 )
+
+    if not isinstance(config.scope.allow_dependency_files, bool):
+        if not any(issue.path == "scope.allow_dependency_files" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "scope.allow_dependency_files",
+                    t(
+                        "reports.config.allow_dependency_files_boolean",
+                        value=repr(config.scope.allow_dependency_files),
+                    ),
+                )
+            )
 
     if not _is_valid_runtime_host(config.runtime.host):
         if not any(issue.path == "runtime.host" for issue in issues):
