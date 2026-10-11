@@ -41,6 +41,8 @@ from meister.i18n import t
 
 logger = logging.getLogger(__name__)
 GATE_INFRASTRUCTURE_PREFIX = "ERRO DE INFRAESTRUTURA no portão:"
+# Arquivos da raiz que uma tarefa com escopo nunca pode alterar, mesmo se declarados ou tolerados.
+PROTECTED_FILES = ("meister.config.yaml",)
 
 
 class CodedMessage(str):
@@ -161,9 +163,12 @@ def scope_violations(
     ignored = ignored_files or set()
     return [
         path for path in files
-        if path not in ignored
-        and not any(_scope_matches(pattern, path) for pattern in targets)
-        and not any(_scope_matches(pattern, path, basename_glob=True) for pattern in tolerated)
+        if path in PROTECTED_FILES
+        or (
+            path not in ignored
+            and not any(_scope_matches(pattern, path) for pattern in targets)
+            and not any(_scope_matches(pattern, path, basename_glob=True) for pattern in tolerated)
+        )
     ]
 
 
@@ -182,6 +187,7 @@ def tolerated_touched(
     return [
         path for path in files
         if path not in ignored
+        and path not in PROTECTED_FILES
         and not any(_scope_matches(pattern, path) for pattern in targets)
         and any(_scope_matches(pattern, path, basename_glob=True) for pattern in tolerated)
     ]
