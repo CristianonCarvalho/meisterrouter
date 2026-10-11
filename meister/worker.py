@@ -51,6 +51,7 @@ HARNESS_CODEX = "codex"
 HARNESS_ANTIGRAVITY = "antigravity"
 HARNESS_CLAUDE = "claude"
 HARNESS_COPILOT = "copilot"
+HARNESS_KIRO = "kiro-cli"
 
 # Variáveis seguras permitidas para workers locais (Achados #29, E2E-7)
 DEFAULT_SAFE_ENV_VARS = {
@@ -306,6 +307,8 @@ def resolve_worker_harness_and_model(
         "claude": HARNESS_CLAUDE,
         "copilot": HARNESS_COPILOT,
         "github-copilot": HARNESS_COPILOT,
+        "kiro": HARNESS_KIRO,
+        "kiro-cli": HARNESS_KIRO,
     }
     return harness_aliases.get(harness.casefold(), harness), tier.model or None
 
@@ -335,6 +338,8 @@ def find_cli_binary(harness: str) -> Optional[str]:
         names = ["claude"]
     elif harness == HARNESS_COPILOT:
         names = ["copilot", "github-copilot-cli"]
+    elif harness == HARNESS_KIRO:
+        names = ["kiro-cli", "kiro"]
     else:
         names = [harness]
 
@@ -398,6 +403,16 @@ def build_harness_command(
         if effort:
             cmd.extend(["--reasoning-effort", effort])
         return cmd
+    elif harness == HARNESS_KIRO:
+        # Kiro CLI (verificado contra kiro-cli 2.29.1): "chat --no-interactive" roda sem interação
+        # e o prompt vai como argumento posicional, por último.
+        cmd = [cli_bin, "chat", "--no-interactive", "--trust-all-tools"]
+        if model and model not in ("default",):
+            cmd.extend(["--model", model])
+        if effort:
+            cmd.extend(["--effort", effort])
+        cmd.append(prompt)
+        return cmd
     else:
         return [cli_bin, prompt]
 
@@ -455,7 +470,7 @@ def get_git_status_files(cwd: str) -> set[str]:
 
 
 class HarnessWorker:
-    """Worker autônomo baseado em harnesses locais (Codex, Antigravity, Claude).
+    """Worker autônomo baseado em harnesses locais (Codex, Antigravity, Claude, Copilot, Kiro).
 
     Executa tarefas de código utilizando os agentes instalados no sistema,
     sem consumir tokens da API de decisões do OpenRouter (exclusiva do JEV).
