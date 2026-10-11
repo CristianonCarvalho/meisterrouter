@@ -569,6 +569,39 @@
     if (!workedBefore) return false;
     return attempts.some((a) => a && a.via === seg.via && (a.outcome === "quota" || a.outcome === "error"));
   }
+  const TOOLTIP_DETAIL_MAX = 120;
+  function tooltipField(value) {
+    return value === null || value === undefined ? "" : String(value).trim();
+  }
+  // "Attempt N: via, outcome, reason (detail)"; missing parts are omitted, a long detail is cut.
+  function attemptTooltipLine(attempt, index) {
+    const label = text.tooltip_attempt.replace("{n}", String(index + 1));
+    const a = attempt || {};
+    const outcome = tooltipField(a.outcome);
+    const reason = clipRunName(tooltipField(a.reason), TOOLTIP_DETAIL_MAX);
+    const detail = clipRunName(tooltipField(a.detail), TOOLTIP_DETAIL_MAX);
+    const parts = [tooltipField(a.via), outcome ? text["outcome_" + outcome] || outcome : ""];
+    if (reason && detail && detail !== reason) parts.push(reason + " (" + detail + ")");
+    else parts.push(reason || detail);
+    const body = parts.filter(Boolean).join(", ");
+    return body ? label + ": " + body : label;
+  }
+  // Extra tooltip lines: one per attempt, then where a reused task came from; old logs give none.
+  function taskTooltipExtraLines(row) {
+    if (!row) return [];
+    const attempts = Array.isArray(row.attempt_details) ? row.attempt_details
+      : Array.isArray(row.attempts) ? row.attempts : [];
+    const lines = attempts.map(attemptTooltipLine);
+    const source = tooltipField(row.reused_from);
+    if (source) {
+      lines.push(text.tooltip_reused_from.replace("{run}", source.slice(0, 8)));
+      const duration = row.reused_duration_s;
+      if (typeof duration === "number" && Number.isFinite(duration) && duration >= 0) {
+        lines.push(text.tooltip_original_duration + ": " + formatDuration(duration));
+      }
+    }
+    return lines;
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
@@ -758,6 +791,12 @@
       if (sec === null || sec === undefined) return;
       const line = document.createElement("div");
       line.textContent = label + ": " + formatDuration(sec);
+      timingBox.appendChild(line);
+    });
+    // Attempt reasons come from error text, so they only ever go in through textContent.
+    taskTooltipExtraLines(row).forEach((content) => {
+      const line = document.createElement("div");
+      line.textContent = content;
       timingBox.appendChild(line);
     });
     placeTooltip(event);
