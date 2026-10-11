@@ -13,7 +13,16 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.serving import make_server
 
 from meister.config import load_config
-from meister.config_editor import load_effective_lanes
+from meister.config_editor import (
+    ConfigEditorError,
+    ConfigStampError,
+    ConfigValidationError,
+    LaneDocument,
+    apply_lanes,
+    load_effective_lanes,
+    restore_default_lanes,
+    validate_lanes,
+)
 from meister.dashboard.metrics import (
     compute_summary,
     event_type,
@@ -28,7 +37,8 @@ from meister.dashboard.state import (
     remove_state,
     write_state,
 )
-from meister.i18n import get_language, t
+from meister.config import ConfigIssue
+from meister.i18n import CATALOGS, get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.report import compute_run_report
 from meister.timeline import build_timeline
@@ -480,22 +490,134 @@ def _is_remote_request() -> bool:
     return bool(headers.get("X-Forwarded-For")) and has_tailscale
 
 
-@app.route("/api/config")
-def api_config():
-    document = load_effective_lanes(_project_config_path())
+# Mensagens da escrita do /config; registradas nos catalogos do i18n ao importar este modulo.
+_CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
+    "en": {
+        "reports.dashboard.config_csrf": (
+            "Send the request as application/json with the header X-Meister-Config: 1."
+        ),
+        "reports.dashboard.config_invalid_json": "The request body is not valid JSON.",
+        "reports.dashboard.config_remote": "Editing is not allowed through remote access.",
+        "reports.dashboard.config_run_active": "A run is in progress; editing is blocked until it ends.",
+        "reports.dashboard.config_body_object": "The request body must be an object.",
+        "reports.dashboard.config_stamp_required": "stamp must be the text returned by GET /api/config.",
+    },
+    "pt-BR": {
+        "reports.dashboard.config_csrf": (
+            "Envie o pedido como application/json com o cabe\u00e7alho X-Meister-Config: 1."
+        ),
+        "reports.dashboard.config_invalid_json": "O corpo do pedido n\u00e3o \u00e9 um JSON v\u00e1lido.",
+        "reports.dashboard.config_remote": "A edi\u00e7\u00e3o n\u00e3o \u00e9 permitida pelo acesso remoto.",
+        "reports.dashboard.config_run_active": (
+            "H\u00e1 uma run em andamento; a edi\u00e7\u00e3o fica bloqueada at\u00e9 ela terminar."
+        ),
+        "reports.dashboard.config_body_object": "O corpo do pedido deve ser um objeto.",
+        "reports.dashboard.config_stamp_required": "stamp deve ser o texto devolvido por GET /api/config.",
+    },
+}
+for _language, _messages in _CONFIG_API_MESSAGES.items():
+    for _key, _value in _messages.items():
+        CATALOGS[_language].setdefault(_key, _value)
+
+
+def _config_payload(document: LaneDocument) -> Dict[str, Any]:
     reason: Optional[str] = None
     if _has_active_run():
         reason = "run_active"
     elif _is_remote_request():
         reason = "remote"
-    return jsonify({
+    return {
         "lanes": document.lanes,
         "source": document.path,
         "has_tier_order": document.has_tier_order,
         "stamp": document.stamp,
         "editable": reason is None,
         "reason": reason,
-    })
+    }
+
+
+@app.route("/api/config")
+def api_config():
+    return jsonify(_config_payload(load_effective_lanes(_project_config_path())))
+
+
+def _config_error(status: int, reason: str, message: str, issues: Optional[List[ConfigIssue]] = None):
+    body: Dict[str, Any] = {"error": message, "reason": reason}
+    if issues is not None:
+        fields: Dict[str, List[str]] = {}
+        for issue in issues:
+            fields.setdefault(issue.path, []).append(issue.message)
+        body["issues"] = [
+            {"level": issue.level, "path": issue.path, "message": issue.message} for issue in issues
+        ]
+        body["fields"] = fields
+    return jsonify(body), status
+
+
+def _config_write_guard() -> Tuple[Optional[Any], Dict[str, Any], LaneDocument]:
+    """Checagens comuns da escrita, na ordem do spec: CSRF, remoto, run ativa, corpo, carimbo.
+
+    Devolve (resposta de erro ou None, corpo do pedido, documento atual).
+    """
+    document = LaneDocument()
+    if request.mimetype != "application/json" or request.headers.get("X-Meister-Config") != "1":
+        return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}, document
+    if _is_remote_request():
+        return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}, document
+    if _has_active_run():
+        return _config_error(409, "run_active", t("reports.dashboard.config_run_active")), {}, document
+    body = request.get_json(silent=True)
+    if body is None:
+        return _config_error(400, "invalid_json", t("reports.dashboard.config_invalid_json")), {}, document
+    if not isinstance(body, dict):
+        message = t("reports.dashboard.config_body_object")
+        issue = ConfigIssue("error", "body", message)
+        return _config_error(422, "invalid", message, [issue]), {}, document
+    stamp = body.get("stamp")
+    if not isinstance(stamp, str) or not stamp:
+        message = t("reports.dashboard.config_stamp_required")
+        issue = ConfigIssue("error", "stamp", message)
+        return _config_error(422, "invalid", message, [issue]), body, document
+    document = load_effective_lanes(_project_config_path())
+    if document.stamp != stamp:
+        return _config_error(409, "stale", t("config_editor.stamp_mismatch")), body, document
+    return None, body, document
+
+
+def _config_write_failure(exc: ConfigEditorError):
+    if isinstance(exc, ConfigStampError):
+        return _config_error(409, "stale", str(exc))
+    if isinstance(exc, ConfigValidationError):
+        return _config_error(422, "invalid", str(exc), exc.issues)
+    return _config_error(500, "write_failed", str(exc))
+
+
+@app.route("/api/config/lanes", methods=["PUT"])
+def api_config_lanes():
+    error, body, document = _config_write_guard()
+    if error is not None:
+        return error
+    lanes = body.get("lanes")
+    issues = [issue for issue in validate_lanes(document, lanes) if issue.level == "error"]
+    if issues:
+        return _config_error(422, "invalid", ConfigValidationError(issues).args[0], issues)
+    try:
+        updated = apply_lanes(document, lanes, body["stamp"])
+    except ConfigEditorError as exc:
+        return _config_write_failure(exc)
+    return jsonify(_config_payload(updated))
+
+
+@app.route("/api/config/restore-default", methods=["POST"])
+def api_config_restore_default():
+    error, body, document = _config_write_guard()
+    if error is not None:
+        return error
+    try:
+        updated = restore_default_lanes(document, body["stamp"])
+    except ConfigEditorError as exc:
+        return _config_write_failure(exc)
+    return jsonify(_config_payload(updated))
 
 
 def _find_free_port() -> int:
