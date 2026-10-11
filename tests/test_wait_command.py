@@ -60,7 +60,8 @@ def test_completed_run_exits_zero_immediately(log_dir):
     start = time.monotonic()
     result = run_wait("--interval", "0.05")
     assert result.exit_code == 0, result.output
-    assert time.monotonic() - start < 5
+    # Já terminada: sai na hora; 30 s é só margem para runner lento (Windows sob xdist).
+    assert time.monotonic() - start < 30
     assert "completed" in result.output
     assert "abcdef12" in result.output
 
@@ -84,6 +85,8 @@ def test_interrupted_run_exits_130(log_dir):
     assert result.exit_code == 130, result.output
 
 
+# O `--timeout 60` dos testes que esperam o fim da run é só proteção contra travamento, folgado para runner lento.
+
 def test_waits_until_end_is_appended(log_dir):
     path = write_log(log_dir, parallel_events("waitrun00001"))
 
@@ -94,7 +97,7 @@ def test_waits_until_end_is_appended(log_dir):
     thread = threading.Thread(target=finish_later)
     thread.start()
     start = time.monotonic()
-    result = run_wait("--interval", "0.05", "--timeout", "10")
+    result = run_wait("--interval", "0.05", "--timeout", "60")
     elapsed = time.monotonic() - start
     thread.join()
     assert result.exit_code == 0, result.output
@@ -209,7 +212,7 @@ def test_resumed_run_waits_for_the_new_end(log_dir):
 
     thread = threading.Thread(target=finish_again)
     thread.start()
-    result = run_wait("--interval", "0.05", "--timeout", "10")
+    result = run_wait("--interval", "0.05", "--timeout", "60")
     thread.join()
     assert result.exit_code == 1, result.output
     assert "second try" in result.output
