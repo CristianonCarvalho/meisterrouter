@@ -90,6 +90,8 @@ def _git(repo: str, *args: str, check: bool = True) -> str:
         ["git", "-C", repo, *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if check and result.returncode:
@@ -104,6 +106,8 @@ def resolve_repository(path: str) -> str:
         ["git", "-C", os.path.abspath(path), "rev-parse", "--show-toplevel"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode:
@@ -122,6 +126,8 @@ def resolve_base(repo: str, requested: Optional[str]) -> str:
             ["git", "-C", repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{candidate}"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode == 0:
@@ -281,6 +287,8 @@ def _create_archive_ref(repo: str, branch: str, tip: str, now: Optional[int] = N
         ["git", "-C", repo, "update-ref", ref, tip, zero_oid],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     if result.returncode:
@@ -380,6 +388,8 @@ def apply_cleanup(
             ["git", "-C", plan.repo, "branch", "-D", "--", branch.branch],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         if result.returncode:
