@@ -46,10 +46,12 @@ def test_config_messages_keys_exist_in_both_catalogs():
         assert f"cli.config.web.{key}" in CATALOGS["pt-BR"]
 
 
-def test_config_page_does_not_write(page_client):
+def test_config_page_writes_with_csrf_header(page_client):
     html = page_client.get("/config").get_data(as_text=True)
-    assert "PUT" not in html
-    assert "restore-default" not in html
+    assert "/api/config/lanes" in html
+    assert "/api/config/restore-default" in html
+    assert '"X-Meister-Config": "1"' in html
+    assert '"Content-Type": "application/json"' in html
 
 
 def test_timeline_links_to_config(page_client):

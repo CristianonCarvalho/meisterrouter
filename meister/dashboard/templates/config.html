@@ -108,6 +108,54 @@
   .off { color: var(--muted); }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
   .read-only { color: var(--muted); font-size: 12px; margin-top: 12px; }
+  .read-only[hidden] { display: none; }
+  .hint { color: var(--muted); font-size: 12px; margin: 12px 0; }
+  .actions-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+  .status { color: var(--muted); font-size: 13px; }
+  .status.error { color: var(--red); }
+  .status.ok { color: var(--green); }
+  button {
+    font: inherit;
+    font-size: 13px;
+    padding: 5px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled, input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
+  button.primary { border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
+  button.danger { border-color: var(--red); color: var(--red); }
+  button.icon { padding: 2px 8px; }
+  input, select {
+    font: inherit;
+    font-size: 13px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+  }
+  input.model { min-width: 180px; }
+  input.parallel { width: 70px; }
+  .invalid { border-color: var(--red); }
+  .field-error { color: var(--red); font-size: 11px; margin-top: 3px; white-space: normal; }
+  .errors { color: var(--red); margin: 12px 0 0; padding-left: 18px; }
+  .errors:empty { display: none; }
+  .notice .inline { margin-left: 10px; }
+  .confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding: 10px 14px;
+    border: 1px solid var(--red);
+    border-radius: 8px;
+  }
+  .confirm[hidden] { display: none; }
   @media (max-width: 640px) {
     body { padding: 12px; }
     th, td { padding: 8px; }
@@ -129,6 +177,10 @@
 <div id="banner-run-active" class="notice" hidden>{{ messages.blocked_run_active }}</div>
 <div id="banner-remote" class="notice" hidden>{{ messages.read_only_remote }}</div>
 <div id="banner-error" class="notice error" hidden>{{ messages.load_failed }}</div>
+<div id="banner-stale" class="notice error" hidden>
+  <span>{{ messages.stale }}</span>
+  <button type="button" id="reload" class="inline">{{ messages.reload }}</button>
+</div>
 
 <div id="source" class="source">{{ messages.loading }}</div>
 
@@ -137,6 +189,7 @@
     <thead>
       <tr>
         <th>{{ messages.position }}</th>
+        <th>{{ messages.actions }}</th>
         <th>{{ messages.name }}</th>
         <th>{{ messages.harness }}</th>
         <th>{{ messages.model }}</th>
@@ -148,12 +201,130 @@
     <tbody id="lanes-body"></tbody>
   </table>
 </div>
-<p class="read-only">{{ messages.read_only_notice }}</p>
+<ul id="errors" class="errors"></ul>
+<p class="hint">{{ messages.project_list_notice }}</p>
+<div class="actions-bar">
+  <button type="button" id="save" class="primary">{{ messages.save }}</button>
+  <button type="button" id="revert">{{ messages.revert }}</button>
+  <button type="button" id="restore">{{ messages.restore_default }}</button>
+  <span id="status" class="status" role="status"></span>
+</div>
+<div id="restore-confirm" class="confirm" hidden>
+  <span>{{ messages.restore_confirm }}</span>
+  <button type="button" id="restore-yes" class="danger">{{ messages.confirm_yes }}</button>
+  <button type="button" id="restore-no">{{ messages.confirm_no }}</button>
+</div>
+<p id="read-only" class="read-only" hidden>{{ messages.read_only_notice }}</p>
 
 <script>
 (() => {
   const text = {{ messages|tojson }};
   const byId = (id) => document.getElementById(id);
+
+  // helpers:begin
+  // Valores de meister/harness_effort.py (o teste tests/test_config_js_harness.py confere a paridade).
+  const HARNESS_EFFORT = {
+    "copilot": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    "github-copilot": ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    "claude": ["low", "medium", "high", "xhigh", "max"],
+    "agy": ["low", "medium", "high", "xhigh", "max"],
+    "antigravity": ["low", "medium", "high", "xhigh", "max"],
+    "codex": ["minimal", "low", "medium", "high", "xhigh"],
+  };
+  const WRITE_HEADERS = { "Content-Type": "application/json", "X-Meister-Config": "1" };
+  const LANE_PATH = /^(?:lanes|workers\.tier_order)\[(\d+)\]\.(\w+)$/;
+
+  function harnessOptions() {
+    return Object.keys(HARNESS_EFFORT);
+  }
+
+  function effortOptions(harness) {
+    return Object.prototype.hasOwnProperty.call(HARNESS_EFFORT, harness) ? HARNESS_EFFORT[harness].slice() : [];
+  }
+
+  function moveLane(lanes, index, delta) {
+    const result = lanes.map((lane) => ({ ...lane }));
+    const target = index + delta;
+    if (index < 0 || index >= result.length || target < 0 || target >= result.length) return result;
+    const [lane] = result.splice(index, 1);
+    result.splice(target, 0, lane);
+    return result;
+  }
+
+  // Texto vazio vira null (sem limite); inteiro vira número; o resto segue cru para o servidor recusar.
+  function normalizeMaxParallel(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return value;
+    const raw = String(value).trim();
+    if (raw === "") return null;
+    return /^\d+$/.test(raw) ? Number(raw) : raw;
+  }
+
+  function buildLanesBody(stamp, lanes) {
+    return {
+      stamp,
+      lanes: lanes.map((lane) => ({
+        name: lane.name,
+        harness: lane.harness,
+        model: typeof lane.model === "string" ? lane.model : "",
+        effort: lane.effort ? lane.effort : null,
+        enabled: lane.enabled !== false,
+        max_parallel: normalizeMaxParallel(lane.max_parallel),
+      })),
+    };
+  }
+
+  function saveRequest(stamp, lanes) {
+    return { method: "PUT", headers: { ...WRITE_HEADERS }, body: JSON.stringify(buildLanesBody(stamp, lanes)) };
+  }
+
+  function restoreRequest(stamp) {
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify({ stamp }) };
+  }
+
+  // {"lanes[0].model": [...], "lanes": [...]} -> {lanes: {"0": {model: [...]}}, general: [...]}
+  function mapFieldErrors(fields) {
+    const result = { lanes: {}, general: [] };
+    if (!fields || typeof fields !== "object") return result;
+    for (const [path, messages] of Object.entries(fields)) {
+      const list = Array.isArray(messages) ? messages.map(String) : [String(messages)];
+      const match = LANE_PATH.exec(path);
+      if (!match) {
+        result.general.push(...list);
+        continue;
+      }
+      const lane = result.lanes[match[1]] || (result.lanes[match[1]] = {});
+      lane[match[2]] = (lane[match[2]] || []).concat(list);
+    }
+    return result;
+  }
+
+  function saveOutcome(status, body) {
+    if (status >= 200 && status < 300) return "saved";
+    const reason = body && typeof body === "object" ? body.reason : null;
+    if (status === 409) return reason === "run_active" ? "run_active" : "stale";
+    if (status === 403) return "remote";
+    if (status === 422) return "invalid";
+    return "error";
+  }
+
+  function lanesChanged(original, edited) {
+    return JSON.stringify(buildLanesBody("", original).lanes) !== JSON.stringify(buildLanesBody("", edited).lanes);
+  }
+  // helpers:end
+
+  const state = {
+    original: [],
+    lanes: [],
+    stamp: "",
+    editable: false,
+    reason: null,
+    hasTierOrder: false,
+    errors: { lanes: {}, general: [] },
+    busy: false,
+  };
+
+  const locked = () => !state.editable || state.busy;
 
   function cell(value, className) {
     const td = document.createElement("td");
@@ -162,39 +333,193 @@
     return td;
   }
 
-  function renderLanes(lanes) {
+  function fieldCell(control, index, field) {
+    const td = document.createElement("td");
+    td.appendChild(control);
+    const messages = (state.errors.lanes[String(index)] || {})[field];
+    if (messages && messages.length) {
+      control.classList.add("invalid");
+      const error = document.createElement("div");
+      error.className = "field-error";
+      error.textContent = messages.join(" ");
+      td.appendChild(error);
+    }
+    return td;
+  }
+
+  function option(value, label) {
+    const element = document.createElement("option");
+    element.value = value;
+    element.textContent = label;
+    return element;
+  }
+
+  function updateLane(index, changes) {
+    state.lanes[index] = { ...state.lanes[index], ...changes };
+    render();
+  }
+
+  function moveButton(index, delta, label, symbol) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "icon";
+    button.textContent = symbol;
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    const target = index + delta;
+    button.disabled = locked() || target < 0 || target >= state.lanes.length;
+    button.addEventListener("click", () => {
+      state.lanes = moveLane(state.lanes, index, delta);
+      state.errors = { lanes: {}, general: [] };
+      render();
+    });
+    return button;
+  }
+
+  function laneRow(lane, index) {
+    const row = document.createElement("tr");
+    const disabled = locked();
+
+    const order = document.createElement("td");
+    order.append(moveButton(index, -1, text.move_up, "↑"), " ", moveButton(index, 1, text.move_down, "↓"));
+
+    const harness = document.createElement("select");
+    const harnesses = harnessOptions();
+    if (!harnesses.includes(lane.harness)) harnesses.push(lane.harness);
+    harnesses.forEach((value) => harness.appendChild(option(value, value)));
+    harness.value = lane.harness;
+    harness.disabled = disabled;
+    harness.addEventListener("change", () => {
+      const keepEffort = effortOptions(harness.value).includes(lane.effort);
+      updateLane(index, { harness: harness.value, effort: keepEffort ? lane.effort : null });
+    });
+
+    const model = document.createElement("input");
+    model.type = "text";
+    model.className = "model";
+    model.value = typeof lane.model === "string" ? lane.model : "";
+    model.disabled = disabled;
+    model.addEventListener("input", () => {
+      state.lanes[index] = { ...state.lanes[index], model: model.value };
+      renderControls();
+    });
+
+    const effort = document.createElement("select");
+    const efforts = effortOptions(lane.harness);
+    if (lane.effort && !efforts.includes(lane.effort)) efforts.push(lane.effort);
+    effort.appendChild(option("", text.effort_default));
+    efforts.forEach((value) => effort.appendChild(option(value, value)));
+    effort.value = lane.effort || "";
+    effort.disabled = disabled;
+    effort.addEventListener("change", () => updateLane(index, { effort: effort.value || null }));
+
+    const parallel = document.createElement("input");
+    parallel.type = "number";
+    parallel.min = "1";
+    parallel.step = "1";
+    parallel.className = "parallel";
+    parallel.value = lane.max_parallel === null || lane.max_parallel === undefined ? "" : String(lane.max_parallel);
+    parallel.disabled = disabled;
+    parallel.addEventListener("input", () => {
+      state.lanes[index] = { ...state.lanes[index], max_parallel: parallel.value };
+      renderControls();
+    });
+
+    const enabled = document.createElement("input");
+    enabled.type = "checkbox";
+    enabled.checked = lane.enabled !== false;
+    enabled.disabled = disabled;
+    enabled.setAttribute("aria-label", text.enabled);
+    enabled.addEventListener("change", () => updateLane(index, { enabled: enabled.checked }));
+
+    row.append(
+      cell(index + 1, "num"),
+      order,
+      fieldCell(nameSpan(lane.name), index, "name"),
+      fieldCell(harness, index, "harness"),
+      fieldCell(model, index, "model"),
+      fieldCell(effort, index, "effort"),
+      fieldCell(parallel, index, "max_parallel"),
+      fieldCell(enabled, index, "enabled"),
+    );
+    return row;
+  }
+
+  function nameSpan(name) {
+    const span = document.createElement("span");
+    span.textContent = name || "—";
+    return span;
+  }
+
+  function renderLanes() {
     const body = byId("lanes-body");
     body.replaceChildren();
-    if (!lanes.length) {
+    if (!state.lanes.length) {
       const row = document.createElement("tr");
       const td = cell(text.no_lanes, "empty");
-      td.colSpan = 7;
+      td.colSpan = 8;
       row.appendChild(td);
       body.appendChild(row);
       return;
     }
-    lanes.forEach((lane, index) => {
-      const row = document.createElement("tr");
-      const enabled = lane.enabled !== false;
-      row.append(
-        cell(index + 1, "num"),
-        cell(lane.name),
-        cell(lane.harness),
-        cell(lane.model),
-        cell(lane.effort),
-        cell(lane.max_parallel, "num"),
-        cell(enabled ? text.yes : text.no, enabled ? "on" : "off"),
-      );
-      body.appendChild(row);
+    state.lanes.forEach((lane, index) => body.appendChild(laneRow(lane, index)));
+  }
+
+  function renderErrors() {
+    const list = byId("errors");
+    list.replaceChildren();
+    state.errors.general.forEach((message) => {
+      const item = document.createElement("li");
+      item.textContent = message;
+      list.appendChild(item);
     });
   }
 
-  function renderState(data) {
-    byId("banner-run-active").hidden = data.reason !== "run_active";
-    byId("banner-remote").hidden = data.reason !== "remote";
-    byId("source").textContent = data.has_tier_order
+  function renderControls() {
+    const changed = lanesChanged(state.original, state.lanes);
+    byId("save").disabled = locked() || !changed || !state.lanes.length;
+    byId("revert").disabled = locked() || !changed;
+    byId("restore").disabled = locked() || !state.hasTierOrder;
+    byId("restore-yes").disabled = locked();
+    byId("read-only").hidden = state.editable;
+    const status = byId("status");
+    if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
+    if (!changed && status.textContent === text.unsaved) setStatus("", "");
+  }
+
+  function render() {
+    renderLanes();
+    renderErrors();
+    renderControls();
+  }
+
+  function setStatus(message, kind) {
+    const status = byId("status");
+    status.textContent = message;
+    status.className = kind ? `status ${kind}` : "status";
+  }
+
+  function renderState() {
+    byId("banner-run-active").hidden = state.reason !== "run_active";
+    byId("banner-remote").hidden = state.reason !== "remote";
+  }
+
+  function applyData(data) {
+    const lanes = Array.isArray(data.lanes) ? data.lanes : [];
+    state.original = lanes.map((lane) => ({ ...lane }));
+    state.lanes = lanes.map((lane) => ({ ...lane }));
+    state.stamp = typeof data.stamp === "string" ? data.stamp : "";
+    state.editable = data.editable === true;
+    state.reason = data.reason || null;
+    state.hasTierOrder = data.has_tier_order === true;
+    state.errors = { lanes: {}, general: [] };
+    byId("banner-stale").hidden = true;
+    byId("restore-confirm").hidden = true;
+    byId("source").textContent = state.hasTierOrder
       ? text.source.replace("{path}", data.source || "")
       : text.source_default;
+    renderState();
+    render();
   }
 
   async function load() {
@@ -203,14 +528,84 @@
       if (!response.ok) throw new Error(String(response.status));
       const data = await response.json();
       byId("banner-error").hidden = true;
-      renderState(data);
-      renderLanes(Array.isArray(data.lanes) ? data.lanes : []);
+      setStatus("", "");
+      applyData(data);
     } catch (_) {
       byId("banner-error").hidden = false;
       byId("source").textContent = "";
     }
   }
 
+  function handleWriteResponse(status, body, successText) {
+    const outcome = saveOutcome(status, body);
+    if (outcome === "saved") {
+      applyData(body || {});
+      setStatus(successText, "ok");
+      return;
+    }
+    if (outcome === "invalid") {
+      state.errors = mapFieldErrors(body && body.fields);
+      setStatus(text.invalid, "error");
+    } else if (outcome === "stale") {
+      byId("banner-stale").hidden = false;
+      setStatus("", "");
+    } else if (outcome === "run_active" || outcome === "remote") {
+      state.editable = false;
+      state.reason = outcome;
+      setStatus("", "");
+      renderState();
+    } else {
+      const error = body && body.error ? body.error : String(status);
+      setStatus(text.save_failed.replace("{error}", error), "error");
+    }
+    render();
+  }
+
+  async function write(url, request, successText) {
+    state.busy = true;
+    setStatus(text.saving, "");
+    render();
+    let status = 0;
+    let body = null;
+    try {
+      const response = await fetch(url, request);
+      status = response.status;
+      try {
+        body = await response.json();
+      } catch (_) {
+        body = null;
+      }
+    } catch (err) {
+      body = { error: String(err) };
+    }
+    state.busy = false;
+    handleWriteResponse(status, body, successText);
+  }
+
+  byId("save").addEventListener("click", () => {
+    if (locked()) return;
+    write("/api/config/lanes", saveRequest(state.stamp, state.lanes), text.saved);
+  });
+  byId("revert").addEventListener("click", () => {
+    state.lanes = state.original.map((lane) => ({ ...lane }));
+    state.errors = { lanes: {}, general: [] };
+    setStatus("", "");
+    render();
+  });
+  byId("restore").addEventListener("click", () => {
+    byId("restore-confirm").hidden = false;
+  });
+  byId("restore-no").addEventListener("click", () => {
+    byId("restore-confirm").hidden = true;
+  });
+  byId("restore-yes").addEventListener("click", () => {
+    if (locked()) return;
+    byId("restore-confirm").hidden = true;
+    write("/api/config/restore-default", restoreRequest(state.stamp), text.restored);
+  });
+  byId("reload").addEventListener("click", load);
+
+  render();
   load();
 })();
 </script>
