@@ -1913,6 +1913,48 @@ def plan_import(plan_md, fmt, output_path, deps, allow_unscoped):
         click.echo(out)
 
 
+@plan_group.command("new", help=t("cli.plan.new.help"))
+@click.option("--tasks", "task_count", type=int, default=3, show_default=True,
+              help=t("cli.plan.new.tasks_help"))
+@click.option("--format", "fmt", type=click.Choice(["markdown", "json"]), default="markdown",
+              show_default=True, help=t("cli.plan.new.format_help"))
+@click.option("-o", "--output", "output_path", default=None,
+              help=t("cli.plan.new.output_help"))
+@click.option("--project", is_flag=True, default=False, help=t("cli.plan.new.project_help"))
+def plan_new(task_count, fmt, output_path, project):
+    """Print or write an empty plan skeleton with N tasks."""
+    from meister.plan_template import project_constraints, render_json_template, render_markdown_template
+
+    if task_count < 1:
+        raise click.BadParameter(t("cli.plan.new.tasks_invalid", count=task_count), param_hint="'--tasks'")
+    if fmt == "json":
+        out = render_json_template(task_count)
+    else:
+        constraints = project_constraints(os.getcwd()) if project else None
+        out = render_markdown_template(task_count, constraints)
+
+    if output_path:
+        try:
+            with open(output_path, "w", encoding="utf-8") as fh:
+                fh.write(out)
+        except OSError as exc:
+            click.echo(t("cli.common.write_failed", path=output_path, error=exc), err=True)
+            sys.exit(1)
+        click.echo(t("cli.plan.new.saved", path=output_path))
+    else:
+        click.echo(out, nl=False)
+
+
+@plan_group.command("guide", help=t("cli.plan.guide.help"))
+@click.option("--lang", type=click.Choice(["en", "pt-BR"]), default=None,
+              help=t("cli.plan.guide.lang_help"))
+def plan_guide(lang):
+    """Print the plan format guide."""
+    from meister.plan_guide import render_guide
+
+    click.echo(render_guide(lang), nl=False)
+
+
 # ── config subcommand group ───────────────────────────────────────────────────
 
 @main.group("config", help=t("cli.config.help"))
