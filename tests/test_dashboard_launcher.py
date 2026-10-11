@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import threading
 import time
@@ -12,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from meister import osops
 from meister.config import DashboardConfig, DashboardWindowConfig
 import meister.dashboard.launcher as launcher_mod
 from meister.dashboard.launcher import Outcome, ensure_dashboard
@@ -117,7 +117,7 @@ def test_ensure_dashboard_no_display_returns_url_only(
 
     monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 50000 22")
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     opened_tabs: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened_tabs.append(url))
@@ -161,7 +161,7 @@ def test_ensure_dashboard_without_chromium_falls_back_to_tab(
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: None)
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     opened_tabs: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened_tabs.append(url))
@@ -223,7 +223,7 @@ def test_ensure_dashboard_server_alive_and_window_alive_opens_nothing(
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: ["/bin/chromium"])
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     opened_tabs: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened_tabs.append(url))
@@ -271,7 +271,7 @@ def test_ensure_dashboard_server_alive_and_window_dead_opens_only_window(
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: ["/bin/chromium"])
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     opened_tabs: list[str] = []
     monkeypatch.setattr(webbrowser, "open", lambda url: opened_tabs.append(url))
@@ -317,7 +317,7 @@ def test_ensure_dashboard_concurrent_calls_spawn_only_one_server(
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: ["/bin/chromium"])
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     server_spawn_lock = threading.Lock()
     server_spawns = 0
@@ -391,12 +391,8 @@ def test_ensure_dashboard_replaces_dead_pid_state(
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: ["/bin/chromium"])
 
-    def fake_kill(pid: int, sig: int) -> None:
-        if pid == dead_pid:
-            raise ProcessLookupError
-        return None
-
-    monkeypatch.setattr(os, "kill", fake_kill)
+    # is_alive consulta osops.pid_alive (os.kill no Unix, psutil no Windows): simular nele vale nos dois
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: pid != dead_pid)
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
 
     def fake_popen(*args: Any, **kwargs: Any) -> Any:
@@ -442,7 +438,7 @@ def test_ensure_dashboard_two_projects_independent_states_and_urls(
     proj_b.mkdir()
 
     monkeypatch.setattr(launcher_mod, "find_chromium", lambda platform, env: ["/bin/chromium"])
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
     monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=1.0: _mock_meta_response())
 
     def fake_popen(*args: Any, **kwargs: Any) -> Any:

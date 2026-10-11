@@ -10,6 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from meister import osops
 from meister.dashboard.launcher import ensure_dashboard, resolve_project_root
 from meister.dashboard.state import ServerState, format_iso_utc, read_state, write_state
 
@@ -143,7 +144,7 @@ def test_ensure_dashboard_shares_state_between_worktrees(
     worktree_subdir.mkdir()
 
     monkeypatch.setenv("SSH_CLIENT", "127.0.0.1 50000 22")
-    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(osops, "pid_alive", lambda pid: True)
 
     def fake_urlopen(request: Any, timeout: float = 1.0) -> MagicMock:
         response = MagicMock()

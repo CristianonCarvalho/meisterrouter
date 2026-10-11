@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -10,12 +11,14 @@ from meister.cli import main
 
 
 class _ImmediateThread:
-    def __init__(self, *, target, daemon):
+    def __init__(self, group=None, target=None, name=None, args=(), kwargs=None, *, daemon=None):
         self.target = target
+        self.args = args
+        self.kwargs = kwargs or {}
         self.daemon = daemon
 
     def start(self):
-        self.target()
+        self.target(*self.args, **self.kwargs)
 
 
 def _prepare_orchestrate(monkeypatch, tmp_path):
@@ -30,7 +33,8 @@ def _prepare_orchestrate(monkeypatch, tmp_path):
     bridge = Mock()
     bridge.run_orchestration_cycle = AsyncMock(return_value=True)
     monkeypatch.setattr(cli, "HerdrEventBridge", lambda config, host: bridge)
-    monkeypatch.setattr(cli.threading, "Thread", _ImmediateThread, raising=False)
+    # só o módulo threading visto pelo cli: trocar threading.Thread global quebra o asyncio/subprocess no Windows
+    monkeypatch.setattr(cli, "threading", SimpleNamespace(Thread=_ImmediateThread))
     return config
 
 
@@ -47,7 +51,7 @@ def test_orchestrate_starts_dashboard_once_and_prints_timeline_url(
     result = CliRunner().invoke(main, ["orchestrate", "--quiet"])
 
     assert result.exit_code == 0
-    ensure.assert_called_once_with(tmp_path.resolve(), config.dashboard)
+    ensure.assert_called_once_with(Path.cwd(), config.dashboard)
     assert "Timeline: http://127.0.0.1:51423/timeline" in result.output
 
 
