@@ -283,6 +283,8 @@ class WorktreeManager:
                 ["git", "rev-parse", "--show-toplevel"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=True,
             )
             return res.stdout.strip()
@@ -302,6 +304,8 @@ class WorktreeManager:
             cwd=target_cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
         if res.returncode != 0:
@@ -434,6 +438,8 @@ class WorktreeManager:
             cwd=worktree_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
             check=True,
         )
@@ -469,6 +475,8 @@ class WorktreeManager:
             cwd=target_worktree_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             env=env,
         )
 
@@ -479,6 +487,8 @@ class WorktreeManager:
                     cwd=target_worktree_path,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
             except Exception:
                 pass
@@ -523,6 +533,8 @@ class WorktreeManager:
                 cwd=self.repo_root,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             if status_res.stdout.strip():
                 return False, t("engine.worktree.repo_dirty")
@@ -612,6 +624,8 @@ class WorktreeManager:
                 input="\0".join(files) + "\0",
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             return {name for name in result.stdout.split("\0") if name}
         except OSError as exc:
@@ -1355,6 +1369,8 @@ class IntegrationPipeline:
                             cwd=info.worktree_path,
                             capture_output=True,
                             text=True,
+                            encoding="utf-8",
+                            errors="replace",
                             env=env,
                         )
                         if res.returncode != 0:
@@ -1365,6 +1381,8 @@ class IntegrationPipeline:
                                     cwd=info.worktree_path,
                                     capture_output=True,
                                     text=True,
+                                    encoding="utf-8",
+                                    errors="replace",
                                 )
                             except Exception:
                                 pass
@@ -1382,6 +1400,8 @@ class IntegrationPipeline:
                                 cwd=info.worktree_path,
                                 capture_output=True,
                                 text=True,
+                                encoding="utf-8",
+                                errors="replace",
                             )
                         except Exception:
                             pass
@@ -1777,6 +1797,8 @@ class IntegrationPipeline:
                 cwd=self.integration_info.worktree_path,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 check=False,
             )
             return res.stdout.strip()

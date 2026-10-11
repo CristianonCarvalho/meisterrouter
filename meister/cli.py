@@ -72,6 +72,8 @@ def _version_string() -> str:
             cwd=package_dir,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=True,
             timeout=2,
         )
@@ -953,6 +955,8 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                     cwd=resolved_cwd,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     check=False,
                 )
                 is_git = chk.returncode == 0 and chk.stdout.strip() == "true"

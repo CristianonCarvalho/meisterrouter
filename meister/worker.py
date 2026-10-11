@@ -432,6 +432,8 @@ def get_git_status_files(cwd: str) -> set[str]:
             cwd=cwd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             check=False,
         )
         files = set()
@@ -601,6 +603,8 @@ class HarnessWorker:
                 stdin=subprocess.DEVNULL,
                 env=safe_env,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 **osops.popen_session_kwargs(),
             )
