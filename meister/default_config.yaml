@@ -67,6 +67,9 @@ scope:
     - uv.lock
     - "*.tsbuildinfo"
     - .vitest/**
+  # true permite a uma tarefa editar também os arquivos declarados pelas tarefas das quais
+  # ela depende (direta ou transitivamente), já integradas antes dela.
+  allow_dependency_files: false
 environment:
   install_dependencies: true
   install_timeout_seconds: 300

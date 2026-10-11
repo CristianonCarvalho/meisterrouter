@@ -21,6 +21,7 @@ MESSAGES: dict[str, str] = {
     "reports.config.max_parallel_integer": "Field 'max_parallel' must be an integer >= 1 (booleans are not accepted), received: {value}",
     "reports.config.enabled_boolean": "Field 'enabled' must be a boolean (true/false), received: {value}",
     "reports.config.scope_object": "scope must be an object",
+    "reports.config.allow_dependency_files_boolean": "scope.allow_dependency_files must be a boolean (true/false), received: {value}",
     "reports.config.string_list": "must be a list of strings",
     "reports.config.environment_object": "environment must be an object",
     "reports.config.gate_object": "gate must be an object",
