@@ -20,7 +20,7 @@ import math
 import re
 import signal
 import subprocess
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Union
 
 from meister import osops
 from meister.config import MeisterConfig, WorkerTier, effective_worker_timeouts, load_config
@@ -313,6 +313,8 @@ class HerdrEventBridge:
         self._tier_cond = asyncio.Condition()
         self._held_slots: Dict[str, str] = {}
         self._jev_unavailable_until: float = 0.0
+        # Plano em execução (id -> passo), para achar os arquivos das tarefas ancestrais.
+        self._plan_steps: Dict[str, Union[Dict[str, Any], SubtaskNode]] = {}
 
         # Concurrency limit from config
         max_workers = 4
@@ -431,6 +433,33 @@ class HerdrEventBridge:
         if self.state_manager is None:
             self.state_manager = StateManager()
         return self.state_manager
+
+    def _dependency_files(
+        self,
+        task_id: str,
+        steps: Optional[Mapping[str, Union[Dict[str, Any], SubtaskNode]]] = None,
+    ) -> List[str]:
+        """União dos target_files das ancestrais (fecho de depends_on) quando a opção estiver ligada."""
+        plan: Mapping[str, Union[Dict[str, Any], SubtaskNode]] = self._plan_steps if steps is None else steps
+        if not (self.config and self.config.scope and self.config.scope.allow_dependency_files):
+            return []
+
+        def field(step: Union[Dict[str, Any], SubtaskNode], name: str) -> List[str]:
+            raw = step.get(name) if isinstance(step, dict) else getattr(step, name, None)
+            return [str(item) for item in raw] if isinstance(raw, list) else []
+
+        files: List[str] = []
+        seen: set[str] = set()
+        pending = field(plan[task_id], "depends_on") if task_id in plan else []
+        while pending:
+            ancestor_id = pending.pop()
+            ancestor = plan.get(ancestor_id)
+            if ancestor_id in seen or ancestor is None:
+                continue
+            seen.add(ancestor_id)
+            files.extend(path for path in field(ancestor, "target_files") if path not in files)
+            pending.extend(field(ancestor, "depends_on"))
+        return files
 
     def _report_scope_tolerated(
         self,
@@ -586,6 +615,7 @@ class HerdrEventBridge:
                         step.get("target_files") or [],
                         tolerated_files,
                         ignored,
+                        dependency_files=self._dependency_files(step_id, current_by_id),
                     )
                     if out_of_scope:
                         reason = "scope"
@@ -1925,13 +1955,19 @@ class HerdrEventBridge:
                         crash_point("after_worker_result", task_id=task_id, run_id=active_run_id)
                         prepare_duration = 0.0
                         merge_duration = 0.0
+                        # Arquivos das ancestrais contam como escopo; sem target_files a tarefa segue sem escopo.
+                        scope_files = (
+                            [*target_files, *(f for f in self._dependency_files(task_id) if f not in target_files)]
+                            if target_files
+                            else target_files
+                        )
                         try:
                             prepare_start = time.monotonic()
                             try:
                                 prepared = await asyncio.to_thread(
                                     self._integration_pipeline.prepare_subtask,
                                     subtask_wt=subtask_wt,
-                                    target_files=target_files,
+                                    target_files=scope_files,
                                     commit_message=f"subtask({task_id}): {original_description}",
                                     task_id=task_id,
                                     attempt=attempt_count,
@@ -2285,6 +2321,7 @@ class HerdrEventBridge:
     ) -> bool:
         """Decompose steps into a TaskDAG and execute batches in topological dependency order."""
         dag = build_subtask_dag(steps)
+        self._plan_steps = {_step_id(step): step for step in steps}
         batches = dag.get_execution_batches()
         log_event(
             event_type="plan_parsed",
