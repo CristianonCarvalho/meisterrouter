@@ -1,6 +1,6 @@
 # Tela `/config` do dashboard: ver e editar as vias dos workers
 
-**Status:** spec para revisão (2026-10-11). Nada implementado.
+**Status:** implementado (2026-10-11). Ficou fora desta etapa: edição de custos, do roteador e do gate (inclusive concorrência e `tolerated_files`), edição remota (pelo celular ou pela tailnet, só leitura), criação ou remoção de vias e autenticação. Documentação: `docs/advanced.md` e `docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md`.
 **Base observada:** `main` em `87ba1e6` + PR #141. Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-10/11 com o dono. Decisões do dono: a primeira etapa edita **só as vias**; a edição é **bloqueada com run ativa**; a gravação **preserva os comentários** do `meister.config.yaml` (`ruamel.yaml`); a edição é **só local** (o celular, pela tailnet, só lê); há um **link para `/config` na timeline**.
 

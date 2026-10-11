@@ -33,6 +33,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`effort` per lane:** an optional reasoning level passed to the harness (values depend on the harness: `copilot` and `github-copilot` accept none, minimal, low, medium, high, xhigh, max). When omitted, the harness argv is unchanged from before.
 - **`workers.enabled`:** turns lanes on or off in the configuration, written safely, without ever leaving the configuration with no lane enabled.
 - **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
+- **`/config` screen in the dashboard:** shows the effective lanes and edits on/off, order, harness, model, effort and `max_parallel`, validated like `meister config validate`; it writes `meister.config.yaml` with `ruamel.yaml` (comments kept), a `.bak` and an atomic swap, offers **Restore default**, and is read-only while a run is active or for remote access. A **Config** link sits in the timeline header. `ruamel.yaml` is a new runtime dependency. See [docs/advanced.md](docs/advanced.md#the-config-screen-lanes).
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed

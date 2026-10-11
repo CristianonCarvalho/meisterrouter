@@ -33,6 +33,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **`effort` por via:** nível de raciocínio opcional repassado ao harness (os valores dependem do harness: `copilot` e `github-copilot` aceitam nenhum, minimal, low, medium, high, xhigh, max). Sem `effort`, o argv do harness continua idêntico ao de antes.
 - **`workers.enabled`:** liga ou desliga vias na configuração, com gravação segura, sem nunca deixar a configuração sem nenhuma via ligada.
 - **`meister models --enable` / `--disable`:** liga ou desliga uma via pela linha de comando; a tabela de `models` mostra uma coluna com o esforço de cada via.
+- **Tela `/config` no dashboard:** mostra as vias efetivas e edita ligar e desligar, ordem, harness, modelo, esforço e `max_parallel`, com a mesma validação do `meister config validate`; grava o `meister.config.yaml` com o `ruamel.yaml` (comentários preservados), `.bak` e troca atômica, oferece **Restaurar padrão** e fica somente leitura com run ativa ou acesso remoto. Um link **Config** fica no cabeçalho da linha do tempo. O `ruamel.yaml` passa a ser dependência de runtime. Veja [docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#tela-config-vias).
 - **Claude Haiku 5.5 na via `tier_1`** (harness GitHub Copilot CLI) como primeira via padrão.
 
 ### Corrigido
