@@ -13,7 +13,7 @@ from meister.hosts.base import (
 )
 from meister.hosts.herdr import HerdrHost
 from meister.hosts.process import ProcessHost
-from meister.hosts.select import select_host
+from meister.hosts.select import describe_host, select_host
 from meister.hosts.tmux import TmuxHost
 
 __all__ = [
@@ -27,5 +27,6 @@ __all__ = [
     "WorkerCommand",
     "WorkerHandle",
     "WorkerHost",
+    "describe_host",
     "select_host",
 ]

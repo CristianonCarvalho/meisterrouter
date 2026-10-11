@@ -50,6 +50,27 @@ def _tmux_usable() -> bool:
         return False
 
 
+def describe_host(config: MeisterConfig, *, socket_path: Optional[str] = None) -> tuple[str, str]:
+    """Diz qual host ``select_host`` escolheria e por quê, sem instanciar nem conectar.
+
+    Devolve ``(nome, chave_do_motivo)``; o nome é ``herdr``, ``process`` ou ``tmux``.
+    O motivo é ``auto_socket``, ``auto_no_socket``, ``explicit`` ou, quando o host
+    pedido não está disponível, ``explicit_unavailable``.
+    """
+    mode = config.runtime.host
+    if mode == "process":
+        return "process", "explicit"
+    if mode == "auto":
+        if is_herdr_available(socket_path):
+            return "herdr", "auto_socket"
+        return "process", "auto_no_socket"
+    if mode == "herdr":
+        return "herdr", "explicit" if is_herdr_available(socket_path) else "explicit_unavailable"
+    if mode == "tmux":
+        return "tmux", "explicit" if shutil.which("tmux") else "explicit_unavailable"
+    raise HostError(t("engine.hosts.unknown_mode", value=repr(mode)))
+
+
 def select_host(
     config: MeisterConfig,
     *,
