@@ -1,6 +1,6 @@
 # Hosts de worker por adaptador: Meister sem dependência de terminal (Herdr, tmux ou nenhum)
 
-**Status:** fases 1, 2 e 4 concluídas (fase 1: contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento; fase 2: adaptador `process` e seleção `runtime.host: auto`; fase 4: adaptador `tmux`). Fases 3, 5 e 6 pendentes; ver seção 10.
+**Status:** fases 1 a 5 concluídas (fase 1: contrato `WorkerHost` e `HerdrHost`; fase 2: adaptador `process` e `runtime.host: auto`; fase 3: `meister logs`, `MEISTER_WORKER`, manual de segundo plano; fase 4: adaptador `tmux`; fase 5: o Herdr passa a opcional em `meister setup`, `install.sh` e na documentação). Fase 6 (opcional: renomear `meister/herdr/` e tornar `flask` opcional) **pendente**, junto com as decisões da seção 12. Verificação real sem Herdr feita em 2026-10-11: `meister orchestrate` com `runtime.host: process` e o Copilot de verdade, num repositório temporário, integrou a tarefa por fast-forward, deixou o log do worker e não citou o Herdr nenhuma vez. Windows: o host `process` roda nativamente (`meister.osops`), com o job do CI verde; não verificado com um CLI de IA de verdade no Windows.
 **Base observada:** `main` em `19c875e` (2026-10-09). Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-09 com o dono do projeto. Decisões já tomadas: **mesmo repositório** (nada de fork), Herdr vira **um adaptador** entre outros (tmux e execução direta como irmãos), objetivo de usar o Meister **em qualquer harness**.
 

@@ -17,11 +17,11 @@ meister orchestrate --plan-file plano.json
 
 | # | Plano | Tarefas | Depende de | Observações |
 |---|---|---|---|---|
-| 8 | windows-falhas-restantes (plano a escrever) | a definir | 4 (feito) | Rodada 1 feita (PR #138): de 124 falhas e 4 erros para **21 falhas e 1 erro** (1580 passados). Restam: `test_usage` 5, `test_worker_instant_exit` 4, `test_task_runner` 4, `test_lane_effort_argv` 2, `test_e2e_process_host` 2 e 1 em cada de `test_worker_early_failure`, `test_tui_without_termios`, `test_osops_posix`, `test_herdr_bridge`, `test_cli_herdr`. Lista em `~/.meister/handoff/WINDOWS_FALHAS_2026-10-10.md`. Depois: tirar o `continue-on-error` do job do Windows. |
+| — | (nenhum plano pendente) | — | — | A fila está vazia. Itens novos entram pelo `BACKLOG.md` (fora do repositório) e viram plano quando o dono decidir. |
 
-Resumo da ordem: **1, 2, 3, 4, depois 5 e 6 (podem andar juntos, respeitada a ressalva da documentação) e 7 por último.**
+Resumo: **toda a série (Windows base, hosts fases 1 a 5, Windows nativo e as rodadas de falhas do Windows) está concluída.**
 
-Passo manual, depois do item 4: quando o job do Windows estiver verde de forma estável, tirar o `continue-on-error` dele em `.github/workflows/ci.yml`.
+Passo manual pendente (dono): o job do Windows do CI está **verde** (PR #148: `mypy --platform linux`; 1811 testes, 0 falhas no #149). Quando houver 2 ou 3 CIs verdes seguidos na `main`, tirar o `continue-on-error` do job do Windows em `.github/workflows/ci.yml`.
 
 Desenho de referência da série de hosts: [`../specs/2026-10-09-worker-host-adapters-design.md`](../specs/2026-10-09-worker-host-adapters-design.md).
 
@@ -60,4 +60,9 @@ Estado verificado pelos artefatos na `main` (o plano não traz uma data própria
 | [2026-10-10-hosts-fase3-qualquer-harness](2026-10-10-hosts-fase3-qualquer-harness.md) | PR #137 (2026-10-10): `meister/envvars.py` (`MEISTER_WORKER`, com `MEISTER_IN_PANE` mantida), hooks e modelos de instrução, comando `meister logs`, manual; 1786 testes. Tarefas 2, 6 e 7 rodaram na via do Claude (Sonnet) depois de uma falha instantânea do Copilot. Não verificado: `meister logs -f` com worker vivo no host `process` |
 | [2026-10-10-hosts-fase4-adaptador-tmux](2026-10-10-hosts-fase4-adaptador-tmux.md) | PR #139 (2026-10-10): `meister/hosts/tmux.py`, seleção `runtime.host: tmux`, tmux instalado no CI; no Ubuntu real, 3 testes ponta a ponta e 25 testes do `TmuxHost` passam sem pular. A run 1b615e9a ficou 1 vez parada por duas runs simultâneas (guard de testes); retomada sozinha |
 | [2026-10-10-hosts-fase5-docs-e-instalador](2026-10-10-hosts-fase5-docs-e-instalador.md) | PR #140 (2026-10-10): o Herdr passa a opcional: `meister setup` e `bin/install.sh` funcionam sem ele, README (EN e pt-BR), diagramas e CHANGELOG atualizados; 1834 testes. **A série de hosts (fases 1 a 5) está concluída.** Não verificado: o instalador numa máquina sem Herdr de verdade |
+| (Windows, rodadas 1 a 5) item 8 | PRs #138, #141, #142, #144, #147 e #148 (2026-10-10 e 11): o job do Windows foi de **124 falhas e 4 erros para 0 falhas** (1811 passados no #149). Defeitos de produto achados e corrigidos: console em UTF-8 (`meister/console.py`), `select` sobre pipe (toda execução real de worker falhava no Windows: thread leitora com fila), 41 chamadas `subprocess` com `text=True` sem `encoding`, `daemon --stop` e limpeza de órfão com processo não-líder, `ps -axww`. CI: `mypy --platform linux` na perna do Windows. Falta: tirar o `continue-on-error` (dono) |
+| [2026-10-11-config-screen-design](../specs/2026-10-11-config-screen-design.md) (plano de 9 tarefas) | PR #143 (2026-10-11): tela `/config` (`meister/config_editor.py`, API `GET /api/config`, `PUT /api/config/lanes`, `POST /api/config/restore-default`, página e link na timeline); `ruamel.yaml` como dependência; 409/403/422/400 verificados de verdade. Fica fora: custos, roteador, gate e edição remota |
+| (extra) `scope.allow_dependency_files` | PR #145: uma tarefa edita arquivos das tarefas de que depende; prova real com o Copilot (ligada integra, desligada falha). Ligada no `meister.config.yaml` do projeto (PR #146) |
+| (extra) retentativa do worker | PR #146: `retry.worker_error_attempts` (padrão 1): erro do worker retenta na mesma via e depois cai para a próxima |
+| (extra) proteção do config | PR #149: o worker nunca edita o `meister.config.yaml` (`PROTECTED_FILES`), mensagem de escopo manda desfazer, `config_editor` preserva CRLF |
 | (extra) correções de 2026-10-10 | PR #136: detector de cota ignora linhas de código e `quota_error` grava `matched_line`. PR #138: console UTF-8 (`meister/console.py`) e testes com suposições de Unix (rodada 1 do item 8) |
