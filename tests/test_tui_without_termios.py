@@ -26,7 +26,10 @@ def test_cli_and_tui_import_without_termios_and_tty():
         [sys.executable, "-c", SCRIPT],
         cwd=REPO_ROOT,
         capture_output=True,
-        text=True,
+        # decodifica como UTF-8 (o filho escreve UTF-8): com a codificação local do Windows (cp1252) a thread
+        # leitora do subprocess falhava em bytes indefinidos e stdout voltava None
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
         # o stdout redirecionado no Windows usa cp1252, que não codifica os desenhos da TUI; o teste é sobre termios
         env={**os.environ, "PYTHONIOENCODING": "utf-8"},

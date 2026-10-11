@@ -2979,7 +2979,9 @@ async def test_bridge_prepares_concurrently_merges_serially_and_keeps_task_shas(
             if event.get("task_id") == item["id"]
         }
         measured = phase_durations[item["id"]]
-        assert task_phases["integrate"] >= (measured["prepare"] + measured["merge"]) * 1000
+        # tolerância de 1 ms: duration_ms e a soma medida aqui vêm de relógios lidos em instantes distintos
+        # (no Windows o relógio tem resolução de ~15 ms e a igualdade em ponto flutuante falhava por resíduo)
+        assert task_phases["integrate"] >= (measured["prepare"] + measured["merge"]) * 1000 - 1
         # overhead de agendamento sob carga fica na casa de 100-150 ms; a fila (lock_wait) seria >= 600 ms
         assert task_phases["integrate"] - (measured["prepare"] + measured["merge"]) * 1000 < 400
     assert max(
