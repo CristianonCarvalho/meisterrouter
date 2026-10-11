@@ -18,6 +18,7 @@ from typing import Any, Optional
 import click
 
 from meister import __version__, osops
+from meister.console import ensure_utf8_streams
 from meister.dashboard.launcher import ensure_dashboard
 from meister.envvars import is_worker_env
 from meister.jev import classify_task, control_cycle, call_decisions
@@ -149,7 +150,16 @@ def get_herdr_client(socket_path: Optional[str] = None) -> Optional[HerdrSocketC
         return None
 
 
+class _MeisterGroup(click.Group):
+    """Root group that switches the console to UTF-8 before any output (help and --version included)."""
+
+    def main(self, *args: Any, **kwargs: Any) -> Any:
+        ensure_utf8_streams()
+        return super().main(*args, **kwargs)
+
+
 @click.group(
+    cls=_MeisterGroup,
     name="meister",
     help=t("cli.main.help"),
 )
