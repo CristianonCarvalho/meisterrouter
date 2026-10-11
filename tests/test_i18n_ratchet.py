@@ -28,7 +28,7 @@ ACCENT_RE = re.compile(r"[áéíóúâêôãõçÁÉÍÓÚÂÊÔÃÕÇ]")
 #   setup_cmd.py (1): the marker of the managed block already written into users' Herdr config.toml (must not change).
 BASELINE: dict[str, int] = {
     "meister/cli.py": 3,
-    "meister/herdr/bridge.py": 2,
+    "meister/engine/bridge.py": 2,
     "meister/jev.py": 23,
     "meister/setup_cmd.py": 1,
     "meister/worktree.py": 1,

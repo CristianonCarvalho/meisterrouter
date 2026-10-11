@@ -11,7 +11,7 @@ from meister.worktree import (
     IntegrationPipeline,
 )
 from meister.gate import VerificationResult
-from meister.herdr.bridge import (
+from meister.engine.bridge import (
     extract_rejection_reason,
     is_infrastructure_error,
 )

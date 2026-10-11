@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import pytest
 
-from meister.herdr.events import (
+from meister.engine.events import (
     PANE_GONE_TYPES,
     parse_pane_event,
     is_pane_gone,

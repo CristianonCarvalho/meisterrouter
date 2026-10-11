@@ -9,7 +9,7 @@ import pytest
 import asyncio
 import subprocess
 from unittest.mock import AsyncMock, MagicMock, patch
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.config import load_config, MeisterConfig
 from meister.state import compute_subtask_id
 from meister.worker import write_atomic_json
@@ -196,7 +196,7 @@ async def test_bridge_without_tier_limits_keeps_first_tier_and_skips_slot_logic(
     bridge.current_run_id = "tier-unlimited"
     used, _, _ = _mock_tier_worker(bridge)
 
-    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+    with patch("meister.engine.bridge.log_event") as log_event_mock, patch.object(
         bridge,
         "_acquire_tier_slot",
         new=AsyncMock(side_effect=AssertionError("slot acquisition should be skipped")),
@@ -240,8 +240,8 @@ async def test_bridge_jev_overflow_moves_forward_and_logs_event(tmp_path, monkey
     bridge._tier_active["B"] = 1
     used, _, _ = _mock_tier_worker(bridge)
 
-    with patch("meister.herdr.bridge.classify_task", return_value={"recommended_implementer": "B"}), patch(
-        "meister.herdr.bridge.log_event"
+    with patch("meister.engine.bridge.classify_task", return_value={"recommended_implementer": "B"}), patch(
+        "meister.engine.bridge.log_event"
     ) as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask({"id": "jev", "description": "jev", "timeout": 3}),
@@ -441,7 +441,7 @@ concurrency:
 
 @pytest.mark.asyncio
 async def test_bridge_plan_parsed_logs_task_titles(tmp_path, monkeypatch):
-    from meister.herdr.dag import SubtaskNode
+    from meister.engine.dag import SubtaskNode
 
     monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
     bridge = HerdrEventBridge(config=load_config(None), client=AsyncMock())
@@ -452,7 +452,7 @@ async def test_bridge_plan_parsed_logs_task_titles(tmp_path, monkeypatch):
         {"id": "t3", "description": "", "depends_on": []},
     ]
 
-    with patch("meister.herdr.bridge.log_event") as mock_log_event, \
+    with patch("meister.engine.bridge.log_event") as mock_log_event, \
          patch.object(bridge, "execute_parallel_batch", new=AsyncMock(return_value=True)):
         assert await bridge.execute_plan(steps) is True
 
@@ -581,7 +581,7 @@ Plan:
 
 
 def test_parse_architect_plan_formats():
-    from meister.herdr.bridge import parse_architect_plan
+    from meister.engine.bridge import parse_architect_plan
 
     # JSON code fence format
     json_text = """
@@ -981,7 +981,7 @@ async def test_bridge_infrastructure_error_fast_fails_without_escalation(tmp_pat
         "cwd": str(repo_dir),
     }
 
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         success = await bridge.execute_subtask(subtask)
     assert success is False
     # Must have failed fast on the very first attempt without cascading through luna->gemini->haiku->sonnet
@@ -1005,7 +1005,7 @@ async def test_bridge_idle_timeout_is_not_reported_as_pane_loss(tmp_path, monkey
         return "pane-timeout", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask({"id": "idle", "description": "idle worker", "cwd": str(tmp_path)}),
             timeout=30,
@@ -1065,7 +1065,7 @@ async def test_bridge_worktree_or_pane_activity_resets_idle_timeout(
         return "pane-activity", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
-    with patch("meister.herdr.bridge.log_event"):
+    with patch("meister.engine.bridge.log_event"):
         result = await asyncio.wait_for(
             bridge.execute_subtask(
                 {"id": f"activity-{activity}", "description": "activity", "cwd": str(repo_dir)}
@@ -1094,7 +1094,7 @@ async def test_bridge_max_runtime_timeout_fires_despite_activity_and_idle_can_be
         return "pane-runtime", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(
                 {"id": "runtime", "description": "continuous activity", "cwd": str(tmp_path)}
@@ -1124,7 +1124,7 @@ async def test_bridge_zero_idle_timeout_disables_idle_protection(tmp_path, monke
         return "pane-idle-disabled", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         assert not await asyncio.wait_for(
             bridge.execute_subtask({"id": "idle-disabled", "description": "runtime remains capped"}),
             timeout=30,
@@ -1165,7 +1165,7 @@ async def test_bridge_zero_max_runtime_disables_runtime_ceiling(tmp_path, monkey
         return "pane-no-runtime-limit", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = finish_worker
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         assert await asyncio.wait_for(
             bridge.execute_subtask({"id": "no-runtime-limit", "description": "finish", "cwd": str(tmp_path)}),
             timeout=30,
@@ -1236,7 +1236,7 @@ async def test_bridge_timeout_salvages_dirty_or_committed_work_through_integrati
         return "pane-salvage", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = commit_worker_output
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await bridge.execute_subtask(
             {
                 "id": "salvage",
@@ -1281,7 +1281,7 @@ async def test_bridge_timeout_retries_same_tier_then_escalates_and_fails_with_ti
         return f"pane-{len(spawns)}", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = never_finishes
-    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+    with patch("meister.engine.bridge.log_event") as log_event_mock, patch.object(
         bridge.get_state_manager(), "record_harness_failure"
     ) as record_failure:
         result = await asyncio.wait_for(
@@ -1399,7 +1399,7 @@ async def test_bridge_retries_lost_pane_on_same_tier_and_worktree(
     if trigger == "liveness":
         mock_client.pane_exists.return_value = False
 
-    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+    with patch("meister.engine.bridge.log_event") as log_event_mock, patch.object(
         bridge.get_state_manager(), "record_harness_failure"
     ) as record_failure:
         result = await asyncio.wait_for(
@@ -1468,7 +1468,7 @@ async def test_bridge_fails_after_pane_lost_retries_without_escalation(tmp_path,
         return f"w1:p{len(spawns)}", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock, patch.object(
+    with patch("meister.engine.bridge.log_event") as log_event_mock, patch.object(
         bridge.get_state_manager(), "record_harness_failure"
     ) as record_failure:
         result = await asyncio.wait_for(
@@ -1525,7 +1525,7 @@ async def test_bridge_tracks_pane_lost_retry_limit_per_subtask(tmp_path, monkeyp
         return f"w1:p{len(spawns)}", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         for task_id in ("first", "second"):
             assert await asyncio.wait_for(
                 bridge.execute_subtask(
@@ -1580,7 +1580,7 @@ async def test_bridge_pane_lost_retry_budget_survives_tier_escalation(tmp_path, 
         return pane_id, bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(
                 {
@@ -1640,7 +1640,7 @@ async def test_bridge_does_not_retry_gate_infrastructure_error(tmp_path, monkeyp
         return ("w1:t1", "w1:p1", None)
 
     bridge.spawner.spawn_worker_tab = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await bridge.execute_subtask(
             {
                 "id": "gate-infrastructure-error",
@@ -2669,7 +2669,7 @@ async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypa
         "cwd": str(repo_dir),
     }
 
-    with patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.log_event") as mock_log_event:
         t0 = time.monotonic()
         success = await bridge.execute_subtask(subtask)
         elapsed = time.monotonic() - t0
@@ -3012,7 +3012,7 @@ async def test_bridge_with_empty_tier_order_returns_false(tmp_path):
     bridge, client, _, subtask = _make_router_bridge(tmp_path)
     bridge.config.workers.tier_order.clear()
 
-    with patch("meister.herdr.bridge.logger.error") as mock_error:
+    with patch("meister.engine.bridge.logger.error") as mock_error:
         assert await bridge.execute_subtask(subtask) is False
 
     mock_error.assert_called_once()
@@ -3026,7 +3026,7 @@ async def test_bridge_does_not_classify_in_first_mode_or_single_tier(tmp_path, m
     spawned_tiers = _track_spawned_tiers(bridge)
 
     with patch(
-        "meister.herdr.bridge.classify_task",
+        "meister.engine.bridge.classify_task",
         side_effect=AssertionError("Jev must not be called"),
     ) as mock_classify:
         assert await bridge.execute_subtask(subtask) is True
@@ -3047,8 +3047,8 @@ async def test_bridge_jev_routes_and_logs_decision(tmp_path):
         "fallback_rule_applied": False,
     }
 
-    with patch("meister.herdr.bridge.classify_task", return_value=classify_result) as mock_classify, \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", return_value=classify_result) as mock_classify, \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask, run_id="route-run") is True
 
     mock_classify.assert_called_once()
@@ -3095,7 +3095,7 @@ async def test_bridge_classifies_structured_task_context_with_configured_limit(t
         "fallback_rule_applied": False,
     }
 
-    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify:
+    with patch("meister.engine.bridge.classify_task", return_value=result) as mock_classify:
         assert await bridge.execute_subtask(subtask, run_id="structured-context-run") is True
 
     context = mock_classify.call_args.kwargs["context"]
@@ -3131,7 +3131,7 @@ async def test_bridge_does_not_cut_the_structured_context_at_the_old_2000_chars(
     assert 2000 < len(expected) <= 4000
     result = {"classification": "MEDIUM", "recommended_implementer": "luna", "fallback_rule_applied": False}
 
-    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify:
+    with patch("meister.engine.bridge.classify_task", return_value=result) as mock_classify:
         assert await bridge.execute_subtask(subtask, run_id="no-2000-cut-run") is True
 
     context = mock_classify.call_args.kwargs["context"]
@@ -3149,8 +3149,8 @@ async def test_bridge_logs_jev_events_with_the_logical_task_id(tmp_path):
     run_id = "logical-id-run"
     result = {"classification": "MEDIUM", "recommended_implementer": "luna", "fallback_rule_applied": False}
 
-    with patch("meister.herdr.bridge.classify_task", return_value=result) as mock_classify, \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", return_value=result) as mock_classify, \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask, run_id=run_id) is True
 
     logical_id = str(subtask["id"])
@@ -3171,8 +3171,8 @@ async def test_bridge_jev_exception_falls_back_to_first_tier(tmp_path):
     bridge, _, _, subtask = _make_router_bridge(tmp_path)
     spawned_tiers = _track_spawned_tiers(bridge)
 
-    with patch("meister.herdr.bridge.classify_task", side_effect=RuntimeError("routing unavailable")), \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", side_effect=RuntimeError("routing unavailable")), \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask) is True
 
     assert spawned_tiers == ["copilot"]
@@ -3211,8 +3211,8 @@ async def test_bridge_jev_failure_cools_down_then_retries(tmp_path):
     second_subtask = {**first_subtask, "id": "route-task-2"}
     third_subtask = {**first_subtask, "id": "route-task-3"}
 
-    with patch("meister.herdr.bridge.classify_task", side_effect=[failed, healthy]) as mock_classify, \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", side_effect=[failed, healthy]) as mock_classify, \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(first_subtask) is True
         assert await bridge.execute_subtask(second_subtask) is True
         assert mock_classify.call_count == 1
@@ -3271,9 +3271,9 @@ async def test_bridge_jev_timeout_activates_cooldown(tmp_path):
             timeout = 0.01
         return await real_wait_for(awaitable, timeout=timeout)
 
-    with patch("meister.herdr.bridge.classify_task", side_effect=slow_classify) as mock_classify, \
-         patch("meister.herdr.bridge.asyncio.wait_for", side_effect=fast_timeout), \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", side_effect=slow_classify) as mock_classify, \
+         patch("meister.engine.bridge.asyncio.wait_for", side_effect=fast_timeout), \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask) is True
         assert await bridge.execute_subtask({**subtask, "id": "after-timeout"}) is True
 
@@ -3298,7 +3298,7 @@ async def test_bridge_explicit_tier_and_running_assigned_tier_skip_jev(tmp_path)
 
     bridge, _, state_manager, subtask = _make_router_bridge(tmp_path)
     spawned_tiers = _track_spawned_tiers(bridge)
-    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must not classify")) as mock_classify:
+    with patch("meister.engine.bridge.classify_task", side_effect=AssertionError("must not classify")) as mock_classify:
         assert await bridge.execute_subtask(subtask, initial_tier="luna") is True
     mock_classify.assert_not_called()
     assert spawned_tiers == ["luna"]
@@ -3313,8 +3313,8 @@ async def test_bridge_explicit_tier_and_running_assigned_tier_skip_jev(tmp_path)
         assigned_tier="luna",
     )
     spawned_tiers.clear()
-    with patch("meister.herdr.bridge.classify_task", side_effect=AssertionError("must reuse assignment")) as mock_classify, \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", side_effect=AssertionError("must reuse assignment")) as mock_classify, \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask, run_id=run_id) is True
     mock_classify.assert_not_called()
     assert spawned_tiers == ["luna"]
@@ -3340,8 +3340,8 @@ async def test_bridge_jev_choice_with_open_breaker_uses_next_tier(tmp_path):
         "fallback_rule_applied": False,
     }
 
-    with patch("meister.herdr.bridge.classify_task", return_value=classify_result), \
-         patch("meister.herdr.bridge.log_event") as mock_log_event:
+    with patch("meister.engine.bridge.classify_task", return_value=classify_result), \
+         patch("meister.engine.bridge.log_event") as mock_log_event:
         assert await bridge.execute_subtask(subtask) is True
 
     assert spawned_tiers == ["luna"]
@@ -3392,7 +3392,7 @@ async def test_bridge_classifies_parallel_subtasks_without_blocking_event_loop(t
         for index in range(subtask_count)
     ]
 
-    with patch("meister.herdr.bridge.classify_task", side_effect=slow_classify) as mock_classify:
+    with patch("meister.engine.bridge.classify_task", side_effect=slow_classify) as mock_classify:
         results = await asyncio.gather(*(bridge.execute_subtask(task) for task in subtasks))
 
     assert results == [True, True, True]

@@ -7,7 +7,7 @@ from click.testing import CliRunner
 from tests.mocks.mock_herdr_server import run_mock_herdr_server
 from tests.platform_marks import posix_only
 from meister.herdr.client import HerdrSocketClient
-from meister.herdr.workers import WorkerSpawner
+from meister.engine.workers import WorkerSpawner
 from meister.config import MeisterConfig, WorkersConfig, WorkerTier
 from meister.worker import run_worker_in_herdr_tab_async, write_atomic_json
 from meister.cli import main

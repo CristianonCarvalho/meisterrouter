@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 from tests.platform_marks import posix_only
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.hosts.base import CAP_VISIBLE
 from meister.worker import write_atomic_json
 
@@ -93,7 +93,7 @@ def _bridge(config, host, finish_first=False):
 
 
 def _run(bridge, repo, timeout=20):
-    with patch("meister.herdr.bridge.log_event"):
+    with patch("meister.engine.bridge.log_event"):
         return asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=timeout))
 
 
@@ -124,7 +124,7 @@ def test_no_event_host_quota_in_tail_logs_matched_line(tmp_path, monkeypatch):
     bridge, _ = _bridge(_config(tmp_path), host)
     events: list[dict] = []
     try:
-        with patch("meister.herdr.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
+        with patch("meister.engine.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
             asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=20))
     finally:
         for info in bridge.active_workers.values():

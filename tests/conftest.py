@@ -379,7 +379,7 @@ def block_network_and_stub_jev(monkeypatch):
         }
 
     monkeypatch.setattr("requests.post", blocked_post)
-    monkeypatch.setattr("meister.herdr.bridge.classify_task", deterministic_classify_task)
+    monkeypatch.setattr("meister.engine.bridge.classify_task", deterministic_classify_task)
 
 
 @pytest.fixture(autouse=True)

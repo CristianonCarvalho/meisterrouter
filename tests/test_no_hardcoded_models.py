@@ -9,12 +9,14 @@ TEMPLATES_DIR = REPO_ROOT / "meister" / "templates"
 SCANNED_FILES = (
     "meister/config.py",
     "meister/worker.py",
-    "meister/herdr/workers.py",
+    "meister/engine/workers.py",
+    "meister/engine/dag.py",
+    "meister/engine/events.py",
     "meister/jev.py",
     "meister/cli.py",
     "meister/models.py",
     "meister/state.py",
-    "meister/herdr/bridge.py",
+    "meister/engine/bridge.py",
     "meister/herdr/tui.py",
     "meister/logger.py",
 )
