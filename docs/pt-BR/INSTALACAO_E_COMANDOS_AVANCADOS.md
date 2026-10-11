@@ -340,13 +340,27 @@ O lugar onde os workers rodam é escolhido por `runtime.host` no `meister.config
 | `auto` (padrão) | usa o Herdr quando o socket está acessível; caso contrário, cai para `process` |
 | `process` | os workers são processos locais comuns, cada um em seu próprio grupo de processos, com a saída gravada em arquivo de log; sem abas de worker e sem eventos push |
 | `herdr` | exige o Herdr; falha com erro explícito quando o socket não está acessível |
-| `tmux` | aceito pelo esquema, mas ainda sem adaptador; selecioná-lo falha com mensagem explícita |
+| `tmux` | cada worker roda em uma janela do tmux; exige o `tmux` 3.0 ou mais novo no `PATH` (veja [tmux](#tmux)); nunca é escolhido por `auto` |
 
 ```yaml
 runtime:
   host: process
 ```
 Com `process` (ou `auto` sem Herdr), o `meister orchestrate` funciona a partir de qualquer harness ou script, inclusive em segundo plano (veja o [manual de execução](MANUAL_DE_EXECUCAO.md#rodar-em-segundo-plano-e-de-qualquer-harness)).
+
+### tmux
+`runtime.host: tmux` roda cada worker em uma janela própria do tmux, para você acompanhar os workers lado a lado num terminal que já usa. Exige o `tmux` **3.0 ou mais novo** no `PATH`; caso contrário o Meister falha com mensagem explícita (o `auto` nunca escolhe o `tmux`, nem dentro de uma sessão tmux).
+```yaml
+runtime:
+  host: tmux
+```
+- **Dentro de uma sessão tmux** (`$TMUX` definido): o Meister acrescenta os workers como janelas destacadas da sessão atual e não muda a sua visão. Sua sessão é preservada: o Meister fecha só as janelas que criou.
+- **Fora de uma sessão tmux:** o Meister cria uma sessão destacada chamada `meister-<pid>` (id do processo do orquestrador), imprime o comando para acompanhá-la e remove a sessão quando a última janela de worker é fechada:
+  ```bash
+  tmux attach -t meister-<pid>
+  ```
+- As janelas são criadas com `remain-on-exit`, então a saída de um worker que terminou continua legível até o Meister fechar a janela.
+- **Limitação:** o `remain-on-exit` é definido logo depois de a janela ser criada. Um processo de worker que morre antes disso (por exemplo, um comando que falha na hora) leva a janela junto: o Meister passa a ver o worker como morto e com saída vazia, e não há saída para ler no `tmux` nem na verificação de cota.
 
 ### `MEISTER_WORKER`
 O Meister define `MEISTER_WORKER=1` no ambiente de cada worker que lança. Hooks, o guard do Claude Code e os `AGENTS.md`/`CLAUDE.md`/`CODEX.md` gerados o usam para reconhecer um worker e deixá-lo editar código.

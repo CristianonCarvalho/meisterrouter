@@ -339,13 +339,27 @@ Where workers run is chosen by `runtime.host` in `meister.config.yaml`:
 | `auto` (default) | uses Herdr when its socket is reachable; otherwise falls back to `process` |
 | `process` | workers are plain local processes, each in its own process group, with output written to a log file; no worker tabs and no push events |
 | `herdr` | requires Herdr; fails with an explicit error when the socket is unreachable |
-| `tmux` | accepted by the schema but has no adapter yet; selecting it fails with an explicit message |
+| `tmux` | each worker runs in a tmux window; requires `tmux` 3.0 or newer on `PATH` (see [tmux](#tmux)); never chosen by `auto` |
 
 ```yaml
 runtime:
   host: process
 ```
 With `process` (or `auto` without Herdr), `meister orchestrate` works from any harness or script, including in the background (see the [execution manual](execution-manual.md#run-in-the-background-and-from-any-harness)).
+
+### tmux
+`runtime.host: tmux` runs each worker in its own tmux window, so you can watch the workers side by side in a terminal you already use. It needs `tmux` **3.0 or newer** on `PATH`; otherwise Meister fails with an explicit message (`auto` never picks `tmux`, not even inside a tmux session).
+```yaml
+runtime:
+  host: tmux
+```
+- **Inside a tmux session** (`$TMUX` is set): Meister adds the workers as detached windows to the current session and does not switch your view. Your session is left alone: Meister closes only the windows it created.
+- **Outside a tmux session:** Meister creates a detached session named `meister-<pid>` (the orchestrator's process id), prints the command to follow it, and removes the session when its last worker window closes:
+  ```bash
+  tmux attach -t meister-<pid>
+  ```
+- Windows are created with `remain-on-exit`, so the output of a worker that has finished stays readable until Meister closes the window.
+- **Limitation:** `remain-on-exit` is set right after the window is created. A worker process that dies before that (for example, a command that fails instantly) closes its window with it: Meister then sees the worker as dead with an empty output, and no output is available to read in `tmux` or in the quota check.
 
 ### `MEISTER_WORKER`
 Meister sets `MEISTER_WORKER=1` in the environment of every worker it launches. Hooks, the Claude Code guard, and the generated `AGENTS.md`/`CLAUDE.md`/`CODEX.md` use it to recognise a worker and let it edit code.
