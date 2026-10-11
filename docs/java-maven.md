@@ -66,4 +66,4 @@ glab mr create --fill          # or open the merge request on the GitLab web pag
 
 ## Not verified
 
-A real run on a Java 8 project on Windows has not been verified yet; the tests use simulated `mvn`, `mvn.cmd` and `mvnw`. Before a real plan, try a trivial task (for example, adding a comment to one class) with `meister orchestrate` and check that the gate runs Maven and passes.
+The Windows CI leg now runs the gate on a real Maven project with the runner's Maven and JDK 8 (`tests/test_gate_maven_real.py`), which covers `mvn.cmd`, `PATHEXT` and Windows paths. What remains unverified is the owner's machine: the external Maven and the JDK installed there. Before a real plan, try a trivial task (for example, adding a comment to one class) with `meister orchestrate` and check that the gate runs Maven and passes.
