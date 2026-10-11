@@ -83,6 +83,8 @@ def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
             cwd=repo_path,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=config.environment.install_timeout_seconds,
             env=os.environ.copy(),
             shell=False,
