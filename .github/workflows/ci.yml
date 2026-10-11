@@ -72,6 +72,15 @@ jobs:
         run: |
           pytest -v --durations=15 -n auto --cov=meister --cov-report=term-missing
 
+      - name: Real Maven gate test
+        # Roda o gate num projeto Maven de verdade (sem mvn simulado). No Windows o runner já traz Maven e o JDK 8
+        # (JAVA_HOME_8_X64), o que cobre mvn.cmd, PATHEXT e caminhos do Windows; no Ubuntu só a perna 3.12.
+        if: matrix.os == 'windows-latest' || (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12')
+        env:
+          MEISTER_REAL_MAVEN: '1'
+        run: |
+          pytest tests/test_gate_maven_real.py -v -p no:cacheprovider
+
       - name: Security scan with Bandit (informativo)
         continue-on-error: true
         run: |
