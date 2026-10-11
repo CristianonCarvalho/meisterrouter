@@ -6,7 +6,7 @@ import math
 import os
 from typing import Any, Dict, List, Optional, Sequence, Set
 
-from meister.herdr.dag import SubtaskNode, build_subtask_dag
+from meister.engine.dag import SubtaskNode, build_subtask_dag
 from meister.i18n import t
 
 
