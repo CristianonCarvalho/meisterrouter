@@ -13,6 +13,7 @@ scope:
     - uv.lock
     - "*.tsbuildinfo"
     - .vitest/**
+    - target/**
     - tests/**
 gate:
   commands:
