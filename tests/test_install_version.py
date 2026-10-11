@@ -2,6 +2,7 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,11 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 INSTALL_SCRIPT = REPO_ROOT / "bin" / "install.sh"
+
+# O instalador é um script bash e os dublês de git/python3 são scripts com shebang num PATH separado por `:`.
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32", reason="executa bin/install.sh com bash e dublês de comando em shell"
+)
 
 
 def _source_script(command, *, env=None, args=()):
@@ -20,6 +26,7 @@ def _source_script(command, *, env=None, args=()):
         ["/bin/bash", "-c", f'source "$1"; shift; {command}', "bash", str(INSTALL_SCRIPT), *args],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=environment,
     )
 
@@ -164,6 +171,7 @@ def _run_piped_install(args, env, *, cwd=REPO_ROOT):
         input=INSTALL_SCRIPT.read_text(encoding="utf-8"),
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=cwd,
         env=env,
     )
@@ -281,6 +289,7 @@ def _run_install_from(tmp_path, parent_parts):
         ["bash", str(local_repo / "bin/install.sh"), "--version", "v0.9.0"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         cwd=local_repo,
         env=env,
     )
@@ -328,6 +337,7 @@ def test_install_script_help_and_invalid_version_exit_codes(tmp_path):
         ["bash", str(INSTALL_SCRIPT), "--help"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
     )
     assert help_result.returncode == 0
@@ -337,6 +347,7 @@ def test_install_script_help_and_invalid_version_exit_codes(tmp_path):
         ["bash", str(INSTALL_SCRIPT), "--version", "abc"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         env=env,
     )
     assert invalid_result.returncode == 2

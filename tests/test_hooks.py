@@ -2,11 +2,15 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import tempfile
 
 import pytest
 
 from meister.hooks import install_git_hook, install_claude_hook
+
+# Os hooks são scripts bash; no Windows não há bash garantido (o `bash` do PATH pode ser o do WSL).
+needs_bash = pytest.mark.skipif(sys.platform == "win32", reason="executa os hooks .sh com bash")
 
 
 def _run_guard(project, event, mode=None, env_overrides=None):
@@ -39,6 +43,7 @@ def _tool_event(path, tool_name="Edit", path_key="file_path"):
     return json.dumps({"tool_name": tool_name, "tool_input": {path_key: str(path)}})
 
 
+@needs_bash
 def test_install_claude_hook_creates_files_and_config(monkeypatch):
     monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -81,6 +86,7 @@ def test_install_claude_hook_creates_files_and_config(monkeypatch):
         assert "[MEISTERROUTER MANDATORY DIRECTIVE]" in res_p.stdout
 
 
+@needs_bash
 @pytest.mark.parametrize("mode", [None, "", "block", "talvez"])
 def test_guard_blocks_code_for_default_explicit_and_unknown_modes(tmp_path, mode):
     result = _run_guard(tmp_path, _tool_event("src/app.py"), mode=mode)
@@ -91,6 +97,7 @@ def test_guard_blocks_code_for_default_explicit_and_unknown_modes(tmp_path, mode
     assert result.stdout == ""
 
 
+@needs_bash
 def test_guard_ask_returns_claude_permission_json(tmp_path):
     result = _run_guard(tmp_path, _tool_event("src/app.py"), mode="ASK please")
 
@@ -102,6 +109,7 @@ def test_guard_ask_returns_claude_permission_json(tmp_path):
     assert result.stderr == ""
 
 
+@needs_bash
 def test_guard_off_allows_code_silently(tmp_path):
     result = _run_guard(tmp_path, _tool_event("src/app.py"), mode="off")
 
@@ -110,6 +118,7 @@ def test_guard_off_allows_code_silently(tmp_path):
     assert result.stderr == ""
 
 
+@needs_bash
 @pytest.mark.parametrize(
     "path",
     ["docs/guia.txt", "README.md", "pkg/NOTES.md", "docs/guia.mdx", "docs/absolute.txt"],
@@ -124,6 +133,7 @@ def test_guard_allows_documentation_silently_even_in_block_mode(tmp_path, path):
     assert result.stderr == ""
 
 
+@needs_bash
 @pytest.mark.parametrize("path", ["config.yaml", "docs_not/x.py"])
 def test_guard_does_not_allow_non_documentation_paths(tmp_path, path):
     result = _run_guard(tmp_path, _tool_event(path), mode="block")
@@ -132,6 +142,7 @@ def test_guard_does_not_allow_non_documentation_paths(tmp_path, path):
     assert "Edição direta de código bloqueada" in result.stderr
 
 
+@needs_bash
 def test_guard_treats_notebook_edit_as_code(tmp_path):
     result = _run_guard(
         tmp_path,
@@ -143,6 +154,7 @@ def test_guard_treats_notebook_edit_as_code(tmp_path):
     assert "Edição direta de código bloqueada" in result.stderr
 
 
+@needs_bash
 @pytest.mark.parametrize("event", ["", "{invalid json"])
 def test_guard_fails_closed_for_empty_or_invalid_stdin(tmp_path, event):
     result = _run_guard(tmp_path, event, mode="block")
@@ -151,6 +163,7 @@ def test_guard_fails_closed_for_empty_or_invalid_stdin(tmp_path, event):
     assert "Edição direta de código bloqueada" in result.stderr
 
 
+@needs_bash
 @pytest.mark.parametrize(
     "env_overrides,create_file",
     [
@@ -171,6 +184,7 @@ def test_guard_bypasses_for_workers_and_explicit_override(tmp_path, env_override
     assert result.stderr == ""
 
 
+@needs_bash
 @pytest.mark.parametrize("template_lang", ["en", "pt-BR"])
 @pytest.mark.parametrize(
     "env_overrides,expected_code",
@@ -205,6 +219,7 @@ def test_guard_template_accepts_worker_env_vars(tmp_path, template_lang, env_ove
         assert "blocked" in result.stderr or "bloqueada" in result.stderr
 
 
+@needs_bash
 def test_guard_hook_allow_orchestrator_override(monkeypatch):
     monkeypatch.delenv("MEISTER_IN_PANE", raising=False)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -242,7 +257,8 @@ def test_install_git_hook_fail_closed_without_llm():
 
         hook_file = os.path.join(git_dir, "hooks", "pre-commit")
         assert os.path.exists(hook_file)
-        assert os.stat(hook_file).st_mode & stat.S_IEXEC
+        if sys.platform != "win32":  # o Windows não tem bit de execução POSIX
+            assert os.stat(hook_file).st_mode & stat.S_IEXEC
 
         with open(hook_file, "r", encoding="utf-8") as f:
             content = f.read()
@@ -271,6 +287,7 @@ def _guard_exit_code(tmp_path, file_path):
     ).returncode
 
 
+@needs_bash
 def test_guard_hook_dot_dot_components_never_count_as_documentation(tmp_path):
     """`docs/../src/app.py` casaria com `docs/*`; um `..` no caminho vira edição de código (bloqueada)."""
     for file_path in (
