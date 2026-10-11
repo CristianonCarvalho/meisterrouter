@@ -212,7 +212,7 @@ MESSAGES: dict[str, str] = {
     "cli.plan.new.output_help": "Caminho do arquivo de saída (padrão: imprime no terminal)",
     "cli.plan.new.project_help": "Preenche as Global Constraints com regras lidas de CLAUDE.md e AGENTS.md do diretório atual",
     "cli.plan.new.tasks_invalid": "precisa ser no mínimo 1 (recebido: {count})",
-    "cli.plan.new.saved": "Moldura de plano salva em {path!r}",
+    "cli.plan.new.saved": "Moldura de plano salva em '{path}'",
     "cli.plan.guide.help": "Imprime o guia do formato de plano (fluxo, regras das tarefas e exemplos).",
     "cli.plan.guide.lang_help": "Idioma do guia (padrão: o idioma configurado)",
     "cli.common.read_failed": "Erro ao ler {path!r}: {error}",
