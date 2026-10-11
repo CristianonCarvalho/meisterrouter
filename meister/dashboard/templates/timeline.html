@@ -54,7 +54,9 @@
     border-bottom: 1px solid var(--border);
   }
   .header-left { display: flex; align-items: center; gap: 12px; }
-  h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+  h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  #run-name { max-width: min(480px, 50vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-weight: 600; }
+  #run-name:empty { display: none; }
   .logo {
     display: inline-block;
     padding: 3px 8px;
@@ -219,7 +221,7 @@
 <body>
 <header class="header">
   <div>
-    <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span></h1>
+    <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span><span id="run-name"></span></h1>
     <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
   </div>
   <div class="header-controls">
@@ -467,6 +469,40 @@
     if (onTarget) return visible && sameSource ? "hide" : "show";
     if (insideTooltip) return "hide";
     return visible ? "hide" : "keep";
+  }
+  // Run name for display: the API title (already the name), else the short run id; never raw plan JSON.
+  function runDisplayName(run) {
+    if (!run) return "";
+    const raw = run.title === null || run.title === undefined ? "" : String(run.title).trim();
+    if (raw && !raw.startsWith("[") && !raw.startsWith("{")) return raw;
+    const id = String(run.id || run.run_id || "");
+    return id.slice(0, 8);
+  }
+  // Cut to maxChars with an ellipsis; maxChars <= 0 means no limit.
+  function clipRunName(name, maxChars) {
+    const value = String(name || "");
+    if (!(maxChars > 0) || value.length <= maxChars) return value;
+    return value.slice(0, maxChars - 1) + "…";
+  }
+  const HEADER_RUN_NAME_MAX = 80;
+  // Header text and full text (for title=); empty without a run or in the all-runs mode.
+  function headerRunName(run, mode) {
+    if (!run || mode === "all") return { text: "", full: "" };
+    const full = runDisplayName(run);
+    return { text: full ? "· " + clipRunName(full, HEADER_RUN_NAME_MAX) : "", full };
+  }
+  function documentTitle(projectName, run, mode) {
+    const project = projectName || "Meister";
+    let suffix = text.waiting_first_run;
+    if (mode === "all") suffix = text.mode_all;
+    else if (run) suffix = runDisplayName(run) || text.waiting_first_run;
+    return "Meister · " + project + " · " + suffix;
+  }
+  // Label of a run in the selector: name plus the translated status.
+  function runOptionLabel(run) {
+    const name = runDisplayName(run);
+    if (!run || !run.status) return name;
+    return name + " (" + (text[run.status] || run.status) + ")";
   }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -781,7 +817,8 @@
     runsCatalog.forEach((run) => {
       const option = document.createElement("option");
       option.value = run.run_id;
-      option.textContent = (run.title || run.run_id) + (run.status ? " (" + displayStatus(run.status) + ")" : "");
+      option.textContent = runOptionLabel(run);
+      option.title = runDisplayName(run);
       select.appendChild(option);
 
       const button = document.createElement("button");
@@ -789,7 +826,8 @@
       button.className = "run-entry";
       button.setAttribute("aria-current", String(state.runId === run.run_id && state.mode === "selected"));
       const title = document.createElement("span");
-      title.textContent = (run.run_id.slice(0, 8) + " · " + (run.title || run.run_id));
+      title.textContent = run.run_id.slice(0, 8) + " · " + runDisplayName(run);
+      title.title = runDisplayName(run);
       const status = document.createElement("span");
       status.textContent = displayStatus(run.status);
       const started = document.createElement("span");
@@ -1658,13 +1696,15 @@
     const projectName = data.project && data.project.name ? data.project.name : "Meister";
     byId("project-name").textContent = projectName;
     const run = data.run;
+    const runName = headerRunName(run, state.mode);
+    const runNameEl = byId("run-name");
+    runNameEl.textContent = runName.text;
+    runNameEl.title = runName.full;
+    document.title = documentTitle(projectName, run, state.mode);
     if (run) {
-      const title = run.title || run.id;
-      document.title = "Meister · " + projectName + " · " + title;
-      byId("run-header-title").textContent = title;
+      byId("run-header-title").textContent = runDisplayName(run) || run.id;
       byId("live-badge").hidden = run.status !== "running";
     } else {
-      document.title = "Meister · " + projectName + " · " + text.waiting_first_run;
       byId("run-header-title").textContent = text.waiting_first_run;
       byId("live-badge").hidden = true;
     }
