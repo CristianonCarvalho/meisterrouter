@@ -256,6 +256,15 @@ def _step_title(step: Union[Dict[str, Any], SubtaskNode], size: int = 120) -> st
     return ""
 
 
+def derive_run_name(steps: Sequence[Union[Dict[str, Any], SubtaskNode]], size: int = 80) -> str:
+    """Título legível da run: o da primeira tarefa, sem nunca devolver o JSON bruto do plano."""
+    for step in steps[:1]:
+        title = _step_title(step, size=size)
+        if title and not title.startswith(("[", "{")):
+            return title
+    return ""
+
+
 class _BridgeHerdrHost(HerdrHost):
     """HerdrHost whose tail keeps the legacy ``read_pane(pane_id)`` RPC shape (no ``lines``)."""
 
@@ -2472,6 +2481,7 @@ class HerdrEventBridge:
         allow_freeform: bool = True,
         resume_run_id: Optional[str] = None,
         resume_hint_callback: Optional[Callable[[str], None]] = None,
+        run_name: Optional[str] = None,
     ) -> bool:
         """Run complete orchestration cycle: read plan, execute DAG batches, notify Herdr."""
         if self.host is None:
@@ -2630,11 +2640,17 @@ class HerdrEventBridge:
             sm.transition_run(run_id, to_state=RunState.RUNNING)
         if source_run is not None:
             sm.mark_superseded(source_run["run_id"], run_id)
+        name_fields: Dict[str, Any] = {}
+        if run_name and run_name.strip():
+            name_fields["run_name"] = run_name.strip()
+        elif derived_name := derive_run_name(steps):
+            name_fields["run_name_derived"] = derived_name
         log_event(
             event_type="orchestration_start",
             run_id=run_id,
             task_id="orchestrator",
             task=task or raw_plan[:200],
+            **name_fields,
         )
         sm.add_subtasks(run_id, steps)
         if source_run is not None:

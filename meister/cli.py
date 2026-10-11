@@ -1455,6 +1455,7 @@ def herdr_action(action_id, workspace_id, pane_id, task, socket_path, config_pat
 @click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 @click.option("--quiet", "-q", is_flag=True, default=False, help=t("cli.orchestrate.quiet_help"))
 @click.option("--no-open", is_flag=True, default=False, help=t("dashboard.no_open_help"))
+@click.option("--name", "run_name", default=None, help=t("cli.orchestrate.name_help"))
 def orchestrate(
     resume_id,
     workspace_id,
@@ -1467,6 +1468,7 @@ def orchestrate(
     config_path,
     quiet,
     no_open,
+    run_name,
 ):
     """Start the autonomous multi-agent orchestration cycle."""
     from meister.plan import load_plan, PlanError, canonical_json
@@ -1584,6 +1586,8 @@ def orchestrate(
             task=task,
             allow_freeform=allow_freeform,
         )
+        if run_name:
+            cycle_options["run_name"] = run_name
         if resume_source is not None:
             cycle_options["resume_run_id"] = resume_source
             cycle_options["resume_hint_callback"] = click.echo
