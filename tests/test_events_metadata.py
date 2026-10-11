@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from tests.platform_marks import posix_only
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge, _event_detail
+from meister.engine.bridge import HerdrEventBridge, _event_detail
 from meister.hosts.base import CAP_VISIBLE
 from meister.i18n import t
 from meister.state import StateManager
@@ -123,7 +123,7 @@ def _run(tmp_path, monkeypatch, results, pipeline_message=None, repair_attempts=
 
     bridge.spawner.spawn_worker_pane = fake_spawn
     events: list[dict] = []
-    with patch("meister.herdr.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
+    with patch("meister.engine.bridge.log_event", side_effect=lambda **kw: events.append(kw)):
         ok = asyncio.run(
             asyncio.wait_for(bridge.execute_subtask(subtask, run_id=run_id), timeout=20)
         )
