@@ -21,6 +21,9 @@ from tests.platform_marks import posix_only
 
 
 PLAN = "1. Add feature"
+# Limite de espera que existe só para a suíte não travar: folgado para runners lentos
+# (Windows sob xdist); o caminho normal termina em milissegundos.
+HANG_GUARD_SECONDS = 30
 
 
 @pytest.fixture(autouse=True)
@@ -80,7 +83,7 @@ async def test_cancelled_cycle_marks_run_failed_and_reraises_cancelled(tmp_path,
 
     bridge.execute_plan = hang
     task = asyncio.ensure_future(_cycle(bridge))
-    await asyncio.wait_for(started.wait(), timeout=5)
+    await asyncio.wait_for(started.wait(), timeout=HANG_GUARD_SECONDS)
     run_id = bridge.current_run_id
     assert _run_state(sm, run_id) == RunState.RUNNING.value
 
