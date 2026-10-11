@@ -47,8 +47,10 @@ jobs:
           ruff check .
 
       - name: Type check with Mypy
+        # No Windows o mypy trataria as APIs so de Unix (killpg, SIGKILL, fcntl, termios, open_unix_connection) como erro;
+        # com --platform linux ele verifica esses modulos como no Ubuntu. Nas outras pernas nada muda.
         run: |
-          mypy meister
+          mypy ${{ matrix.os == 'windows-latest' && '--platform linux' || '' }} meister
 
       - name: Install tmux
         if: runner.os == 'Linux'
