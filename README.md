@@ -44,7 +44,7 @@ You can already delegate work to subagents inside one AI CLI. MeisterRouter exis
 | **Required** | macOS, Linux, or Windows 10/11 (native, **under validation**; requires [Git for Windows](https://git-scm.com/download/win)). On Windows the host is `process` (no Herdr): workers run as plain processes, without tabs, popups or shortcuts. | Where MeisterRouter runs. See [Windows](docs/advanced.md#windows). |
 | **Optional** (recommended to see each worker live) | [Herdr](https://herdr.dev) | MeisterRouter can run as a plugin of it (worker tabs, popups, shortcuts). Without it, workers run in the background. `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
-| **Recommended** | An orchestrator LLM with planning, for example **Claude Code** with the [Superpowers](https://github.com/obra/superpowers) plugin | It talks to you, writes the plan in the [plan format](docs/plan-format.md) and triggers Meister. Superpowers is optional: without it the plan only has to follow that format. |
+| **Recommended** | An orchestrator LLM with planning, for example **Claude Code** | It talks to you, writes the plan in the [plan format](docs/plan-format.md) (`meister plan guide` and `meister plan new` give it the rules and a skeleton) and triggers Meister. If you use the [Superpowers](https://github.com/obra/superpowers) skill, its plans already follow that format. |
 | **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
 
 ## 🚀 Install
@@ -86,7 +86,7 @@ meister wait --run-id <id>   # block until the run ends (exit code tells how it 
 After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
 
 1. **Open your orchestrator LLM** (Claude Code or Codex) in the project, inside Herdr.
-2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. With Superpowers it talks to you, designs the solution and writes the plan.
+2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. It talks to you, designs the solution and writes the plan: it reads the rules with `meister plan guide` and starts from `meister plan new` (or, if you use the Superpowers skill, from the skill's plan).
 3. **It does the rest**: imports and validates the plan, then runs it with Meister. `CLAUDE.md` and the prompt hook (`UserPromptSubmit`) tell it that the execution method is always Meister, and the **guard** (`PreToolUse`) refuses any direct code edit, so it delegates.
 4. **You follow along** in Herdr: each worker opens in a visible tab, and the shortcuts show the rest:
 
@@ -100,7 +100,15 @@ After `meister setup --project`, the project has the rules and hooks that **teac
 
 If Meister is unavailable (daemon down, no Herdr), the LLM asks before implementing by other means. If a run fails, ask it to run again: tasks already completed are skipped (what to do for each failure is in the [execution manual](docs/execution-manual.md)).
 
-Want to review or write a plan by hand, or run the commands yourself? See the [plan format](docs/plan-format.md) and the [advanced commands](docs/advanced.md).
+Want to review or write a plan by hand, or run the commands yourself? The native flow is:
+```bash
+meister plan guide                         # the format rules
+meister plan new -o plano.md               # an empty plan with N tasks (--tasks N)
+meister plan import plano.md -o plano.json
+meister plan validate plano.json
+meister orchestrate --plan-file plano.json
+```
+See the [plan format](docs/plan-format.md) and the [advanced commands](docs/advanced.md).
 
 ## 🎛️ Choose the models and their order
 
@@ -156,7 +164,7 @@ Effort values per harness:
 
 ## 📚 More documentation
 
-- [Plan format](docs/plan-format.md): how to write or review a plan (Superpowers is recommended, not required), dependencies and parallelism.
+- [Plan format](docs/plan-format.md): how to write or review a plan (`plan guide`, `plan new`; Superpowers is optional), dependencies and parallelism.
 - [Alternative install and advanced commands](docs/advanced.md): other ways to install, shortcuts by hand, `plan`/`orchestrate` by hand, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, dashboard and timeline options, advanced configuration, tests and project layout.
 - [Diagrams](docs/diagrams.md): components, sequence and flows.
 - [Execution manual](docs/execution-manual.md): what to do in each situation and how to recover from failures.
