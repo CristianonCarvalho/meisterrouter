@@ -19,6 +19,7 @@ import subprocess
 import shlex
 import signal
 import threading
+import queue
 from contextlib import contextmanager
 from typing import Optional, List, Dict, Any, Tuple, Iterator
 from meister import osops
@@ -624,24 +625,32 @@ class HarnessWorker:
                     capture_line(line)
                 exit_code = process.wait(timeout=timeout) if hasattr(process, "wait") else 0
             elif process.stdout is not None and hasattr(process.stdout, "fileno"):
-                import select
+                # Thread leitora em vez de select: no Windows select só aceita sockets, não PIPEs.
                 start_time = time.monotonic()
+                lines: "queue.Queue[Optional[str]]" = queue.Queue()
+                stdout_stream = process.stdout
+
+                def read_stdout() -> None:
+                    try:
+                        for out_line in iter(stdout_stream.readline, ""):
+                            lines.put(out_line)
+                    except (OSError, ValueError):
+                        pass
+                    finally:
+                        lines.put(None)
+
+                threading.Thread(target=read_stdout, name="harness-stdout", daemon=True).start()
                 while True:
                     remaining = timeout - (time.monotonic() - start_time)
                     if remaining <= 0:
                         raise subprocess.TimeoutExpired(cmd, timeout)
-
-                    rlist, _, _ = select.select([process.stdout], [], [], min(remaining, 0.2))
-                    if rlist:
-                        line = process.stdout.readline()
-                        if not line:
-                            break
-                        capture_line(line)
-                    else:
-                        if process.poll() is not None:
-                            for rem_line in process.stdout:
-                                capture_line(rem_line)
-                            break
+                    try:
+                        line = lines.get(timeout=min(remaining, 0.2))
+                    except queue.Empty:
+                        continue
+                    if line is None:
+                        break
+                    capture_line(line)
                 exit_code = process.wait(timeout=max(1.0, timeout - (time.monotonic() - start_time)))
             else:
                 if process.stdout:
