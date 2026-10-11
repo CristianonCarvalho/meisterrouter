@@ -235,6 +235,9 @@ class GateConfig:
     install: Optional[str] = field(default_factory=lambda: _default_section("gate")["install"])
     commands: List[GateCommand] = field(default_factory=list)
     allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
+    env: Dict[str, str] = field(
+        default_factory=lambda: dict(_default_section("gate").get("env") or {})
+    )
     python: Optional[str] = None
     cache: bool = field(default_factory=lambda: _default_section("gate")["cache"])
     docs_only: DocsOnlyGateConfig = field(default_factory=DocsOnlyGateConfig)
@@ -861,6 +864,33 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
     if not isinstance(allow_unverified, bool):
         parse_issues.append(ConfigIssue("error", "gate.allow_unverified", t("reports.config.expected_boolean")))
         allow_unverified = gate_defaults["allow_unverified"]
+    raw_env = gate_data.get("env", gate_defaults.get("env") or {})
+    gate_env: Dict[str, str] = {}
+    if raw_env is None:
+        raw_env = {}
+    if not isinstance(raw_env, dict):
+        parse_issues.append(ConfigIssue("error", "gate.env", t("reports.config.expected_object")))
+        raw_env = dict(gate_defaults.get("env") or {})
+    for env_key, env_value in raw_env.items():
+        if not isinstance(env_key, str) or not env_key:
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    "gate.env",
+                    t("reports.config.invalid_field_type", field="env", value=repr(env_key)),
+                )
+            )
+            continue
+        if not isinstance(env_value, str):
+            parse_issues.append(
+                ConfigIssue(
+                    "error",
+                    f"gate.env.{env_key}",
+                    t("reports.config.invalid_field_type", field=env_key, value=repr(env_value)),
+                )
+            )
+            continue
+        gate_env[env_key] = env_value
     cache = gate_data.get("cache", gate_defaults["cache"])
     if not isinstance(cache, bool):
         parse_issues.append(ConfigIssue("error", "gate.cache", t("reports.config.expected_boolean")))
@@ -947,6 +977,7 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         install=install,
         commands=commands,
         allow_unverified=allow_unverified,
+        env=gate_env,
         python=python,
         cache=cache,
         docs_only=docs_only,

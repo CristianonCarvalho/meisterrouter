@@ -36,4 +36,6 @@ def test_repository_scope_tolerated_files_include_defaults_and_tests():
     default_config = load_config(str(repository_root / "meister" / "default_config.yaml"))
 
     assert "tests/**" in config.scope.tolerated_files
-    assert set(default_config.scope.tolerated_files) <= set(config.scope.tolerated_files)
+    # target/** (saída do Maven) não se aplica a este repositório Python.
+    expected = set(default_config.scope.tolerated_files) - {"target/**"}
+    assert expected <= set(config.scope.tolerated_files)

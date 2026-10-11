@@ -1,7 +1,7 @@
 """
 meister.gate — Portão de Qualidade Determinístico (Deterministic Quality Gate).
 
-Detecta executores de testes (pytest, vitest, cargo, npm), executa validações
+Detecta executores de testes (pytest, vitest, cargo, maven, npm), executa validações
 locais de testes e linters (ruff, eslint), extrai sumários de git diff e avalia
 a conclusão com o TypeSafe Jev Decisions API (control_cycle).
 """
@@ -13,6 +13,7 @@ import ntpath
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -239,7 +240,7 @@ class DeterministicGate:
     def detect_test_runner(self, repo_path: Optional[str] = None) -> Optional[str]:
         """
         Auto-detecta o executor de testes apropriado no diretório do repositório.
-        Retorna: 'pytest', 'vitest', 'cargo test', 'npm test' ou None.
+        Retorna: 'pytest', 'vitest', 'cargo test', 'maven', 'npm test' ou None.
         """
         path = os.path.abspath(repo_path or self.repo_path)
 
@@ -280,7 +281,11 @@ class DeterministicGate:
         if os.path.exists(os.path.join(path, "Cargo.toml")):
             return "cargo test"
 
-        # 4. Package.json (Node / JS / TS)
+        # 4. Maven / Java
+        if os.path.exists(os.path.join(path, "pom.xml")):
+            return "maven"
+
+        # 5. Package.json (Node / JS / TS)
         pkg_path = os.path.join(path, "package.json")
         if os.path.exists(pkg_path):
             try:
@@ -295,13 +300,32 @@ class DeterministicGate:
             except Exception:
                 return "npm test"
 
-        # 5. Diretório de testes python residual
+        # 6. Diretório de testes python residual
         tests_dir = os.path.join(path, "tests")
         if os.path.isdir(tests_dir):
             for root, _, files in os.walk(tests_dir):
                 if any(f.endswith(".py") for f in files):
                     return "pytest"
 
+        return None
+
+    @staticmethod
+    def resolve_maven(path: str, env: Dict[str, str]) -> Optional[str]:
+        """Resolve o executável do Maven: mvnw do projeto, mvn no PATH, MAVEN_HOME ou M2_HOME."""
+        windows = os.name == "nt"
+        wrapper = os.path.join(path, "mvnw.cmd" if windows else "mvnw")
+        if os.path.isfile(wrapper):
+            return wrapper
+        found = shutil.which("mvn", path=env.get("PATH"))
+        if found:
+            return found
+        for variable in ("MAVEN_HOME", "M2_HOME"):
+            home = env.get(variable)
+            if not home:
+                continue
+            candidate = os.path.join(home, "bin", "mvn.cmd" if windows else "mvn")
+            if os.path.isfile(candidate):
+                return candidate
         return None
 
     def detect_linters(self, repo_path: Optional[str] = None) -> List[str]:
@@ -484,6 +508,20 @@ class DeterministicGate:
             return False
         return proc.returncode == 0
 
+    def _apply_gate_env(self, env: Dict[str, str]) -> None:
+        """Aplica gate.env e põe JAVA_HOME/bin no início do PATH, se houver JAVA_HOME.
+
+        Sem gate.env o ambiente fica intacto, mesmo com JAVA_HOME herdado.
+        """
+        if not self.config.gate.env:
+            return
+        env.update(self.config.gate.env)
+        java_home = env.get("JAVA_HOME")
+        if java_home:
+            java_bin = os.path.join(java_home, "bin")
+            current = env.get("PATH", "")
+            env["PATH"] = java_bin + (os.pathsep + current if current else "")
+
     def _verification_config_hash(self, docs_only: bool = False) -> str:
         selected_commands = (
             self.config.gate.docs_only.commands
@@ -505,6 +543,7 @@ class DeterministicGate:
             "commands": commands,
             "python": self.config.gate.python,
             "install": self.config.gate.install,
+            "env": self.config.gate.env,
             "install_dependencies": self.config.environment.install_dependencies,
         }
         serialized = json.dumps(config_data, sort_keys=True, default=str)
@@ -585,6 +624,7 @@ class DeterministicGate:
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         local_bin = os.path.join(path, "node_modules", ".bin")
         env["PATH"] = env_path
+        self._apply_gate_env(env)
 
         # 1. Executa linters se presentes
         for linter in linters:
@@ -644,6 +684,16 @@ class DeterministicGate:
                 cmd = ["cargo", "test"]
             elif runner == "npm test":
                 cmd = ["npm", "test"]
+            elif runner == "maven":
+                maven = self.resolve_maven(path, env)
+                if maven is None:
+                    return VerificationResult(
+                        False,
+                        t("engine.gate.maven_missing"),
+                        infrastructure_error=True,
+                        skipped=skipped,
+                    )
+                cmd = [maven, "-B", "-q", "test"]
             else:
                 cmd = runner.split()
 
@@ -657,7 +707,7 @@ class DeterministicGate:
                         text=True,
                         encoding="utf-8",
                         errors="replace",
-                        timeout=300,
+                        timeout=900 if runner == "maven" else 300,
                         env=env,
                         shell=False,
                     )
@@ -725,6 +775,7 @@ class DeterministicGate:
             path_entries.append(local_bin)
         path_entries.append(env.get("PATH", ""))
         env["PATH"] = os.pathsep.join(entry for entry in path_entries if entry)
+        self._apply_gate_env(env)
 
         uses_python_marker = any(
             "{python}" in command.run

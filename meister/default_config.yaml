@@ -70,6 +70,7 @@ scope:
     - uv.lock
     - "*.tsbuildinfo"
     - .vitest/**
+    - target/**
   # true permite a uma tarefa editar também os arquivos declarados pelas tarefas das quais
   # ela depende (direta ou transitivamente), já integradas antes dela.
   allow_dependency_files: false
@@ -87,6 +88,7 @@ gate:
   python: null
   commands: []
   allow_unverified: false
+  env: {}  # Variáveis de ambiente extras para os comandos do gate (string -> string)
   cache: true
   repair_attempts: 1  # Tentativas de conserto no mesmo worktree após reprovação no gate/escopo (0 desliga)
   flaky_retries: 2  # Reexecuções só dos testes pytest que falharam antes de reprovar (0 desliga)

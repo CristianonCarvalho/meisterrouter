@@ -86,6 +86,7 @@ MESSAGES: dict[str, str] = {
     "engine.gate.pytest_skipped": "[SKIPPED PYTEST] nenhum teste coletado",
     "engine.gate.optional_command_failed": "[WARN {name}] comando opcional falhou (rc={code})",
     "engine.gate.accepted_exit_code": "[NOTE {name}] rc={code} aceito por ok_exit_codes",
+    "engine.gate.maven_missing": "[MAVEN] Maven não encontrado (sem mvnw no projeto, sem mvn no PATH, sem MAVEN_HOME/M2_HOME). O Maven embutido do Eclipse (m2e) não pode ser usado pelo Meister. Resolva com uma destas opções: gere o wrapper (mvn -N wrapper:wrapper), coloque o mvn no PATH ou defina MAVEN_HOME em gate.env.",
     "engine.gate.jev_override": "Jev retornou COMPLETE com testes falhando. Sobrescrevendo para RETRY via portão determinístico.",
     "engine.state.cycle": "Ciclo detectado nas dependências de {step_id!r}",
     "engine.state.unknown_dependency": "Dependência desconhecida: {step_id!r}",
