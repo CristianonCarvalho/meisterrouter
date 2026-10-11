@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
+from tests.fake_cli import make_fake_cli
 from meister.worker import (
     UnknownTierError,
     _early_error_result,
@@ -71,11 +72,7 @@ def _log_events(tmp_path: Path) -> list[dict]:
 
 
 def _fake_cli(tmp_path: Path) -> str:
-    cli = tmp_path / "bin" / "codex"
-    cli.parent.mkdir(exist_ok=True)
-    cli.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    cli.chmod(0o755)
-    return str(cli)
+    return str(make_fake_cli(tmp_path / "bin", "codex", "pass\n"))
 
 
 def test_unknown_lane_writes_error_result_and_logs_event(tmp_path):

@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.fake_cli import make_fake_cli
 from meister.config import MeisterConfig, WorkerTier
 from meister.usage import (
     WorkerUsage,
@@ -21,21 +22,21 @@ FIXTURES = Path(__file__).parent / "fixtures" / "usage"
 
 
 def test_real_usage_fixtures():
-    claude_text, claude = parse_claude_json((FIXTURES / "claude_json.out").read_text())
+    claude_text, claude = parse_claude_json((FIXTURES / "claude_json.out").read_text(encoding="utf-8"))
     assert claude_text == "OK"
     assert claude.cost_usd == 0.0026178
     assert claude.tokens_out == 94
     assert claude.cost_source == "reported"
 
-    agy_text, agy = parse_agy_json((FIXTURES / "agy2_json.out").read_text())
+    agy_text, agy = parse_agy_json((FIXTURES / "agy2_json.out").read_text(encoding="utf-8"))
     assert agy_text.strip() == "OK"
     assert agy.tokens_total == 30478
     assert agy.cost_source == "unknown"
 
-    _, codex = parse_codex_text((FIXTURES / "codex.out").read_text())
+    _, codex = parse_codex_text((FIXTURES / "codex.out").read_text(encoding="utf-8"))
     assert codex.tokens_total == 3884
 
-    _, copilot = parse_copilot_text((FIXTURES / "copilot.out").read_text())
+    _, copilot = parse_copilot_text((FIXTURES / "copilot.out").read_text(encoding="utf-8"))
     assert copilot.credits == 0.15
     assert copilot.tokens_in == 11700
     assert copilot.tokens_out == 5
@@ -115,7 +116,7 @@ def test_catalog_estimates_only_configured_routes_and_finalizes_reported_usage()
 
 def test_copilot_credits_override_catalog_only_when_credit_price_is_configured():
     fixture = FIXTURES / "copilot.out"
-    _, usage = parse_copilot_text(fixture.read_text())
+    _, usage = parse_copilot_text(fixture.read_text(encoding="utf-8"))
     config = _catalog_config()
     config.workers.tier_order[0].name = "copilot-route"
     config.workers.tier_order[0].credit_usd = 0.01
@@ -160,16 +161,13 @@ def test_harness_worker_uses_fake_cli_and_emits_readable_output(
     from meister.worker import HarnessWorker
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    cli_name = "agy" if harness == "agy" else harness
     output_file = FIXTURES / fixture
-    script = bin_dir / cli_name
-    script.write_text(
-        "#!/usr/bin/env python3\n"
+    make_fake_cli(
+        bin_dir,
+        harness,
         "import pathlib, sys\n"
-        f"sys.stdout.write(pathlib.Path({str(output_file)!r}).read_text())\n"
+        f"sys.stdout.buffer.write(pathlib.Path({str(output_file)!r}).read_bytes())\n",
     )
-    script.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
     config = _catalog_config()
@@ -186,7 +184,7 @@ def test_harness_worker_uses_fake_cli_and_emits_readable_output(
         assert result["output"].strip() == response
         assert '"total_cost_usd"' not in capsys.readouterr().out
     elif harness == "codex":
-        assert result["output"] == output_file.read_text()
+        assert result["output"] == output_file.read_text(encoding="utf-8")
         assert result["usage"]["tokens_total"] == 3884
     else:
         assert result["usage"]["credits"] == 0.15
@@ -197,10 +195,7 @@ def test_old_structured_cli_output_is_printed_raw_and_usage_unknown(tmp_path, mo
     from meister.worker import HarnessWorker
 
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    script = bin_dir / "claude"
-    script.write_text("#!/bin/sh\nprintf 'old CLI response\\n'\n")
-    script.chmod(0o755)
+    make_fake_cli(bin_dir, "claude", "print('old CLI response')\n")
     monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
 
     config = _catalog_config()
@@ -229,13 +224,13 @@ def test_usage_serialization_uses_bridge_keys():
 
 def test_copilot_real_output_variants():
     """Saídas reais do Copilot 1.0.91: `written`, `cached, written`, sufixo `m` e `reasoning`."""
-    _, written = parse_copilot_text((FIXTURES / "copilot_written.out").read_text())
+    _, written = parse_copilot_text((FIXTURES / "copilot_written.out").read_text(encoding="utf-8"))
     assert (written.credits, written.tokens_in, written.tokens_out) == (0.19, 14900, 42)
     assert written.thinking_tokens == 35
     assert written.cache_read_tokens is None
     assert written.approx is True
 
-    _, long_run = parse_copilot_text((FIXTURES / "copilot_long.out").read_text())
+    _, long_run = parse_copilot_text((FIXTURES / "copilot_long.out").read_text(encoding="utf-8"))
     assert (long_run.credits, long_run.tokens_in, long_run.tokens_out) == (11.5, 7_300_000, 50_000)
     assert long_run.cache_read_tokens == 7_100_000
     assert long_run.thinking_tokens == 28_800
