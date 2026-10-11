@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from meister.cli import main
-from meister.herdr.bridge import derive_run_name
-from meister.herdr.workers import WorkerSpawner
+from meister.engine.bridge import derive_run_name
+from meister.engine.workers import WorkerSpawner
 from meister.logger import get_log_file
 from meister.timeline import build_timeline
 from tests.platform_marks import posix_only

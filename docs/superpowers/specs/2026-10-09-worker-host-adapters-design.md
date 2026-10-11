@@ -201,7 +201,7 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
 3. **Experiência para qualquer harness.** Log por worker e `meister logs --follow`; documentação de execução em segundo plano com `meister wait`; modelos de instrução por harness; variável neutra `MEISTER_WORKER` (mantendo `MEISTER_IN_PANE` como alias, pois o guard hook depende dela).
 4. **Adaptador `tmux`. (Concluída.)** `meister/hosts/tmux.py`: uma janela por worker (`new-window -d`), `remain-on-exit`, `capture-pane` para o `tail`, `C-c` para interromper; exige `tmux` 3.0 ou mais novo; dentro de uma sessão usa a atual, fora cria `meister-<pid>`; `auto` nunca o escolhe. Testes com servidor isolado (`-L`). Limitação: processo que morre antes do `remain-on-exit` leva a janela junto (saída perdida). Documentado em `docs/advanced.md`.
 5. **Documentação e instalador.** Herdr passa de pré-requisito a opcional; `meister setup` deixa de abortar sem ele; README e `CLAUDE.md`/`AGENTS.md` atualizados.
-6. **Opcional:** renomear `meister/herdr/` e tornar `flask` opcional.
+6. **Renomear e flask.** (Renomear concluído: o motor está em `meister/engine/`, e `meister/herdr/` guarda só o que é do Herdr; os caminhos antigos `meister.herdr.bridge|workers|dag|events` são aliases de compatibilidade. Tornar `flask` opcional **não será feito**, por decisão do dono: o dashboard é parte do valor do projeto; revisitar se houver uso sem tela.)
 
 ## 11. Riscos
 
@@ -211,12 +211,14 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
 - **Worker que espera resposta.** Sem terminal, ninguém responde. O tempo limite de inatividade precisa continuar valendo no adaptador `process`.
 - **Segundo plano varia por harness.** Documentar o comando padrão (`nohup`/`setsid`) e testar nos harnesses suportados.
 
-## 12. Decisões em aberto
+## 12. Decisões
 
-1. `process` como padrão quando não houver Herdr (proposto) ou recusar e pedir escolha explícita?
-2. O nome `meister/hosts/` serve?
-3. Timeline mais dashboard mais log por worker bastam como experiência padrão, ou o `tmux` precisa estar na primeira entrega?
-4. Tornar `flask` opcional entra neste trabalho ou fica separado?
+Decisões fechadas pelo dono:
+
+1. `process` é o padrão quando não houver Herdr.
+2. O nome `meister/hosts/` serve.
+3. A experiência padrão é timeline + dashboard + log por worker; o `tmux` é adaptador opcional, não parte da experiência padrão.
+4. `flask` continua obrigatório por enquanto (ver item 6 da seção 10).
 
 ## 13. Lacunas desta análise
 
