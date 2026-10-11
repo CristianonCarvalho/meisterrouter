@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock
 from meister.config import load_config, MeisterConfig, WorkerTier, WorkersConfig
-from meister.herdr.workers import (
+from meister.engine.workers import (
     WorkerSpawner,
     detect_quota_or_rate_limit,
     get_next_tier,
@@ -284,7 +284,7 @@ def test_get_first_available_tier():
 
 
 def test_quota_ignores_code_assignment_line():
-    from meister.herdr.workers import find_quota_match
+    from meister.engine.workers import find_quota_match
 
     code_line = '_QUOTA_MESSAGE = "Error: You exceeded your current quota, please check your plan and billing details."'
     assert detect_quota_or_rate_limit(code_line) is False
@@ -295,7 +295,7 @@ def test_quota_ignores_code_assignment_line():
 
 
 def test_quota_ignores_string_prefixed_and_statement_lines():
-    from meister.herdr.workers import find_quota_match
+    from meister.engine.workers import find_quota_match
 
     for line in [
         '"You exceeded your current quota, please check your plan"',
@@ -315,7 +315,7 @@ def test_quota_ignores_string_prefixed_and_statement_lines():
 
 
 def test_find_quota_match_returns_matching_line():
-    from meister.herdr.workers import find_quota_match
+    from meister.engine.workers import find_quota_match
 
     plain = "Error: You exceeded your current quota, please check your plan and billing details."
     assert detect_quota_or_rate_limit(plain) is True
@@ -328,7 +328,7 @@ def test_find_quota_match_returns_matching_line():
 
 
 def test_find_quota_match_structured_and_truncation():
-    from meister.herdr.workers import find_quota_match
+    from meister.engine.workers import find_quota_match
 
     structured = '{"error": {"code": 429, "message": "Rate limit reached"}}'
     assert find_quota_match(structured) == "<structured>"
@@ -341,7 +341,7 @@ def test_find_quota_match_structured_and_truncation():
 
 
 def test_find_quota_match_finds_real_line_after_code_assignment():
-    from meister.herdr.workers import find_quota_match
+    from meister.engine.workers import find_quota_match
 
     terminal = (
         '_QUOTA_MESSAGE = "Error: You exceeded your current quota, please check your plan and billing details."\n'

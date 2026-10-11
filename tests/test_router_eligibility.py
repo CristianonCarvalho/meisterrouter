@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.state import StateManager
 from meister.worker import write_atomic_json
 
@@ -64,8 +64,8 @@ async def _execute(bridge, subtask, classification, recommendation, quota=False)
         "fallback_rule_applied": False,
     }
     subtask = {**subtask, "return_quota": quota}
-    with patch("meister.herdr.bridge.classify_task", return_value=result), patch(
-        "meister.herdr.bridge.log_event"
+    with patch("meister.engine.bridge.classify_task", return_value=result), patch(
+        "meister.engine.bridge.log_event"
     ) as log_event:
         success = await bridge.execute_subtask(subtask, run_id="eligibility-run")
     route_events = [
@@ -195,7 +195,7 @@ async def test_first_router_mode_ignores_eligibility_and_does_not_call_jev(tmp_p
         mode="first",
     )
     with patch(
-        "meister.herdr.bridge.classify_task",
+        "meister.engine.bridge.classify_task",
         side_effect=AssertionError("Jev must not be called"),
     ):
         assert await bridge.execute_subtask(subtask) is True

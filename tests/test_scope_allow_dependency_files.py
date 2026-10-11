@@ -8,7 +8,7 @@ import pytest
 
 from meister.config import MeisterConfig, WorkerTier, WorkersConfig
 from meister.gate import VerificationResult
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.hosts import WorkerCommand
 from meister.worker import read_atomic_json, write_atomic_json
 from meister.worktree import IntegrationPipeline, WorktreeManager
@@ -88,7 +88,7 @@ def _bridge(tmp_path, monkeypatch, allow):
     bridge.current_run_id = "run-deps"
     events: list = []
     monkeypatch.setattr(
-        "meister.herdr.bridge.log_event", lambda **event: events.append(event)
+        "meister.engine.bridge.log_event", lambda **event: events.append(event)
     )
     return bridge, pipeline, events
 

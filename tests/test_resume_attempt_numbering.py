@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from meister.config import MeisterConfig
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.state import RunState, StateManager, SubtaskState, compute_subtask_id
 from meister.worker import write_atomic_json
 
@@ -117,7 +117,7 @@ async def test_resumed_subtask_continues_attempt_numbering_from_stored_count(tmp
         return "w1:p1", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
@@ -161,7 +161,7 @@ async def test_pane_lost_retry_after_resume_gets_next_attempt_number(tmp_path, m
         return f"w1:p{len(spawn_attempts)}", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
@@ -189,7 +189,7 @@ async def test_first_attempt_stays_one_without_prior_attempts(tmp_path, monkeypa
         return "w1:p1", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
@@ -221,7 +221,7 @@ async def test_invalid_stored_attempts_are_treated_as_zero(tmp_path, monkeypatch
         return "w1:p1", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )
@@ -244,7 +244,7 @@ async def test_stored_attempts_are_read_without_capping_small_values(tmp_path, m
         return "w1:p1", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         await asyncio.wait_for(bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS)
 
     assert [event["attempt"] for event in _spawn_events(log_event_mock)] == [3]
@@ -269,7 +269,7 @@ async def test_recovered_stranded_run_resumes_with_higher_unique_attempts(tmp_pa
         return "w1:p1", bridge.spawner.get_tier(tier_name)
 
     bridge.spawner.spawn_worker_pane = fake_spawn
-    with patch("meister.herdr.bridge.log_event") as log_event_mock:
+    with patch("meister.engine.bridge.log_event") as log_event_mock:
         result = await asyncio.wait_for(
             bridge.execute_subtask(_subtask_payload(repo_dir)), timeout=HANG_GUARD_SECONDS
         )

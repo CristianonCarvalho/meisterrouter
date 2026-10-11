@@ -16,7 +16,7 @@ import pytest
 
 from tests.platform_marks import posix_only
 from meister.config import load_config
-from meister.herdr.bridge import HerdrEventBridge
+from meister.engine.bridge import HerdrEventBridge
 from meister.i18n import reset_language_cache
 from meister.progress import format_event_line
 from meister.worker import write_atomic_json
@@ -104,7 +104,7 @@ def test_task_context_carries_env_log_and_exit_file_into_worker_command(tmp_path
 
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
     bridge.current_run_id = "runfields"
-    with patch("meister.herdr.bridge.log_event"):
+    with patch("meister.engine.bridge.log_event"):
         asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo, "fields")), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]
@@ -121,7 +121,7 @@ def test_task_context_carries_env_log_and_exit_file_into_worker_command(tmp_path
 
 @posix_only
 def test_spawner_fills_worker_command_fields_from_task_context(tmp_path):
-    from meister.herdr.workers import WorkerSpawner
+    from meister.engine.workers import WorkerSpawner
     from meister.hosts import WorkerHandle
 
     received = []
@@ -153,7 +153,7 @@ def test_spawner_fills_worker_command_fields_from_task_context(tmp_path):
 
 
 def test_task_context_without_new_fields_keeps_empty_defaults(tmp_path):
-    from meister.herdr.workers import WorkerSpawner
+    from meister.engine.workers import WorkerSpawner
     from meister.hosts import WorkerHandle
 
     received = []
@@ -204,7 +204,7 @@ def test_command_str_records_worker_exit_code_in_exit_file(tmp_path, monkeypatch
         subprocess.run(task_context["command_str"], shell=True, check=False)
 
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
-    with patch("meister.herdr.bridge.log_event") as log_mock:
+    with patch("meister.engine.bridge.log_event") as log_mock:
         result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert result is False
@@ -228,7 +228,7 @@ def test_process_death_without_result_retries_same_tier_and_fails_fast(tmp_path,
 
     bridge, spawns = _bridge(_config(tmp_path, tiers=("A", "B"), idle=600, retries=1), behavior)
     started = time.monotonic()
-    with patch("meister.herdr.bridge.log_event") as log_mock, patch.object(
+    with patch("meister.engine.bridge.log_event") as log_mock, patch.object(
         bridge.get_state_manager(), "record_harness_failure"
     ) as record_failure:
         result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
@@ -265,7 +265,7 @@ def test_result_landing_during_grace_window_wins_over_process_exit(tmp_path, mon
         _write_result_later(asyncio.get_running_loop(), task_context, 0.1)
 
     bridge, spawns = _bridge(_config(tmp_path, retries=1), behavior)
-    with patch("meister.herdr.bridge.log_event") as log_mock:
+    with patch("meister.engine.bridge.log_event") as log_mock:
         asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]
@@ -285,7 +285,7 @@ def test_stale_exit_file_from_previous_attempt_is_not_reused(tmp_path, monkeypat
             _write_result_later(asyncio.get_running_loop(), task_context, 1.0)
 
     bridge, spawns = _bridge(_config(tmp_path, retries=1), behavior)
-    with patch("meister.herdr.bridge.log_event") as log_mock:
+    with patch("meister.engine.bridge.log_event") as log_mock:
         result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A", "A"]
@@ -308,7 +308,7 @@ def test_leftover_exit_file_at_spawn_path_is_removed_before_spawn(tmp_path, monk
         _write_result_later(asyncio.get_running_loop(), task_context, 1.0)
 
     bridge, spawns = _bridge(_config(tmp_path, retries=0), behavior)
-    with patch("meister.herdr.bridge.log_event") as log_mock:
+    with patch("meister.engine.bridge.log_event") as log_mock:
         result = asyncio.run(asyncio.wait_for(bridge.execute_subtask(_subtask(repo)), timeout=HANG_GUARD_SECONDS))
 
     assert spawns == ["A"]

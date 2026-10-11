@@ -5,8 +5,8 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from meister.config import MeisterConfig, WorkersConfig, WorkerTier, ConcurrencyConfig
-from meister.herdr.bridge import HerdrEventBridge
-from meister.herdr.workers import WorkerSpawner, detect_quota_or_rate_limit
+from meister.engine.bridge import HerdrEventBridge
+from meister.engine.workers import WorkerSpawner, detect_quota_or_rate_limit
 from meister.state import StateManager
 
 
