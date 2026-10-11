@@ -36,7 +36,8 @@ def test_init_selects_templates_by_active_language(monkeypatch, tmp_path):
     assert result_pt.exit_code == 0, result_pt.output
     for filename in ("CLAUDE.md", "CODEX.md", "AGENTS.md"):
         expected = (templates / "pt-BR" / f"{filename}.template").read_bytes()
-        assert (portuguese_project / filename).read_bytes() == expected
+        # o init grava em modo texto, então no Windows os arquivos de regras saem com CRLF
+        assert (portuguese_project / filename).read_bytes().replace(b"\r\n", b"\n") == expected
 
 
 def test_hook_installer_messages_and_scripts_follow_active_language(monkeypatch, tmp_path):

@@ -1,6 +1,9 @@
 import io
 import json
+import sys
 from datetime import datetime, timedelta
+
+import pytest
 
 from meister.timeline import build_timeline
 from meister.timeline_app import AppState, handle_key, parse_keys, read_key, run_interactive, view_for
@@ -194,6 +197,10 @@ def test_parse_keys_splits_bursts_and_never_turns_unknown_sequences_into_esc():
     assert parse_keys(b"\xff") == []  # byte inválido
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="select.select() no Windows só aceita sockets, e o teste alimenta read_key com os.pipe()",
+)
 def test_read_key_returns_one_key_per_call_from_a_burst():
     import os
 

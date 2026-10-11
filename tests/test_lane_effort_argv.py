@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-import sys
 
 import pytest
 
+from tests.fake_cli import make_fake_cli
 from meister.config import _parse_config_dict
 from meister.worker import (
     HARNESS_ANTIGRAVITY,
@@ -132,23 +132,23 @@ def test_build_harness_command_effort_and_unchanged_default(
 
 @pytest.mark.parametrize(
     ("effort", "expected_flag"),
-    [("high", "--reasoning-effort"), (None, None)],
+    [("high", "--effort"), (None, None)],
 )
 def test_worker_passes_lane_effort_to_fake_harness(
     tmp_path, monkeypatch, effort, expected_flag
 ):
     argv_file = tmp_path / "argv.json"
-    executable = tmp_path / "fake-harness"
-    executable.write_text(
-        f"#!{sys.executable}\n"
+    executable = make_fake_cli(
+        tmp_path,
+        "fake-harness",
         "import json, pathlib, sys\n"
         f"pathlib.Path({str(argv_file)!r}).write_text(json.dumps(sys.argv[1:]))\n",
-        encoding="utf-8",
     )
-    executable.chmod(0o755)
     monkeypatch.setattr("meister.worker.find_cli_binary", lambda _harness: str(executable))
 
-    tier = {"name": "lane-one", "harness": "copilot", "model": "test-model"}
+    # Harness claude: o prompt (multilinha) é o último argv. Num wrapper .cmd do Windows
+    # o argv seria cortado na primeira quebra de linha, perdendo flags depois do prompt.
+    tier = {"name": "lane-one", "harness": "claude", "model": "test-model"}
     if effort is not None:
         tier["effort"] = effort
     config = _parse_config_dict(
@@ -166,7 +166,7 @@ def test_worker_passes_lane_effort_to_fake_harness(
     if expected_flag:
         assert argv[argv.index(expected_flag) + 1] == "high"
     else:
-        assert "--reasoning-effort" not in argv
+        assert "--effort" not in argv
     assert result["exit_code"] == 0
 
 

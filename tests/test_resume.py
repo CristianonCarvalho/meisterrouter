@@ -44,6 +44,16 @@ def _git_repo(tmp_path):
     return repo, commits
 
 
+def _project_cwd(path):
+    """Cwd como o bridge e o StateManager o enxergam: ``abspath(getcwd())`` depois de entrar em ``path``."""
+    previous = os.path.abspath(".")
+    os.chdir(path)
+    try:
+        return os.path.abspath(".")
+    finally:
+        os.chdir(previous)
+
+
 def _tasks(t3_targets=None, t1_description="First task", t2_description="Second task"):
     return [
         {"id": "t1", "description": t1_description, "target_files": ["one.txt"], "depends_on": []},
@@ -58,7 +68,7 @@ def _tasks(t3_targets=None, t1_description="First task", t2_description="Second 
 
 
 def _seed_source(sm, repo, tasks, commits, failed=True, run_id="source-run"):
-    run = sm.create_or_get_run("old plan", cwd=os.path.realpath(repo), force_run_id=run_id)
+    run = sm.create_or_get_run("old plan", cwd=_project_cwd(repo), force_run_id=run_id)
     sm.transition_run(run_id, RunState.RUNNING)
     rows = sm.add_subtasks(run_id, tasks)
     for task, row in zip(tasks, rows):
@@ -78,8 +88,8 @@ def _seed_source(sm, repo, tasks, commits, failed=True, run_id="source-run"):
 
 
 def _seed_same_run(sm, repo, task):
-    run_id = compute_run_id(task, os.path.realpath(repo))
-    sm.create_or_get_run(task, cwd=os.path.realpath(repo), force_run_id=run_id)
+    run_id = compute_run_id(task, _project_cwd(repo))
+    sm.create_or_get_run(task, cwd=_project_cwd(repo), force_run_id=run_id)
     sm.transition_run(run_id, RunState.RUNNING)
     rows = sm.add_subtasks(run_id, _tasks())
     for row in rows[:2]:
@@ -183,7 +193,7 @@ async def test_bridge_reuses_committed_tasks_after_plan_scope_edit(tmp_path, mon
     source_run = sm.get_run("source-run")
     assert json.loads(source_run["metadata_json"])["superseded_by"] == new_run_id
     assert json.loads(sm.get_run(new_run_id)["metadata_json"])["resumed_from"] == "source-run"
-    assert sm.find_resumable_run(os.path.realpath(repo), exclude_run_id="another-run") is None
+    assert sm.find_resumable_run(_project_cwd(repo), exclude_run_id="another-run") is None
     resumed_t1 = next(row for row in sm.get_subtasks(new_run_id) if row["step_id"] == "t1")
     assert json.loads(resumed_t1["result_json"])["resumed_from"] == {
         "run_id": "source-run",
@@ -269,7 +279,7 @@ async def test_explicit_resume_source_validation(
     if exists:
         source_repo = repo if source_cwd == "same" else tmp_path / "other"
         source_repo.mkdir(exist_ok=True)
-        sm.create_or_get_run("source", cwd=os.path.realpath(source_repo), force_run_id=source_id)
+        sm.create_or_get_run("source", cwd=_project_cwd(source_repo), force_run_id=source_id)
         sm.transition_run(source_id, RunState.RUNNING)
         if source_state != "RUNNING":
             sm.transition_run(source_id, RunState(source_state))
@@ -389,7 +399,7 @@ async def test_rejected_resume_names_automatic_source_candidate(tmp_path, monkey
     _seed_source(sm, repo, _tasks(), {}, run_id="automatic-candidate")
     other_repo = tmp_path / "other"
     other_repo.mkdir()
-    sm.create_or_get_run("other cwd", cwd=os.path.realpath(other_repo), force_run_id="wrong-cwd")
+    sm.create_or_get_run("other cwd", cwd=_project_cwd(other_repo), force_run_id="wrong-cwd")
     sm.transition_run("wrong-cwd", RunState.RUNNING)
     sm.transition_run("wrong-cwd", RunState.FAILED)
     bridge = _bridge(sm, repo, monkeypatch)

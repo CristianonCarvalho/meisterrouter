@@ -4,10 +4,13 @@ tests.test_setup_cmd — Testes unitários para a lógica pura de setup_cmd.py.
 Sem rede, sem herdr real e sem tocar no HOME real.
 """
 
+import os
 import shutil
 import stat
 import sys
 from dataclasses import dataclass
+
+import pytest
 
 
 from meister.setup_cmd import (
@@ -196,7 +199,7 @@ def test_merge_keys_block_deterministic():
 
 def test_resolve_meister_path(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda cmd: "/opt/bin/meister" if cmd == "meister" else None)
-    assert resolve_meister_path() == "/opt/bin/meister"
+    assert resolve_meister_path() == os.path.abspath("/opt/bin/meister")
 
 
 def test_resolve_meister_path_prefers_the_running_executable(monkeypatch, tmp_path):
@@ -217,7 +220,7 @@ def test_resolve_meister_path_ignores_argv_that_is_not_meister(monkeypatch, tmp_
     other.write_text("x")
     monkeypatch.setattr(sys, "argv", [str(other)])
     monkeypatch.setattr(shutil, "which", lambda cmd: "/opt/bin/meister")
-    assert resolve_meister_path() == "/opt/bin/meister"
+    assert resolve_meister_path() == os.path.abspath("/opt/bin/meister")
 
 
 # ── Testes de escrita segura e idempotência ───────────────────────────────────
@@ -249,6 +252,10 @@ def test_write_herdr_config_creates_backup_and_writes_atomically(tmp_path):
     assert ["herdr", "server", "reload-config"] in commands_called
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="o Windows não tem bits de permissão POSIX (chmod só alterna somente-leitura)",
+)
 def test_write_herdr_config_preserves_file_permissions(tmp_path):
     for mode in (0o644, 0o600):
         cfg_file = tmp_path / f"config{mode:o}.toml"
