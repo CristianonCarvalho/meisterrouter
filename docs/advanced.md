@@ -444,6 +444,9 @@ The same timeline is also served in the browser by the dashboard, at `/timeline`
 - **Lane header:** each lane shows `harness · model (effort)`, for example `copilot · <model> (H)`. Effort abbreviations: `N` none, `MIN` minimal, `L` low, `M` medium, `H` high, `XH` xhigh, `MAX` max. Other values appear in uppercase, and missing parts are omitted.
 - **Sound:** a short tone plays when a task finishes (rising notes) or fails (falling notes). Toggle it with the **Sound on / Sound off** button or the `s` key. The choice is saved in the browser (`localStorage`) and applies only to that browser. Sound is **off** by default; press the button or the `s` key to turn it on; browsers block audio until you interact with the page, so it starts after your first click or key press.
 - **Open attempts:** when a worker is respawned, the previous attempt that was still open ends at the new spawn, instead of stretching to the end of the run.
+- **Run name:** the header, the run selector and the page title show the run's name. Set it with `meister orchestrate --plan-file plano.json --name "Interface adapter"`; without `--name`, the name is derived from the plan (the title of the first task). Logs written before this option show the task text, as before.
+- **One lane per attempt:** a task that changed lanes is drawn on every lane where an attempt ran, linked by a bridge at the task's height. A lateral fallback (same level, for example `tier_1` to `tier_1b`) has its own color in the legend, distinct from an escalation (`tier_1` to `tier_2`). The lane header comes from the `worker_spawn` events of the run (harness, model, effort), so a lane that is now disabled or missing from the configuration keeps its label; older logs fall back to the current configuration.
+- **Attempts tooltip:** hovering over a task lists its attempts, each with the lane, the outcome (completed, error, quota, timeout, gate rejected, scope) and the reason: files outside the scope, the first failing line of the gate, or the line that matched the quota error (up to 200 characters). A task reused by `--resume` shows which run it came from and its original duration.
 
 The keys match the terminal timeline (`[`, `]`, `l`, `a`, `p`, `+`, `-`, arrows, `?`), plus `s` for sound. Press `?` on the page to see the table.
 
@@ -461,7 +464,10 @@ Open the URL printed by the command (`http://127.0.0.1:5052/timeline` by default
 Ctrl+C stops it and removes the temporary log.
 
 What to check: the time axis in minutes, elbow arrows between lanes, tooltips with phase and total durations,
-the lane header (`harness · tier`), the sound toggle with `s`, and no ghost phase for the interrupted attempt.
+the lane header (`harness · model (effort)`, also for `legacy_lane`, which is not in the catalog), the sound toggle
+with `s`, and no ghost phase for the interrupted attempt. The synthetic run is named
+`Adaptador de Interface - Herdr/TMUX/Process`; `task_11` falls back laterally from `tier_1` to `tier_1b` after a
+worker error, and `task_12` is rejected for editing files outside its scope (the tooltip lists them).
 
 ---
 

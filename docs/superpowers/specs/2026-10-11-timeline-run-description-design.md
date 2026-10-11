@@ -1,6 +1,6 @@
 # Timeline: a run se descreve sozinha (nome, vias, tentativas e motivos)
 
-**Status:** aprovado pelo dono em 2026-10-11 (plano em execução). O item 0 (tooltip no toque) foi feito à parte (#151).
+**Status:** implementado em 2026-10-11 (itens 1 a 8; o item 0, tooltip no toque, foi feito à parte em #151). Ficou de fora: o eixo contínuo entre runs (uma run retomada com plano editado continua começando em +0s; a tarefa reaproveitada só indica a run de origem e a duração original).
 **Origem:** achados do dono em 2026-10-10 e 11, registrados no `BACKLOG.md`: nome legível da run, raia `tier_3b` sem harness e modelo, tarefa desenhada inteira na última via, run retomada recomeçando em +0s, motivo da rejeição do gate fora da tela.
 
 ## 1. Problema
