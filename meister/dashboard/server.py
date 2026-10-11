@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template, request
 from werkzeug.serving import make_server
 
 from meister.config import load_config
+from meister.config_editor import load_effective_lanes
 from meister.dashboard.metrics import (
     compute_summary,
     event_type,
@@ -462,6 +463,39 @@ def api_timelines():
             timeline_to_dict(timeline, graph, project=project_root, now=now)
         )
     return jsonify({"runs": timelines})
+
+
+def _project_config_path() -> str:
+    """Caminho do meister.config.yaml do projeto servido pelo dashboard."""
+    project_root = _current_project_root() or os.getcwd()
+    return os.path.join(project_root, "meister.config.yaml")
+
+
+def _is_remote_request() -> bool:
+    """Pedido chegou pelo Tailscale (o `tailscale serve` entrega de 127.0.0.1, entao o IP nao basta)."""
+    headers = request.headers
+    if headers.get("Tailscale-User-Login"):
+        return True
+    has_tailscale = any(name.lower().startswith("tailscale-") for name in headers.keys())
+    return bool(headers.get("X-Forwarded-For")) and has_tailscale
+
+
+@app.route("/api/config")
+def api_config():
+    document = load_effective_lanes(_project_config_path())
+    reason: Optional[str] = None
+    if _has_active_run():
+        reason = "run_active"
+    elif _is_remote_request():
+        reason = "remote"
+    return jsonify({
+        "lanes": document.lanes,
+        "source": document.path,
+        "has_tier_order": document.has_tier_order,
+        "stamp": document.stamp,
+        "editable": reason is None,
+        "reason": reason,
+    })
 
 
 def _find_free_port() -> int:
