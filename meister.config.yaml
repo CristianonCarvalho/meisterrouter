@@ -2,6 +2,8 @@ router:
   # Primeira via do catálogo, sem Jev: o agy travou em planos e o Copilot concluiu os planos recentes; o fallback do tier_order continua valendo.
   mode: first
 scope:
+  # Uma tarefa pode editar também os arquivos declarados pelas tarefas das quais ela depende (já integradas); tarefas sem relação continuam bloqueadas.
+  allow_dependency_files: true
   # Alterações em tests/ fora do escopo são aceitas se a suíte inteira passar e ficam registradas no evento scope_tolerated.
   tolerated_files:
     - pnpm-lock.yaml
