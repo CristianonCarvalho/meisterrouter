@@ -166,6 +166,8 @@
   .swatch-wait { background: #64748b; }
   .swatch-critical { background: #fbbf24; border: 1px solid #f59e0b; }
   .swatch-escalation { background: #ec4899; }
+  .swatch-lateral { background: #22d3ee; }
+  .swatch-failed-attempt { background: #be123c; }
   .timeline-wrapper {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -316,8 +318,10 @@
   <div class="legend-item"><span class="legend-swatch swatch-gate"></span><span>{{ messages.phase_gate }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-integrate"></span><span>{{ messages.phase_integrate }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-wait"></span><span>{{ messages.phase_wait }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-failed-attempt"></span><span>{{ messages.phase_failed_attempt }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-escalation"></span><span>{{ messages.escalation }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-lateral"></span><span>{{ messages.lateral_fallback }}</span></div>
 </div>
 
 <div class="timeline-wrapper">
@@ -503,6 +507,67 @@
     const name = runDisplayName(run);
     if (!run || !run.status) return name;
     return name + " (" + (text[run.status] || run.status) + ")";
+  }
+  // Via of each segment; segments without one (queue, old logs) take the via around them.
+  function segmentVias(row) {
+    const segments = Array.isArray(row.segments) ? row.segments : [];
+    const vias = segments.map((s) => (s && s.via) || null);
+    let current = vias.find(Boolean) || null;
+    return vias.map((via) => {
+      if (via) current = via;
+      return via || current;
+    });
+  }
+  // Lanes where the task is drawn, in attempt order, each with the segments that ran there.
+  // One via, or an old log without attempt_details: a single placement on row.tier, as before.
+  function rowLanePlacements(row) {
+    const segments = Array.isArray(row.segments) ? row.segments : [];
+    const single = [{ via: row.tier === undefined ? null : row.tier, segments }];
+    const attempts = Array.isArray(row.attempt_details) ? row.attempt_details : [];
+    if (!attempts.length) return single;
+    const vias = segmentVias(row);
+    const order = [];
+    const byVia = new Map();
+    segments.forEach((seg, index) => {
+      const via = vias[index];
+      if (!byVia.has(via)) {
+        byVia.set(via, []);
+        order.push(via);
+      }
+      byVia.get(via).push(seg);
+    });
+    if (order.length < 2 || order.includes(null)) return single;
+    return order.map((via) => ({ via, segments: byVia.get(via) }));
+  }
+  // "tier_1b" and "tier_1" share a level; a fallback within a level is lateral, across levels an escalation.
+  function viaLevel(via) {
+    return String(via || "").replace(/(\d)[a-z]+$/, "$1");
+  }
+  function bridgeKind(fromVia, toVia) {
+    return viaLevel(fromVia) === viaLevel(toVia) ? "lateral" : "escalation";
+  }
+  // One bridge per change of via, at the start of the first segment on the new via.
+  function placementBridges(row) {
+    if (rowLanePlacements(row).length < 2) return [];
+    const segments = row.segments;
+    const vias = segmentVias(row);
+    const bridges = [];
+    for (let i = 1; i < segments.length; i++) {
+      if (vias[i] !== vias[i - 1]) {
+        bridges.push({ from_via: vias[i - 1], to_via: vias[i], at: segments[i].start, kind: bridgeKind(vias[i - 1], vias[i]) });
+      }
+    }
+    return bridges;
+  }
+  // A wait after work on the same via whose attempt ended in error or quota: the gap before the next attempt.
+  function isFailedAttemptGap(row, index) {
+    const segments = Array.isArray(row.segments) ? row.segments : [];
+    const attempts = Array.isArray(row.attempt_details) ? row.attempt_details : [];
+    const seg = segments[index];
+    if (!seg || seg.phase !== "wait" || !seg.via || !attempts.length) return false;
+    const workedBefore = segments.slice(0, index).some((s) => s.phase !== "wait" && s.via === seg.via);
+    if (!workedBefore) return false;
+    return attempts.some((a) => a && a.via === seg.via && (a.outcome === "quota" || a.outcome === "error"));
   }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -1141,12 +1206,19 @@
 
     const otherLane = { via: text.unassigned, tasks: [], busy_s: 0, utilization: 0, rows: [] };
 
+    // A task is drawn once in each lane where one of its attempts ran.
+    const placementsByTask = new Map();
     rows.forEach((r) => {
-      if (r.tier && laneByVia.has(r.tier)) {
-        laneByVia.get(r.tier).rows.push(r);
-      } else {
-        otherLane.rows.push(r);
-      }
+      const placements = rowLanePlacements(r);
+      placementsByTask.set(r.task_id, placements);
+      placements.forEach((placement, index) => {
+        const entry = { row: r, placement, index, count: placements.length };
+        if (placement.via && laneByVia.has(placement.via)) {
+          laneByVia.get(placement.via).rows.push(entry);
+        } else {
+          otherLane.rows.push(entry);
+        }
+      });
     });
 
     if (otherLane.rows.length && !laneByVia.has(text.unassigned)) {
@@ -1154,9 +1226,12 @@
     }
 
     let currentY = HEADER_H;
+    // Edges leave a task where it finished (last placement) and enter where it began (first placement).
     const rowCenterY = {};
-    const rowStartX = {};
     const rowEndX = {};
+    const rowFirstCenterY = {};
+    const rowFirstStartX = {};
+    const placementCenterY = {};
     const laneCenterY = {};
 
     const lanesGroup = createSvgEl("g", { class: "lanes-group" });
@@ -1225,14 +1300,29 @@
       }
 
       // Tasks in this lane
-      lane.rows.forEach((row, rowIdx) => {
+      lane.rows.forEach((entry, rowIdx) => {
+        const row = entry.row;
+        const isSplit = entry.count > 1;
+        const isFirstPlacement = entry.index === 0;
+        const placementSegs = entry.placement.segments;
+        // The task finished in the placement holding its last segment (a via can come back).
+        const rowSegs = Array.isArray(row.segments) ? row.segments : [];
+        const isLastPlacement = !isSplit || placementSegs.includes(rowSegs[rowSegs.length - 1]);
         const rY = currentY + headerH + rowIdx * ROW_H;
-        rowCenterY[row.task_id] = rY + ROW_H / 2;
+        placementCenterY[row.task_id + "|" + entry.placement.via] = rY + ROW_H / 2;
 
-        const rowStartXVal = timeToX(row.start);
-        const rowEndXVal = timeToX(row.end || nowTime);
-        rowStartX[row.task_id] = rowStartXVal;
-        rowEndX[row.task_id] = rowEndXVal;
+        const rowStartXVal = isSplit && placementSegs.length ? timeToX(placementSegs[0].start) : timeToX(row.start);
+        const rowEndXVal = isSplit && placementSegs.length
+          ? timeToX(placementSegs[placementSegs.length - 1].end || nowTime)
+          : timeToX(row.end || nowTime);
+        if (isFirstPlacement) {
+          rowFirstCenterY[row.task_id] = rY + ROW_H / 2;
+          rowFirstStartX[row.task_id] = rowStartXVal;
+        }
+        if (isLastPlacement) {
+          rowCenterY[row.task_id] = rY + ROW_H / 2;
+          rowEndX[row.task_id] = rowEndXVal;
+        }
 
         // Task title on left
         const rawTitle = row.title || row.task_id;
@@ -1266,12 +1356,12 @@
           showTitle(event);
         });
         taskText.addEventListener("mouseleave", hideTaskTooltip);
-        bindTooltipTap(taskText, "title:" + row.task_id, showTitle);
+        bindTooltipTap(taskText, "title:" + row.task_id + ":" + entry.index, showTitle);
         lanesGroup.appendChild(taskText);
 
         // Task segments
-        const segs = row.segments && row.segments.length
-          ? row.segments
+        const segs = placementSegs.length
+          ? placementSegs
           : [{ phase: "worker", start: row.start, end: row.end || nowTime }];
 
         const isCritical = Array.isArray(data.critical_path) && data.critical_path.includes(row.task_id);
@@ -1281,8 +1371,10 @@
           const sx2 = timeToX(seg.end);
           const sW = Math.max(4, sx2 - sx1);
 
+          const failedGap = isFailedAttemptGap(row, rowSegs.indexOf(seg));
           let segFill = "#6366f1";
-          if (seg.phase === "gate") segFill = "#f59e0b";
+          if (failedGap) segFill = "#be123c";
+          else if (seg.phase === "gate") segFill = "#f59e0b";
           else if (seg.phase === "integrate") segFill = "#10b981";
           else if (seg.phase === "lock_wait") segFill = "#64748b";
           else if (seg.phase === "wait" || seg.phase === "queue") segFill = "#475569";
@@ -1297,7 +1389,8 @@
             class: "task-bar",
           });
 
-          const showBar = (event) => showTaskTooltip(event, row, lane.via, seg.phase, seg);
+          const phaseLabel = failedGap ? text.phase_failed_attempt : seg.phase;
+          const showBar = (event) => showTaskTooltip(event, row, lane.via, phaseLabel, seg);
           bar.addEventListener("mouseenter", (event) => {
             if (isTouchLikePointer(lastPointerType)) return;
             showBar(event);
@@ -1307,12 +1400,12 @@
             showBar(event);
           });
           bar.addEventListener("mouseleave", hideTaskTooltip);
-          bindTooltipTap(bar, "bar:" + row.task_id + ":" + sIdx, showBar);
+          bindTooltipTap(bar, "bar:" + row.task_id + ":" + entry.index + ":" + sIdx, showBar);
 
           lanesGroup.appendChild(bar);
 
           // If waiting (task queue or merge lock), overlay the striped pattern
-          if (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue") {
+          if (!failedGap && (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue")) {
             const patOverlay = createSvgEl("rect", {
               x: sx1,
               y: rY + (ROW_H - BAR_H) / 2,
@@ -1327,7 +1420,7 @@
           }
 
           // Live pulse at the trailing edge of the latest segment if running
-          if (row.status === "running" && sIdx === segs.length - 1) {
+          if (row.status === "running" && isLastPlacement && sIdx === segs.length - 1) {
             const headCircle = createSvgEl("circle", {
               cx: sx2,
               cy: rY + ROW_H / 2,
@@ -1374,7 +1467,7 @@
         }
 
         // Failure badge
-        if (row.status === "failed") {
+        if (row.status === "failed" && isLastPlacement) {
           const failMarker = createSvgEl("rect", {
             x: rowEndXVal - 4,
             y: rY + (ROW_H - BAR_H) / 2,
@@ -1387,7 +1480,7 @@
         }
 
         // Attempts badge
-        if (row.attempts > 1) {
+        if (row.attempts > 1 && isFirstPlacement) {
           const attText = createSvgText("[" + row.attempts + "]", {
             x: Math.max(rowStartXVal - 6, LABEL_W + 4),
             y: rY + ROW_H / 2 + 4,
@@ -1405,37 +1498,61 @@
 
     svg.appendChild(lanesGroup);
 
-    // Escalation bridges
+    // Bridges between lanes: from the task's row in one lane to its row in the next.
+    // Old logs (no attempt_details) keep linking the lane centers.
+    const escGroup = createSvgEl("g", { class: "escalations-group" });
+    function drawBridge(bridge, yFrom, yTo, taskId) {
+      const ex = timeToX(bridge.at);
+      const midY = (yFrom + yTo) / 2;
+      const color = bridge.kind === "lateral" ? "#22d3ee" : "#ec4899";
+      const pathD = "M " + ex + " " + yFrom + " C " + (ex + 18) + " " + midY + ", " + (ex + 18) + " " + midY + ", " + ex + " " + yTo;
+      const path = createSvgEl("path", {
+        d: pathD,
+        stroke: color,
+        "stroke-width": "2",
+        "stroke-dasharray": "3,3",
+        fill: "none",
+        "pointer-events": "stroke",
+      });
+      const label = bridge.kind === "lateral" ? text.lateral_fallback : text.escalation;
+      const detail = [taskId, bridge.from_via + " → " + bridge.to_via].filter(Boolean).join(" · ");
+      const showBridge = (event) => showLaneTooltip(event, label, detail);
+      path.addEventListener("mouseenter", (event) => {
+        if (isTouchLikePointer(lastPointerType)) return;
+        showBridge(event);
+      });
+      path.addEventListener("mouseleave", hideTaskTooltip);
+      bindTooltipTap(path, "bridge:" + taskId + ":" + bridge.from_via + ":" + bridge.at, showBridge);
+      escGroup.appendChild(path);
+      const escBadge = createSvgText(bridge.kind === "lateral" ? "⇄" : "⤹", {
+        x: ex + 20,
+        y: midY + 4,
+        fill: color,
+        "font-size": "12",
+        "font-weight": "700",
+      });
+      escGroup.appendChild(escBadge);
+    }
+    const splitTasks = new Set();
+    rows.forEach((r) => {
+      placementBridges(r).forEach((bridge) => {
+        const yFrom = placementCenterY[r.task_id + "|" + bridge.from_via];
+        const yTo = placementCenterY[r.task_id + "|" + bridge.to_via];
+        if (yFrom === undefined || yTo === undefined) return;
+        splitTasks.add(r.task_id);
+        drawBridge(bridge, yFrom, yTo, r.task_id);
+      });
+    });
     if (Array.isArray(data.escalations)) {
-      const escGroup = createSvgEl("g", { class: "escalations-group" });
       data.escalations.forEach((esc) => {
+        if (splitTasks.has(esc.task_id)) return;
         const yFrom = laneCenterY[esc.from_via];
         const yTo = laneCenterY[esc.to_via];
-        if (yFrom !== undefined && yTo !== undefined) {
-          const ex = timeToX(esc.at);
-          const midY = (yFrom + yTo) / 2;
-          const pathD = "M " + ex + " " + yFrom + " C " + (ex + 18) + " " + midY + ", " + (ex + 18) + " " + midY + ", " + ex + " " + yTo;
-          const bridge = createSvgEl("path", {
-            d: pathD,
-            stroke: "#ec4899",
-            "stroke-width": "2",
-            "stroke-dasharray": "3,3",
-            fill: "none",
-          });
-          escGroup.appendChild(bridge);
-
-          const escBadge = createSvgText("⤹", {
-            x: ex + 20,
-            y: midY + 4,
-            fill: "#ec4899",
-            "font-size": "12",
-            "font-weight": "700",
-          });
-          escGroup.appendChild(escBadge);
-        }
+        if (yFrom === undefined || yTo === undefined) return;
+        drawBridge({ ...esc, kind: bridgeKind(esc.from_via, esc.to_via) }, yFrom, yTo, esc.task_id);
       });
-      svg.appendChild(escGroup);
     }
+    svg.appendChild(escGroup);
 
     // Dependency edges
     if (Array.isArray(data.edges)) {
@@ -1444,12 +1561,12 @@
       const edgesPerSource = new Map();
       data.edges.forEach((edge) => {
         const sy = rowCenterY[edge.src];
-        const dy = rowCenterY[edge.dst];
+        const dy = rowFirstCenterY[edge.dst];
         const sx = rowEndX[edge.src];
         const dstRow = rowById.get(edge.dst);
-        const dx = dstRow && rowStartX[edge.dst] !== undefined
-          ? firstWorkStartX(dstRow, timeToX, rowStartX[edge.dst])
-          : rowStartX[edge.dst];
+        const dx = dstRow && rowFirstStartX[edge.dst] !== undefined
+          ? firstWorkStartX(dstRow, timeToX, rowFirstStartX[edge.dst])
+          : rowFirstStartX[edge.dst];
         const laneIndex = edgesPerSource.get(edge.src) || 0;
         edgesPerSource.set(edge.src, laneIndex + 1);
 
