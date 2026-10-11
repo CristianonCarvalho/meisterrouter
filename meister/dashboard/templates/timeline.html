@@ -453,6 +453,21 @@
   function parseSoundPreference(stored) {
     return stored === "on";
   }
+  // Touch and pen have no mouseleave, so their tooltip needs an explicit way out.
+  function isTouchLikePointer(pointerType) {
+    return pointerType === "touch" || pointerType === "pen";
+  }
+  // Milliseconds before a touch tooltip hides by itself; 0 means never (mouse uses mouseleave).
+  function tooltipAutoHideMs(pointerType) {
+    return isTouchLikePointer(pointerType) ? 8000 : 0;
+  }
+  // What a tap should do to the tooltip: "show", "hide" or "keep" it as it is.
+  function tooltipNextAction({ visible, sameSource, pointerType, insideTooltip, onTarget }) {
+    if (!isTouchLikePointer(pointerType)) return "keep";
+    if (onTarget) return visible && sameSource ? "hide" : "show";
+    if (insideTooltip) return "hide";
+    return visible ? "hide" : "keep";
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
