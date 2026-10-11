@@ -19,6 +19,7 @@ rodar o instalador, `meister setup --project` e pedir o trabalho à sua LLM orqu
 - [Nomes das vias](#nomes-das-vias)
 - [Esforço por via](#esforço-por-via)
 - [Ligar e desligar vias](#ligar-e-desligar-vias)
+- [Tela /config (vias)](#tela-config-vias)
 - [Configuração avançada](#configuração-avançada)
 - [Desenvolvimento e testes](#desenvolvimento-e-testes)
 - [Estrutura do projeto](#estrutura-do-projeto)
@@ -538,6 +539,35 @@ Regras:
 - Não é possível desligar a última via ligada; pelo menos uma via deve continuar ligada.
 - Nomes de via desconhecidos são recusados, e a mesma via não pode aparecer em `--enable` e em `--disable`.
 - As mudanças valem no **próximo run**. Um run já em andamento mantém a configuração com que começou.
+
+---
+
+## Tela /config (vias)
+
+O dashboard tem a página `/config` (por exemplo, `http://localhost:5050/config`) para ver e editar as vias dos
+workers sem abrir o YAML. O cabeçalho da linha do tempo tem um link **Config** para ela, e a página tem links de volta
+para a linha do tempo e para o dashboard.
+
+- **O que mostra:** as vias efetivas (o padrão empacotado mais o que o `meister.config.yaml` do projeto sobrescreve)
+  e o arquivo de onde vêm.
+- **O que edita:** ligar e desligar, a ordem, `harness`, `model`, `effort` (a lista acompanha o harness) e
+  `max_parallel`. O nome da via é só leitura, e os demais campos de cada via (custos, `eligible_classes`,
+  `max_retries`...) ficam como estão. Não dá para criar nem remover vias por aqui. Antes de gravar, o servidor valida
+  com as mesmas regras do `meister config validate` (pelo menos uma via ligada, nomes únicos, esforço aceito pelo
+  harness, modelo não vazio).
+- **Quando fica bloqueada:** a escrita é recusada com uma run ativa (a run já carregou a configuração), quando o
+  arquivo mudou no disco desde que a página o leu e para acesso remoto (pedidos que chegam pelo Tailscale). Nesses
+  casos a página fica somente leitura e diz o motivo; a leitura é sempre liberada.
+- **Onde fica o `.bak`:** salvar grava a lista inteira de `workers.tier_order` no `meister.config.yaml`, guarda o
+  arquivo anterior como `meister.config.yaml.bak` ao lado dele e troca o arquivo de forma atômica (o original volta
+  se algo falhar). As permissões do arquivo são mantidas.
+- **Restaurar padrão:** depois de salva, a lista passa a ser do projeto e **substitui** o padrão, então deixa de
+  acompanhar as mudanças futuras dele. **Restaurar padrão** remove o `tier_order` do arquivo e volta às vias
+  empacotadas.
+- **Comentários preservados:** o arquivo é regravado com o `ruamel.yaml`, que mantém os comentários e o layout do
+  `meister.config.yaml`.
+
+As mudanças valem no próximo run; o dashboard e a linha do tempo já as mostram.
 
 ---
 

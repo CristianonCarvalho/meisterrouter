@@ -19,6 +19,7 @@ run the installer, `meister setup --project`, and ask your orchestrator LLM to d
 - [Lane names](#lane-names)
 - [Per-lane effort](#per-lane-effort)
 - [Enabling and disabling lanes](#enabling-and-disabling-lanes)
+- [The /config screen (lanes)](#the-config-screen-lanes)
 - [Advanced configuration](#advanced-configuration)
 - [Development and testing](#development-and-testing)
 - [Project structure](#project-structure)
@@ -536,6 +537,34 @@ Rules:
 - You cannot disable the last enabled lane; at least one lane must remain on.
 - Unknown lane names are rejected, and the same lane cannot appear in both `--enable` and `--disable`.
 - Changes take effect on the **next run**. A run already in progress keeps the configuration it started with.
+
+---
+
+## The /config screen (lanes)
+
+The dashboard has a `/config` page (for example, `http://localhost:5050/config`) to see and edit the worker lanes
+without opening the YAML. The timeline header has a **Config** link to it, and the page links back to the timeline and
+the dashboard.
+
+- **What it shows:** the effective lanes (the packaged defaults plus what the project's `meister.config.yaml`
+  overrides) and the file they come from.
+- **What it edits:** on/off, order, `harness`, `model`, `effort` (the list follows the harness) and `max_parallel`.
+  The lane name is read-only, and the other fields of each lane (costs, `eligible_classes`, `max_retries`...) are kept
+  as they are. Lanes cannot be added or removed here. Before saving, the server validates with the same rules as
+  `meister config validate` (at least one lane on, unique names, an effort the harness accepts, a non-empty model).
+- **When it is blocked:** writing is refused while a run is active (the run already loaded its configuration), when the
+  file changed on disk since the page loaded it, and for remote access (requests that arrive through Tailscale). In
+  those cases the page stays read-only and says why; reading is always allowed.
+- **Where the backup goes:** saving writes the whole `workers.tier_order` list to `meister.config.yaml`, saves the
+  previous file as `meister.config.yaml.bak` next to it, and replaces the file atomically (the original is restored
+  if anything fails). The file permissions are kept.
+- **Restore default:** once saved, the list belongs to the project and **replaces** the defaults, so it no longer
+  follows future changes to them. **Restore default** removes `tier_order` from the file and goes back to the
+  packaged lanes.
+- **Comments are kept:** the file is rewritten with `ruamel.yaml`, which preserves the comments and the layout of
+  `meister.config.yaml`.
+
+Changes take effect on the next run; the dashboard and the timeline show them right away.
 
 ---
 

@@ -4,6 +4,7 @@ python-dotenv>=1.0.0
 pytest>=8.0.0
 pydantic>=2.0.0
 PyYAML>=6.0.0
+ruamel.yaml>=0.18
 click>=8.0.0
 pytest-asyncio>=0.23.0
 pytest-xdist>=3.5.0
