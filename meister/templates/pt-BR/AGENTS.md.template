@@ -12,6 +12,21 @@
 - Preserve alterações preexistentes e evite mudanças fora do escopo.
 - Execute os testes relevantes e relate resultados e limitações com clareza. NÃO rode a suíte inteira: o portão do MeisterRouter a roda depois.
 
+## Escrever um plano para o MeisterRouter
+
+Se pedirem que você escreva um plano (e não que implemente uma subtarefa), use o fluxo nativo:
+
+```bash
+meister plan guide
+meister plan new -o plano.md
+meister plan import plano.md -o plano.json
+meister plan validate plano.json
+```
+
+Leia as regras com `plan guide`, preencha as tarefas na moldura e depois converta e valide;
+o arquiteto executa o plano validado. Se você usa a skill `superpowers:writing-plans`, o
+formato é o mesmo (aceito por `plan import`).
+
 ## Se você é um worker do MeisterRouter
 
 Considere-se um worker se `MEISTER_WORKER=1` (ou, em instalações antigas, `MEISTER_IN_PANE=1`) estiver definido no ambiente ou se estiver
