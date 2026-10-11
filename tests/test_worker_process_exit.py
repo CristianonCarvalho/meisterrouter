@@ -179,6 +179,10 @@ def _write_result_later(loop, task_context, delay):
     loop.call_later(delay, write_atomic_json, task_context["result_file"], dict(RESULT_PAYLOAD))
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="command_str do bridge é `/bin/sh -c '...; echo $? > exit_file'`, comando de shell POSIX do host Herdr",
+)
 @pytest.mark.parametrize("code", [3, 0])
 def test_command_str_records_worker_exit_code_in_exit_file(tmp_path, monkeypatch, code):
     """Roda o command_str real com um `sys.executable` que sai com `code`: o exit_file guarda o código."""

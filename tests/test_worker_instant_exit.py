@@ -1,11 +1,11 @@
 import json
 import os
-import stat
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
+from tests.fake_cli import make_fake_cli
 from meister.worker import execute_task_file, read_atomic_json, write_atomic_json
 
 
@@ -27,14 +27,11 @@ def _write_task(tmp_path: Path, cli: Path) -> tuple[Path, Path]:
 
 
 def _write_cli(tmp_path: Path, body: str) -> Path:
-    cli = tmp_path / "instant_cli.sh"
-    cli.write_text("#!/bin/bash\n" + body, encoding="utf-8")
-    cli.chmod(cli.stat().st_mode | stat.S_IEXEC)
-    return cli
+    return make_fake_cli(tmp_path, "instant_cli", body)
 
 
 def _failing_cli(tmp_path: Path) -> Path:
-    return _write_cli(tmp_path, "echo 'Error: auth failed' >&2\nexit 1\n")
+    return _write_cli(tmp_path, "import sys\nprint('Error: auth failed', file=sys.stderr)\nsys.exit(1)\n")
 
 
 def test_instant_exit_reports_real_error_even_when_getpgid_fails(tmp_path, monkeypatch):
@@ -47,7 +44,7 @@ def test_instant_exit_reports_real_error_even_when_getpgid_fails(tmp_path, monke
         getpgid_calls.append(pid)
         raise ProcessLookupError(3, "No such process")
 
-    monkeypatch.setattr(os, "getpgid", no_such_process)
+    monkeypatch.setattr(os, "getpgid", no_such_process, raising=False)
     with patch("meister.worker.find_cli_binary", return_value=str(cli)):
         with pytest.raises(RuntimeError, match="failed with exit code 1"):
             execute_task_file(str(task_file))
@@ -77,7 +74,7 @@ def test_instant_exit_reports_real_error_repeatedly(tmp_path):
 
 
 def test_pid_file_failure_does_not_abort_successful_task(tmp_path):
-    cli = _write_cli(tmp_path, "echo 'ok'\nexit 0\n")
+    cli = _write_cli(tmp_path, "print('ok')\n")
     task_file, result_file = _write_task(tmp_path, cli)
 
     def broken_signature(_pid):
@@ -100,7 +97,10 @@ def test_normal_run_records_pid_equal_to_pgid(tmp_path):
     pid_file = tmp_path / "task.harness.json"
     cli = _write_cli(
         tmp_path,
-        f"sleep 0.5\ncp '{pid_file}' '{pid_snapshot}'\necho 'ok'\nexit 0\n",
+        "import shutil, time\n"
+        "time.sleep(0.5)\n"
+        f"shutil.copy({str(pid_file)!r}, {str(pid_snapshot)!r})\n"
+        "print('ok')\n",
     )
     task_file, _ = _write_task(tmp_path, cli)
 

@@ -1,13 +1,13 @@
 import os
 import sys
 import json
-import stat
 import time
 import shlex
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from click.testing import CliRunner
 
+from tests.fake_cli import make_fake_cli
 from meister.cli import main
 from meister.worker import (
     write_atomic_json,
@@ -165,14 +165,12 @@ async def test_pane_dispatch_immune_to_shell_injection(tmp_path):
 
 def test_execute_task_file_with_fake_cli(tmp_path):
     # Setup fake CLI executable (Achado #33)
-    fake_cli = tmp_path / "fake_codex.sh"
-    fake_cli.write_text(
-        "#!/bin/bash\n"
-        "echo 'Simulating worker code generation...'\n"
-        "echo 'modified content' > target.txt\n"
-        "exit 0\n"
+    fake_cli = make_fake_cli(
+        tmp_path,
+        "fake_codex",
+        "print('Simulating worker code generation...')\n"
+        "open('target.txt', 'w').write('modified content\\n')\n",
     )
-    fake_cli.chmod(fake_cli.stat().st_mode | stat.S_IEXEC)
 
     task_file = tmp_path / "task.json"
     result_file = tmp_path / "result.json"
@@ -201,9 +199,11 @@ def test_execute_task_file_with_fake_cli(tmp_path):
 
 
 def test_execute_task_file_failure_writes_error_result(tmp_path):
-    fake_cli = tmp_path / "failing_cli.sh"
-    fake_cli.write_text("#!/bin/bash\necho 'Error: syntax error' >&2\nexit 1\n")
-    fake_cli.chmod(fake_cli.stat().st_mode | stat.S_IEXEC)
+    fake_cli = make_fake_cli(
+        tmp_path,
+        "failing_cli",
+        "import sys\nprint('Error: syntax error', file=sys.stderr)\nsys.exit(1)\n",
+    )
 
     task_file = tmp_path / "task.json"
     result_file = tmp_path / "result.json"
@@ -229,9 +229,7 @@ def test_execute_task_file_failure_writes_error_result(tmp_path):
 
 def test_execute_task_file_timeout_kills_process(tmp_path):
     # Achado #8: Hard timeout kills process group
-    fake_cli = tmp_path / "hanging_cli.sh"
-    fake_cli.write_text("#!/bin/bash\nsleep 10\n")
-    fake_cli.chmod(fake_cli.stat().st_mode | stat.S_IEXEC)
+    fake_cli = make_fake_cli(tmp_path, "hanging_cli", "import time\ntime.sleep(10)\n")
 
     task_file = tmp_path / "task.json"
     result_file = tmp_path / "result.json"
