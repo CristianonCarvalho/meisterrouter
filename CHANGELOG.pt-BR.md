@@ -19,6 +19,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
+- **`retry.worker_error_attempts` (padrão `1`; `0` desliga).** Quando um worker devolve erro (por exemplo, o harness sai com código 1 numa falha transitória), o Meister registra o evento `worker_retry` (`reason: worker_error`) e tenta de novo na mesma via; esgotadas essas tentativas, passa para a próxima via de `workers.tier_order`. A run só falha quando não sobra via. Antes, um único erro do worker derrubava a run inteira apesar de `max_retries` e de haver outras vias. Com `0`, fica o comportamento antigo. Veja [docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
 - **`runtime.host` escolhe onde os workers rodam.** Define o adaptador que hospeda cada worker: `herdr`, `tmux` ou `process`. Veja [docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 - **Adaptador `process`:** os workers rodam como processos em segundo plano, sem multiplexador de terminal, então o MeisterRouter funciona sem o Herdr instalado.
 - **Adaptador `tmux`:** os workers rodam em panes do tmux, como alternativa ao Herdr.

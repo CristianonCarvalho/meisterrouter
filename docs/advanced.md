@@ -594,6 +594,13 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
 - `retry.pane_lost_attempts` (1; `0` disables): additional retries on the same lane when a pane disappears or
   exits without a result. `retry.pane_lost_backoff_seconds` (5) is the initial wait; it doubles with each retry, up to 60 s.
   These retries preserve the worktree and do not consume `workers.tier_order[].max_retries` or escalate to another lane.
+- `retry.worker_error_attempts` (1; `0` disables): retries when the worker returns an error result, for example
+  when the harness exits with a non-zero code (`Harness copilot failed with exit code 1`) or fails on a transient
+  error. Meister logs a `worker_retry` event (`reason: worker_error`), closes the worker, waits a short backoff and
+  retries on the **same lane** up to `worker_error_attempts` times; once those are used up, it moves to the **next
+  lane** in `workers.tier_order` (which gets its own retries). The subtask is rejected (`subtask_rejected`,
+  `worker_error`) only when no lane is left. With `0`, the old behavior is kept: the first worker error fails the
+  subtask, with no retry and no fallback. Quota errors, gate and scope rejections follow their own rules.
 - `workers.idle_timeout_seconds` (600) terminates workers with no activity signals; `workers.max_runtime_seconds`
   (3600) is the total limit. Both accept `0` to disable and can be overridden per lane in `tier_order`. Activity is
   detected by changes in the worktree's Git state or pane content; activity does not extend the limit. On timeout,
