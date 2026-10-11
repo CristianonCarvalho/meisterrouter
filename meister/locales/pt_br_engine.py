@@ -150,6 +150,6 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.resume_same_run": "Plano identico ao run {run_id} ({state}): retomando o mesmo run; tarefas concluidas sao puladas.",
     "engine.bridge.resume_hint": "Run {run_id} ({state}) tem {count} tarefas concluidas reaproveitaveis; use --resume",
     "engine.hosts.herdr_unavailable": "Socket do Herdr inacessível em {socket_path}. Inicie o Herdr ou defina runtime.host como auto ou process.",
-    "engine.hosts.tmux_unavailable": "adaptador tmux ainda não disponível. Defina runtime.host como auto, process ou herdr.",
+    "engine.hosts.tmux_not_found": "tmux 3.0 ou mais novo não encontrado no PATH. Instale o tmux ou defina runtime.host como auto, process ou herdr.",
     "engine.hosts.unknown_mode": "runtime.host desconhecido: {value}",
 }

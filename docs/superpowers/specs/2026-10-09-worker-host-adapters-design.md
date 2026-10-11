@@ -1,6 +1,6 @@
 # Hosts de worker por adaptador: Meister sem dependência de terminal (Herdr, tmux ou nenhum)
 
-**Status:** fases 1 e 2 concluídas (fase 1: contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento; fase 2: adaptador `process` e seleção `runtime.host: auto`). Fases 3 a 6 pendentes; ver seção 10.
+**Status:** fases 1, 2 e 4 concluídas (fase 1: contrato `WorkerHost` e adaptador `HerdrHost`, sem mudança de comportamento; fase 2: adaptador `process` e seleção `runtime.host: auto`; fase 4: adaptador `tmux`). Fases 3, 5 e 6 pendentes; ver seção 10.
 **Base observada:** `main` em `19c875e` (2026-10-09). Números de linha são aproximados; prefira buscar pelo nome da função.
 **Origem:** conversa de 2026-10-09 com o dono do projeto. Decisões já tomadas: **mesmo repositório** (nada de fork), Herdr vira **um adaptador** entre outros (tmux e execução direta como irmãos), objetivo de usar o Meister **em qualquer harness**.
 
@@ -199,7 +199,7 @@ Conforme a política de planos do projeto (muitas tarefas pequenas), cada fase s
    - Log por worker em `<log_dir>/workers/<label>.log`, quando `log_file` não é informado.
    - Varredura de cota por `tail`: o bridge lê periodicamente o final da saída do worker e passa ao `detect_quota_or_rate_limit`. Mesmo mecanismo do Herdr, agora sobre o log.
 3. **Experiência para qualquer harness.** Log por worker e `meister logs --follow`; documentação de execução em segundo plano com `meister wait`; modelos de instrução por harness; variável neutra `MEISTER_WORKER` (mantendo `MEISTER_IN_PANE` como alias, pois o guard hook depende dela).
-4. **Adaptador `tmux`.**
+4. **Adaptador `tmux`. (Concluída.)** `meister/hosts/tmux.py`: uma janela por worker (`new-window -d`), `remain-on-exit`, `capture-pane` para o `tail`, `C-c` para interromper; exige `tmux` 3.0 ou mais novo; dentro de uma sessão usa a atual, fora cria `meister-<pid>`; `auto` nunca o escolhe. Testes com servidor isolado (`-L`). Limitação: processo que morre antes do `remain-on-exit` leva a janela junto (saída perdida). Documentado em `docs/advanced.md`.
 5. **Documentação e instalador.** Herdr passa de pré-requisito a opcional; `meister setup` deixa de abortar sem ele; README e `CLAUDE.md`/`AGENTS.md` atualizados.
 6. **Opcional:** renomear `meister/herdr/` e tornar `flask` opcional.
 
