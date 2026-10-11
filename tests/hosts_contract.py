@@ -9,6 +9,7 @@ Os testes só usam a superfície pública do contrato.
 from __future__ import annotations
 
 import asyncio
+import shlex
 import time
 from typing import Awaitable, Callable
 
@@ -30,8 +31,13 @@ async def _eventually(check: Callable[[], Awaitable[bool]], timeout: float = _TI
         await asyncio.sleep(_STEP_S)
 
 
+def make_command(argv: list[str], label: str = "contract-worker") -> WorkerCommand:
+    """Monta um comando de teste com ``argv`` e ``terminal_line`` (os hosts de terminal usam a linha)."""
+    return WorkerCommand(argv=argv, env={}, cwd=".", label=label, terminal_line=shlex.join(argv))
+
+
 def wait_command(label: str = "contract-worker") -> WorkerCommand:
-    return WorkerCommand(argv=["contract-wait"], env={}, cwd=".", label=label)
+    return make_command(["contract-wait"], label)
 
 
 class HostContract:
