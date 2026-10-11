@@ -281,6 +281,8 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.phase_gate": "gate",
     "cli.timeline.web.phase_integrate": "integração",
     "cli.timeline.web.phase_wait": "espera",
+    "cli.timeline.web.phase_failed_attempt": "Tentativa falha",
+    "cli.timeline.web.lateral_fallback": "Fallback lateral",
     "cli.timeline.web.escalation": "Escalonamento",
     "cli.timeline.web.critical_path": "Caminho crítico",
     "cli.timeline.web.now": "agora",
