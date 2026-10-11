@@ -217,8 +217,66 @@ def test_scenario_builds_a_valid_timeline_with_expected_statuses():
     statuses = [row.status for row in timeline.rows]
     assert len(timeline.rows) == len(_task_ids(scenario))
     assert statuses.count("running") == 1
-    assert statuses.count("failed") == 1
+    assert statuses.count("failed") == 2
     assert timeline.summary.peak_parallel >= 2
+
+
+def test_orchestration_start_carries_run_name():
+    start = next(item.event for item in build_scenario() if item.event["event_type"] == "orchestration_start")
+    assert start["run_name"] == "Adaptador de Interface - Herdr/TMUX/Process"
+
+
+def test_every_worker_spawn_carries_harness_model_and_effort():
+    spawns = [item.event for item in build_scenario() if item.event["event_type"] == "worker_spawn"]
+    assert spawns
+    for event in spawns:
+        assert event["harness"]
+        assert event["model"]
+        assert "effort" in event
+    legacy = [event for event in spawns if event["tier"] == "legacy_lane"]
+    assert legacy and all(event["harness"] and event["model"] for event in legacy)
+
+
+def test_lateral_fallback_tier_1_to_tier_1b_after_worker_error_with_detail():
+    scenario = build_scenario()
+    retries = [
+        item.event for item in scenario
+        if item.event["event_type"] == "worker_retry" and item.event.get("reason") == "worker_error"
+    ]
+    assert len(retries) == 1
+    retry = retries[0]
+    assert retry["tier"] == "tier_1"
+    assert retry["next_tier"] == "tier_1b"
+    assert retry["detail"]
+    events = _task_events(scenario, retry["task_id"])
+    spawn_tiers = [item.event["tier"] for item in events if item.event["event_type"] == "worker_spawn"]
+    assert spawn_tiers == ["tier_1", "tier_1b"]
+    assert [item.event["tier"] for item in events if item.event["event_type"] == "subtask_completed"] == ["tier_1b"]
+
+
+def test_scope_rejection_lists_files_in_detail():
+    rejected = [
+        item.event for item in build_scenario()
+        if item.event["event_type"] == "subtask_rejected" and item.event.get("reason") == "scope"
+    ]
+    assert len(rejected) == 1
+    event = rejected[0]
+    assert event["detail"] == "README.md, docs/index.md"
+    assert len(event["detail"]) <= 200
+
+
+def test_static_timeline_attempts_carry_via_outcome_and_detail():
+    timeline, _ = _static_timeline()
+    rows = {row.task_id: row for row in timeline.rows}
+    fallback = rows["task_11"].attempt_details
+    assert [attempt.via for attempt in fallback] == ["tier_1", "tier_1b"]
+    assert fallback[0].outcome == "error"
+    assert fallback[0].detail
+    assert fallback[1].outcome == "completed"
+    scope = rows["task_12"].attempt_details
+    assert scope[-1].outcome == "scope"
+    assert scope[-1].detail == "README.md, docs/index.md"
+    assert timeline.title == "Adaptador de Interface - Herdr/TMUX/Process"
 
 
 def _parse(stamp):
@@ -287,9 +345,12 @@ def test_static_timeline_has_all_tasks_and_expected_statuses():
     statuses = {row.task_id: row.status for row in timeline.rows}
     assert len(timeline.rows) == 12
     assert statuses["task_07"] == "failed"
+    assert statuses["task_12"] == "failed"
     assert statuses["task_10"] == "running"
     assert [task for task, status in statuses.items() if status == "running"] == ["task_10"]
-    assert all(status == "completed" for task, status in statuses.items() if task not in {"task_07", "task_10"})
+    assert all(
+        status == "completed" for task, status in statuses.items() if task not in {"task_07", "task_10", "task_12"}
+    )
 
 
 def test_static_timeline_shows_retry_and_escalation_attempts():
@@ -327,10 +388,12 @@ def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monk
     data = timeline_json_for_log(str(log), run_id=None, now=NOW)
 
     lanes = {lane["via"]: lane for lane in data["lanes"]}
-    assert lanes["tier_1"]["harness"] == "codex"
-    assert lanes["tier_1"]["model"] == "luna-model"
-    assert lanes["legacy_lane"]["harness"] is None
-    assert lanes["legacy_lane"]["model"] is None
+    # os eventos worker_spawn da demonstração trazem a via usada e vencem o catálogo
+    assert lanes["tier_1"]["harness"] == "copilot"
+    assert lanes["tier_1"]["model"] == "claude-haiku-5.5"
+    assert lanes["legacy_lane"]["harness"] == "codex"
+    assert lanes["legacy_lane"]["model"] == "gpt-legacy"
+    assert data["run"]["title"] == "Adaptador de Interface - Herdr/TMUX/Process"
 
 
 def _fake_server(monkeypatch, on_serve):
