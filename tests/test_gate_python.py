@@ -1,6 +1,7 @@
 import json
 import os
 import shlex
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,14 @@ from click.testing import CliRunner
 from meister.cli import main
 from meister.config import GateCommand, load_config, validate_config
 from meister.gate import DeterministicGate
+
+
+needs_unix_shell = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="o Python falso é um script #!/bin/sh, que o Windows não executa como interpretador",
+)
+
+_VENV_BIN, _PYTHON_NAME = ("Scripts", "python.exe") if sys.platform == "win32" else ("bin", "python")
 
 
 def _executable(path: Path, body: str = '#!/bin/sh\nexit 0\n') -> Path:
@@ -63,7 +72,7 @@ def test_resolve_python_prefers_explicit_config_over_project_venv(tmp_path):
 
 @pytest.mark.parametrize("environment", [".venv", "venv"])
 def test_resolve_python_finds_venv_at_project_root(tmp_path, environment):
-    python = _fake_python(tmp_path / environment / "bin/python")
+    python = _executable(tmp_path / environment / _VENV_BIN / _PYTHON_NAME)
     gate = DeterministicGate(str(tmp_path))
 
     assert gate._resolve_python() == (str(python), None)
@@ -89,6 +98,7 @@ def test_explicit_python_missing_is_infrastructure_error(tmp_path):
     assert "gate.python não encontrado" in result.output
 
 
+@needs_unix_shell
 def test_auto_mode_uses_project_python_for_pytest_and_ruff(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     log = tmp_path / "argv.log"
@@ -111,6 +121,7 @@ def test_auto_mode_uses_project_python_for_pytest_and_ruff(tmp_path, monkeypatch
     assert str(python) not in log.read_text()
 
 
+@needs_unix_shell
 def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "project"
@@ -128,6 +139,7 @@ def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypa
     assert root_python.exists()
 
 
+@needs_unix_shell
 @pytest.mark.parametrize(
     ("has_test_file", "exit_code", "passed"),
     [
@@ -176,6 +188,7 @@ def test_auto_python_fallback_warning_is_in_gate_output(tmp_path, monkeypatch):
     assert "[AVISO] usando o Python do Meister (/meister/python)" in result.output
 
 
+@needs_unix_shell
 def test_configured_python_marker_and_venv_path_precedence(tmp_path, monkeypatch):
     venv_bin = tmp_path / ".venv/bin"
     log = tmp_path / "argv.log"
@@ -196,6 +209,7 @@ def test_configured_python_marker_and_venv_path_precedence(tmp_path, monkeypatch
     assert str(python) != str(command_python)
 
 
+@needs_unix_shell
 def test_configured_command_resolves_python_marker_with_spaces(tmp_path, monkeypatch):
     python = _fake_python(tmp_path / "python with spaces/python")
     log = tmp_path / "argv.log"
@@ -212,6 +226,7 @@ def test_configured_command_resolves_python_marker_with_spaces(tmp_path, monkeyp
     assert log.read_text().splitlines() == ["-m", "pytest"]
 
 
+@needs_unix_shell
 def test_configured_path_uses_venv_before_node_modules_and_original(tmp_path, monkeypatch):
     venv_bin = tmp_path / ".venv/bin"
     _fake_python(venv_bin / "python")

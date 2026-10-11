@@ -3,12 +3,19 @@ import os
 import subprocess
 import sys
 
+import pytest
 from click.testing import CliRunner
 
 from meister.cli import main
 from meister.config import load_config, validate_config
 from meister.gate import DeterministicGate
 from meister.worktree import IntegrationPipeline, WorktreeManager, scope_violations
+
+
+needs_shebang_executables = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="os executáveis falsos (npm, pnpm, go, eslint...) dependem de shebang, que o Windows não executa",
+)
 
 
 def _git(cwd, *args):
@@ -218,6 +225,7 @@ def test_config_defaults_include_generated_lockfiles(tmp_path, monkeypatch):
     } <= set(defaults.scope.tolerated_files)
 
 
+@needs_shebang_executables
 def test_node_gate_installs_before_local_eslint_without_npx(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     log = _fake_path(tmp_path, monkeypatch)
@@ -235,6 +243,7 @@ def test_node_gate_installs_before_local_eslint_without_npx(tmp_path, monkeypatc
     assert all("npx" not in call for call in calls)
 
 
+@needs_shebang_executables
 def test_node_manager_selection_and_install_failure(tmp_path, monkeypatch):
     log = _fake_path(tmp_path, monkeypatch)
     project = tmp_path / "node"
@@ -263,6 +272,7 @@ def test_node_manager_selection_and_install_failure(tmp_path, monkeypatch):
     assert not result.passed and result.infrastructure_error
 
 
+@needs_shebang_executables
 def test_configured_gate_semantics_and_no_shell(tmp_path, monkeypatch):
     bin_dir = tmp_path / "bin"
     calls = tmp_path / "custom.log"
@@ -337,6 +347,7 @@ def test_configured_gate_missing_executable_timeout_and_unverified(tmp_path):
     assert not result.passed and "Configure gate.commands" in result.output
 
 
+@needs_shebang_executables
 def test_worktree_setup_prepares_node_only_and_tolerates_failure(tmp_path, monkeypatch):
     calls = _fake_path(tmp_path, monkeypatch)
     repo = _repo(
@@ -419,6 +430,7 @@ Run `pnpm add drizzle-orm` and `drizzle-kit generate`.
     assert "invalid glob" not in result.stderr
 
 
+@needs_shebang_executables
 def test_node_installer_uses_yarn_and_unlocked_package_manager(tmp_path, monkeypatch):
     log = _fake_path(tmp_path, monkeypatch)
     project = tmp_path / "node"
@@ -441,6 +453,7 @@ def test_node_installer_uses_yarn_and_unlocked_package_manager(tmp_path, monkeyp
     assert log.read_text().splitlines()[0] == "install"
 
 
+@needs_shebang_executables
 def test_failed_worktree_setup_logs_and_keeps_worktree(tmp_path, monkeypatch):
     fake_bin = tmp_path / "bin"
     _fake_executable(fake_bin, "pnpm", "import sys\nsys.exit(17)")
@@ -486,6 +499,7 @@ def test_pipeline_gate_infrastructure_preserves_worker_work_and_logs(tmp_path, m
     assert any(event["event_type"] == "gate_infrastructure_error" for event in events)
 
 
+@needs_shebang_executables
 def test_node_gate_runs_local_vitest_without_npx(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     log = _fake_path(tmp_path, monkeypatch)

@@ -65,9 +65,13 @@ def test_cli_init():
         res = subprocess.run(
             [sys.executable, BIN_MEISTER, "init", "--target", tmpdir, "--no-hooks"],
             stdout=subprocess.PIPE,
-            text=True
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            # a saída traz emojis; com stdout em pipe o Windows usaria cp1252 e não conseguiria codificá-los
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
         )
-        assert res.returncode == 0
+        assert res.returncode == 0, res.stderr
         assert os.path.exists(os.path.join(tmpdir, "CLAUDE.md"))
         assert os.path.exists(os.path.join(tmpdir, "CODEX.md"))
         assert os.path.exists(os.path.join(tmpdir, "AGENTS.md"))

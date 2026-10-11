@@ -4,6 +4,7 @@ tests.test_setup_cli — Testes de CLI para meister setup e validação do bin/i
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from click.testing import CliRunner
@@ -197,9 +198,10 @@ def test_install_sh_script_validation():
     install_script = repo_root / "bin" / "install.sh"
     assert install_script.is_file()
 
-    # Validação sintática bash -n
-    chk = subprocess.run(["bash", "-n", str(install_script)], capture_output=True, text=True)
-    assert chk.returncode == 0, f"bash -n falhou: {chk.stderr}"
+    # Validação sintática bash -n (no Windows "bash" costuma ser o stub do WSL, não um bash utilizável)
+    if sys.platform != "win32":
+        chk = subprocess.run(["bash", "-n", str(install_script)], capture_output=True, text=True)
+        assert chk.returncode == 0, f"bash -n falhou: {chk.stderr}"
 
     content = install_script.read_text(encoding="utf-8")
 
