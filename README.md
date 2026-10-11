@@ -2,12 +2,9 @@
 
 🌐 **English** · [Português (Brasil)](README.pt-BR.md)
 
-**A [Herdr](https://herdr.dev) plugin that distributes a plan's tasks across your AI CLI subscriptions and coordinates everything deterministically.**
+**A Python CLI (`meister`) that distributes a plan's tasks across your AI CLI subscriptions and coordinates everything deterministically, with an optional [Herdr](https://herdr.dev) plugin to watch each worker live.**
 
-You pick an **orchestrator LLM** (for example Claude Code) to plan the work. MeisterRouter spreads the tasks over **GitHub Copilot**, **Codex**, **Antigravity (Gemini)** and **Claude**, each one in its own git worktree and in a visible Herdr tab. Every result goes through a **deterministic gate** (tests and lint) and only then is integrated; `main` only moves, by fast-forward, at the very end. The only non-deterministic component is **Jev** (via OpenRouter), which picks the starting lane for each task and judges the outcome.
-
-> [!IMPORTANT]
-> **Herdr is a prerequisite** on macOS and Linux (on Windows the host is `process`, without Herdr: see [Windows](docs/advanced.md#windows)), and the plugin is not enough on its own. MeisterRouter is a Herdr plugin **plus a Python CLI (`meister`)**. `herdr plugin install` registers the plugin but does **not** install the CLI, so its actions fail until `meister` is on your `PATH`. If `meister` is not found, the plugin actions show a notification with the install command (the entry script looks for `meister` in `PATH` and `~/.local/bin`). Use the one-line installer below, which installs both.
+You pick an **orchestrator LLM** (for example Claude Code) to plan the work. MeisterRouter spreads the tasks over **GitHub Copilot**, **Codex**, **Antigravity (Gemini)** and **Claude**, each one in its own git worktree (and, with Herdr, in a visible tab). Every result goes through a **deterministic gate** (tests and lint) and only then is integrated; `main` only moves, by fast-forward, at the very end. The only non-deterministic component is **Jev** (via OpenRouter), which picks the starting lane for each task and judges the outcome.
 
 📐 **How it works:** see the [diagrams](docs/diagrams.md) (components, sequence, routing, failures, gates, states and more).
 
@@ -45,7 +42,7 @@ You can already delegate work to subagents inside one AI CLI. MeisterRouter exis
 | | What | What for |
 |---|---|---|
 | **Required** | macOS, Linux, or Windows 10/11 (native, **under validation**; requires [Git for Windows](https://git-scm.com/download/win)). On Windows the host is `process` (no Herdr): workers run as plain processes, without tabs, popups or shortcuts. | Where MeisterRouter runs. See [Windows](docs/advanced.md#windows). |
-| **Required** (macOS/Linux) | [Herdr](https://herdr.dev) | MeisterRouter runs as a plugin of it (worker tabs, popups, shortcuts). `curl -fsSL https://herdr.dev/install.sh \| sh` |
+| **Optional** (recommended to see each worker live) | [Herdr](https://herdr.dev) | MeisterRouter can run as a plugin of it (worker tabs, popups, shortcuts). Without it, workers run in the background. `curl -fsSL https://herdr.dev/install.sh \| sh` |
 | **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
 | **Recommended** | An orchestrator LLM with planning, for example **Claude Code** with the [Superpowers](https://github.com/obra/superpowers) plugin | It talks to you, writes the plan in the [plan format](docs/plan-format.md) and triggers Meister. Superpowers is optional: without it the plan only has to follow that format. |
 | **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
@@ -55,7 +52,7 @@ You can already delegate work to subagents inside one AI CLI. MeisterRouter exis
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-The installer does everything for you: installs `meister`, links the plugin to Herdr, registers the shortcuts (in a managed block of Herdr's `config.toml`, with a backup) and checks your environment, listing what is still missing (worker CLIs, Jev key). It aborts, with install instructions, if Herdr is not installed. To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.1` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
+The installer does everything for you: installs `meister`, links the plugin to Herdr, registers the shortcuts (in a managed block of Herdr's `config.toml`, with a backup) and checks your environment, listing what is still missing (worker CLIs, Jev key). If Herdr is not installed, it warns and carries on (workers then run in the background). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.1` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
 
 **The Jev key** (optional, once; only Jev uses OpenRouter, the workers run on your own subscriptions):
 ```bash
@@ -64,6 +61,25 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 **Each project**, once, from inside it: `meister setup --project` (creates `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, the hooks and the guard).
 
 Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](docs/advanced.md#windows).
+
+## 🧭 Where workers run
+
+`runtime.host` in `meister.config.yaml` chooses where each worker runs:
+
+| Value | Where the worker runs |
+|---|---|
+| `auto` (default) | Herdr when it is reachable, otherwise a background process (`auto` never picks tmux) |
+| `process` | A plain background process (no tabs, popups or shortcuts) |
+| `herdr` | A visible Herdr tab (requires Herdr) |
+| `tmux` | A tmux window (requires tmux 3.0 or newer) |
+
+Without Herdr, workers run in the background. To follow a run:
+```bash
+meister timeline      # live Gantt of tasks and phases
+meister dashboard     # metrics, cost and tasks at http://localhost:5050
+meister logs -f       # follow the run log
+meister wait --run-id <id>   # block until the run ends (exit code tells how it went)
+```
 
 ## 🛠️ How to use (directly, no commands to type)
 
