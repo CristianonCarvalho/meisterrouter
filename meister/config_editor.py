@@ -392,10 +392,21 @@ def _tier_order_seq(current: Any, merged: List[Dict[str, Any]]) -> CommentedSeq:
     return seq
 
 
-def _serialize(data: CommentedMap) -> bytes:
+def _newline(content: Optional[bytes]) -> bytes:
+    """Fim de linha predominante do original: CRLF se mais da metade das quebras for CRLF, senao LF."""
+    if not content:
+        return b"\n"
+    breaks = content.count(b"\n")
+    return b"\r\n" if breaks and content.count(b"\r\n") * 2 > breaks else b"\n"
+
+
+def _serialize(data: CommentedMap, newline: bytes = b"\n") -> bytes:
+    """Serializa em bytes com todas as quebras normalizadas para o fim de linha dado."""
     stream = io.StringIO()
     _round_trip_yaml().dump(data, stream)
-    return stream.getvalue().encode("utf-8")
+    text = stream.getvalue().encode("utf-8")
+    normalized = text.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return normalized.replace(b"\n", newline) if newline != b"\n" else normalized
 
 
 def _check_written(path: str, content: bytes) -> None:
@@ -477,7 +488,7 @@ def apply_lanes(document: LaneDocument, lanes: Any, expected_stamp: str) -> Lane
     if content is None or GENERATED_COMMENT.encode("utf-8") not in content:
         workers.yaml_set_comment_before_after_key("tier_order", before=GENERATED_COMMENT, indent=2)
 
-    _write_safely(path, content, _serialize(data))
+    _write_safely(path, content, _serialize(data, _newline(content)))
     return load_effective_lanes(path)
 
 
@@ -493,5 +504,5 @@ def restore_default_lanes(document: LaneDocument, expected_stamp: str) -> LaneDo
     if not workers:
         del data["workers"]
 
-    _write_safely(path, content, _serialize(data))
+    _write_safely(path, content, _serialize(data, _newline(content)))
     return load_effective_lanes(path)
