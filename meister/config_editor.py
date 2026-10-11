@@ -3,6 +3,9 @@
 Logica pura, sem Flask. Le e grava o arquivo em round-trip (ruamel.yaml) para
 preservar os comentarios do dono; a gravacao segue o padrao de meister/lane_toggle.py
 (.bak antes, troca atomica por arquivo temporario e restauracao em falha).
+
+O ruamel.yaml e importado sob demanda (_yaml): sem o pacote, o modulo ainda importa e
+so as funcoes que precisam dele levantam ConfigEditorUnavailable.
 """
 
 from __future__ import annotations
@@ -13,11 +16,12 @@ import io
 import os
 import stat
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from ruamel.yaml import YAML
-from ruamel.yaml.comments import CommentedMap, CommentedSeq
-from ruamel.yaml.error import YAMLError
+if TYPE_CHECKING:
+    from ruamel.yaml import YAML
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
 from meister.config import ConfigIssue, _default_config_data, _parse_config_dict, validate_config
 from meister.harness_effort import HARNESS_EFFORT_VALUES
@@ -55,6 +59,9 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.workers_not_mapping": "Configuration value workers in {path} must be a mapping.",
         "config_editor.write_failed": "Cannot safely write configuration file {path}: {error}",
         "config_editor.restore_failed": "{message}; could not restore the original file: {error}",
+        "config_editor.unavailable": (
+            "Editing the lanes requires the ruamel.yaml package; install it with: pip install ruamel.yaml"
+        ),
     },
     "pt-BR": {
         "config_editor.lanes_list": "lanes deve ser uma lista de objetos.",
@@ -81,6 +88,9 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
             "N\u00e3o foi poss\u00edvel gravar com seguran\u00e7a o arquivo de configura\u00e7\u00e3o {path}: {error}"
         ),
         "config_editor.restore_failed": "{message}; n\u00e3o foi poss\u00edvel restaurar o arquivo original: {error}",
+        "config_editor.unavailable": (
+            "A edi\u00e7\u00e3o das vias precisa do pacote ruamel.yaml; instale com: pip install ruamel.yaml"
+        ),
     },
 }
 for _language, _messages in _MESSAGES.items():
@@ -90,6 +100,21 @@ for _language, _messages in _MESSAGES.items():
 
 class ConfigEditorError(Exception):
     """A edicao das vias nao pode ser aplicada com seguranca."""
+
+
+class ConfigEditorUnavailable(ConfigEditorError):
+    """O pacote ruamel.yaml nao esta instalado; a edicao das vias fica indisponivel."""
+
+
+def _yaml() -> SimpleNamespace:
+    """Importa o ruamel.yaml sob demanda; sem o pacote, levanta ConfigEditorUnavailable."""
+    try:
+        from ruamel.yaml import YAML
+        from ruamel.yaml.comments import CommentedMap, CommentedSeq
+        from ruamel.yaml.error import YAMLError
+    except ImportError as exc:
+        raise ConfigEditorUnavailable(t("config_editor.unavailable")) from exc
+    return SimpleNamespace(YAML=YAML, CommentedMap=CommentedMap, CommentedSeq=CommentedSeq, YAMLError=YAMLError)
 
 
 class ConfigStampError(ConfigEditorError):
@@ -126,7 +151,7 @@ class LaneDocument:
 
 
 def _round_trip_yaml() -> YAML:
-    yaml = YAML(typ="rt")
+    yaml = _yaml().YAML(typ="rt")
     yaml.preserve_quotes = True
     yaml.indent(mapping=2, sequence=4, offset=2)
     yaml.width = 4096
@@ -307,25 +332,27 @@ def _read_checked(document: LaneDocument, expected_stamp: str) -> Optional[bytes
 
 
 def _load_round_trip(path: str, content: Optional[bytes]) -> CommentedMap:
+    ruamel = _yaml()
     if not content:
-        return CommentedMap()
+        return ruamel.CommentedMap()
     try:
         data = _round_trip_yaml().load(content.decode("utf-8"))
-    except (UnicodeError, YAMLError) as exc:
+    except (UnicodeError, ruamel.YAMLError) as exc:
         raise ConfigEditorError(t("config_editor.read_failed", path=path, error=exc)) from exc
     if data is None:
-        return CommentedMap()
-    if not isinstance(data, CommentedMap):
+        return ruamel.CommentedMap()
+    if not isinstance(data, ruamel.CommentedMap):
         raise ConfigEditorError(t("config_editor.not_mapping", path=path))
     return data
 
 
 def _workers_map(path: str, data: CommentedMap, create: bool) -> Optional[CommentedMap]:
+    commented_map = _yaml().CommentedMap
     workers = data.get("workers")
     if workers is None and create:
-        workers = CommentedMap()
+        workers = commented_map()
         data["workers"] = workers
-    if workers is not None and not isinstance(workers, CommentedMap):
+    if workers is not None and not isinstance(workers, commented_map):
         raise ConfigEditorError(t("config_editor.workers_not_mapping", path=path))
     return workers
 
@@ -341,7 +368,7 @@ def _update_lane_node(node: CommentedMap, lane: Dict[str, Any]) -> None:
 
 
 def _new_lane_node(lane: Dict[str, Any]) -> CommentedMap:
-    node = CommentedMap()
+    node = _yaml().CommentedMap()
     for key, value in lane.items():
         if (key in ("effort", "max_parallel") and value is None) or (key == "enabled" and value is True):
             continue
@@ -350,10 +377,11 @@ def _new_lane_node(lane: Dict[str, Any]) -> CommentedMap:
 
 
 def _tier_order_seq(current: Any, merged: List[Dict[str, Any]]) -> CommentedSeq:
+    ruamel = _yaml()
     nodes: Dict[Any, CommentedMap] = {}
     if isinstance(current, list):
-        nodes = {node.get("name"): node for node in current if isinstance(node, CommentedMap)}
-    seq = CommentedSeq()
+        nodes = {node.get("name"): node for node in current if isinstance(node, ruamel.CommentedMap)}
+    seq = ruamel.CommentedSeq()
     for lane in merged:
         node = nodes.get(lane["name"])
         if node is None:
