@@ -34,6 +34,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`workers.enabled`:** turns lanes on or off in the configuration, written safely, without ever leaving the configuration with no lane enabled.
 - **`meister models --enable` / `--disable`:** turns a lane on or off from the command line; the `models` table shows a column with each lane's effort.
 - **`/config` screen in the dashboard:** shows the effective lanes and edits on/off, order, harness, model, effort and `max_parallel`, validated like `meister config validate`; it writes `meister.config.yaml` with `ruamel.yaml` (comments kept), a `.bak` and an atomic swap, offers **Restore default**, and is read-only while a run is active or for remote access. A **Config** link sits in the timeline header. `ruamel.yaml` is a new runtime dependency. See [docs/advanced.md](docs/advanced.md#the-config-screen-lanes).
+- **`scope.allow_dependency_files` (default `false`):** when `true`, a task may also edit the files declared by the tasks it depends on, directly or transitively, which are already integrated before it starts. Files of unrelated tasks stay blocked, and `meister.config.yaml` is never meant to be edited by a worker. With `false`, scope is unchanged. See [docs/advanced.md](docs/advanced.md#advanced-configuration).
 - **Claude Haiku 5.5 on lane `tier_1`** (GitHub Copilot CLI harness) as the default first lane.
 
 ### Fixed
