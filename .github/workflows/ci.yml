@@ -78,6 +78,8 @@ jobs:
         if: matrix.os == 'windows-latest' || (matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12')
         env:
           MEISTER_REAL_MAVEN: '1'
+          # O limite padrão de 180 s por teste não bastaria na primeira execução, que baixa plugins do Maven Central.
+          MEISTER_TEST_TIMEOUT: '600'
         run: |
           pytest tests/test_gate_maven_real.py -v -p no:cacheprovider
 
