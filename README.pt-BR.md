@@ -166,4 +166,5 @@ Valores de effort por harness:
 - [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da linha do tempo, configuração avançada, testes e estrutura do projeto.
 - [Diagramas](docs/pt-BR/DIAGRAMAS.md): componentes, sequência e fluxos.
 - [Manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
+- [Java 8, Maven e GitLab](docs/pt-BR/JAVA_MAVEN.md): detecção do Maven no gate (`pom.xml`), `gate.env` com `JAVA_HOME`, uso do mesmo Maven do Eclipse e merge requests no GitLab.
 - [Modelos e custos](docs/pt-BR/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.pt-BR.md). Versão instalada: `meister --version`.
