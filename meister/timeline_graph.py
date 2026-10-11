@@ -300,10 +300,13 @@ def build_graph(
                 seg_end = seg.end or now_eff
                 # If task spawned across multiple vias, match segment to attempt's via
                 if len(task_spawns) > 1:
-                    seg_via = task_spawns[0][0]
-                    for spawn_via, spawn_t in task_spawns:
-                        if seg.start >= spawn_t:
-                            seg_via = spawn_via
+                    # segments tagged by the timeline carry their attempt's via; the spawn
+                    # times are the fallback for untagged segments
+                    seg_via = seg.via or task_spawns[0][0]
+                    if seg.via is None:
+                        for spawn_via, spawn_t in task_spawns:
+                            if seg.start >= spawn_t:
+                                seg_via = spawn_via
                     if seg_via != via:
                         continue
                 intervals.append((seg.start, seg_end))
