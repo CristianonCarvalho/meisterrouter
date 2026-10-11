@@ -1,4 +1,5 @@
 import os
+import sys
 import json
 import io
 import threading
@@ -2672,7 +2673,10 @@ async def test_bridge_active_liveness_pane_missing_fails_fast(tmp_path, monkeypa
         elapsed = time.monotonic() - t0
 
         assert success is False
-        assert elapsed < 2.0
+        # o objetivo e distinguir "falha rapida" de esperar o limite de inatividade (centenas de segundos);
+        # no Windows o git e a criacao de processos sao lentos e o tempo medido inclui o setup (4,7 s no CI)
+        fast_fail_limit = 10.0 if sys.platform == "win32" else 2.0
+        assert elapsed < fast_fail_limit
         assert mock_client.split_pane.call_count == 1
 
         err_calls = [
