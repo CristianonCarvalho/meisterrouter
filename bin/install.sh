@@ -93,17 +93,14 @@ fi
 
 set -e
 
-# Verificação prévia do Herdr
-if ! command -v herdr >/dev/null 2>&1; then
-    if [ "${MEISTER_ALLOW_NO_HERDR}" != "1" ]; then
-        echo "❌ [MeisterRouter] Erro: Herdr não encontrado no PATH!"
-        echo "   O Herdr é pré-requisito para o funcionamento do MeisterRouter."
-        echo "   Instale o Herdr com:"
-        echo "     curl -fsSL https://herdr.dev/install.sh | sh"
-        echo "   (Para prosseguir sem o Herdr, execute com MEISTER_ALLOW_NO_HERDR=1)"
-        exit 1
-    fi
-    echo "⚠️  Herdr não encontrado no PATH, continuando devido a MEISTER_ALLOW_NO_HERDR=1."
+# Herdr é opcional: com ele, o plugin e os atalhos são vinculados pelo 'meister setup'
+# MEISTER_ALLOW_NO_HERDR é aceita por compatibilidade, mas não é mais consultada.
+if command -v herdr >/dev/null 2>&1; then
+    HAS_HERDR=1
+else
+    HAS_HERDR=0
+    echo "⚠️  Herdr não encontrado no PATH; ele é opcional. Para instalá-lo: curl -fsSL https://herdr.dev/install.sh | sh"
+    echo "ℹ️  pulado: Herdr não encontrado (plugin e atalhos do Herdr não serão vinculados)."
 fi
 
 # Detecta se está sendo executado a partir de um clone local, de dentro do npx/node_modules ou via curl/pipe
@@ -217,5 +214,9 @@ echo "🎉 Instalação concluída com sucesso!"
 echo "• CLI: $("${LOCAL_BIN}/meister" --help | grep -m1 "MeisterRouter" | sed 's/^[ \t]*//')"
 VERSION_OUTPUT="$("${LOCAL_BIN}/meister" --version 2>/dev/null || true)"
 echo "• Versão: ${VERSION_OUTPUT}"
-echo "• Para usar no Herdr: basta abrir o Herdr no seu projeto rodando 'herdr'"
+if [ "${HAS_HERDR}" = "1" ]; then
+    echo "• Para usar no Herdr: basta abrir o Herdr no seu projeto rodando 'herdr'"
+else
+    echo "• Para começar sem o Herdr: 'meister setup --project' no seu projeto e depois 'meister orchestrate --plan-file <plano.json>'"
+fi
 echo "• Consulte o relatório do 'meister setup' acima para status e próximos passos"

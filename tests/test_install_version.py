@@ -391,3 +391,47 @@ def test_returning_to_main_fails_clearly_when_fetch_fails(tmp_path):
     )
     assert result.returncode == 1
     assert "não foi possível voltar para main" in result.stderr
+
+
+def _run_install_with_herdr(tmp_path, *, with_herdr):
+    bin_dir, git_log = _make_install_doubles(tmp_path)
+    herdr_log = tmp_path / "herdr.log"
+    herdr_script = bin_dir / "herdr"
+    if with_herdr:
+        herdr_script.write_text(
+            f'#!/bin/sh\necho "$*" >> "{herdr_log}"\nexit 0\n', encoding="utf-8"
+        )
+    else:
+        herdr_script.unlink()
+    env = _install_env(tmp_path, bin_dir, git_log)
+    env.pop("MEISTER_ALLOW_NO_HERDR")
+    result = _run_piped_install([], env)
+    return result, herdr_log
+
+
+def test_install_without_herdr_succeeds_and_never_calls_it(tmp_path):
+    result, herdr_log = _run_install_with_herdr(tmp_path, with_herdr=False)
+    assert result.returncode == 0, result.stderr
+    assert "pulado: Herdr não encontrado" in result.stdout
+    assert "https://herdr.dev/install.sh" in result.stdout
+    assert "meister setup --project" in result.stdout
+    assert "meister orchestrate --plan-file" in result.stdout
+    assert "rodando 'herdr'" not in result.stdout
+    assert not herdr_log.exists()
+
+
+def test_install_with_herdr_keeps_previous_behavior(tmp_path):
+    result, _ = _run_install_with_herdr(tmp_path, with_herdr=True)
+    assert result.returncode == 0, result.stderr
+    assert "pulado: Herdr não encontrado" not in result.stdout
+    assert "Herdr não encontrado" not in result.stdout
+    assert "rodando 'herdr'" in result.stdout
+    assert "meister setup --project" not in result.stdout
+
+
+def test_allow_no_herdr_variable_is_still_accepted(tmp_path):
+    bin_dir, git_log = _make_install_doubles(tmp_path)
+    (bin_dir / "herdr").unlink()
+    env = _install_env(tmp_path, bin_dir, git_log, MEISTER_ALLOW_NO_HERDR=0)
+    result = _run_piped_install([], env)
+    assert result.returncode == 0, result.stderr
