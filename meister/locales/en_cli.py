@@ -178,6 +178,7 @@ MESSAGES: dict[str, str] = {
     "cli.orchestrate.plan_file_help": "Path to the canonical plan JSON file (.json)",
     "cli.orchestrate.allow_freeform_help": "Accept legacy formats (pipe, Markdown, free text) without schema validation",
     "cli.orchestrate.resume_help": "Resume completed tasks from a previous run; optionally provide RUN_ID",
+    "cli.orchestrate.name_help": "Readable run name shown in the timeline (default: title of the first task)",
     "cli.orchestrate.quiet_help": "Disable progress and run summary",
     "cli.orchestrate.resume_id_requires_resume": "Error: provide RUN_ID only together with --resume.",
     "cli.orchestrate.read_plan_failed": "Error reading --plan-file {path!r}: {error}",
