@@ -24,6 +24,9 @@ retry:
   # O backoff dobra a cada tentativa, limitado a 60 segundos.
   pane_lost_attempts: 1
   pane_lost_backoff_seconds: 5
+  # Retenta na mesma via quando o worker devolve erro (ex.: harness saiu com código != 0);
+  # esgotadas as tentativas, passa à próxima via de tier_order. 0 desliga (falha na hora).
+  worker_error_attempts: 1
 architect:
   harness: claude
   model: claude-sonnet-5-5

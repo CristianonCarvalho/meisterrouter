@@ -19,6 +19,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
+- **`retry.worker_error_attempts` (default `1`; `0` turns it off).** When a worker returns an error (for example, the harness exits with code 1 on a transient failure), Meister logs a `worker_retry` event (`reason: worker_error`) and retries on the same lane; once those retries are used up, it falls back to the next lane in `workers.tier_order`. The run fails only when no lane is left. Before this, a single worker error failed the whole run despite `max_retries` and other lanes. With `0`, the old behavior is kept. See [docs/advanced.md](docs/advanced.md#advanced-configuration).
 - **`runtime.host` selects where workers run.** It chooses the adapter that hosts each worker: `herdr`, `tmux` or `process`. See [docs/advanced.md](docs/advanced.md).
 - **`process` adapter:** workers run as background processes, with no terminal multiplexer, so MeisterRouter works without Herdr installed.
 - **`tmux` adapter:** workers run in tmux panes, as an alternative to Herdr.

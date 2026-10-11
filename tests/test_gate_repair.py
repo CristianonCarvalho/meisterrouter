@@ -599,6 +599,7 @@ async def test_non_repairable_rejections_never_trigger_repair(temp_git_repo: Pat
 
         cfg = MeisterConfig()
         cfg.gate.repair_attempts = 2  # Even with repairs allowed, non-repairables must not trigger!
+        cfg.retry.worker_error_attempts = 0  # Erro do worker sem retentativa: falha na hora.
         client = AsyncMock()
 
         bridge = HerdrEventBridge(config=cfg, client=client, spawner=mock_spawner)

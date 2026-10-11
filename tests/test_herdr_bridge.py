@@ -646,6 +646,8 @@ async def test_bridge_non_quota_error_returns_false(tmp_path):
     cfg_file = tmp_path / "config.yaml"
     cfg_file.write_text("""
 version: "1.0"
+retry:
+  worker_error_attempts: 0
 workers:
   tier_order:
     - name: "luna"
