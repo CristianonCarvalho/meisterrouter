@@ -62,6 +62,10 @@ scope:
     - uv.lock
     - "*.tsbuildinfo"
     - .vitest/**
+  # true permite a uma tarefa editar também os arquivos declarados pelas tarefas das quais
+  # ela depende (direta ou transitivamente), já integradas antes dela. Arquivos de tarefas
+  # sem relação continuam bloqueados, e o meister.config.yaml nunca deve ser editado pelo worker.
+  # allow_dependency_files: false
 environment:
   install_dependencies: true
   install_timeout_seconds: 300
