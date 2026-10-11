@@ -16,6 +16,9 @@ router:
 retry:
   pane_lost_attempts: 1
   pane_lost_backoff_seconds: 5
+  # Retentativas na MESMA via quando o worker devolve status de erro (ex.: harness saiu com código != 0),
+  # antes de passar à próxima via de tier_order. 0 desliga.
+  worker_error_attempts: 1
 architect:
   harness: claude
   model: claude-sonnet-5-5
