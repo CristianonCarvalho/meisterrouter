@@ -99,7 +99,7 @@ async def _run_rejected_subtask(repo: Path, label: str, merge_results: list[Any]
     ("language", "expected"),
     [
         ("en", "Deterministic gate rejected subtask task1 (gate). Attempting repair 1/1..."),
-        ("pt-BR", "Portão determinístico reprovou a subtarefa task1 (gate). Tentando reparo 1/1..."),
+        ("pt-BR", "O gate determinístico reprovou a subtask task1 (gate). Tentando reparo 1/1..."),
     ],
 )
 async def test_repair_message_follows_language(
@@ -124,7 +124,7 @@ async def test_repair_message_follows_language(
     ("language", "expected"),
     [
         ("en", "Infrastructure error in deterministic gate for subtask task1: "),
-        ("pt-BR", "Erro de infraestrutura no portão determinístico da subtarefa task1: "),
+        ("pt-BR", "Erro de infraestrutura no gate determinístico da subtask task1: "),
     ],
 )
 async def test_infrastructure_message_follows_language(
