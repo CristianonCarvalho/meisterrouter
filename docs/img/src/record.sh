@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regera os GIFs do README (docs/img/*.gif).
-#   ./record.sh                 grava os GIFs de terminal (hero, gate, fallback) em en e pt-BR
+#   ./record.sh                 grava os GIFs de terminal (parallel, gate, fallback) em en e pt-BR
 #   ./record.sh timeline        grava os GIFs da timeline web (precisa do Google Chrome e do Node 22+)
 # Requisitos: vhs (brew install vhs), ffmpeg, meister no PATH e python3. Os workers são simulados
 # (stub_worker.py), então não gasta cota; orquestração, worktrees, gate, fallback e integração são reais.
@@ -15,10 +15,10 @@ if [ "${1:-}" = "timeline" ]; then
     --hide-scrollbars about:blank >/dev/null 2>&1 &
   CHROME_PID=$!; sleep 3
   for L in en pt-BR; do
-    MEISTER_LANG=$L python3 -m meister.timeline_demo --mode live --speed 90 --port 5052 >/dev/null 2>&1 &
+    MEISTER_LANG=$L python3 -m meister.timeline_demo --mode live --speed 130 --port 5052 >/dev/null 2>&1 &
     DEMO_PID=$!
     until curl -s -o /dev/null http://127.0.0.1:5052/timeline; do sleep 0.3; done
-    node "$HERE/capture.mjs" http://127.0.0.1:5052/timeline 30 "$WORK/$L" 1280 900 10
+    node "$HERE/capture.mjs" http://127.0.0.1:5052/timeline 20 "$WORK/$L" 1280 900 10
     kill $DEMO_PID; wait $DEMO_PID 2>/dev/null || true
     python3 - "$WORK/$L" <<'PY'
 import glob, json, os, sys
@@ -84,70 +84,29 @@ TAPE
 }
 ORCH='Type "meister orchestrate --plan-file plan.json"
 Enter'
-LOG='Type "git log --oneline"
-Enter'
-TEST='Type "python3 -m pytest -q -p no:cacheprovider"
-Enter'
 
-tape hero plan_hero.json en "" "Type \"# Your lanes: each one is a subscription CLI, in fallback order\"
-Enter
-Type \"meister models\"
-Enter
-Sleep 3s
-Type \"# 3 tasks: 1 and 2 are independent, 3 depends on both\"
+# Um comando só em cada GIF: é o que a LLM orquestradora roda por você, não algo que o usuário digita.
+tape parallel plan_parallel.json en "" "Type \"# 3 tasks: 1 and 2 are independent, 3 depends on both\"
 Enter
 $ORCH
-Sleep 14s
-Type \"# main only moved after every task passed the gate\"
-Enter
-$LOG
-Sleep 2s
-$TEST
-Sleep 4s"
-tape hero plan_hero.json pt-BR "-pt-BR" "Type \"# Suas vias: cada uma é uma CLI de assinatura, na ordem de fallback\"
-Enter
-Type \"meister models\"
-Enter
-Sleep 3s
-Type \"# 3 tarefas: a 1 e a 2 são independentes, a 3 depende das duas\"
+Sleep 14s"
+tape parallel plan_parallel.json pt-BR "-pt-BR" "Type \"# 3 tarefas: a 1 e a 2 são independentes, a 3 depende das duas\"
 Enter
 $ORCH
-Sleep 14s
-Type \"# a main só avança depois que toda tarefa passou no gate\"
-Enter
-$LOG
-Sleep 2s
-$TEST
-Sleep 4s"
+Sleep 14s"
 tape gate plan_gate.json en "" "Type \"# The worker's first attempt has a bug. Will you notice? The gate will.\"
 Enter
 $ORCH
-Sleep 13s
-Type \"# Rejected by pytest, repaired automatically, only then integrated\"
-Enter
-$TEST
-Sleep 4s"
+Sleep 13s"
 tape gate plan_gate.json pt-BR "-pt-BR" "Type \"# A primeira tentativa do worker tem um bug. Você notaria? O gate nota.\"
 Enter
 $ORCH
-Sleep 13s
-Type \"# Rejeitada pelo pytest, reparada automaticamente, só então integrada\"
-Enter
-$TEST
-Sleep 4s"
+Sleep 13s"
 tape fallback plan_fallback.json en "" "Type \"# tier_1 runs out of quota in the middle of the task...\"
 Enter
 $ORCH
-Sleep 13s
-Type \"# ...and the next lane takes over. Nobody had to intervene.\"
-Enter
-$LOG
-Sleep 4s"
+Sleep 13s"
 tape fallback plan_fallback.json pt-BR "-pt-BR" "Type \"# a tier_1 fica sem cota no meio da tarefa...\"
 Enter
 $ORCH
-Sleep 13s
-Type \"# ...e a próxima via assume. Ninguém precisou intervir.\"
-Enter
-$LOG
-Sleep 4s"
+Sleep 13s"

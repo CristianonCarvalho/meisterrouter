@@ -7,6 +7,6 @@ Os cenários (atraso, bug na primeira tentativa, via sem cota) estão em `scenar
 
 ```bash
 brew install vhs                 # e ffmpeg; meister e python3 precisam estar no PATH
-docs/img/src/record.sh           # hero, gate e fallback, em inglês e em português
+docs/img/src/record.sh           # parallel, gate e fallback, em inglês e em português
 docs/img/src/record.sh timeline  # a timeline web (precisa do Google Chrome e do Node 22+)
 ```
