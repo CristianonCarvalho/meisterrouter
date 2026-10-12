@@ -8,9 +8,9 @@ O **MeisterRouter** (`meister`) divide um plano em tarefas e as executa **em par
 
 Você guarda o seu modelo premium para o que ele faz de melhor: pensar. As vias mais baratas digitam, e um gate que você controla decide o que entra.
 
-![Um plano de três tarefas roda sozinho: duas em paralelo, a terceira depois das duas, e então a integração na main](docs/img/hero-pt-BR.gif)
+![Linha do tempo ao vivo de uma run: 12 tarefas em três vias, em paralelo, cada uma com fases de worker, gate e integração, dependências, um escalonamento e o custo](docs/img/timeline-web-pt-BR.gif)
 
-<sub>Demonstração com workers simulados, para rodar em segundos e não gastar cota. A orquestração, os worktrees, o gate, o fallback e a integração que você vê são os de verdade.</sub>
+<sub>Esta é a linha do tempo ao vivo, que abre no navegador quando uma run começa (`/timeline`). Ela toca uma run **de demonstração** (dados sintéticos) gerada pelo próprio MeisterRouter; nenhum projeto real aparece nela.</sub>
 
 ## 🧨 O que você deixa de fazer
 
@@ -36,9 +36,17 @@ meister setup --project
 #    "quero um filtro por data na tela de pedidos"
 ```
 
-Ela conversa com você, escreve o plano e o executa com o Meister. Você não digita `meister plan` nem `meister orchestrate`: o `meister setup --project` ensina a sua LLM orquestradora a usá-los (detalhes em [Como usar](#-como-usar)).
+**Essa frase é a interface toda.** A sua LLM orquestradora conversa com você, escreve o plano e o executa com o Meister. Você não digita `meister plan` nem `meister orchestrate`: o `meister setup --project` a ensina a usá-los (detalhes em [Como usar](#-como-usar)).
 
-## 👀 Em funcionamento
+## 🔍 Por baixo dos panos
+
+Estas gravações mostram o que a sua LLM orquestradora roda por você. **Você não digita nada disso.** Os workers são simulados, então as demonstrações são rápidas e não gastam cota; a orquestração, os worktrees, o gate, o fallback e a integração são os de verdade.
+
+### Paralelo por padrão, integrado só no fim
+
+As tarefas 1 e 2 não compartilham arquivos, então rodam juntas. A tarefa 3 depende das duas e espera. A `main` só avança depois que tudo passou.
+
+![Três tarefas: duas rodam em paralelo, a terceira depois das duas, e então a integração na main](docs/img/parallel-pt-BR.gif)
 
 ### Quem decide é o gate, não o agente
 
@@ -50,17 +58,13 @@ A primeira tentativa do worker tem um bug. O gate o pega antes de qualquer integ
 
 ![A primeira via fica sem cota no meio de uma tarefa e a via seguinte a conclui](docs/img/fallback-pt-BR.gif)
 
-### Tudo numa linha do tempo ao vivo
+### O dashboard
 
-Uma barra por tarefa e por fase (worker, gate, integração), agrupadas por via, com setas de dependência, escalonamentos e custo. Ela abre no navegador quando uma run começa, em `/timeline`.
-
-![Linha do tempo web de uma run ao vivo: tarefas por via, fases, dependências, escalonamentos e custo](docs/img/timeline-web-pt-BR.gif)
-
-O dashboard (`meister dashboard`, em `http://localhost:5050`) acrescenta métricas por run, custo, overhead e a tabela de tarefas:
+O `meister dashboard` (em `http://localhost:5050`) acrescenta métricas por run, custo, overhead e a tabela de tarefas:
 
 ![Dashboard web com as métricas e as tarefas de uma run](docs/img/dashboard-web.png)
 
-<sub>As imagens da timeline e do dashboard usam uma run **de demonstração** (dados sintéticos) gerada pelo próprio MeisterRouter; nenhum projeto real aparece nelas.</sub>
+<sub>A imagem do dashboard também usa uma run de demonstração (dados sintéticos).</sub>
 
 ## 🧭 Como funciona
 
