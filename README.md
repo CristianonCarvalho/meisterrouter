@@ -2,57 +2,103 @@
 
 🌐 **English** · [Português (Brasil)](README.pt-BR.md)
 
-**A Python CLI (`meister`) that distributes a plan's tasks across your AI CLI subscriptions and coordinates everything deterministically, with an optional [Herdr](https://herdr.dev) plugin to watch each worker live.**
+### Hand your AI coding agents a plan. Come back to code that is already tested and merged.
 
-You pick an **orchestrator LLM** (for example Claude Code) to plan the work. MeisterRouter spreads the tasks over **GitHub Copilot**, **Codex**, **Antigravity (Gemini)** and **Claude**, each one in its own git worktree (and, with Herdr, in a visible tab). Every result goes through a **deterministic gate** (tests and lint) and only then is integrated; `main` only moves, by fast-forward, at the very end. The only non-deterministic component is **Jev** (via OpenRouter), which picks the starting lane for each task and judges the outcome.
+**MeisterRouter** (`meister`) splits a plan into tasks and runs them **in parallel** on the AI CLIs you already pay for: **GitHub Copilot, Claude, Codex, Gemini and Kiro**. Each task works in its own git worktree, and nothing reaches `main` until a **deterministic gate** (your tests and linters, not the agent's opinion) says it passes. A rejected task is repaired automatically. When one subscription runs out of quota, the next one takes over.
 
-📐 **How it works:** see the [diagrams](docs/diagrams.md) (components, sequence, routing, failures, gates, states and more).
+You keep your premium model for what it is good at: thinking. The cheaper lanes do the typing, and a gate you control decides what gets in.
 
-> Language: the CLI's messages and reports are in English by default. Set `language: pt-BR` in `meister.config.yaml` (or `MEISTER_LANG=pt-BR`) to switch them to Portuguese. The documentation is in English (here and under `docs/`) and in Portuguese (`README.pt-BR.md`, `docs/pt-BR/`).
+![A plan with three tasks runs on its own: two in parallel, the third after both, then merged into main](docs/img/hero.gif)
 
-## 🎯 Why MeisterRouter?
+<sub>Demo with simulated workers, so it runs in seconds and spends no quota. The orchestration, worktrees, gate, fallback and merge you see are the real thing.</sub>
 
-You can already delegate work to subagents inside one AI CLI. MeisterRouter exists for the cases where that stops being enough: **a plan with many tasks, a limited subscription quota, and a need to trust the result without reading every diff.**
+## 🧨 What you stop doing
 
-| The pain | What MeisterRouter does |
+| Before | With MeisterRouter |
 |---|---|
-| **Your premium model's quota runs out** doing implementation | The orchestrator only plans and verifies. Tasks run on the lowest-cost lane that fits (list prices range from US$ 0.20 to US$ 8.00 per 1M tokens across the catalog), and expensive lanes are used only on escalation. |
-| **"Done" is whatever the agent says** | Every task runs in its own git worktree and must pass a **deterministic gate** (lint, types, the full test suite) before it is integrated. A rejected task gets an automatic repair attempt; `main` only moves, by fast-forward, at the end. |
-| **Parallel agents step on each other** | Tasks declare the files they may change. Tasks that share no files run in parallel; a change outside the declared scope is blocked. |
-| **A failure at task 7 means starting over** | Runs resume per task: completed tasks are reused, even after you edit the plan. |
-| **One CLI, one model, one point of failure** | Copilot, Codex, Antigravity and Claude sit in an ordered fallback chain with rate-limit and circuit-breaker handling. |
-| **You can't see what it cost or where the time went** | Live timeline and dashboard with per-task cost, phases (worker, gate, integration) and escalations. |
+| Burning your best model's quota on typing | The orchestrator only plans and verifies. Tasks run on the cheapest lane that fits (list prices span US$ 0.20 to US$ 8.00 per 1M tokens), and the expensive lanes only enter on escalation. |
+| Reading every diff because "done" means "the agent says so" | A task is done when `pytest`, `mvn test`, `npm test`, `cargo test` or whatever you configured passes, in an isolated worktree, before integration. |
+| Watching agents overwrite each other | Tasks declare the files they may touch. Tasks that share none run in parallel; a change outside the declared scope is blocked. |
+| Restarting from zero when task 7 fails | Runs resume per task: finished work is reused, even after you edit the plan. |
+| Waiting for the quota to come back | A fallback chain moves the task to the next lane, with rate-limit and circuit-breaker handling. |
+| Wondering where the time and money went | A live timeline and dashboard with per-task cost, phases and escalations. |
 
-**When a subagent is the better tool:** a small edit, an exploration, or an interactive debugging session. MeisterRouter adds process (a plan, scoped tasks, a full gate on each one), so it pays off on multi-task plans, not on one-off changes.
+## ⚡ In 60 seconds
+
+```bash
+# 1. install (macOS or Linux; Windows: see below)
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
+
+# 2. in your project, once
+meister setup --project
+
+# 3. open your orchestrator LLM (for example Claude Code) and ask in plain language:
+#    "I want a date filter on the orders screen"
+```
+
+It talks to you, writes the plan, and runs it with Meister. You do not type `meister plan` or `meister orchestrate`: `meister setup --project` teaches your orchestrator LLM to use them (details in [How to use](#-how-to-use)).
 
 ## 👀 See it working
 
-**Timeline** (web, opens in its own window when a run starts, at `/timeline`): one bar per task and per phase (worker, gate, integration), grouped by lane, with dependency arrows, escalations and the cost, live.
+### The gate decides, not the agent
+
+The worker's first attempt has a bug. The gate catches it before anything is integrated, the task is repaired automatically, and only the passing version reaches `main`.
+
+![The deterministic gate rejects a task, the task is repaired automatically and then integrated](docs/img/gate.gif)
+
+### Quota ran out? The next lane takes over
+
+![The first lane runs out of quota in the middle of a task and the next lane finishes it](docs/img/fallback.gif)
+
+### Everything on a live timeline
+
+One bar per task and per phase (worker, gate, integration), grouped by lane, with dependency arrows, escalations and cost. It opens in the browser when a run starts, at `/timeline`.
 
 ![Live web timeline of a run: tasks by lane, phases, dependencies, escalations and cost](docs/img/timeline-web.gif)
 
-**Dashboard** (`prefix+shift+m` in Herdr, or `meister dashboard` at `http://localhost:5050`): per-run metrics, cost, overhead and the task table.
+The dashboard (`meister dashboard`, at `http://localhost:5050`) adds per-run metrics, cost, overhead and the task table:
 
 ![Web dashboard with the metrics and tasks of a run](docs/img/dashboard-web.png)
 
-> The images use a **demo run** (synthetic data) generated by MeisterRouter itself; no real project appears in them.
+<sub>The timeline and dashboard images use a **demo run** (synthetic data) generated by MeisterRouter itself; no real project appears in them.</sub>
+
+## 🧭 How it works
+
+1. **You (or your orchestrator LLM) write a plan**: small tasks, each one with the files it may change and the tasks it depends on ([plan format](docs/plan-format.md)).
+2. **Meister routes each task** to a lane (a subscription CLI with a model), in parallel wherever the files do not overlap.
+3. **Every task runs in its own git worktree.** The worker edits there, never in your checkout.
+4. **The deterministic gate runs** (tests, lint, types). Rejected? One automatic repair attempt. Out of quota? Next lane.
+5. **Approved work is integrated**, and `main` moves, by fast-forward, only at the end.
+
+The only non-deterministic piece is **Jev** (through OpenRouter), an optional router that picks the starting lane and judges the outcome. Without it, set `router: {mode: first}` and routing is fully deterministic, with no network.
+
+📐 More in the [diagrams](docs/diagrams.md): components, sequence, routing, failures, gates and states.
+
+## 🧪 Proof, not promises
+
+- **It is developed with itself.** Changes to this repository run through `meister orchestrate` and the same gate (2,300+ tests, ruff and mypy on Linux and Windows in CI).
+- **Real stacks, real gates.** The gate detects `pytest`, `vitest`, `npm test`, `cargo test` and **Maven** (`pom.xml`, Java 8 included), and you can set your own commands. See [Java 8, Maven and GitLab](docs/java-maven.md).
+- **Works with a single subscription.** You do not need all five CLIs; for example, [Kiro alone](docs/kiro.md) is one command: `meister config init --kiro`.
+- **Honest limits.** Windows is native but still under validation, Kiro is not verified on Windows, and a subagent is the better tool for a one-line change (see below).
+
+**When a subagent is the better tool:** a small edit, an exploration, or an interactive debugging session. MeisterRouter adds process (a plan, scoped tasks, a full gate on each one), so it pays off on multi-task plans, not on one-off changes.
 
 ## ✅ Prerequisites
 
 | | What | What for |
 |---|---|---|
-| **Required** | macOS, Linux, or Windows 10/11 (native, **under validation**; requires [Git for Windows](https://git-scm.com/download/win)). On Windows the host is `process` (no Herdr): workers run as plain processes, without tabs, popups or shortcuts. | Where MeisterRouter runs. See [Windows](docs/advanced.md#windows). |
-| **Optional** (recommended to see each worker live) | [Herdr](https://herdr.dev) | MeisterRouter can run as a plugin of it (worker tabs, popups, shortcuts). Without it, workers run in the background. `curl -fsSL https://herdr.dev/install.sh \| sh` |
-| **Required** | At least one subscription-backed AI CLI: `copilot`, `codex`, `agy` (Antigravity/Gemini) or `claude` | These are the workers. `meister setup` shows which ones it found. |
+| **Required** | macOS, Linux, or Windows 10/11 (native, **under validation**; requires [Git for Windows](https://git-scm.com/download/win)) | Where MeisterRouter runs. See [Windows](docs/advanced.md#windows). |
+| **Required** | At least one subscription-backed AI CLI: `copilot`, `claude`, `codex`, `agy` (Antigravity/Gemini) or `kiro-cli` | These are the workers. `meister setup` shows which ones it found. |
 | **Recommended** | An orchestrator LLM with planning, for example **Claude Code** | It talks to you, writes the plan in the [plan format](docs/plan-format.md) (`meister plan guide` and `meister plan new` give it the rules and a skeleton) and triggers Meister. If you use the [Superpowers](https://github.com/obra/superpowers) skill, its plans already follow that format. |
 | **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
+| **Optional** | [Herdr](#-herdr-optional-watch-the-workers-live) or tmux | To watch each worker live, in its own tab. |
 
 ## 🚀 Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
-The installer does everything for you: installs `meister`, links the plugin to Herdr, registers the shortcuts (in a managed block of Herdr's `config.toml`, with a backup) and checks your environment, listing what is still missing (worker CLIs, Jev key). If Herdr is not installed, it warns and carries on (workers then run in the background). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.1` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
+The installer installs `meister`, checks your environment and lists what is still missing (worker CLIs, Jev key). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.1` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
 
 **The Jev key** (optional, once; only Jev uses OpenRouter, the workers run on your own subscriptions):
 ```bash
@@ -62,43 +108,23 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 
 Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](docs/advanced.md#windows).
 
-## 🧭 Where workers run
+## 🛠️ How to use
 
-`runtime.host` in `meister.config.yaml` chooses where each worker runs:
+After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
 
-| Value | Where the worker runs |
-|---|---|
-| `auto` (default) | Herdr when it is reachable, otherwise a background process (`auto` never picks tmux) |
-| `process` | A plain background process (no tabs, popups or shortcuts) |
-| `herdr` | A visible Herdr tab (requires Herdr) |
-| `tmux` | A tmux window (requires tmux 3.0 or newer) |
-
-Without Herdr, workers run in the background. To follow a run:
+1. **Open your orchestrator LLM** (Claude Code or Codex) in the project.
+2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. It talks to you, designs the solution and writes the plan: it reads the rules with `meister plan guide` and starts from `meister plan new` (or, if you use the Superpowers skill, from the skill's plan).
+3. **It does the rest**: imports and validates the plan, then runs it with Meister. `CLAUDE.md` and the prompt hook (`UserPromptSubmit`) tell it that the execution method is always Meister, and the **guard** (`PreToolUse`) refuses any direct code edit, so it delegates.
+4. **You follow along** with the timeline and the dashboard:
 ```bash
 meister timeline      # live Gantt of tasks and phases
 meister dashboard     # metrics, cost and tasks at http://localhost:5050
 meister logs -f       # follow the run log
 meister wait --run-id <id>   # block until the run ends (exit code tells how it went)
 ```
-
-## 🛠️ How to use (directly, no commands to type)
-
-After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
-
-1. **Open your orchestrator LLM** (Claude Code or Codex) in the project, inside Herdr.
-2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. It talks to you, designs the solution and writes the plan: it reads the rules with `meister plan guide` and starts from `meister plan new` (or, if you use the Superpowers skill, from the skill's plan).
-3. **It does the rest**: imports and validates the plan, then runs it with Meister. `CLAUDE.md` and the prompt hook (`UserPromptSubmit`) tell it that the execution method is always Meister, and the **guard** (`PreToolUse`) refuses any direct code edit, so it delegates.
-4. **You follow along** in Herdr: each worker opens in a visible tab, and the shortcuts show the rest:
-
-| Shortcut | Opens |
-|---|---|
-| `prefix+m` | Starts the orchestration in the workspace |
-| `prefix+shift+m` | Dashboard popup |
-| `prefix+t` | Timeline (Gantt) popup |
-
 5. **It reviews the evidence** (tests, diff) and wraps up. Commit, push and merge still depend on your approval.
 
-If Meister is unavailable (daemon down, no Herdr), the LLM asks before implementing by other means. If a run fails, ask it to run again: tasks already completed are skipped (what to do for each failure is in the [execution manual](docs/execution-manual.md)).
+If Meister is unavailable, the LLM asks before implementing by other means. If a run fails, ask it to run again: tasks already completed are skipped (what to do for each failure is in the [execution manual](docs/execution-manual.md)).
 
 Want to review or write a plan by hand, or run the commands yourself? The native flow is:
 ```bash
@@ -128,12 +154,13 @@ meister models
 (The sample shows the default `language: en` labels: `COST/1M` = cost per 1M tokens, `EFFORT` = reasoning effort, `-` = harness default. With `language: pt-BR` the labels become `NOME`, `MODELO`, `ESFORÇO`, `ligada`/`desligada`.) To change them, create the project file with the default lanes and edit it:
 ```bash
 meister config init        # writes meister.config.yaml (lanes, order and comments)
+meister config init --kiro # the same, but with Kiro CLI lanes only
 ```
 ```yaml
 router:
-  mode: jev                # jev escolhe a via inicial de cada tarefa; first = sempre a primeira (sem rede)
+  mode: jev                # jev picks the starting lane of each task; first = always the first lane (no network)
 workers:
-  tier_order:              # a ORDEM destas linhas é a cadeia de fallback
+  tier_order:              # the ORDER of these lines is the fallback chain
     - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
     - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
     - {name: tier_1c, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
@@ -161,6 +188,28 @@ Effort values per harness:
 | `copilot` | none, minimal, low, medium, high, xhigh, max |
 | `claude`, `agy` | low, medium, high, xhigh, max |
 | `codex` | minimal, low, medium, high, xhigh |
+| `kiro-cli` | low, medium, high, xhigh, max (the model must support it) |
+
+## 🖥️ Herdr (optional): watch the workers live
+
+[Herdr](https://herdr.dev) is a terminal workspace manager. MeisterRouter does not need it, but it can run as a Herdr plugin: each worker then opens in a **visible tab**, and shortcuts open the dashboard and the timeline as popups.
+
+| Shortcut | Opens |
+|---|---|
+| `prefix+m` | Starts the orchestration in the workspace |
+| `prefix+shift+m` | Dashboard popup |
+| `prefix+t` | Timeline (Gantt) popup |
+
+To use it, install Herdr (`curl -fsSL https://herdr.dev/install.sh | sh`) and run `meister setup`: it links the plugin and registers the shortcuts in a managed block of Herdr's `config.toml`, with a backup. Without Herdr, `meister setup` warns and carries on.
+
+`runtime.host` in `meister.config.yaml` chooses where each worker runs:
+
+| Value | Where the worker runs |
+|---|---|
+| `auto` (default) | Herdr when it is reachable, otherwise a background process (`auto` never picks tmux) |
+| `process` | A plain background process (no tabs, popups or shortcuts). This is the only host on Windows. |
+| `herdr` | A visible Herdr tab (requires Herdr) |
+| `tmux` | A tmux window (requires tmux 3.0 or newer) |
 
 ## 📚 More documentation
 
@@ -172,6 +221,8 @@ Effort values per harness:
 - [Testing Java batch jobs without staging](docs/java-testing-without-staging.md): fixtures, a fake site (WireMock), golden master and dry-run, with a working Java 8 example.
 - [Kiro CLI](docs/kiro.md): the Kiro CLI as a harness (`kiro-cli`), a Kiro-only configuration, models and credits, effort and limitations.
 - [Models and costs](docs/models-and-costs.md) and the [CHANGELOG](CHANGELOG.md). Installed version: `meister --version`.
+
+> Language: the CLI's messages and reports are in English by default. Set `language: pt-BR` in `meister.config.yaml` (or `MEISTER_LANG=pt-BR`) to switch them to Portuguese. The documentation is in English (here and under `docs/`) and in Portuguese (`README.pt-BR.md`, `docs/pt-BR/`).
 
 ## License
 

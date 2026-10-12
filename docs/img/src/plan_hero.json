@@ -1,0 +1,32 @@
+[
+ {
+  "id": "task_1",
+  "depends_on": [],
+  "target_files": [
+   "tax.py",
+   "test_tax.py"
+  ],
+  "description": "Add add_tax(price, rate=0.2) to tax.py, with a test."
+ },
+ {
+  "id": "task_2",
+  "depends_on": [],
+  "target_files": [
+   "discount.py",
+   "test_discount.py"
+  ],
+  "description": "Add apply_discount(price, pct) to discount.py, with a test."
+ },
+ {
+  "id": "task_3",
+  "depends_on": [
+   "task_1",
+   "task_2"
+  ],
+  "target_files": [
+   "checkout.py",
+   "test_checkout.py"
+  ],
+  "description": "Add total(price, pct) to checkout.py: apply the discount, then the tax."
+ }
+]
