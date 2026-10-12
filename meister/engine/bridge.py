@@ -2127,9 +2127,11 @@ class HerdrEventBridge:
 
                         if not ok_int and is_infra_error:
                             logger.error(
-                                "Infrastructure error in deterministic gate for subtask %s: %s",
-                                task_id,
-                                int_err,
+                                t(
+                                    "engine.bridge.gate_infrastructure_error",
+                                    task_id=task_id,
+                                    error=int_err,
+                                )
                             )
                             log_event(
                                 event_type="worker_error",
@@ -2175,11 +2177,13 @@ class HerdrEventBridge:
                             if can_repair:
                                 repair_used += 1
                                 logger.warning(
-                                    "Deterministic gate rejected subtask %s (%s). Attempting repair %d/%d...",
-                                    task_id,
-                                    reason,
-                                    repair_used,
-                                    max_repair_attempts,
+                                    t(
+                                        "engine.bridge.gate_repair_attempt",
+                                        task_id=task_id,
+                                        reason=reason,
+                                        attempt=repair_used,
+                                        max=max_repair_attempts,
+                                    )
                                 )
                                 log_event(
                                     event_type="gate_repair",

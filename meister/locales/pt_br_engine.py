@@ -124,6 +124,8 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.jev_unavailable": "Jev Decisions API indisponível",
     "engine.bridge.no_lane_selected": "Não foi possível selecionar uma via para a subtarefa {task_id}.",
     "engine.bridge.initial_tier_cooldown": "Tier inicial {current_tier} está em cooldown no circuit breaker. Redirecionando para {next_tier}.",
+    "engine.bridge.gate_repair_attempt": "Portão determinístico reprovou a subtarefa {task_id} ({reason}). Tentando reparo {attempt}/{max}...",
+    "engine.bridge.gate_infrastructure_error": "Erro de infraestrutura no portão determinístico da subtarefa {task_id}: {error}",
     "engine.bridge.integration_failed": "Falha na validação/integração da subtask {task_id}: {error}",
     "engine.bridge.fast_forward_main_failed": "Fast-forward na main falhou: {error}",
     "engine.bridge.interrupt_failed": "Falha ao enviar interrupção para pane {pane_id}: {error}",
