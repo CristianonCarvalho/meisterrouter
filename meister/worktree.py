@@ -1718,7 +1718,7 @@ class IntegrationPipeline:
             t(
                 "engine.worktree.infrastructure_message",
                 prefix=t("engine.worktree.infrastructure_prefix"),
-                detail=detail,
+                detail=detail.rstrip(". \n\t"),
             ),
             code="gate_infrastructure",
         )
