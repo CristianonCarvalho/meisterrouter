@@ -37,8 +37,8 @@ def test_engine_catalog_messages_switch_between_english_and_pt_br(set_engine_lan
             "Nenhuma integração ativa.",
         ),
         "engine.gate.no_checks": (
-            "No tests or linters detected. Configure gate.commands in meister.config.yaml (or gate.allow_unverified: true).",
-            "Nenhum teste ou linter detectado. Configure gate.commands no meister.config.yaml (ou gate.allow_unverified: true).",
+            "No tests or linters detected. The project owner must configure gate.commands in meister.config.yaml (or set gate.allow_unverified: true); workers must not edit that file.",
+            "Nenhum teste ou linter detectado. O dono do projeto precisa configurar gate.commands no meister.config.yaml (ou definir gate.allow_unverified: true); os workers não devem editar esse arquivo.",
         ),
         "engine.state.run_missing": (
             "Run 'run-1' not found",

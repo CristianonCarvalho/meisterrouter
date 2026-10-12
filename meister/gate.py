@@ -600,8 +600,8 @@ class DeterministicGate:
                 )
             return VerificationResult(
                 False,
-                install_prefix
-                +                 t("engine.gate.no_checks"),
+                install_prefix + t("engine.gate.no_checks"),
+                infrastructure_error=True,
             )
 
         python: Optional[str] = None

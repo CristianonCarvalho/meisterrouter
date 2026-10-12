@@ -70,7 +70,7 @@ def test_run_verification_no_runner(tmp_path, monkeypatch):
     gate = DeterministicGate(str(tmp_path))
     passed, output = gate.run_verification()
     assert passed is False
-    assert "Configure gate.commands" in output
+    assert "gate.commands" in output
 
 
 def test_run_verification_pytest_success(tmp_path, monkeypatch):

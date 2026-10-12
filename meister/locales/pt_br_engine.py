@@ -82,7 +82,7 @@ MESSAGES: dict[str, str] = {
     "engine.gate.runner_unavailable": "[{runner}] executável indisponível: {error}",
     "engine.gate.vitest_skipped": "[SKIPPED VITEST] binário local não encontrado: {path}",
     "engine.gate.worker_python_fallback": "[AVISO] usando o Python do Meister ({path}); crie .venv na raiz do projeto ou defina gate.python",
-    "engine.gate.no_checks": "Nenhum teste ou linter detectado. Configure gate.commands no meister.config.yaml (ou gate.allow_unverified: true).",
+    "engine.gate.no_checks": "Nenhum teste ou linter detectado. O dono do projeto precisa configurar gate.commands no meister.config.yaml (ou definir gate.allow_unverified: true); os workers não devem editar esse arquivo.",
     "engine.gate.pytest_skipped": "[SKIPPED PYTEST] nenhum teste coletado",
     "engine.gate.optional_command_failed": "[WARN {name}] comando opcional falhou (rc={code})",
     "engine.gate.accepted_exit_code": "[NOTE {name}] rc={code} aceito por ok_exit_codes",
