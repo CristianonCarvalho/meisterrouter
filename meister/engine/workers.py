@@ -300,6 +300,22 @@ class WorkerSpawner:
                     cmd.extend(["--model", tier_obj.model])
             elif tier_obj.model and tier_obj.model not in ("default", "copilot", "auto"):
                 cmd.extend(["--model", tier_obj.model])
+        elif harness in ("kiro-cli", "kiro"):
+            # Adaptador Kiro CLI (verificado contra kiro-cli 2.29.1). Sem padrões novos de
+            # detecção de cota: a mensagem de cota esgotada do Kiro nunca foi observada.
+            import shutil
+            bin_name = "kiro" if not shutil.which("kiro-cli") and shutil.which("kiro") else "kiro-cli"
+            cmd = [bin_name]
+            model = tier_obj.model if tier_obj.model and tier_obj.model != "default" else None
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.extend(["chat", "--no-interactive", "--trust-all-tools"])
+                if model:
+                    cmd.extend(["--model", model])
+                cmd.append(str(task_context["description"]))
+            else:
+                cmd.append("chat")
+                if model:
+                    cmd.extend(["--model", model])
         else:
             cmd = [harness]
             if tier_obj.model:

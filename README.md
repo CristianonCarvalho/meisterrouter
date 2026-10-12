@@ -169,6 +169,7 @@ Effort values per harness:
 - [Diagrams](docs/diagrams.md): components, sequence and flows.
 - [Execution manual](docs/execution-manual.md): what to do in each situation and how to recover from failures.
 - [Java 8, Maven and GitLab](docs/java-maven.md): Maven detection in the gate (`pom.xml`), `gate.env` with `JAVA_HOME`, using the same Maven as Eclipse, and merge requests on GitLab.
+- [Kiro CLI](docs/kiro.md): the Kiro CLI as a harness (`kiro-cli`), a Kiro-only configuration, models and credits, effort and limitations.
 - [Models and costs](docs/models-and-costs.md) and the [CHANGELOG](CHANGELOG.md). Installed version: `meister --version`.
 
 ## License

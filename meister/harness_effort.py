@@ -12,4 +12,6 @@ HARNESS_EFFORT_VALUES: Dict[str, Tuple[str, ...]] = {
     "agy": ("low", "medium", "high", "xhigh", "max"),
     "antigravity": ("low", "medium", "high", "xhigh", "max"),
     "codex": ("minimal", "low", "medium", "high", "xhigh"),
+    "kiro-cli": ("low", "medium", "high", "xhigh", "max"),
+    "kiro": ("low", "medium", "high", "xhigh", "max"),
 }
