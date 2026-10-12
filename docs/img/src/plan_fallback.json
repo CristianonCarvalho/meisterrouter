@@ -1,0 +1,11 @@
+[
+ {
+  "id": "task_1",
+  "depends_on": [],
+  "target_files": [
+   "tax.py",
+   "test_tax.py"
+  ],
+  "description": "Add add_tax(price, rate=0.2) to tax.py, with a test."
+ }
+]

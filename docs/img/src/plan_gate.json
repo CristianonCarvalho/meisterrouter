@@ -1,0 +1,11 @@
+[
+ {
+  "id": "task_1",
+  "depends_on": [],
+  "target_files": [
+   "discount.py",
+   "test_discount.py"
+  ],
+  "description": "Add apply_discount(price, pct) to discount.py, with a test."
+ }
+]
