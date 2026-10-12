@@ -167,5 +167,6 @@ Valores de effort por harness:
 - [Diagramas](docs/pt-BR/DIAGRAMAS.md): componentes, sequência e fluxos.
 - [Manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md): o que você faz em cada situação e como se recuperar de falhas.
 - [Java 8, Maven e GitLab](docs/pt-BR/JAVA_MAVEN.md): detecção do Maven no gate (`pom.xml`), `gate.env` com `JAVA_HOME`, uso do mesmo Maven do Eclipse e merge requests no GitLab.
+- [Testar lotes Java sem homologação](docs/pt-BR/TESTES_JAVA_SEM_HOMOLOGACAO.md): fixtures, site falso (WireMock), golden master e dry-run, com um exemplo funcional em Java 8.
 - [Kiro CLI](docs/pt-BR/KIRO.md): o Kiro CLI como harness (`kiro-cli`), configuração só com o Kiro, modelos e créditos, esforço e limitações.
 - [Modelos e custos](docs/pt-BR/MODELOS_E_CUSTOS.md) e o [CHANGELOG](CHANGELOG.pt-BR.md). Versão instalada: `meister --version`.

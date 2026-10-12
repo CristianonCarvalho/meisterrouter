@@ -1,0 +1,9 @@
+{
+  "pagina": 1,
+  "totalPaginas": 2,
+  "itens": [
+    {"id": "P1", "cliente": "Ana",   "valor": 500.00,  "status": "ATIVO"},
+    {"id": "P2", "cliente": "Bruno", "valor": 2000.00, "status": "ATIVO"},
+    {"id": "P3", "cliente": "Carla", "valor": 300.00,  "status": "CANCELADO"}
+  ]
+}
