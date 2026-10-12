@@ -112,7 +112,7 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 
 Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](docs/advanced.md#windows).
 
-## 🛠️ How to use
+## 🔧 How to use
 
 After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
 
@@ -140,7 +140,7 @@ meister orchestrate --plan-file plano.json
 ```
 See the [plan format](docs/plan-format.md) and the [advanced commands](docs/advanced.md).
 
-## 🎛️ Choose the models and their order
+## 🎯 Choose the models and their order
 
 Each **lane** is a subscription (CLI) with a model. The **order** is the fallback chain, always moving forward: if the first lane fails or runs out of quota, Meister moves to the next. See what is active:
 ```bash
@@ -194,7 +194,7 @@ Effort values per harness:
 | `codex` | minimal, low, medium, high, xhigh |
 | `kiro-cli` | low, medium, high, xhigh, max (the model must support it) |
 
-## 🖥️ Herdr (optional): watch the workers live
+## 💻 Herdr (optional): watch the workers live
 
 [Herdr](https://herdr.dev) is a terminal workspace manager. MeisterRouter does not need it, but it can run as a Herdr plugin: each worker then opens in a **visible tab**, and shortcuts open the dashboard and the timeline as popups.
 

@@ -15,8 +15,11 @@ _LINK = re.compile(r"\]\(([^)\s]+)\)")
 
 
 def _slug(heading: str) -> str:
-    """Âncora do GitHub: minúsculas, sem pontuação (exceto hífen), espaços viram hífen."""
-    text = re.sub(r"[^\w\- ]", "", heading.strip().lower(), flags=re.UNICODE)
+    """Âncora do GitHub: minúsculas, sem pontuação (exceto hífen), espaços viram hífen.
+
+    O seletor de emoji U+FE0F fica na âncora do GitHub (``#️-como-usar``), então não é removido aqui.
+    """
+    text = re.sub(r"[^\w\-\ufe0f ]", "", heading.strip().lower(), flags=re.UNICODE)
     return text.replace(" ", "-")
 
 
