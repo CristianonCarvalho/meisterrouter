@@ -581,6 +581,11 @@ def generate_config_yaml_content() -> str:
     return t("commands.setup.config_template")
 
 
+def generate_kiro_config_yaml_content() -> str:
+    """Gera o conteúdo de meister.config.yaml só com vias do Kiro CLI (router.mode: first)."""
+    return t("commands.setup.config_template_kiro")
+
+
 # ── Execução de meister setup ─────────────────────────────────────────────────
 
 def run_setup(

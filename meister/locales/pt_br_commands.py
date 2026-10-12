@@ -130,6 +130,67 @@ workers:
       eligible_classes:
         - ESCALATE
 """,
+    "commands.setup.config_template_kiro": """# meister.config.yaml — Configuração local do MeisterRouter para este projeto (só Kiro CLI).
+#
+# A lista workers.tier_order abaixo SUBSTITUI a lista padrão inteira,
+# então Copilot, Codex, agy e Claude saem: todas as vias rodam no Kiro CLI.
+# Para conferir as vias ativas e custos: meister models
+# Para validar este arquivo: meister config validate
+#
+# No Windows o executável é kiro-cli.exe.
+# Para listar os modelos disponíveis na sua conta: kiro-cli chat --list-models
+
+router:
+  # router.mode: first ignora o Jev e usa a 1ª via ativa da lista abaixo:
+  # sem chamadas de rede e sem chave do OpenRouter.
+  mode: first
+  timeout_seconds: 10
+  max_attempts: 2
+  unavailable_cooldown_seconds: 300
+  context_max_chars: 4000
+
+workers:
+  # A ordem define a cadeia de fallback (sempre para a frente).
+  # enabled: false desliga uma via do roteamento automático.
+  tier_order:
+    - name: tier_1
+      harness: kiro-cli
+      model: auto
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+
+    - name: tier_1b
+      harness: kiro-cli
+      model: claude-haiku-4.5
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+
+    - name: tier_2
+      harness: kiro-cli
+      model: claude-sonnet-4.5
+      max_retries: 1
+      best_for:
+        - deep_reasoning
+        - complex_algorithms
+        - hard_bugs
+
+# Opcional: sem gate.commands, o gate detecta sozinho os testes do projeto
+# (por exemplo pytest, package.json ou pom.xml). Descomente para definir os comandos.
+# gate:
+#   commands:
+#     - name: tests
+#       run: "{python} -m pytest -q"
+#       timeout_seconds: 600
+#       required: true
+""",
     "commands.setup.read_warning": "Aviso ao ler {path}: {error}",
     "commands.setup.dry_run_shortcuts": "🔍 [Simulação] Verificando atalhos em {path}:",
     "commands.setup.shortcut_already": "  ⏭️ Atalho '{shortcut}': já configurado ({command})",
