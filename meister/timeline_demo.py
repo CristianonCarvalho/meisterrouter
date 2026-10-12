@@ -21,7 +21,6 @@ from typing import Any
 from meister.i18n import t
 
 RUN_ID = "demo_timeline"
-RUN_NAME = "Adaptador de Interface - Herdr/TMUX/Process"
 
 _PLAN: list[dict[str, Any]] = [
     {"id": "task_01", "depends_on": []},
@@ -38,20 +37,9 @@ _PLAN: list[dict[str, Any]] = [
     {"id": "task_12", "depends_on": ["task_11"]},
 ]
 
-_TITLES: dict[str, str] = {
-    "task_01": "Modelo de dados",
-    "task_02": "Cliente HTTP",
-    "task_03": "Servico central",
-    "task_04": "Rota de listagem",
-    "task_05": "Rota de detalhes",
-    "task_06": "Validacao de schema",
-    "task_07": "Migracao legada",
-    "task_08": "Cache de sessao",
-    "task_09": "Painel legado",
-    "task_10": "Ajustes de CSS",
-    "task_11": "Documentacao",
-    "task_12": "Notas de versao",
-}
+def _titles() -> dict[str, str]:
+    """Títulos das tarefas no idioma ativo, resolvidos no uso e não no import."""
+    return {item["id"]: t(f"timeline_demo.task_title.{item['id']}") for item in _PLAN}
 
 
 # harness, modelo e esforço de cada via, como o bridge grava no `worker_spawn`;
@@ -155,7 +143,7 @@ def _done(
 def build_scenario() -> list[ScenarioEvent]:
     """Log sintético de ~38 min com os casos obrigatórios da demonstração, ordenado por `offset_s`."""
     events: list[ScenarioEvent] = [
-        _event("orchestration_start", "orchestrator", 0.0, task=json.dumps(_PLAN), run_name=RUN_NAME),
+        _event("orchestration_start", "orchestrator", 0.0, task=json.dumps(_PLAN), run_name=t("timeline_demo.run_name")),
         _event(
             "plan_parsed",
             "orchestrator",
@@ -163,7 +151,7 @@ def build_scenario() -> list[ScenarioEvent]:
             total=len(_PLAN),
             batches=4,
             task_ids=[item["id"] for item in _PLAN],
-            task_titles=_TITLES,
+            task_titles=_titles(),
         ),
     ]
 
