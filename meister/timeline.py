@@ -31,6 +31,8 @@ _NEXT_PHASE = {
 _DETAIL_SIZE = 200
 # tentativa que falhou sem evento terminal (cota): o trecho até a próxima via é espera, não gate
 _FAILED_GAP_PHASE = "wait"
+# lacunas entre gate e lock_wait mais curtas que isto são ruído de registro, não integração
+_MIN_INTEGRATE_GAP = timedelta(seconds=2)
 
 
 @dataclass(frozen=True)
@@ -156,7 +158,9 @@ def _plan_dependencies(run_events: List[Dict[str, Any]]) -> Dict[str, List[str]]
 def _integrate_remainder(
     start: datetime, end: datetime, phases: List[Tuple[str, datetime, datetime]]
 ) -> List[Segment]:
-    """Janela final menos gate e lock_wait: o que sobra é a integração (merge)."""
+    """Janela final menos gate e lock_wait: o que sobra é a integração (merge).
+
+    Lacunas curtas entre fases são descartadas; o trecho final (o merge) fica sempre."""
     covered = sorted(
         (max(phase_start, start), min(phase_end, end))
         for name, phase_start, phase_end in phases
@@ -165,7 +169,7 @@ def _integrate_remainder(
     out: List[Segment] = []
     cursor = start
     for phase_start, phase_end in covered:
-        if phase_start > cursor:
+        if phase_start - cursor >= _MIN_INTEGRATE_GAP:
             out.append(Segment("integrate", cursor, phase_start))
         cursor = max(cursor, phase_end)
     if end > cursor:
