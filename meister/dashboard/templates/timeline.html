@@ -164,6 +164,7 @@
   .swatch-gate { background: #f59e0b; }
   .swatch-integrate { background: #10b981; }
   .swatch-wait { background: #64748b; }
+  .swatch-lock-wait { background: #64748b; }
   .swatch-critical { background: #fbbf24; border: 1px solid #f59e0b; }
   .swatch-escalation { background: #ec4899; }
   .swatch-lateral { background: #22d3ee; }
@@ -317,6 +318,7 @@
   <div class="legend-item"><span class="legend-swatch swatch-worker"></span><span>{{ messages.phase_worker }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-gate"></span><span>{{ messages.phase_gate }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-integrate"></span><span>{{ messages.phase_integrate }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-lock-wait"></span><span>{{ messages.phase_lock_wait }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-wait"></span><span>{{ messages.phase_wait }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-failed-attempt"></span><span>{{ messages.phase_failed_attempt }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
@@ -568,6 +570,20 @@
     const workedBefore = segments.slice(0, index).some((s) => s.phase !== "wait" && s.via === seg.via);
     if (!workedBefore) return false;
     return attempts.some((a) => a && a.via === seg.via && (a.outcome === "quota" || a.outcome === "error"));
+  }
+  // Translated phase name; a row gates twice: in the task worktree, then after integrating the base (after lock_wait).
+  function phaseDisplayLabel(segs, index, text) {
+    const segments = Array.isArray(segs) ? segs : [];
+    const seg = segments[index];
+    const phase = seg ? seg.phase : undefined;
+    if (phase === "worker") return text.phase_worker;
+    if (phase === "integrate") return text.phase_integrate;
+    if (phase === "lock_wait") return text.phase_lock_wait;
+    if (phase !== "gate") return phase;
+    const lockWaitBefore = (i) => segments.slice(0, i).some((s) => s && s.phase === "lock_wait");
+    if (lockWaitBefore(index)) return text.phase_gate_integrated;
+    const hasIntegratedGate = segments.some((s, i) => s && s.phase === "gate" && lockWaitBefore(i));
+    return hasIntegratedGate ? text.phase_gate_task : text.phase_gate;
   }
   const TOOLTIP_DETAIL_MAX = 120;
   function tooltipField(value) {
@@ -1428,7 +1444,11 @@
             class: "task-bar",
           });
 
-          const phaseLabel = failedGap ? text.phase_failed_attempt : seg.phase;
+          const phaseLabel = failedGap
+            ? text.phase_failed_attempt
+            : rowSegs.includes(seg)
+              ? phaseDisplayLabel(rowSegs, rowSegs.indexOf(seg), text)
+              : phaseDisplayLabel(segs, sIdx, text);
           const showBar = (event) => showTaskTooltip(event, row, lane.via, phaseLabel, seg);
           bar.addEventListener("mouseenter", (event) => {
             if (isTouchLikePointer(lastPointerType)) return;
