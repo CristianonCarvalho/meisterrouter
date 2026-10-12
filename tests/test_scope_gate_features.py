@@ -344,7 +344,7 @@ def test_configured_gate_missing_executable_timeout_and_unverified(tmp_path):
     assert result.passed and "[UNVERIFIED]" in result.output
     unconfigured.write_text("gate: {allow_unverified: false}\n")
     result = DeterministicGate(str(project), load_config(str(unconfigured))).run_verification_ex()
-    assert not result.passed and "Configure gate.commands" in result.output
+    assert not result.passed and "gate.commands" in result.output
 
 
 @needs_shebang_executables
