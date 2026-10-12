@@ -2155,6 +2155,10 @@ class HerdrEventBridge:
                                 subtask_wt = None
                             if active_run_id:
                                 sm.unregister_pane(pane_id)
+                                try:
+                                    sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=int_err)
+                                except Exception:
+                                    pass
                             return False
                         if not ok_int:
                             err_code = getattr(int_err, "code", None)
