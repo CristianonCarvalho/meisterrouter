@@ -30,7 +30,7 @@ The file uses `router.mode: first` (no Jev, no network, no OpenRouter key) and t
 
 The project's `tier_order` **replaces** the whole default list, so the other harnesses drop out. To change the models, edit the file; `kiro-cli chat --list-models` shows the ones your account can use.
 
-Without `gate.commands`, the gate uses automatic detection: `pom.xml` (Maven), `package.json`, `Cargo.toml`, or pytest when there is a `pytest.ini`, `conftest.py`, a `setup.cfg` with `[tool:pytest]` or a `pyproject.toml`. If the project has none of those, the gate rejects with "No tests or linters detected" and the worker may try to edit `meister.config.yaml`, which is protected and blocks the task. In that case declare the `gate.commands` block yourself (the generated file has a commented example). The other gate settings are in [advanced configuration](advanced.md#advanced-configuration).
+Without `gate.commands`, the gate uses automatic detection: `pom.xml` (Maven), `package.json`, `Cargo.toml`, or pytest when there is a `pytest.ini`, `conftest.py`, a `setup.cfg` with `[tool:pytest]` or a `pyproject.toml`. If the project has none of those, the run stops with "No tests or linters detected" as a gate infrastructure error: the worker is not blamed, its work is archived and no repair is spent (`meister.config.yaml` is protected and only the owner edits it). Declare the `gate.commands` block yourself (the generated file has a commented example) and rerun the same command. The other gate settings are in [advanced configuration](advanced.md#advanced-configuration).
 
 Checked with `kiro-cli` 2.29.1: `orchestrate` with this file completed a task in 14 s and the gate passed.
 

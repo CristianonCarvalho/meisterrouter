@@ -30,7 +30,7 @@ O arquivo usa `router.mode: first` (sem Jev, sem rede, sem chave do OpenRouter) 
 
 A `tier_order` do projeto **substitui** a lista padrão inteira, então os outros harnesses saem. Para trocar os modelos, edite o arquivo; `kiro-cli chat --list-models` mostra os que a sua conta pode usar.
 
-Sem `gate.commands`, o gate usa a detecção automática: `pom.xml` (Maven), `package.json`, `Cargo.toml`, ou pytest quando existe `pytest.ini`, `conftest.py`, `setup.cfg` com `[tool:pytest]` ou `pyproject.toml`. Se o projeto não tem nenhum desses sinais, o gate reprova com "No tests or linters detected" e o worker pode tentar editar o `meister.config.yaml`, que é protegido e barra a tarefa. Nesse caso declare você mesmo o bloco `gate.commands` (o arquivo gerado traz um exemplo comentado). Os demais ajustes do gate estão em [configuração avançada](INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+Sem `gate.commands`, o gate usa a detecção automática: `pom.xml` (Maven), `package.json`, `Cargo.toml`, ou pytest quando existe `pytest.ini`, `conftest.py`, `setup.cfg` com `[tool:pytest]` ou `pyproject.toml`. Se o projeto não tem nenhum desses sinais, a run para com "Nenhum teste ou linter detectado" como erro de infraestrutura do gate: o worker não é acusado, o trabalho dele fica arquivado e nenhum reparo é gasto (o `meister.config.yaml` é protegido e só o dono o edita). Declare você mesmo o bloco `gate.commands` (o arquivo gerado traz um exemplo comentado) e rode o mesmo comando de novo. Os demais ajustes do gate estão em [configuração avançada](INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
 
 Verificado com o `kiro-cli` 2.29.1: `orchestrate` com esse arquivo concluiu uma tarefa em 14 s e o gate passou.
 
