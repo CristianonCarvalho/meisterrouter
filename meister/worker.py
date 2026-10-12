@@ -53,6 +53,18 @@ HARNESS_CLAUDE = "claude"
 HARNESS_COPILOT = "copilot"
 HARNESS_KIRO = "kiro-cli"
 
+# Nomes alternativos aceitos para cada harness (chaves em casefold, sem espaços).
+_HARNESS_ALIASES = {
+    "codex": HARNESS_CODEX,
+    "agy": HARNESS_ANTIGRAVITY,
+    "antigravity": HARNESS_ANTIGRAVITY,
+    "claude": HARNESS_CLAUDE,
+    "copilot": HARNESS_COPILOT,
+    "github-copilot": HARNESS_COPILOT,
+    "kiro": HARNESS_KIRO,
+    "kiro-cli": HARNESS_KIRO,
+}
+
 # Variáveis seguras permitidas para workers locais (Achados #29, E2E-7)
 DEFAULT_SAFE_ENV_VARS = {
     "PATH",
@@ -300,17 +312,7 @@ def resolve_worker_harness_and_model(
             )
 
     harness = (tier.harness or "").strip()
-    harness_aliases = {
-        "codex": HARNESS_CODEX,
-        "agy": HARNESS_ANTIGRAVITY,
-        "antigravity": HARNESS_ANTIGRAVITY,
-        "claude": HARNESS_CLAUDE,
-        "copilot": HARNESS_COPILOT,
-        "github-copilot": HARNESS_COPILOT,
-        "kiro": HARNESS_KIRO,
-        "kiro-cli": HARNESS_KIRO,
-    }
-    return harness_aliases.get(harness.casefold(), harness), tier.model or None
+    return _HARNESS_ALIASES.get(harness.casefold(), harness), tier.model or None
 
 
 def smoke_test_tier(tier: str) -> Dict[str, Any]:
@@ -329,6 +331,8 @@ def smoke_test_tier(tier: str) -> Dict[str, Any]:
 
 def find_cli_binary(harness: str) -> Optional[str]:
     """Locate the executable path for the requested harness."""
+    stripped = harness.strip()
+    harness = _HARNESS_ALIASES.get(stripped.casefold(), stripped)
     names = []
     if harness == HARNESS_CODEX:
         names = ["codex"]
