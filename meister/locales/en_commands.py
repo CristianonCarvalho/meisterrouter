@@ -130,6 +130,67 @@ workers:
       eligible_classes:
         - ESCALATE
 """,
+    "commands.setup.config_template_kiro": """# meister.config.yaml — Local MeisterRouter configuration for this project (Kiro CLI only).
+#
+# The workers.tier_order list below REPLACES the entire default list,
+# so Copilot, Codex, agy and Claude drop out: every lane runs on the Kiro CLI.
+# To check active lanes and costs: meister models
+# To validate this file: meister config validate
+#
+# On Windows the executable is kiro-cli.exe.
+# To list the models available to your account: kiro-cli chat --list-models
+
+router:
+  # router.mode: first skips Jev and uses the first active lane below:
+  # no network calls and no OpenRouter key needed.
+  mode: first
+  timeout_seconds: 10
+  max_attempts: 2
+  unavailable_cooldown_seconds: 300
+  context_max_chars: 4000
+
+workers:
+  # The order defines the fallback chain (always forward).
+  # enabled: false disables a lane in automatic routing.
+  tier_order:
+    - name: tier_1
+      harness: kiro-cli
+      model: auto
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+
+    - name: tier_1b
+      harness: kiro-cli
+      model: claude-haiku-4.5
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+
+    - name: tier_2
+      harness: kiro-cli
+      model: claude-sonnet-4.5
+      max_retries: 1
+      best_for:
+        - deep_reasoning
+        - complex_algorithms
+        - hard_bugs
+
+# Optional: without gate.commands, the gate detects the project's tests on its own
+# (for example pytest, package.json or pom.xml). Uncomment to set the commands yourself.
+# gate:
+#   commands:
+#     - name: tests
+#       run: "{python} -m pytest -q"
+#       timeout_seconds: 600
+#       required: true
+""",
     "commands.setup.read_warning": "Warning reading {path}: {error}",
     "commands.setup.dry_run_shortcuts": "🔍 [Dry run] Checking shortcuts in {path}:",
     "commands.setup.shortcut_already": "  ⏭️ Shortcut '{shortcut}': already configured ({command})",

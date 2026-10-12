@@ -12,25 +12,27 @@ Conferido no kiro-cli 2.29.1: roda sem interação, cria e edita arquivos no dir
 
 ## Usar só o Kiro
 
-Não precisa de Copilot, Claude, Codex nem OpenRouter. Use `router.mode: first` (sem Jev, sem rede) e liste só vias do Kiro. A `tier_order` do projeto **substitui** a lista padrão inteira, então os outros harnesses saem:
+Não precisa de Copilot, Claude, Codex nem OpenRouter. Na raiz do projeto, gere a configuração pronta:
 
-```yaml
-router:
-  mode: first              # sempre começa pela primeira via; não precisa da chave do OpenRouter
-workers:
-  tier_order:              # a ordem é a cadeia de fallback
-    - {name: tier_1, harness: kiro-cli, model: auto, max_retries: 2}
-    - {name: tier_1b, harness: kiro-cli, model: claude-haiku-4.5, max_retries: 2}
-    - {name: tier_2, harness: kiro-cli, model: claude-sonnet-4.5, max_retries: 1}
-gate:
-  commands:                # opcional: sem ele, o gate detecta os testes do projeto
-    - name: tests
-      run: "{python} -m pytest -q"
-      timeout_seconds: 600
-      required: true
+```bash
+meister config init --kiro        # grava ./meister.config.yaml (use --path para outro lugar e --force para sobrescrever)
+meister config validate
+meister models
 ```
 
-Sem `gate.commands`, o gate usa a detecção automática (por exemplo pytest, `package.json` ou `pom.xml`). Confira com `meister config validate` e `meister models`. Os demais ajustes do gate estão em [configuração avançada](INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+O arquivo usa `router.mode: first` (sem Jev, sem rede, sem chave do OpenRouter) e três vias do Kiro, que formam a cadeia de fallback:
+
+| Via | Modelo | Tentativas |
+|---|---|---|
+| `tier_1` | `auto` | 2 |
+| `tier_1b` | `claude-haiku-4.5` | 2 |
+| `tier_2` | `claude-sonnet-4.5` | 1 |
+
+A `tier_order` do projeto **substitui** a lista padrão inteira, então os outros harnesses saem. Para trocar os modelos, edite o arquivo; `kiro-cli chat --list-models` mostra os que a sua conta pode usar.
+
+Sem `gate.commands`, o gate usa a detecção automática: `pom.xml` (Maven), `package.json`, `Cargo.toml`, ou pytest quando existe `pytest.ini`, `conftest.py`, `setup.cfg` com `[tool:pytest]` ou `pyproject.toml`. Se o projeto não tem nenhum desses sinais, o gate reprova com "No tests or linters detected" e o worker pode tentar editar o `meister.config.yaml`, que é protegido e barra a tarefa. Nesse caso declare você mesmo o bloco `gate.commands` (o arquivo gerado traz um exemplo comentado). Os demais ajustes do gate estão em [configuração avançada](INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+
+Verificado com o `kiro-cli` 2.29.1: `orchestrate` com esse arquivo concluiu uma tarefa em 14 s e o gate passou.
 
 ## Modelos e custo
 

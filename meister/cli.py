@@ -2250,9 +2250,15 @@ def config_validate(config_path):
     default=False,
     help=t("cli.config.init.force_help"),
 )
-def config_init(target_path, force):
+@click.option(
+    "--kiro",
+    is_flag=True,
+    default=False,
+    help=t("cli.config.init.kiro_help"),
+)
+def config_init(target_path, force, kiro):
     """Create a meister.config.yaml with router and workers for this project."""
-    from meister.setup_cmd import generate_config_yaml_content
+    from meister.setup_cmd import generate_config_yaml_content, generate_kiro_config_yaml_content
 
     resolved_path = os.path.abspath(target_path or os.path.join(os.getcwd(), "meister.config.yaml"))
     if os.path.exists(resolved_path) and not force:
@@ -2262,7 +2268,7 @@ def config_init(target_path, force):
         )
         sys.exit(1)
 
-    content = generate_config_yaml_content()
+    content = generate_kiro_config_yaml_content() if kiro else generate_config_yaml_content()
     os.makedirs(os.path.dirname(resolved_path), exist_ok=True)
     with open(resolved_path, "w", encoding="utf-8") as f:
         f.write(content)
