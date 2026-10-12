@@ -243,6 +243,7 @@ MESSAGES: dict[str, str] = {
     "cli.config.level.info": "INFO",
     "cli.config.init.path_help": "Path to the meister.config.yaml file (default: ./meister.config.yaml)",
     "cli.config.init.force_help": "Overwrite the file if it already exists.",
+    "cli.config.init.kiro_help": "Generate a configuration that uses only the Kiro CLI (kiro-cli lanes, router.mode first, no network).",
     "cli.config.init.exists": "Error: file '{path}' already exists. Use --force to overwrite.",
     "cli.config.init.generated": "✅ Configuration file generated at: {path}",
     "cli.clean.repo_help": "Git repository to clean",
