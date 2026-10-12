@@ -7,6 +7,7 @@ import pytest
 
 from meister import timeline_cli, timeline_json
 from meister.config import WorkerTier
+from meister.i18n import set_language, t
 from meister.timeline import build_timeline
 from meister.timeline_demo import RUN_ID, build_scenario, main, materialize
 from meister.timeline_graph import build_graph
@@ -221,9 +222,47 @@ def test_scenario_builds_a_valid_timeline_with_expected_statuses():
     assert timeline.summary.peak_parallel >= 2
 
 
-def test_orchestration_start_carries_run_name():
+@pytest.fixture(params=["en", "pt-BR"])
+def language(request):
+    set_language(request.param)
+    yield request.param
+    set_language(None)
+
+
+TASK_IDS = [f"task_{index:02d}" for index in range(1, 13)]
+
+
+def test_orchestration_start_carries_run_name_from_active_catalog(language):
     start = next(item.event for item in build_scenario() if item.event["event_type"] == "orchestration_start")
-    assert start["run_name"] == "Adaptador de Interface - Herdr/TMUX/Process"
+    assert start["run_name"] == t("timeline_demo.run_name")
+    assert "Herdr" not in start["run_name"]
+
+
+def test_plan_parsed_titles_come_from_active_catalog(language):
+    parsed = next(item.event for item in build_scenario() if item.event["event_type"] == "plan_parsed")
+    titles = parsed["task_titles"]
+    assert sorted(titles) == TASK_IDS
+    assert titles == {task_id: t(f"timeline_demo.task_title.{task_id}") for task_id in TASK_IDS}
+    assert all(title != f"timeline_demo.task_title.{task_id}" for task_id, title in titles.items())
+    assert not any("Herdr" in title for title in titles.values())
+
+
+def test_demo_names_follow_the_active_language():
+    set_language("en")
+    try:
+        english = build_scenario()
+        set_language("pt-BR")
+        portuguese = build_scenario()
+    finally:
+        set_language(None)
+    names = [
+        {item.event["event_type"]: item.event for item in scenario}
+        for scenario in (english, portuguese)
+    ]
+    assert names[0]["orchestration_start"]["run_name"] == "Orders API rollout"
+    assert names[1]["orchestration_start"]["run_name"] == "Lançamento da API de pedidos"
+    assert names[0]["plan_parsed"]["task_titles"]["task_03"] == "Core service"
+    assert names[1]["plan_parsed"]["task_titles"]["task_03"] == "Serviço central"
 
 
 def test_every_worker_spawn_carries_harness_model_and_effort():
@@ -265,7 +304,7 @@ def test_scope_rejection_lists_files_in_detail():
     assert len(event["detail"]) <= 200
 
 
-def test_static_timeline_attempts_carry_via_outcome_and_detail():
+def test_static_timeline_attempts_carry_via_outcome_and_detail(language):
     timeline, _ = _static_timeline()
     rows = {row.task_id: row for row in timeline.rows}
     fallback = rows["task_11"].attempt_details
@@ -276,7 +315,7 @@ def test_static_timeline_attempts_carry_via_outcome_and_detail():
     scope = rows["task_12"].attempt_details
     assert scope[-1].outcome == "scope"
     assert scope[-1].detail == "README.md, docs/index.md"
-    assert timeline.title == "Adaptador de Interface - Herdr/TMUX/Process"
+    assert timeline.title == t("timeline_demo.run_name")
 
 
 def _parse(stamp):
@@ -378,7 +417,7 @@ def test_static_timeline_has_legacy_lane_and_fan_in_fan_out_edges():
     assert sorted(edge.src for edge in graph.edges if edge.dst == "task_03") == ["task_01", "task_02"]
 
 
-def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monkeypatch):
+def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monkeypatch, language):
     log = tmp_path / "orchestration_log.jsonl"
     log.write_text("".join(json.dumps(event) + "\n" for event in _static_events()), encoding="utf-8")
     tiers = [WorkerTier(name="tier_1", harness="codex", model="luna-model")]
@@ -393,7 +432,7 @@ def test_timeline_json_for_log_reports_harness_and_model_per_lane(tmp_path, monk
     assert lanes["tier_1"]["model"] == "claude-haiku-5.5"
     assert lanes["legacy_lane"]["harness"] == "codex"
     assert lanes["legacy_lane"]["model"] == "gpt-legacy"
-    assert data["run"]["title"] == "Adaptador de Interface - Herdr/TMUX/Process"
+    assert data["run"]["title"] == t("timeline_demo.run_name")
 
 
 def _fake_server(monkeypatch, on_serve):
