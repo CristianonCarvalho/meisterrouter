@@ -2,6 +2,8 @@ import os
 import subprocess
 from types import SimpleNamespace
 
+import pytest
+
 from meister.worktree import IntegrationPipeline, WorktreeManager
 
 
@@ -80,6 +82,34 @@ def test_snapshot_excludes_ignored_files_and_venv_symlink(tmp_path):
     ref = next(ref for ref in archive_refs(repo) if ref.endswith("-uncommitted"))
     assert git(repo, "show", f"{ref}:tracked.txt").stdout == b"updated\n"
     assert git(repo, "cat-file", "-e", f"{ref}:ignored.txt", check=False).returncode != 0
+    assert git(repo, "cat-file", "-e", f"{ref}:.venv", check=False).returncode != 0
+    assert not os.path.exists(worktree.worktree_path)
+
+
+@pytest.mark.parametrize("ignore_pattern", [".venv", ".venv/"])
+@pytest.mark.parametrize("venv_kind", ["symlink", "directory"])
+def test_archive_succeeds_with_ignored_venv(tmp_path, ignore_pattern, venv_kind):
+    repo = make_repo(tmp_path / "repo")
+    (repo / ".gitignore").write_text(f"ignored.txt\n{ignore_pattern}\n")
+    git(repo, "add", ".gitignore")
+    git(repo, "commit", "-m", "ignore venv")
+    manager = WorktreeManager(repo_root=str(repo), worktrees_dir=str(tmp_path / "worktrees"))
+    worktree = manager.create_worktree("venv-ignored")
+    wt_path = tmp_path / "worktrees" / "venv-ignored"
+    (wt_path / "tracked.txt").write_text("changed\n")
+    if venv_kind == "symlink":
+        venv_target = tmp_path / "venv-target"
+        venv_target.mkdir()
+        (venv_target / "secret").write_text("not archived\n")
+        (wt_path / ".venv").symlink_to(venv_target, target_is_directory=True)
+    else:
+        (wt_path / ".venv" / "lib").mkdir(parents=True)
+        (wt_path / ".venv" / "lib" / "module.py").write_text("not archived\n")
+
+    assert manager.cleanup_worktree("venv-ignored", force=True)
+
+    ref = next(ref for ref in archive_refs(repo) if ref.endswith("-uncommitted"))
+    assert git(repo, "show", f"{ref}:tracked.txt").stdout == b"changed\n"
     assert git(repo, "cat-file", "-e", f"{ref}:.venv", check=False).returncode != 0
     assert not os.path.exists(worktree.worktree_path)
 
