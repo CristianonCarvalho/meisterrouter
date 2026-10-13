@@ -389,6 +389,8 @@ meister logs --log-dir /caminho/para/logs
 ```
 Os logs de worker são arquivos `<run>_<tarefa>_<tentativa>.log` em `<log_dir>/workers/`, onde `<log_dir>` é `.meister/logs` no projeto (ou `MEISTER_LOG_DIR`, ou `--log-dir`). `--run-id` aceita prefixo de pelo menos 6 caracteres; `--task` é o id exato da tarefa; `--lines`/`-n` define quantas linhas mostrar (padrão 50). `--list` e `--follow` não podem ser combinados. O comando só lê arquivos. Sai com código `2` quando o diretório não tem logs, ou quando a run ou a tarefa não é encontrada ou o prefixo é ambíguo.
 
+Com o Herdr, a saída do worker fica no pane dele e só é gravada em arquivo quando o worker sofre timeout. Depois de um timeout, leia-a com `meister logs --run-id <run> --task <tarefa>`, ou abra `<log_dir>/workers/`; o evento `worker_timeout` do log da run também traz as últimas linhas da saída (`output_tail`). Para acompanhar um worker que ainda está rodando, olhe o pane dele.
+
 ---
 
 ## Limpar branches antigas (`clean`)
@@ -637,7 +639,7 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
   `meister.config.example.yaml`. Ele substitui o gate completo somente antes e depois do merge; o gate final de
   integração sempre executa as verificações completas. Uma falha que só o gate completo detectaria será apontada
   no gate final e reprovará o run inteiro, em vez de reprovar uma tarefa individual.
-- `scope.tolerated_files`: arquivos tolerados fora dos `target_files` (a lista substitui a padrão). Cada arquivo tolerado alterado gera um evento `scope_tolerated` e uma linha de progresso. Este repositório tolera `tests/**`; a suíte inteira ainda precisa passar.
+- `scope.tolerated_files`: arquivos tolerados fora dos `target_files` (a lista substitui a padrão). Cada arquivo tolerado alterado gera um evento `scope_tolerated` e uma linha de progresso. Este repositório tolera `tests/**`; a suíte inteira ainda precisa passar. `.venv` não precisa mais constar aqui: um ambiente virtual, diretório ou symlink, é ignorado pela detecção de mudanças e pelos commits.
 - `scope.allow_dependency_files` (padrão `false`): com `true`, uma tarefa pode editar também os arquivos declarados nos `target_files` das tarefas das quais ela depende, direta ou transitivamente (`depends_on`); essas tarefas já estão integradas antes de ela começar, então não há corrida com trabalho em paralelo. Não libera mais nada: arquivos de tarefas sem relação de dependência continuam bloqueados e a checagem estrita de escopo segue reprovando-os, e tarefas sem `target_files` continuam sem escopo. Nunca libera o `meister.config.yaml`: o worker nunca deve editá-lo, então não o liste no `Files:` de nenhuma tarefa (com a opção ligada, um arquivo declarado por uma ancestral passa a ser editável pelas dependentes). Com `false`, o escopo fica exatamente como antes.
 - `gate.cache` (padrão `true`): o gate guarda só as passagens, por conteúdo do código e dos comandos, e não repete
   uma verificação idêntica; `gate.cache: false` desliga.
