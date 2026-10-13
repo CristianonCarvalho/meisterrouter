@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 GATE_INFRASTRUCTURE_PREFIX = "ERRO DE INFRAESTRUTURA no portão:"
 # Arquivos da raiz que uma tarefa com escopo nunca pode alterar, mesmo se declarados ou tolerados.
 PROTECTED_FILES = ("meister.config.yaml",)
+# Ambientes virtuais locais: nunca são código da tarefa, então ficam fora do diff e dos commits.
+ENVIRONMENT_DIRS = (".venv", "venv")
+
+
+def _is_environment_path(path: str) -> bool:
+    return any(path == name or path.startswith(f"{name}/") for name in ENVIRONMENT_DIRS)
 
 
 class CodedMessage(str):
@@ -434,6 +440,13 @@ class WorktreeManager:
         self._prepare_node_worktree(info)
         return info
 
+    def _untrack_environment_dirs(self, worktree_path: str) -> None:
+        """Retira ambientes virtuais do índice sem falhar quando o caminho é ignorado ou ausente."""
+        self._run_git(
+            ["rm", "-r", "--cached", "-q", "--ignore-unmatch", "--", *ENVIRONMENT_DIRS],
+            cwd=worktree_path,
+        )
+
     def commit_worktree(
         self,
         worktree_path: str,
@@ -448,6 +461,7 @@ class WorktreeManager:
 
         # Adiciona modificações e untracked
         self._run_git(["add", "-A"], cwd=worktree_path)
+        self._untrack_environment_dirs(worktree_path)
 
         # Verifica se há algo staged para commitar
         res = subprocess.run(
@@ -631,8 +645,11 @@ class WorktreeManager:
         except Exception as e:
             logger.debug(t("engine.worktree.ls_files_failed", path=worktree_path, error=e))
 
-        # Ignora arquivos internos do Meister (.meister)
-        clean_modified = {f for f in modified if not f.startswith(".meister/") and f != ".meister"}
+        # Ignora arquivos internos do Meister (.meister) e ambientes virtuais (.venv, venv)
+        clean_modified = {
+            f for f in modified
+            if not f.startswith(".meister/") and f != ".meister" and not _is_environment_path(f)
+        }
         return sorted(list(clean_modified))
 
     def verify_scope(
