@@ -1,4 +1,4 @@
-# `.venv` simbólico, saída do worker no timeout e `clean` de run abortada Implementation Plan
+# `.venv` simbólico e saída do worker no timeout Implementation Plan
 
 > **Execução neste projeto:** a implementação é delegada ao `meister orchestrate --plan-file` (importado com `meister plan import --deps files`). Os workers não fazem push; o orquestrador verifica e só publica com OK do usuário.
 >
@@ -10,9 +10,9 @@
 > - 2.3: o `clean` mantém a branch `meister/integration/<run>` porque ela está aberta num worktree que ainda existe (`_worktree_branches`, `meister/clean.py:162`); o `clean` não remove o worktree da run abortada, e o `--close-stale-runs` só fecha runs em RUNNING ou PENDING. Hipótese coerente com a remoção manual do usuário (`git worktree remove` e `branch -D`), não reproduzida com o estado original.
 > - 2.4 (plano que cita arquivo fora do repositório) fica no BACKLOG: não há proposta segura.
 
-**Goal:** Um `.venv` ou `venv` no worktree, link ou pasta, nunca conta como mudança do worker nem entra num commit; depois de um timeout o trecho final da saída do worker fica guardado, com Herdr ou não; e o `meister clean` libera a branch e o worktree de uma run abortada sem processo vivo.
+**Goal:** Um `.venv` ou `venv` no worktree, link ou pasta, nunca conta como mudança do worker nem entra num commit; depois de um timeout o trecho final da saída do worker fica guardado, com Herdr ou não; o `meister clean` de run abortada fica fora (BACKLOG I13).
 
-**Architecture:** Quatro tarefas independentes (um arquivo de código cada), mais a documentação no fim. Nenhuma usa `:(exclude)` com um caminho ignorado, porque o git recusa isso; a retirada do índice usa `git rm --cached --ignore-unmatch`, que não falha.
+**Architecture:** Três tarefas independentes (um arquivo de código cada), mais a documentação no fim. Nenhuma usa `:(exclude)` com um caminho ignorado, porque o git recusa isso; a retirada do índice usa `git rm --cached --ignore-unmatch`, que não falha.
 
 **Tech Stack:** Python ≥ 3.10, click, `pytest`. Textos novos entram nos catálogos `en` e `pt-BR` (a paridade é testada).
 
@@ -20,7 +20,7 @@
 
 - `.venv` e `venv` são tratados sempre como ambiente, não como código: ignorados no cálculo de arquivos modificados e fora de qualquer commit do Meister.
 - O trecho final da saída é guardado em `log_file` (para `meister logs`) e em `output_tail` no evento `worker_timeout` (últimas 40 linhas).
-- O `clean` só remove o worktree de uma run se ela não tem processo vivo, painel ativo nem estado RUNNING/PENDING.
+- O item 2.3 (`meister clean` de run abortada) ficou de fora: a causa é hipótese, o contorno manual são dois comandos e a correção apagaria worktrees (BACKLOG I13).
 
 ### Task 1: `.venv` simbólico não é mudança nem entra no commit
 
@@ -46,19 +46,9 @@ Em `_worktree_tree_hash` (`meister/gate.py`, o `git add -A -- . :(exclude).venv`
 
 No ponto em que o bridge trata um timeout do worker (a emissão de `worker_timeout`, por volta da linha 1679, antes de o painel ser fechado), leia as últimas 40 linhas da saída do worker pelo host (`read` do `HerdrHost`, `meister/hosts/herdr.py`; no host `process`, o próprio `log_file`). Acrescente o campo `output_tail` ao evento `worker_timeout` e, se o `log_file` da tentativa ainda não existir (caso do Herdr), grave nele esse trecho, criando a pasta, para que `meister logs` mostre algo. Qualquer erro na leitura é engolido (o timeout continua sendo tratado como hoje). Teste com um host falso cujo `read` devolve linhas conhecidas: o evento traz `output_tail` e o arquivo existe com o texto; com `read` levantando exceção, o evento sai sem `output_tail` e sem falha.
 
-### Task 4: `clean` libera a branch e o worktree de uma run abortada
+### Task 4: Changelog e documentação
 
-**Files:**
-- Modify: `meister/clean.py`
-- Modify: `meister/locales/en_commands.py`
-- Modify: `meister/locales/pt_br_commands.py`
-- Test: `tests/test_clean_orphan_integration_worktree.py`
-
-Hoje `plan_cleanup` protege toda branch aberta num worktree (`_worktree_branches`, `meister/clean.py:162`). Uma branch `meister/integration/<run_id>` cujo worktree fica sob o diretório de worktrees do Meister e cuja run NÃO tem processo vivo (`_run_has_live_process`), painel ativo (`active_panes`) nem estado RUNNING/PENDING deve ser tratada como órfã: com `--apply`, remova o worktree (`git worktree remove --force`) antes de arquivar/apagar a branch, respeitando `--keep` e `--archive-and-delete` como hoje; sem `--apply`, o plano mostra a ação nova. Chaves novas nos dois catálogos. Teste: repositório temporário com uma branch de integração aberta num worktree, sem processo nem painel, é removida (worktree e branch) com `--apply --archive-and-delete`; com um processo vivo falso para a run, ela continua mantida.
-
-### Task 5: Changelog e documentação
-
-**Depends on:** Task 1, Task 2, Task 3, Task 4
+**Depends on:** Task 1, Task 2, Task 3
 
 **Files:**
 - Modify: `CHANGELOG.md`
@@ -66,4 +56,4 @@ Hoje `plan_cleanup` protege toda branch aberta num worktree (`_worktree_branches
 - Modify: `docs/advanced.md`
 - Modify: `docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md`
 
-Em `### Fixed` de `[Unreleased]`: `.venv`/`venv` simbólico deixa de contar como mudança e de entrar em commit; o cálculo da árvore do gate funciona com `.venv` ignorado; o evento `worker_timeout` traz `output_tail` e `meister logs` mostra a saída do worker com Herdr; `meister clean` remove a branch e o worktree de uma run abortada sem processo vivo. Nas duas versões de `docs/advanced.md` (seção do host dos workers e logs, ou a mais próxima), diga que com Herdr a saída do worker só é gravada em arquivo quando há timeout e onde achá-la, e que `.venv` não precisa mais constar em `scope.tolerated_files`.
+Em `### Fixed` de `[Unreleased]`: `.venv`/`venv` simbólico deixa de contar como mudança e de entrar em commit; o cálculo da árvore do gate funciona com `.venv` ignorado; o evento `worker_timeout` traz `output_tail` e `meister logs` mostra a saída do worker com Herdr. Nas duas versões de `docs/advanced.md` (seção do host dos workers e logs, ou a mais próxima), diga que com Herdr a saída do worker só é gravada em arquivo quando há timeout e onde achá-la, e que `.venv` não precisa mais constar em `scope.tolerated_files`.
