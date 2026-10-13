@@ -300,3 +300,108 @@ def test_guard_hook_dot_dot_components_never_count_as_documentation(tmp_path):
         assert _guard_exit_code(tmp_path, file_path) == 2, file_path
     for file_path in ("docs/guia.md", "./docs/ok.md", "README.md", "docs/a/b/c.txt"):
         assert _guard_exit_code(tmp_path, file_path) == 0, file_path
+
+
+def test_installed_git_hook_calls_meister_gate(tmp_path):
+    (tmp_path / ".git").mkdir()
+    assert install_git_hook(str(tmp_path))[0] is True
+
+    content = (tmp_path / ".git" / "hooks" / "pre-commit").read_text(encoding="utf-8")
+    assert "command -v meister" in content
+    assert "meister gate" in content
+    assert "MEISTER_INTERNAL_COMMIT" in content
+
+
+def test_git_hook_updates_previous_managed_hook_without_force(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    hook_file = tmp_path / ".git" / "hooks" / "pre-commit"
+    hook_file.write_text(
+        "#!/usr/bin/env bash\n# Managed by MeisterRouter\nset -e\nexit 0\n",
+        encoding="utf-8",
+    )
+
+    ok, _ = install_git_hook(str(tmp_path))
+
+    assert ok is True
+    assert "meister gate" in hook_file.read_text(encoding="utf-8")
+
+
+def test_git_hook_preserves_third_party_hook(tmp_path):
+    (tmp_path / ".git" / "hooks").mkdir(parents=True)
+    hook_file = tmp_path / ".git" / "hooks" / "pre-commit"
+    foreign = "#!/bin/sh\necho husky\n"
+    hook_file.write_text(foreign, encoding="utf-8")
+
+    ok, _ = install_git_hook(str(tmp_path))
+
+    assert ok is False
+    assert hook_file.read_text(encoding="utf-8") == foreign
+
+
+def _git_repo_with_staged_file(repo):
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "app.py").write_text("print('x')\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repo), "add", "app.py"], check=True)
+    return repo
+
+
+def _fake_meister(bin_dir, exit_code):
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    script = bin_dir / "meister"
+    script.write_text(
+        f"#!/usr/bin/env bash\necho \"fake meister $*\"\nexit {exit_code}\n",
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+    return bin_dir
+
+
+def _run_git_template(repo, template_lang, bin_dir, env_overrides=None):
+    from meister.hooks import TEMPLATES_DIR
+
+    script = os.path.join(TEMPLATES_DIR, template_lang, "git_pre_commit.sh.template")
+    env = dict(os.environ)
+    env.pop("MEISTER_INTERNAL_COMMIT", None)
+    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+    env.update(env_overrides or {})
+    return subprocess.run(
+        ["bash", script], cwd=repo, env=env, text=True,
+        capture_output=True, timeout=30,
+    )
+
+
+@needs_bash
+@pytest.mark.parametrize("template_lang", ["en", "pt-BR"])
+def test_git_template_blocks_commit_when_meister_gate_fails(tmp_path, template_lang):
+    repo = _git_repo_with_staged_file(tmp_path / "repo")
+    bin_dir = _fake_meister(tmp_path / "bin", exit_code=1)
+
+    result = _run_git_template(repo, template_lang, bin_dir)
+
+    assert result.returncode == 1
+    assert "fake meister gate" in result.stdout
+
+
+@needs_bash
+@pytest.mark.parametrize("template_lang", ["en", "pt-BR"])
+def test_git_template_allows_commit_when_meister_gate_passes(tmp_path, template_lang):
+    repo = _git_repo_with_staged_file(tmp_path / "repo")
+    bin_dir = _fake_meister(tmp_path / "bin", exit_code=0)
+
+    result = _run_git_template(repo, template_lang, bin_dir)
+
+    assert result.returncode == 0
+    assert "fake meister gate" in result.stdout
+
+
+@needs_bash
+@pytest.mark.parametrize("template_lang", ["en", "pt-BR"])
+def test_git_template_skips_gate_for_internal_worker_commits(tmp_path, template_lang):
+    repo = _git_repo_with_staged_file(tmp_path / "repo")
+    bin_dir = _fake_meister(tmp_path / "bin", exit_code=1)
+
+    result = _run_git_template(repo, template_lang, bin_dir, env_overrides={"MEISTER_INTERNAL_COMMIT": "1"})
+
+    assert result.returncode == 0
+    assert "fake meister" not in result.stdout
