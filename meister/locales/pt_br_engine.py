@@ -10,6 +10,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.repo_dirty": "Repositório principal está dirty; fast-forward pulado",
     "engine.worktree.fast_forward_ok": "Fast-forward aplicado com sucesso",
     "engine.worktree.fast_forward_failed": "Falha no fast-forward: {error}",
+    "engine.worktree.commit_failed": "git commit falhou (exit code {returncode}).\nÚltimas linhas de stderr:\n{stderr}\nÚltimas linhas de stdout:\n{stdout}",
     "engine.worktree.git_command_failed": "Comando git falhou (rc={return_code}): git {command}\nstderr: {stderr}",
     "engine.worktree.diff_failed": "Falha ao rodar git diff em {path}: {error}",
     "engine.worktree.ls_files_failed": "Falha ao rodar git ls-files em {path}: {error}",
