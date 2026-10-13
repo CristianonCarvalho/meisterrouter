@@ -65,6 +65,27 @@ class ReplayError(RuntimeError):
     code = "replay_failed"
 
 
+class WorktreeCommitError(RuntimeError):
+    """Raised when `git commit` fails inside a worktree; carries the git output."""
+
+    def __init__(self, message: str, returncode: int, stdout: str, stderr: str):
+        super().__init__(message)
+        self.message = message
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+COMMIT_ERROR_TAIL_LINES = 20
+# Commits internos do Meister não disparam hooks do repositório (ex.: pre-commit do usuário).
+INTERNAL_COMMIT_ARGS: List[str] = ["--no-verify"]
+
+
+def _tail_lines(text: str, limit: int = COMMIT_ERROR_TAIL_LINES) -> str:
+    lines = [line for line in (text or "").strip().splitlines() if line.strip()]
+    return "\n".join(lines[-limit:]) or "-"
+
+
 def _log_cleanup_failure(task_id: str, path: str, reason: str) -> None:
     """Emite telemetria de uma falha de limpeza que foi engolida (sem alterar o retorno)."""
     from meister.logger import log_event
@@ -444,17 +465,27 @@ class WorktreeManager:
         env.setdefault("GIT_COMMITTER_EMAIL", "bot@meisterrouter.dev")
         env["MEISTER_INTERNAL_COMMIT"] = "1"
 
-        # Commits internos do Meister não disparam hooks do repositório (ex.: pre-commit do usuário).
-        subprocess.run(
-            ["git", "commit", "--no-verify", "-m", message],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                ["git", "commit", *INTERNAL_COMMIT_ARGS, "-m", message],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            detail = t(
+                "engine.worktree.commit_failed",
+                returncode=exc.returncode,
+                stderr=_tail_lines(stderr),
+                stdout=_tail_lines(stdout),
+            )
+            raise WorktreeCommitError(detail, exc.returncode, stdout, stderr) from exc
 
         return self._run_git(["rev-parse", "HEAD"], cwd=worktree_path)
 
