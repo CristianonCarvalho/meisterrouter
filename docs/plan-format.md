@@ -97,6 +97,7 @@ Tasks without `**Files:**` are only included with `--allow-unscoped` and run in 
 - **Small tasks**, each with a testable result (one code file and its test).
 - **Declare all files**, including generated ones (lockfiles, `drizzle/*`), or add them to
   `scope.tolerated_files`.
+- **Include existing tests that your change affects on purpose.** If the task changes behavior that an existing test checks, add that test file to `**Files:**`. Otherwise the gate rejects the change as `scope_conflict`.
 - **Avoid overlap**: two tasks that modify the same file become sequential.
 - Commands that generate files (`npm install`, `prisma generate`) cause the importer to warn if the generated
   file is not covered by `Files:` or the tolerated files.
