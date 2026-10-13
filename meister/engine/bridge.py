@@ -2413,6 +2413,34 @@ class HerdrEventBridge:
                     )
                 subtask_wt = None
 
+    def _fail_subtask_after_exception(
+        self,
+        subtask: Union[Dict[str, Any], SubtaskNode],
+        error: Exception,
+    ) -> None:
+        """Registra uma exceção inesperada e fecha a subtask como FAILED (sem deixar RUNNING)."""
+        task_dict = subtask.to_dict() if isinstance(subtask, SubtaskNode) else dict(subtask)
+        task_id = str(task_dict.get("id", "task"))
+        description = str(task_dict.get("description", task_id))
+        logger.error(
+            "Unexpected exception while executing subtask %s: %s",
+            task_id,
+            error,
+            exc_info=error,
+        )
+        active_run_id = self.current_run_id
+        if not active_run_id:
+            return
+        try:
+            subtask_id = compute_subtask_id(active_run_id, task_id, description)
+            self.get_state_manager().transition_subtask(
+                subtask_id,
+                to_state=SubtaskState.FAILED,
+                error=f"Unexpected exception: {error}"[:500],
+            )
+        except Exception as e:
+            logger.error("Falha ao marcar subtask %s como FAILED após exceção: %s", task_id, e)
+
     async def execute_parallel_batch(
         self,
         subtasks: Sequence[Union[Dict[str, Any], SubtaskNode]],
@@ -2423,7 +2451,11 @@ class HerdrEventBridge:
 
         async def _bounded_execute(task: Union[Dict[str, Any], SubtaskNode]) -> bool:
             async with self._concurrency_semaphore:
-                return await self.execute_subtask(task)
+                try:
+                    return await self.execute_subtask(task)
+                except Exception as e:
+                    self._fail_subtask_after_exception(task, e)
+                    raise
 
         tasks = [_bounded_execute(task) for task in subtasks]
         results = await asyncio.gather(*tasks, return_exceptions=True)
