@@ -483,6 +483,27 @@ class HerdrEventBridge:
         assert self.host is not None
         return self._herdr_io or self.host
 
+    async def _read_timeout_output_tail(
+        self, handle: WorkerHandle, log_file: Optional[str]
+    ) -> Optional[str]:
+        """Últimas 40 linhas da saída do worker; grava em log_file se ele ainda não existir.
+
+        Qualquer erro é engolido: o timeout segue sendo tratado como antes.
+        """
+        try:
+            tail = await self._require_host().tail(handle, lines=40)
+        except Exception as e:
+            logger.debug("Falha ao ler saída do worker no timeout: %s", e)
+            return None
+        try:
+            if tail and log_file and not os.path.exists(log_file):
+                os.makedirs(os.path.dirname(log_file), exist_ok=True)
+                with open(log_file, "w", encoding="utf-8") as fh:
+                    fh.write(tail)
+        except OSError as e:
+            logger.debug("Falha ao gravar trecho de timeout em %s: %s", log_file, e)
+        return tail
+
     @property
     def _connected(self) -> bool:
         # Sem cliente Herdr (host de processo) não há conexão a verificar: o host já é a fonte de verdade.
@@ -1675,6 +1696,13 @@ class HerdrEventBridge:
                         else:
                             action = t("engine.bridge.timeout_integrating_result")
 
+                        timeout_fields: Dict[str, Any] = {}
+                        output_tail = await self._read_timeout_output_tail(
+                            self._worker_handle(pane_id, tab_id),
+                            task_dict.get("log_file"),
+                        )
+                        if output_tail is not None:
+                            timeout_fields["output_tail"] = output_tail
                         log_event(
                             event_type="worker_timeout",
                             run_id=active_run_id,
@@ -1686,6 +1714,7 @@ class HerdrEventBridge:
                             pane_id=pane_id,
                             message=timeout_message,
                             action=action,
+                            **timeout_fields,
                         )
                         if timeout_salvaged:
                             log_event(
