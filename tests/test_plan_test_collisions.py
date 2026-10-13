@@ -138,3 +138,48 @@ def test_plan_analyze_prints_warning(repo, monkeypatch):
 
     assert result.exit_code == 0, result.output
     assert "calcular_total" in result.output
+
+
+_FIVE_NAMES = ["alfa_funcao", "beta_funcao", "gama_funcao", "delta_funcao", "epsilon_funcao"]
+
+
+def _write_five_names_source(repo):
+    (repo / "src" / "cinco.py").write_text(
+        "".join(f"def {name}():\n    return 0\n\n" for name in _FIVE_NAMES),
+        encoding="utf-8",
+    )
+
+
+
+
+
+def test_one_line_per_test_file_with_three_names_and_overflow(repo, monkeypatch):
+    _write_five_names_source(repo)
+    (repo / "tests" / "test_cinco.py").write_text(
+        "from src.cinco import *\n\n" + "".join(f"{name}()\n" for name in _FIVE_NAMES),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(repo)
+    plan = _plan_file(repo, [_task("a", ["src/cinco.py"])])
+
+    result = CliRunner().invoke(main, ["plan", "validate", plan])
+
+    assert result.exit_code == 0, result.output
+    lines = [line for line in result.output.splitlines() if "test_cinco.py" in line]
+    assert len(lines) == 1, result.output
+    assert "`alfa_funcao`, `beta_funcao`, `delta_funcao` (+2)" in lines[0]
+    assert "gama_funcao" not in lines[0]
+
+
+def test_two_test_files_produce_two_lines(repo, monkeypatch):
+    (repo / "tests" / "test_outro.py").write_text(
+        "from src.m import calcular_total\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(repo)
+    plan = _plan_file(repo, [_task("a", ["src/m.py"])])
+
+    result = CliRunner().invoke(main, ["plan", "validate", plan])
+
+    assert result.exit_code == 0, result.output
+    lines = [line for line in result.output.splitlines() if "calcular_total" in line]
+    assert len(lines) == 2, result.output
