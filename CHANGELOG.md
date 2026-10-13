@@ -19,6 +19,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
+- **`meister gate`** runs the deterministic verification gate for a project (`--path`), with exit code 0 when it passes, 1 when it fails and 2 on an infrastructure error. The managed pre-commit hook runs it, so the hook and the gate use the same commands.
 - **README GIFs no longer suggest the tool is hard to use.** The live timeline (nothing typed) is now the opening image, and the terminal recordings moved to an "Under the hood" section, one command each, saying that the orchestrator LLM runs them and the user does not type them. The 60-second start spells out that a plain-language request is the whole interface.
 - **README rewritten to make the case for MeisterRouter, with new GIFs.** A new opening, a "what you stop doing" table, a 60-second start, three real terminal recordings (a plan running in parallel, the gate rejecting and repairing a task, the quota fallback) and a sharper live-timeline GIF, in English and Portuguese. Herdr moved out of the main text into its own optional section. The recording kit is in `docs/img/src/` (`record.sh`; the workers are simulated, so it spends no quota).
 - **The timeline demo has localized, neutral names.** `python -m meister.timeline_demo` takes the run name and the 12 task titles from the language catalogs (English or Portuguese) instead of fixed Portuguese text.
@@ -51,6 +52,10 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`meister plan import --format auto|markdown`:** the default is now `auto`, which detects a Markdown task plan or a canonical JSON plan; `markdown` is the name of the native format.
 
 ### Fixed
+- **Meister's own commits no longer run Git hooks.** Internal worker and integration commits use `--no-verify`, because the gate already verified them before the commit; a project's pre-commit hook does not reject them.
+- **A git commit failure after a passing gate is an infrastructure error.** It is reported with git's output instead of as a gate failure.
+- **An unexpected exception closes the subtask as `FAILED`.** It no longer leaves the subtask in progress.
+- **Archiving ignores `.venv`.** The archive of loose work no longer includes the project's virtual environment.
 - **README links to "How to use" and "Herdr" opened nowhere.** The headings carried an invisible emoji selector (U+FE0F) that GitHub keeps in the anchor. The headings now use emojis without it, and the docs link test matches GitHub's anchors.
 - **A gate infrastructure error now closes the subtask as failed.** The run summary used to show the task as `running` and `0 failed` after errors such as "No tests or linters detected" or a missing Maven; it now shows `FAILED`. The error message also lost its doubled period.
 - **A project with no detectable tests no longer wastes a repair.** When the gate finds no tests or linters and `gate.allow_unverified` is off, it is now a gate infrastructure error: the run stops with a message to the project owner, the worker's work is kept, and the worker is no longer told to edit the protected `meister.config.yaml`. The gate-repair and gate-infrastructure console lines now follow `language: pt-BR`.
