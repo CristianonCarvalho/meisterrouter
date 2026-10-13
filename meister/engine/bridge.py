@@ -180,6 +180,18 @@ class ResumeRequestError(ValueError):
     """Erro de validação de uma origem explicitamente solicitada para retomada."""
 
 
+def _pane_lost_backoff_seconds(base_backoff: float, retries_used: int) -> float:
+    """Backoff exponencial (teto de 60 s) entre retentativas de infraestrutura."""
+    backoff_exponent = retries_used - 1
+    backoff_cap_exponent = max(
+        0,
+        math.ceil(math.log2(60.0) - math.log2(base_backoff)) if base_backoff > 0 else backoff_exponent,
+    )
+    if base_backoff == 0:
+        return 0.0
+    return min(60.0, math.ldexp(base_backoff, min(backoff_exponent, backoff_cap_exponent)))
+
+
 def is_infrastructure_error(int_err: Any) -> bool:
     """Detects whether an integration error represents an infrastructure failure."""
     from meister.worktree import GATE_INFRASTRUCTURE_PREFIX
@@ -2019,6 +2031,98 @@ class HerdrEventBridge:
                             return False
                         current_tier = next_tier.name
                         continue
+
+                    if prompt_result.get("status") == "error" and prompt_result.get("error_kind") == "signal":
+                        # Harness morto por sinal (ex.: OOM): infraestrutura, retenta na mesma via
+                        # com o orçamento de pane perdido, sem tocar em worker_error e sem escalar.
+                        sig_err = str(prompt_result.get("error", "Harness killed by signal"))[:200]
+                        if pane_lost_retries_used < self.config.retry.pane_lost_attempts:
+                            pane_lost_retries_used += 1
+                            backoff_seconds = _pane_lost_backoff_seconds(
+                                self.config.retry.pane_lost_backoff_seconds, pane_lost_retries_used
+                            )
+                            logger.warning(
+                                "Retrying worker pane for subtask %s on tier %s after signal kill "
+                                "(retry %s/%s)",
+                                task_id,
+                                current_tier,
+                                pane_lost_retries_used,
+                                self.config.retry.pane_lost_attempts,
+                            )
+                            log_event(
+                                event_type="worker_retry",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                tier=current_tier,
+                                attempt=attempt_count,
+                                reason="signal_killed",
+                                retry=pane_lost_retries_used,
+                                backoff_seconds=backoff_seconds,
+                                error=sig_err,
+                            )
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                            if tab_id:
+                                try:
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
+                                except Exception as e:
+                                    logger.debug("Failed closing worker tab %s: %s", tab_id, e)
+                            elif pane_id:
+                                try:
+                                    await self._require_host().close(self._worker_handle(pane_id))
+                                except Exception as e:
+                                    logger.debug("Failed closing worker pane %s: %s", pane_id, e)
+                            self._quota_events.pop(pane_id, None)
+                            self._exit_events.pop(pane_id, None)
+                            self.active_workers.pop(pane_id, None)
+                            tab_id = None
+                            pane_id = None
+                            await asyncio.sleep(backoff_seconds)
+                            continue
+
+                        err_msg = f"{sig_err} (retentativas esgotadas: {pane_lost_retries_used})"
+                        logger.error(
+                            "Harness killed by signal in worker pane %s (%s): %s. Aborting without tier escalation.",
+                            pane_id,
+                            current_tier,
+                            err_msg,
+                        )
+                        log_event(
+                            event_type="worker_error",
+                            run_id=active_run_id,
+                            task_id=task_id,
+                            attempt=attempt_count,
+                            tier=current_tier,
+                            exit_code=2,
+                            status="infrastructure_error",
+                            error=err_msg,
+                        )
+                        if subtask_wt is not None and self._integration_pipeline is not None:
+                            await asyncio.to_thread(
+                                self._integration_pipeline.wt_mgr.cleanup_worktree,
+                                subtask_wt.task_id,
+                                delete_branch=True,
+                                force=True,
+                                archive_unmerged=True,
+                            )
+                            subtask_wt = None
+                        if active_run_id:
+                            sm.unregister_pane(pane_id)
+                            try:
+                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
+                            except Exception:
+                                pass
+                        if tab_id:
+                            try:
+                                await self._require_host().close(self._worker_handle(pane_id, tab_id))
+                            except Exception:
+                                pass
+                        elif pane_id:
+                            try:
+                                await self._require_host().close(self._worker_handle(pane_id))
+                            except Exception:
+                                pass
+                        return False
 
                     if prompt_result.get("status") == "error":
                         logger.warning("Subtask %s returned error status", task_id)
