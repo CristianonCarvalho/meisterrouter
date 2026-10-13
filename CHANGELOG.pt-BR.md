@@ -19,6 +19,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
+- **`meister gate`** roda o gate determinístico de verificação de um projeto (`--path`), com código de saída 0 quando passa, 1 quando reprova e 2 em erro de infraestrutura. O hook de pre-commit gerenciado o executa, então o hook e o gate usam os mesmos comandos.
 - **Os GIFs do README não sugerem mais que a ferramenta é difícil de usar.** A timeline ao vivo (sem nada digitado) virou a imagem de abertura, e as gravações de terminal foram para uma seção "Por baixo dos panos", um comando em cada, dizendo que a LLM orquestradora as roda e que o usuário não digita nada disso. O início em 60 segundos deixa claro que um pedido em linguagem natural é a interface toda.
 - **README reescrito para defender o uso do MeisterRouter, com GIFs novos.** Abertura nova, tabela "o que você deixa de fazer", início em 60 segundos, três gravações reais de terminal (um plano rodando em paralelo, o gate rejeitando e reparando uma tarefa, o fallback de cota) e um GIF mais nítido da timeline ao vivo, em inglês e em português. O Herdr saiu do texto principal para uma seção própria e opcional. O kit de gravação está em `docs/img/src/` (`record.sh`; os workers são simulados, então não gasta cota).
 - **A demonstração da timeline tem nomes localizados e neutros.** O `python -m meister.timeline_demo` pega o nome da run e os 12 títulos de tarefa dos catálogos de idioma (inglês ou português) em vez de um texto fixo em português.
@@ -51,6 +52,10 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **`meister plan import --format auto|markdown`:** o padrão passa a ser `auto`, que detecta um plano de tarefas em Markdown ou um plano JSON canônico; `markdown` é o nome do formato nativo.
 
 ### Corrigido
+- **Os commits do próprio Meister não passam mais pelos hooks do Git.** Os commits internos de workers e de integração usam `--no-verify`, porque o gate já os verificou antes do commit; o hook pre-commit do projeto não os reprova.
+- **Falha de commit do git depois de um gate aprovado é erro de infraestrutura.** Ela é reportada com a saída do git, em vez de como falha do gate.
+- **Exceção inesperada encerra a subtask como `FAILED`.** Ela não fica mais em andamento.
+- **O arquivamento ignora `.venv`.** O arquivo de trabalho solto não inclui mais o ambiente virtual do projeto.
 - **Os links do README para "Como usar" e "Herdr" não abriam.** Os títulos tinham um seletor de emoji invisível (U+FE0F) que o GitHub mantém na âncora. Agora usam emojis sem ele, e o teste de links usa as âncoras do GitHub.
 - **Erro de infraestrutura do gate agora fecha a subtask como falha.** O resumo da run mostrava a tarefa como `running` e `0 falhou` depois de erros como "Nenhum teste ou linter detectado" ou Maven ausente; agora mostra `FAILED`. A mensagem de erro também perdeu o ponto duplicado.
 - **Projeto sem testes detectáveis não gasta mais um reparo.** Quando o gate não acha testes nem linters e `gate.allow_unverified` está desligado, agora é erro de infraestrutura do gate: a run para com uma mensagem ao dono do projeto, o trabalho do worker é mantido, e o worker deixa de ser mandado editar o `meister.config.yaml`, que é protegido. As linhas de reparo do gate e de erro de infraestrutura no console passam a seguir `language: pt-BR`.
