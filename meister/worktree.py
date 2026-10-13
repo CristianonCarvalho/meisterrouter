@@ -1562,7 +1562,12 @@ class IntegrationPipeline:
 
         # 3. Commit das alterações no worktree do worker
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
-        commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
+        try:
+            commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
+        except WorktreeCommitError as exc:
+            ok, message = self._commit_infrastructure_result(subtask_wt, exc)
+            prepared.early = (ok, message)
+            return prepared
         if not commit_sha and getattr(subtask_wt, "base_commit", None):
             try:
                 count_str = self.wt_mgr._run_git(
@@ -1755,6 +1760,35 @@ class IntegrationPipeline:
             ),
             code="gate_infrastructure",
         )
+
+    def _commit_infrastructure_result(
+        self,
+        subtask_wt: WorktreeInfo,
+        exc: WorktreeCommitError,
+    ) -> Tuple[bool, CodedMessage]:
+        """Trata falha do `git commit` como erro de infraestrutura, preservando o trabalho do worker."""
+        detail = str(exc).rstrip(". \n\t")
+        prefix = t("engine.worktree.infrastructure_prefix")
+        archived_ok, archive_ref = self.wt_mgr._archive_uncommitted(
+            subtask_wt.worktree_path,
+            subtask_wt.task_id,
+        )
+        self._log_gate_infrastructure_error(subtask_wt.task_id, str(exc))
+        if archived_ok and archive_ref:
+            text = t(
+                "engine.worktree.commit_infrastructure_message",
+                prefix=prefix,
+                detail=detail,
+                archive=archive_ref,
+            )
+        else:
+            text = t(
+                "engine.worktree.commit_infrastructure_unarchived",
+                prefix=prefix,
+                detail=detail,
+                path=subtask_wt.worktree_path,
+            )
+        return False, CodedMessage(text, code="gate_infrastructure")
 
     def _log_gate_infrastructure_error(self, task_id: str, detail: str) -> None:
         from meister.logger import log_event
