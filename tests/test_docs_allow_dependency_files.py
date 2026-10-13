@@ -16,9 +16,10 @@ CHANGELOG_PT = ROOT / "CHANGELOG.pt-BR.md"
 EXAMPLE = ROOT / "meister.config.example.yaml"
 
 
-def _unreleased(path: pathlib.Path) -> str:
+def _since_0_9_1(path: pathlib.Path) -> str:
+    """Tudo o que o changelog registra depois da 0.9.1 (a seção [Unreleased] e as versões lançadas desde então)."""
     text = path.read_text(encoding="utf-8")
-    return text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+    return text.split("## [Unreleased]", 1)[1].split("\n## [0.9.1]", 1)[0]
 
 
 @pytest.mark.parametrize("path", [ADVANCED_EN, ADVANCED_PT], ids=lambda p: p.name)
@@ -31,7 +32,7 @@ def test_advanced_guide_documents_option_and_its_limits(path: pathlib.Path) -> N
 
 @pytest.mark.parametrize("path", [CHANGELOG_EN, CHANGELOG_PT], ids=lambda p: p.name)
 def test_changelog_unreleased_mentions_option(path: pathlib.Path) -> None:
-    assert "scope.allow_dependency_files" in _unreleased(path)
+    assert "scope.allow_dependency_files" in _since_0_9_1(path)
 
 
 def test_example_config_shows_option_commented_with_default_false() -> None:

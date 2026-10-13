@@ -8,7 +8,7 @@ O [README](../../README.pt-BR.md#-comece-agora) tem a versão curta: instalar, `
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
 
-O instalador instala o `meister`, confere o seu ambiente e lista o que ainda falta (CLIs de worker, chave do Jev). Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.9.1` (ou `latest`). Você pode rodar o `meister setup` de novo quando quiser: ele não refaz o que já está feito (`--dry-run` mostra o que faria).
+O instalador instala o `meister`, confere o seu ambiente e lista o que ainda falta (CLIs de worker, chave do Jev). Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.10.0` (ou `latest`). Você pode rodar o `meister setup` de novo quando quiser: ele não refaz o que já está feito (`--dry-run` mostra o que faria).
 
 Outras formas de instalar (clone, npm, pip) estão em [Instalação alternativa e comandos avançados](INSTALACAO_E_COMANDOS_AVANCADOS.md). No Windows, use `pipx` ou `pip` (o instalador acima é bash): veja [Windows](INSTALACAO_E_COMANDOS_AVANCADOS.md#windows).
 
