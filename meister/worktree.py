@@ -1576,10 +1576,19 @@ class IntegrationPipeline:
             return prepared
         if not worker_result.passed:
             out = worker_result.output
-            prepared.early = (
-                False,
-                CodedMessage(t("engine.worktree.worker_gate_failed", output=out), code="gate"),
-            )
+            message = t("engine.worktree.worker_gate_failed", output=out)
+            from meister.gate import summarize_gate_failure
+
+            failed_tests = summarize_gate_failure(out)["failed_tests"]
+            if failed_tests:
+                more = f" (+{len(failed_tests) - 3})" if len(failed_tests) > 3 else ""
+                headline = t(
+                    "engine.worktree.worker_gate_failed_tests",
+                    tests=", ".join(failed_tests[:3]),
+                    more=more,
+                )
+                message = f"{headline}\n{message}"
+            prepared.early = (False, CodedMessage(message, code="gate"))
             return prepared
 
         # 3. Commit das alterações no worktree do worker

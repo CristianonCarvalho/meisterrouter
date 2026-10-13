@@ -59,6 +59,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.integration_not_started": "Pipeline de integração não foi inicializado.",
     "engine.worktree.scope_violation": "Violação de escopo no worktree: {files}. Esses arquivos estão fora do escopo desta tarefa. Desfaça as mudanças neles (git checkout -- <arquivo> para os rastreados; apague os novos) e mantenha só os arquivos declarados em **Files:**. Nunca edite o meister.config.yaml; só o dono do projeto o altera. Nota para o dono do projeto: se esses arquivos fazem parte da tarefa, declare-os em **Files:** no plano (aceita glob, ex.: drizzle/*) ou adicione-os a scope.tolerated_files.",
     "engine.worktree.worker_gate_failed": "Portão determinístico falhou no worktree do worker:\n{output}",
+    "engine.worktree.worker_gate_failed_tests": "Testes que falharam: {tests}{more}",
     "engine.worktree.subtask_already_integrated": "Subtarefa {task_id} já integrada anteriormente ({sha}).",
     "engine.worktree.subtask_integrated": "Subtarefa {task_id} integrada com sucesso ({sha}).",
     "engine.worktree.subtask_no_changes": "Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})",
