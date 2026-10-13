@@ -104,6 +104,16 @@ continua em stdout. Use `--quiet` (ou `-q`) para omitir progresso e resumo.
 | Cota do worker esgotada | Automático: abre o disjuntor da via (60 s) e usa a próxima via. Se todas esgotarem, o run falha; reexecute depois. |
 | Jev indisponível (OpenRouter fora do ar ou sem chave) | Automático: usa a primeira via por 5 min sem esperar de novo. Sem chave, `meister config validate` avisa. |
 
+### `scope_conflict`
+O gate reprovou uma mudança porque um teste fora do escopo da tarefa (um arquivo de teste que não está em `**Files:**`) falha com ela. A tarefa termina como `scope_conflict` sem tentativa de reparo, porque o worker de reparo não consegue editar esse teste.
+- **Onde achar o trabalho:** ele fica em `refs/meister/archive/*`. Liste com `git for-each-ref refs/meister/archive/` e veja com `git diff <base>..refs/meister/archive/<ref>`.
+- **O que fazer:** se a mudança no comportamento desse teste for intencional, inclua o arquivo de teste em `**Files:**` no plano e rode `meister orchestrate --plan-file plano.json --resume`.
+
+### Harness morto por sinal
+O processo do harness (por exemplo `copilot` ou `claude`) terminou porque um sinal o matou, não por erro comum. É falha de infraestrutura: o MeisterRouter não sobe para um modelo maior, porque o modelo não falhou.
+- **Causas prováveis:** o sistema ficou sem memória e encerrou o processo (SIGKILL); o terminal ou a tab do Herdr foi fechado (SIGHUP); o harness travou (SIGSEGV ou SIGABRT); alguém executou `kill` nele.
+- **O que fazer:** leia as últimas linhas do log do worker (`meister logs --list` e depois `meister logs`). Se a causa foi memória, feche outros programas e confira o uso de memória. Depois rode o mesmo comando de novo; as tarefas concluídas são puladas.
+
 ## 5. Onde olhar
 - **Eventos:** JSONL em `~/.meister/logs` (ou `MEISTER_LOG_DIR`); `meister replay` reconstrói a linha do tempo. `meister dashboard` abre o painel agrupado por tarefa, com seleção de run, análise filtrável/paginada de eventos e indicação explícita do arquivo lido. Use `meister dashboard --log-dir CAMINHO` para apontar outro diretório. O painel não estima economia sem baseline medido, e custos de workers não registrados aparecem como “não medido”. Eventos úteis: `subtask_reused`/`subtask_not_reused` (retomada), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Relatório de runs:** `meister report --run-id ID` mostra tarefas, custo, fases e overhead; repita `--run-id` para comparar runs. Use `--group A=ID1,ID2` para mediana/mínimo/máximo de um grupo, `--format json|markdown` para exportar ou `--log-dir CAMINHO` para ler outro `orchestration_log.jsonl`. Prefixos de run precisam ter ao menos 6 caracteres; métricas ausentes em logs antigos aparecem como “não medido”. O custo do Copilot vem de créditos × `credit_usd`.

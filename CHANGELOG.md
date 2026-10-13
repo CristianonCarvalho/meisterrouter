@@ -19,6 +19,7 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
   The new `tier_1` lane (GitHub Copilot CLI with Claude Haiku 5.5) is the first choice by default. Model, harness and price stay in configuration (`meister/default_config.yaml` and `meister.config.yaml`), not in the lane name.
 
 ### Added
+- **`plan validate` and `plan analyze` warn about existing tests that cite the task's files.** When a test already in the repository names symbols from a file in a task's `**Files:**`, the plan gets a warning, so you can add that test to `**Files:**` if the task changes its behavior on purpose.
 - **`meister gate`** runs the deterministic verification gate for a project (`--path`), with exit code 0 when it passes, 1 when it fails and 2 on an infrastructure error. The managed pre-commit hook runs it, so the hook and the gate use the same commands.
 - **README GIFs no longer suggest the tool is hard to use.** The live timeline (nothing typed) is now the opening image, and the terminal recordings moved to an "Under the hood" section, one command each, saying that the orchestrator LLM runs them and the user does not type them. The 60-second start spells out that a plain-language request is the whole interface.
 - **README rewritten to make the case for MeisterRouter, with new GIFs.** A new opening, a "what you stop doing" table, a 60-second start, three real terminal recordings (a plan running in parallel, the gate rejecting and repairing a task, the quota fallback) and a sharper live-timeline GIF, in English and Portuguese. Herdr moved out of the main text into its own optional section. The recording kit is in `docs/img/src/` (`record.sh`; the workers are simulated, so it spends no quota).
@@ -52,6 +53,9 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`meister plan import --format auto|markdown`:** the default is now `auto`, which detects a Markdown task plan or a canonical JSON plan; `markdown` is the name of the native format.
 
 ### Fixed
+- **A test outside scope that fails the gate ends the task as `scope_conflict` without spending a repair.** The work is archived in `refs/meister/archive/*`, and the task is not sent to a repair worker that cannot edit that test.
+- **A harness killed by a signal is an infrastructure failure, not a reason to escalate.** A harness process that ends by signal (for example SIGKILL or SIGSEGV) is reported as an infrastructure error and does not move the task to a larger model.
+- **The gate's rejection message starts with the failing tests.** The first lines name the tests that failed, before the rest of the output.
 - **Meister's own commits no longer run Git hooks.** Internal worker and integration commits use `--no-verify`, because the gate already verified them before the commit; a project's pre-commit hook does not reject them.
 - **A git commit failure after a passing gate is an infrastructure error.** It is reported with git's output instead of as a gate failure.
 - **An unexpected exception closes the subtask as `FAILED`.** It no longer leaves the subtask in progress.

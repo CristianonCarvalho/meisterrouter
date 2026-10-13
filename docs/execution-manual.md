@@ -104,6 +104,16 @@ remains on stdout. Use `--quiet` (or `-q`) to omit progress and the summary.
 | Worker quota exhausted | Automatic: the lane's circuit breaker opens (60 s) and uses the next lane. If all are exhausted, the run fails; run it again later. |
 | Jev unavailable (OpenRouter down or no key) | Automatic: uses the first lane for 5 min without retrying. Without a key, `meister config validate` warns. |
 
+### `scope_conflict`
+The gate rejected a change because a test outside the task's scope (a test file not listed in `**Files:**`) fails with it. The task ends as `scope_conflict` without a repair attempt, because the repair worker cannot edit that test.
+- **Find the work:** it is kept in `refs/meister/archive/*`. List it with `git for-each-ref refs/meister/archive/` and view it with `git diff <base>..refs/meister/archive/<ref>`.
+- **What to do:** if the change to that test's behavior is intentional, add the test file to `**Files:**` in the plan, then run `meister orchestrate --plan-file plan.json --resume`.
+
+### Harness killed by a signal
+The harness process (for example `copilot` or `claude`) ended because a signal killed it, not because of a normal error. This is an infrastructure failure: MeisterRouter does not move to a larger model, because the model did not fail.
+- **Likely causes:** the operating system ran out of memory and killed the process (SIGKILL); the terminal or Herdr tab was closed (SIGHUP); the harness crashed (SIGSEGV or SIGABRT); something ran `kill` on it.
+- **What to do:** read the last lines of the worker log (`meister logs --list`, then `meister logs`). If memory was the cause, close other programs and check memory use. Then run the same command again; completed tasks are skipped.
+
 ## 5. Where to look
 - **Events:** JSONL in `~/.meister/logs` (or `MEISTER_LOG_DIR`); `meister replay` reconstructs the timeline. `meister dashboard` opens the task-grouped dashboard, with run selection, filterable/paginated event analysis, and an explicit indication of the file read. Use `meister dashboard --log-dir PATH` to point to another directory. The dashboard does not estimate savings without a measured baseline, and unrecorded worker costs appear as “`não medido` (not measured)”. Useful events: `subtask_reused`/`subtask_not_reused` (resume), `gate_infrastructure_error`, `worktree_setup_ok`/`worktree_setup_failed`.
 - **Run report:** `meister report --run-id ID` shows tasks, cost, phases, and overhead; repeat `--run-id` to compare runs. Use `--group A=ID1,ID2` for the median/minimum/maximum of a group, `--format json|markdown` to export, or `--log-dir PATH` to read another `orchestration_log.jsonl`. Run prefixes must be at least 6 characters; missing metrics in old logs appear as “`não medido` (not measured)”. Copilot cost comes from credits × `credit_usd`.

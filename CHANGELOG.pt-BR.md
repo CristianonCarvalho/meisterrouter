@@ -19,6 +19,7 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
   A nova via `tier_1` (GitHub Copilot CLI com Claude Haiku 5.5) é a primeira escolha por padrão. Modelo, harness e preço continuam na configuração (`meister/default_config.yaml` e `meister.config.yaml`), não no nome da via.
 
 ### Adicionado
+- **`plan validate` e `plan analyze` avisam sobre testes existentes que citam os arquivos da tarefa.** Quando um teste já no repositório cita símbolos de um arquivo de `**Files:**` de uma tarefa, o plano recebe um aviso, para você incluir esse teste em `**Files:**` se a tarefa muda o comportamento dele de propósito.
 - **`meister gate`** roda o gate determinístico de verificação de um projeto (`--path`), com código de saída 0 quando passa, 1 quando reprova e 2 em erro de infraestrutura. O hook de pre-commit gerenciado o executa, então o hook e o gate usam os mesmos comandos.
 - **Os GIFs do README não sugerem mais que a ferramenta é difícil de usar.** A timeline ao vivo (sem nada digitado) virou a imagem de abertura, e as gravações de terminal foram para uma seção "Por baixo dos panos", um comando em cada, dizendo que a LLM orquestradora as roda e que o usuário não digita nada disso. O início em 60 segundos deixa claro que um pedido em linguagem natural é a interface toda.
 - **README reescrito para defender o uso do MeisterRouter, com GIFs novos.** Abertura nova, tabela "o que você deixa de fazer", início em 60 segundos, três gravações reais de terminal (um plano rodando em paralelo, o gate rejeitando e reparando uma tarefa, o fallback de cota) e um GIF mais nítido da timeline ao vivo, em inglês e em português. O Herdr saiu do texto principal para uma seção própria e opcional. O kit de gravação está em `docs/img/src/` (`record.sh`; os workers são simulados, então não gasta cota).
@@ -52,6 +53,9 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **`meister plan import --format auto|markdown`:** o padrão passa a ser `auto`, que detecta um plano de tarefas em Markdown ou um plano JSON canônico; `markdown` é o nome do formato nativo.
 
 ### Corrigido
+- **Teste fora do escopo que reprova o gate encerra a tarefa com `scope_conflict` sem gastar o reparo.** O trabalho fica arquivado em `refs/meister/archive/*`, e a tarefa não vai para um worker de reparo que não pode editar esse teste.
+- **Harness morto por sinal é falha de infraestrutura, não motivo para subir de modelo.** Um processo do harness que termina por sinal (por exemplo SIGKILL ou SIGSEGV) é reportado como erro de infraestrutura e não move a tarefa para um modelo maior.
+- **A mensagem de rejeição do gate começa pelos testes que falharam.** As primeiras linhas nomeiam os testes que falharam, antes do restante da saída.
 - **Os commits do próprio Meister não passam mais pelos hooks do Git.** Os commits internos de workers e de integração usam `--no-verify`, porque o gate já os verificou antes do commit; o hook pre-commit do projeto não os reprova.
 - **Falha de commit do git depois de um gate aprovado é erro de infraestrutura.** Ela é reportada com a saída do git, em vez de como falha do gate.
 - **Exceção inesperada encerra a subtask como `FAILED`.** Ela não fica mais em andamento.
