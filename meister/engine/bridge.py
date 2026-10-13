@@ -141,6 +141,12 @@ def _scope_files(text: str) -> Optional[List[str]]:
     return [str(item) for item in parsed]
 
 
+def _test_file_path(test_id: str) -> str:
+    """Arquivo de um id ``caminho::teste``, com separadores normalizados."""
+    path = str(test_id).split("::", 1)[0].strip()
+    return os.path.normpath(path).replace("\\", "/")
+
+
 def _gate_failure_line(text: str) -> Optional[str]:
     """Primeira linha de falha de ruff, mypy ou pytest; senão a primeira linha não vazia."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -172,6 +178,18 @@ def _lane_fields(tier: Any) -> Dict[str, Any]:
 
 class ResumeRequestError(ValueError):
     """Erro de validação de uma origem explicitamente solicitada para retomada."""
+
+
+def _pane_lost_backoff_seconds(base_backoff: float, retries_used: int) -> float:
+    """Backoff exponencial (teto de 60 s) entre retentativas de infraestrutura."""
+    backoff_exponent = retries_used - 1
+    backoff_cap_exponent = max(
+        0,
+        math.ceil(math.log2(60.0) - math.log2(base_backoff)) if base_backoff > 0 else backoff_exponent,
+    )
+    if base_backoff == 0:
+        return 0.0
+    return min(60.0, math.ldexp(base_backoff, min(backoff_exponent, backoff_cap_exponent)))
 
 
 def is_infrastructure_error(int_err: Any) -> bool:
@@ -2014,6 +2032,98 @@ class HerdrEventBridge:
                         current_tier = next_tier.name
                         continue
 
+                    if prompt_result.get("status") == "error" and prompt_result.get("error_kind") == "signal":
+                        # Harness morto por sinal (ex.: OOM): infraestrutura, retenta na mesma via
+                        # com o orçamento de pane perdido, sem tocar em worker_error e sem escalar.
+                        sig_err = str(prompt_result.get("error", "Harness killed by signal"))[:200]
+                        if pane_lost_retries_used < self.config.retry.pane_lost_attempts:
+                            pane_lost_retries_used += 1
+                            backoff_seconds = _pane_lost_backoff_seconds(
+                                self.config.retry.pane_lost_backoff_seconds, pane_lost_retries_used
+                            )
+                            logger.warning(
+                                "Retrying worker pane for subtask %s on tier %s after signal kill "
+                                "(retry %s/%s)",
+                                task_id,
+                                current_tier,
+                                pane_lost_retries_used,
+                                self.config.retry.pane_lost_attempts,
+                            )
+                            log_event(
+                                event_type="worker_retry",
+                                run_id=active_run_id,
+                                task_id=task_id,
+                                tier=current_tier,
+                                attempt=attempt_count,
+                                reason="signal_killed",
+                                retry=pane_lost_retries_used,
+                                backoff_seconds=backoff_seconds,
+                                error=sig_err,
+                            )
+                            if active_run_id:
+                                sm.unregister_pane(pane_id)
+                            if tab_id:
+                                try:
+                                    await self._require_host().close(self._worker_handle(pane_id, tab_id))
+                                except Exception as e:
+                                    logger.debug("Failed closing worker tab %s: %s", tab_id, e)
+                            elif pane_id:
+                                try:
+                                    await self._require_host().close(self._worker_handle(pane_id))
+                                except Exception as e:
+                                    logger.debug("Failed closing worker pane %s: %s", pane_id, e)
+                            self._quota_events.pop(pane_id, None)
+                            self._exit_events.pop(pane_id, None)
+                            self.active_workers.pop(pane_id, None)
+                            tab_id = None
+                            pane_id = None
+                            await asyncio.sleep(backoff_seconds)
+                            continue
+
+                        err_msg = f"{sig_err} (retentativas esgotadas: {pane_lost_retries_used})"
+                        logger.error(
+                            "Harness killed by signal in worker pane %s (%s): %s. Aborting without tier escalation.",
+                            pane_id,
+                            current_tier,
+                            err_msg,
+                        )
+                        log_event(
+                            event_type="worker_error",
+                            run_id=active_run_id,
+                            task_id=task_id,
+                            attempt=attempt_count,
+                            tier=current_tier,
+                            exit_code=2,
+                            status="infrastructure_error",
+                            error=err_msg,
+                        )
+                        if subtask_wt is not None and self._integration_pipeline is not None:
+                            await asyncio.to_thread(
+                                self._integration_pipeline.wt_mgr.cleanup_worktree,
+                                subtask_wt.task_id,
+                                delete_branch=True,
+                                force=True,
+                                archive_unmerged=True,
+                            )
+                            subtask_wt = None
+                        if active_run_id:
+                            sm.unregister_pane(pane_id)
+                            try:
+                                sm.transition_subtask(subtask_id, to_state=SubtaskState.FAILED, error=err_msg)
+                            except Exception:
+                                pass
+                        if tab_id:
+                            try:
+                                await self._require_host().close(self._worker_handle(pane_id, tab_id))
+                            except Exception:
+                                pass
+                        elif pane_id:
+                            try:
+                                await self._require_host().close(self._worker_handle(pane_id))
+                            except Exception:
+                                pass
+                        return False
+
                     if prompt_result.get("status") == "error":
                         logger.warning("Subtask %s returned error status", task_id)
                         err_text = str(prompt_result.get("error", "Worker returned error status"))[:200]
@@ -2200,9 +2310,22 @@ class HerdrEventBridge:
                             if self.config and hasattr(self.config, "gate"):
                                 max_repair_attempts = getattr(self.config.gate, "repair_attempts", 1)
 
+                            # Teste reprovado fora de target_files: reparar não resolve, então encerra a tarefa.
+                            scope_conflict: Optional[tuple[str, str]] = None
+                            if err_code == "gate" and scope_files and failed_tests:
+                                from meister.worktree import scope_violations
+
+                                tolerated = self.config.scope.tolerated_files if self.config and self.config.scope else None
+                                for test_id in failed_tests:
+                                    test_file = _test_file_path(test_id)
+                                    if scope_violations([test_file], scope_files, tolerated):
+                                        scope_conflict = (test_id, test_file)
+                                        break
+
                             can_repair = (
                                 subtask_wt is not None
                                 and not is_infra_error
+                                and scope_conflict is None
                                 and (err_code in ("gate", "scope") or (err_code is None and reason in ("gate", "scope")))
                                 and (repair_used < max_repair_attempts)
                             )
@@ -2287,6 +2410,14 @@ class HerdrEventBridge:
                             )
                             short_err = int_err.strip()[:200]
                             self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
+                            if scope_conflict is not None:
+                                reason = "scope_conflict"
+                                self.last_failure_reason = t(
+                                    "engine.bridge.scope_conflict",
+                                    task_id=task_id,
+                                    test_id=scope_conflict[0],
+                                    file=scope_conflict[1],
+                                )
                             event_kwargs: Dict[str, Any] = {
                                 "event_type": "subtask_rejected",
                                 "run_id": active_run_id,
@@ -2299,7 +2430,7 @@ class HerdrEventBridge:
                                 "exit_code": 1,
                                 "detail": _event_detail(reason, int_err),
                             }
-                            if reason in ("gate", "scope"):
+                            if reason in ("gate", "scope", "scope_conflict"):
                                 event_kwargs["failed_tests"] = failed_tests
                                 event_kwargs["failure_summary"] = failure_summary
                             log_event(**event_kwargs)

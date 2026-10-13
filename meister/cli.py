@@ -1831,6 +1831,35 @@ def plan_group():
     """Manage canonical orchestration plans (import and validate)."""
 
 
+def _echo_test_collisions(tasks) -> None:
+    """Warn (never fail) about existing tests outside each task's scope that cite its target names."""
+    from meister.plan_analysis import find_test_collisions
+
+    try:
+        collisions = find_test_collisions(tasks, os.getcwd())
+    except Exception as error:
+        logger.debug("Could not check test collisions: %s", error)
+        return
+    max_names = 3
+    for entry in collisions:
+        for collision in entry["collisions"]:
+            unique_names = list(dict.fromkeys(cited["name"] for cited in collision["names"]))
+            if not unique_names:
+                continue
+            shown = ", ".join(f"`{name}`" for name in unique_names[:max_names])
+            if len(unique_names) > max_names:
+                shown += f" (+{len(unique_names) - max_names})"
+            click.echo(
+                t(
+                    "cli.plan.test_collision_warning",
+                    test=collision["test"],
+                    names=shown,
+                    task=entry["task"],
+                ),
+                err=True,
+            )
+
+
 @plan_group.command("validate", help=t("cli.plan.validate.help"))
 @click.argument("plan_json", type=click.Path(exists=True, readable=True))
 def plan_validate(plan_json):
@@ -1853,6 +1882,7 @@ def plan_validate(plan_json):
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
     click.echo(t("cli.plan.valid", count=len(tasks), path=plan_json))
+    _echo_test_collisions(tasks)
 
 
 @plan_group.command("analyze", help=t("cli.plan.analyze.help"))
@@ -1880,6 +1910,7 @@ def plan_analyze(plan_json, max_workers, fmt):
 
     if max_workers is None:
         max_workers = load_config(None).concurrency.max_parallel_workers
+    _echo_test_collisions(tasks)
     analysis = analyze_plan(tasks, max_workers)
     if fmt == "json":
         click.echo(json.dumps(analysis, ensure_ascii=False, indent=2))

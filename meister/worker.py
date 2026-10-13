@@ -46,6 +46,14 @@ class WorkerInfrastructureError(RuntimeError):
     pass
 
 
+class HarnessKilledError(RuntimeError):
+    """Harness morto por sinal (exit code negativo, ex.: -9 SIGKILL): erro de infraestrutura."""
+
+    def __init__(self, message: str, signal_number: int):
+        super().__init__(message)
+        self.signal_number = signal_number
+
+
 # Harness identifiers
 HARNESS_CODEX = "codex"
 HARNESS_ANTIGRAVITY = "antigravity"
@@ -741,6 +749,20 @@ class HarnessWorker:
         print(f"\033[1;36m{'='*68}\033[0m\n")
         sys.stdout.flush()
 
+        if exit_code < 0:
+            signal_number = -exit_code
+            try:
+                signal_name = signal.Signals(signal_number).name
+            except ValueError:
+                signal_name = f"SIG{signal_number}"
+            raise HarnessKilledError(
+                t(
+                    "engine.worker.killed_by_signal",
+                    harness=self.harness,
+                    signal=signal_name,
+                ),
+                signal_number=signal_number,
+            )
         if exit_code != 0:
             raise RuntimeError(f"Harness {self.harness} failed with exit code {exit_code}")
 
@@ -1318,7 +1340,10 @@ def _execute_task_file(
             exit_code=1,
             error=str(e),
         )
-        err_res = _early_error_result(task_id, str(e), worker=worker, model=model)
+        error_kind = "signal" if isinstance(e, HarnessKilledError) else None
+        err_res = _early_error_result(
+            task_id, str(e), worker=worker, model=model, error_kind=error_kind
+        )
         if resolved_res_file:
             write_atomic_json(resolved_res_file, err_res)
         raise
@@ -1329,10 +1354,14 @@ def _early_error_result(
     error: str,
     worker: Optional["HarnessWorker"] = None,
     model: Optional[str] = None,
+    error_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Resultado de erro gravado no result.json; sem worker (falha antes de construí-lo), usa a via da tarefa."""
+    """Resultado de erro gravado no result.json; sem worker (falha antes de construí-lo), usa a via da tarefa.
+
+    ``error_kind`` só entra no resultado quando informado (ex.: ``"signal"`` para harness morto por sinal).
+    """
     if worker is None:
-        return {
+        result: Dict[str, Any] = {
             "task_id": task_id,
             "status": "error",
             "harness": None,
@@ -1343,17 +1372,21 @@ def _early_error_result(
             "exit_code": 1,
             "error": error,
         }
-    return {
-        "task_id": task_id,
-        "status": "error",
-        "harness": worker.harness,
-        "model": worker.resolved_model or "default",
-        "cli": worker.cli_binary,
-        "modified_files": [],
-        "output": "",
-        "exit_code": 1,
-        "error": error,
-    }
+    else:
+        result = {
+            "task_id": task_id,
+            "status": "error",
+            "harness": worker.harness,
+            "model": worker.resolved_model or "default",
+            "cli": worker.cli_binary,
+            "modified_files": [],
+            "output": "",
+            "exit_code": 1,
+            "error": error,
+        }
+    if error_kind is not None:
+        result["error_kind"] = error_kind
+    return result
 
 
 def run_worker_interactive_loop(

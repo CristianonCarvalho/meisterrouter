@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import ast
 import math
 import os
+import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from meister.engine.dag import SubtaskNode, build_subtask_dag
 from meister.i18n import t
+
+_MIN_COLLISION_NAME_LENGTH = 5
+_MAX_COLLISION_TEST_FILES = 3
+_SKIPPED_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".tox"}
 
 
 def _normalized_files(task: Dict[str, Any]) -> Set[str]:
@@ -193,6 +200,88 @@ def analyze_plan(tasks: Sequence[Dict[str, Any]], max_workers: int) -> Dict[str,
         "by_file_estimate": by_file_estimate,
         "warnings": warnings,
     }
+
+
+def _public_top_level_names(source_path: Path) -> List[str]:
+    """Return public top-level function/class names (length >= 5) defined in a Python file."""
+    try:
+        tree = ast.parse(source_path.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return []
+    return [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and not node.name.startswith("_")
+        and len(node.name) >= _MIN_COLLISION_NAME_LENGTH
+    ]
+
+
+def _candidate_test_files(repo_root: Path) -> List[Path]:
+    found: List[Path] = []
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        dirnames[:] = sorted(d for d in dirnames if d not in _SKIPPED_DIRS)
+        for filename in sorted(filenames):
+            if filename.endswith(".py") and (
+                filename.startswith("test_") or filename.endswith("_test.py")
+            ):
+                found.append(Path(dirpath) / filename)
+    return found
+
+
+def find_test_collisions(
+    tasks: Sequence[Dict[str, Any]], repo_root: str
+) -> List[Dict[str, Any]]:
+    """Find existing tests outside each task's scope that cite names the task's Python files define.
+
+    Returns one entry per task with collisions, holding up to three test files and
+    the ``{name, source}`` pairs they cite. Never raises; returns ``[]`` when
+    ``repo_root`` is not a git repository.
+    """
+    root = Path(repo_root)
+    if not (root / ".git").exists():
+        return []
+
+    test_files = _candidate_test_files(root)
+    test_texts: Dict[Path, str] = {}
+    for test_path in test_files:
+        try:
+            test_texts[test_path] = test_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+
+    results: List[Dict[str, Any]] = []
+    for task in tasks:
+        task_files = _normalized_files(task)
+        defined: Dict[str, str] = {}
+        for rel_path in sorted(task_files):
+            if not rel_path.endswith(".py"):
+                continue
+            target = root / rel_path
+            if not target.is_file():
+                continue
+            for name in _public_top_level_names(target):
+                defined.setdefault(name, rel_path)
+        if not defined:
+            continue
+
+        collisions: List[Dict[str, Any]] = []
+        for test_path, text in test_texts.items():
+            if len(collisions) >= _MAX_COLLISION_TEST_FILES:
+                break
+            rel_test = os.path.normpath(os.path.relpath(test_path, root))
+            if rel_test in task_files:
+                continue
+            cited: List[Dict[str, str]] = []
+            for name in sorted(defined):
+                if re.search(rf"\b{re.escape(name)}\b", text):
+                    cited.append({"name": name, "source": defined[name]})
+            if cited:
+                collisions.append({"test": rel_test, "names": cited})
+
+        if collisions:
+            results.append({"task": task["id"], "collisions": collisions})
+    return results
 
 
 def serial_plan_warning(tasks: Sequence[Dict[str, Any]]) -> Optional[str]:

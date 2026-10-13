@@ -59,6 +59,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.integration_not_started": "Integration pipeline has not been initialized.",
     "engine.worktree.scope_violation": "Scope violation in worktree: {files}. These files are outside the scope of this task. Undo your changes to them (git checkout -- <file> for tracked files; delete new files) and keep only the files declared under **Files:**. Never edit meister.config.yaml; only the project owner changes it. Note for the project owner: if these files belong to the task, declare them under **Files:** in the plan (glob patterns accepted, e.g. drizzle/*) or add them to scope.tolerated_files.",
     "engine.worktree.worker_gate_failed": "Deterministic gate failed in worker worktree:\n{output}",
+    "engine.worktree.worker_gate_failed_tests": "Failing tests: {tests}{more}",
     "engine.worktree.subtask_already_integrated": "Subtask {task_id} was already integrated ({sha}).",
     "engine.worktree.subtask_integrated": "Subtask {task_id} integrated successfully ({sha}).",
     "engine.worktree.subtask_no_changes": "Subtask has no changes: the worker did not modify any expected files (target_files={target_files})",
@@ -112,6 +113,9 @@ MESSAGES: dict[str, str] = {
     "engine.worker.changed_files_label": "Changed files:",
     "engine.worker.no_files_changed": "No files changed.",
     "engine.worker.failed": "Harness {harness} execution failed (exit code: {exit_code})",
+    "engine.worker.killed_by_signal": (
+        "Harness {harness} was killed by signal {signal} (likely out of memory or external termination)"
+    ),
     "engine.worker.pane_timeout": "Worker in pane {pane_id} exceeded the {timeout}s timeout while waiting for completion",
     "engine.worker.tab_timeout": "Worker in tab {tab_id} (pane {pane_id}) exceeded the {timeout}s timeout while waiting for completion",
     "engine.worker.pane_exited": "Worker in pane {pane_id} exited prematurely (pane.exited) without producing a result (infrastructure error)",
@@ -130,6 +134,7 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.gate_repair_attempt": "Deterministic gate rejected subtask {task_id} ({reason}). Attempting repair {attempt}/{max}...",
     "engine.bridge.gate_infrastructure_error": "Infrastructure error in deterministic gate for subtask {task_id}: {error}",
     "engine.bridge.integration_failed": "Subtask validation/integration failed for {task_id}: {error}",
+    "engine.bridge.scope_conflict": "Subtask {task_id}: test {test_id} fails in {file}, which is outside target_files. Include it in the plan or adjust the plan. The worker's work was archived in refs/meister/archive/* (see `git for-each-ref refs/meister/archive/`).",
     "engine.bridge.fast_forward_main_failed": "Fast-forward on main failed: {error}",
     "engine.bridge.interrupt_failed": "Failed to send interrupt to pane {pane_id}: {error}",
     "engine.bridge.process_info_failed": "Could not get process_info for pane {pane_id}: {error}",

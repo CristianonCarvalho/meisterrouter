@@ -59,6 +59,7 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.integration_not_started": "Pipeline de integração não foi inicializado.",
     "engine.worktree.scope_violation": "Violação de escopo no worktree: {files}. Esses arquivos estão fora do escopo desta tarefa. Desfaça as mudanças neles (git checkout -- <arquivo> para os rastreados; apague os novos) e mantenha só os arquivos declarados em **Files:**. Nunca edite o meister.config.yaml; só o dono do projeto o altera. Nota para o dono do projeto: se esses arquivos fazem parte da tarefa, declare-os em **Files:** no plano (aceita glob, ex.: drizzle/*) ou adicione-os a scope.tolerated_files.",
     "engine.worktree.worker_gate_failed": "Portão determinístico falhou no worktree do worker:\n{output}",
+    "engine.worktree.worker_gate_failed_tests": "Testes que falharam: {tests}{more}",
     "engine.worktree.subtask_already_integrated": "Subtarefa {task_id} já integrada anteriormente ({sha}).",
     "engine.worktree.subtask_integrated": "Subtarefa {task_id} integrada com sucesso ({sha}).",
     "engine.worktree.subtask_no_changes": "Subtarefa sem alterações: o worker não modificou nenhum arquivo esperado (target_files={target_files})",
@@ -112,6 +113,9 @@ MESSAGES: dict[str, str] = {
     "engine.worker.changed_files_label": "Arquivos alterados:",
     "engine.worker.no_files_changed": "Nenhum arquivo alterado.",
     "engine.worker.failed": "Falha na execução do harness {harness} (exit code: {exit_code})",
+    "engine.worker.killed_by_signal": (
+        "Harness {harness} foi morto pelo sinal {signal} (provavelmente falta de memória ou encerramento externo)"
+    ),
     "engine.worker.pane_timeout": "Worker no pane {pane_id} excedeu o timeout de {timeout}s aguardando conclusão",
     "engine.worker.tab_timeout": "Worker na tab {tab_id} (pane {pane_id}) excedeu o timeout de {timeout}s aguardando conclusão",
     "engine.worker.pane_exited": "Worker no pane {pane_id} encerrou prematuramente (pane.exited) sem gerar resultado (erro de infraestrutura)",
@@ -130,6 +134,7 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.gate_repair_attempt": "O gate determinístico reprovou a subtask {task_id} ({reason}). Tentando reparo {attempt}/{max}...",
     "engine.bridge.gate_infrastructure_error": "Erro de infraestrutura no gate determinístico da subtask {task_id}: {error}",
     "engine.bridge.integration_failed": "Falha na validação/integração da subtask {task_id}: {error}",
+    "engine.bridge.scope_conflict": "Subtask {task_id}: o teste {test_id} falha em {file}, que está fora de target_files. Inclua-o no plano ou ajuste o plano. O trabalho do worker ficou arquivado em refs/meister/archive/* (veja `git for-each-ref refs/meister/archive/`).",
     "engine.bridge.fast_forward_main_failed": "Fast-forward na main falhou: {error}",
     "engine.bridge.interrupt_failed": "Falha ao enviar interrupção para pane {pane_id}: {error}",
     "engine.bridge.process_info_failed": "Não foi possível obter process_info do pane {pane_id}: {error}",

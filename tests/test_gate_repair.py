@@ -309,7 +309,7 @@ async def test_gate_repair_once_then_passes(temp_git_repo: Path, event_collector
     subtask = {
         "id": "task1",
         "description": "Original subtask instruction",
-        "target_files": ["core.py"],
+        "target_files": ["core.py", "tests/test_core.py"],
     }
 
     success = await bridge.execute_subtask(subtask)
@@ -405,7 +405,11 @@ async def test_exhaust_repair_attempts_bounded(temp_git_repo: Path, event_collec
 
     wt_mgr.create_worktree = MagicMock(return_value=subtask_wt)
 
-    subtask = {"id": "task_exhaust", "description": "Fails always", "target_files": ["mod.py"]}
+    subtask = {
+        "id": "task_exhaust",
+        "description": "Fails always",
+        "target_files": ["mod.py", "tests/test_mod.py"],
+    }
     success = await bridge.execute_subtask(subtask)
 
     assert success is False, "Exhausted repairs should result in failure"

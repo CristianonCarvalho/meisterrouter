@@ -97,6 +97,7 @@ Tarefas sem `**Files:**` só entram com `--allow-unscoped` e rodam isoladas, sem
 - **Tarefas pequenas**, cada uma com um resultado testável (um arquivo de código e o seu teste).
 - **Declare todos os arquivos**, inclusive os gerados (lockfiles, `drizzle/*`) ou acrescente-os em
   `scope.tolerated_files`.
+- **Inclua os testes existentes que sua mudança afeta de propósito.** Se a tarefa muda um comportamento que um teste existente verifica, acrescente esse arquivo de teste em `**Files:**`. Senão, o gate reprova a mudança como `scope_conflict`.
 - **Evite sobreposição**: duas tarefas que mexem no mesmo arquivo viram sequenciais.
 - Comandos que geram arquivos (`npm install`, `prisma generate`) fazem o importador avisar se o arquivo
   gerado não está coberto por `Files:` ou pelos arquivos tolerados.
