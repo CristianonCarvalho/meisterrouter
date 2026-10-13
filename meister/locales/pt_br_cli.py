@@ -190,7 +190,7 @@ MESSAGES: dict[str, str] = {
     "cli.orchestrate.invalid_plan": "Erro: plano inválido:",
     "cli.orchestrate.expected_plan_format": "\nFormato esperado: JSON array de objetos com chaves id, description, target_files, depends_on.",
     "cli.orchestrate.serial_plan_warning": "Aviso: {warning} — veja `meister plan analyze`",
-    "cli.plan.test_collision_warning": "Aviso: o teste {test} cita `{name}` de `{source}`, que a tarefa {task} altera; se a tarefa muda esse comportamento, inclua o teste em `target_files`.",
+    "cli.plan.test_collision_warning": "Aviso: o teste {test} cita {names}, que a tarefa {task} altera; se a tarefa muda esse comportamento, inclua o teste em `target_files`.",
     "cli.orchestrate.invalid_task_plan": "Erro: --task não é um plano JSON canônico válido:",
     "cli.orchestrate.allow_freeform_hint": "\nUse --allow-freeform para formatos legados (lista markdown, pipe, texto livre).",
     "cli.common.warning_path": "AVISO [{path}]: {message}",

@@ -1840,19 +1840,24 @@ def _echo_test_collisions(tasks) -> None:
     except Exception as error:
         logger.debug("Could not check test collisions: %s", error)
         return
+    max_names = 3
     for entry in collisions:
         for collision in entry["collisions"]:
-            for cited in collision["names"]:
-                click.echo(
-                    t(
-                        "cli.plan.test_collision_warning",
-                        test=collision["test"],
-                        name=cited["name"],
-                        source=cited["source"],
-                        task=entry["task"],
-                    ),
-                    err=True,
-                )
+            unique_names = list(dict.fromkeys(cited["name"] for cited in collision["names"]))
+            if not unique_names:
+                continue
+            shown = ", ".join(f"`{name}`" for name in unique_names[:max_names])
+            if len(unique_names) > max_names:
+                shown += f" (+{len(unique_names) - max_names})"
+            click.echo(
+                t(
+                    "cli.plan.test_collision_warning",
+                    test=collision["test"],
+                    names=shown,
+                    task=entry["task"],
+                ),
+                err=True,
+            )
 
 
 @plan_group.command("validate", help=t("cli.plan.validate.help"))
