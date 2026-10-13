@@ -62,6 +62,39 @@ def _start_dashboard(project_root: Path, dashboard_config: Any) -> None:
         logger.warning("Could not start the orchestration dashboard launcher: %s", error)
 
 
+def _project_defines_gate_commands(target_dir: str) -> bool:
+    """Indica se o próprio projeto define `gate.commands` em seu meister.config.yaml (ignora padrões)."""
+    import yaml
+
+    for name in ("meister.config.yaml", "meister.config.yml"):
+        path = os.path.join(target_dir, name)
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as config_file:
+                data = yaml.safe_load(config_file) or {}
+            gate_section = data.get("gate") if isinstance(data, dict) else None
+            commands = gate_section.get("commands") if isinstance(gate_section, dict) else None
+            return bool(commands)
+    return False
+
+
+def _warn_if_hook_will_block(target_dir: str) -> None:
+    """Avisa (em en e pt-BR) quando o hook de pre-commit vai reprovar commits; não altera o código de saída."""
+    try:
+        from meister.gate import DeterministicGate
+        from meister.i18n import EN_MESSAGES, PT_BR_MESSAGES
+
+        if _project_defines_gate_commands(target_dir):
+            return
+        gate = DeterministicGate(repo_path=target_dir, config=load_config(cwd=target_dir))
+        if gate.detect_test_runner():
+            return
+        key = "commands.hook.no_test_runner_warning"
+        click.echo(EN_MESSAGES[key])
+        click.echo(PT_BR_MESSAGES[key])
+    except Exception as error:
+        logger.debug("Could not check whether the hook will block commits: %s", error)
+
+
 def _version_string() -> str:
     package_dir = Path(__file__).resolve().parent
     if not (package_dir.parent / ".git").exists():
@@ -249,6 +282,7 @@ def init(target, type_, install_hooks, no_hooks, force):
         if ok_git:
             click.echo(t("cli.init.hook_created", message=msg_git))
             created.append("hook Git pre-commit")
+            _warn_if_hook_will_block(target_dir)
         else:
             click.echo(t("cli.init.hook_skipped", message=msg_git))
             skipped.append("hook Git pre-commit")
@@ -745,6 +779,8 @@ def install_hooks(target, git, claude):
     if git or not claude:
         ok, msg = install_git_hook(target_dir)
         click.echo(f"[{'OK' if ok else t('cli.config.level.error')}] {msg}")
+        if ok:
+            _warn_if_hook_will_block(target_dir)
     if claude:
         ok, msg = install_claude_hook(target_dir)
         click.echo(f"[{'OK' if ok else t('cli.config.level.error')}] {msg}")
