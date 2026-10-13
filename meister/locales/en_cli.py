@@ -190,6 +190,7 @@ MESSAGES: dict[str, str] = {
     "cli.orchestrate.invalid_plan": "Error: invalid plan:",
     "cli.orchestrate.expected_plan_format": "\nExpected format: JSON array of objects with keys id, description, target_files, depends_on.",
     "cli.orchestrate.serial_plan_warning": "Warning: {warning} — see `meister plan analyze`",
+    "cli.plan.test_collision_warning": "Warning: test {test} cites `{name}` from `{source}`, which task {task} changes; if the task changes that behavior, include the test in `target_files`.",
     "cli.orchestrate.invalid_task_plan": "Error: --task is not a valid canonical JSON plan:",
     "cli.orchestrate.allow_freeform_hint": "\nUse --allow-freeform for legacy formats (Markdown list, pipe, free text).",
     "cli.common.warning_path": "WARNING [{path}]: {message}",
