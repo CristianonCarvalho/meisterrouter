@@ -4,6 +4,8 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-10-13
+
 ### Changed (incompatible)
 - **`meister dashboard --host` outside loopback requires `--allow-remote`.** The dashboard has no authentication, and before this any address was accepted silently. Without the flag the command now exits with an error; with it, it prints a warning and starts. Loopback (`127.0.0.1`, `::1`, `localhost`) is unchanged. Anyone who exposes the dashboard on the network must add `--allow-remote`.
 - **Minimum Python is 3.10.** The declared floor was 3.9, which was never tested; `requires-python`, `meister setup` and the CI matrix now all use 3.10, the version CI and mypy already assumed.
