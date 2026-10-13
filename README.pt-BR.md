@@ -41,7 +41,7 @@ meister setup --project
 
 **Essa frase é a interface toda.** A sua LLM conversa com você, escreve o plano e o executa com o Meister: você não digita `meister plan` nem `meister orchestrate`. Quando a run começa, **a timeline ao vivo abre sozinha no seu navegador**: você acompanha cada tarefa em tempo real, com o harness e o modelo que a executam, as fases e o custo (no terminal: `meister timeline`). Commit, push e merge continuam esperando o seu OK.
 
-Você precisa do git e de pelo menos uma CLI de IA que já paga (veja [Pré-requisitos](#-pré-requisitos)). Opções do instalador, a chave do Jev, os comandos à mão e a recuperação de falhas estão no [guia de primeiros passos](docs/pt-BR/PRIMEIROS_PASSOS.md).
+Você precisa do git e de pelo menos uma CLI de IA que já paga (veja [Pré-requisitos](#-pré-requisitos)). Opções do instalador, como atualizar, a chave do Jev, os comandos à mão e a recuperação de falhas estão no [guia de primeiros passos](docs/pt-BR/PRIMEIROS_PASSOS.md).
 
 ## 🧭 Como funciona
 

@@ -20,6 +20,24 @@ echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
 
 **Each project**, once, from inside it: `meister setup --project` (creates `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, the hooks and the guard).
 
+## Update
+
+How you update depends on how you installed. Check the result with `meister --version` (the commit shown is the code in use).
+
+| Installed with | Update with |
+|---|---|
+| The `curl ... install.sh` installer | Run the same command again. It updates the clone in `~/.local/share/meisterrouter` (add `--version latest` or a tag to choose the version). |
+| A clone with `pip install -e .` or `./bin/install.sh` | `git pull` inside the clone. The install is editable, so there is nothing to reinstall (run `pip install -e .` again only if `pyproject.toml` changed its dependencies). |
+| `pipx` (Windows) | `pipx install --force git+https://github.com/CristianonCarvalho/meisterrouter.git` |
+| `pip` | `pip install --upgrade git+https://github.com/CristianonCarvalho/meisterrouter.git` |
+| `npm` | `npm install -g git+https://github.com/CristianonCarvalho/meisterrouter.git` |
+
+After updating:
+
+- **In each project**, run `meister setup --project` again. It does not redo what is already done, and it refreshes the managed pre-commit hook. A hook you edited by hand is kept; `meister init --hooks --force` replaces it.
+- **A run in progress** keeps the code it loaded when it started. The new version applies from the next run.
+- The [CHANGELOG](../CHANGELOG.md) lists what changed in each version.
+
 ## How to use
 
 After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
