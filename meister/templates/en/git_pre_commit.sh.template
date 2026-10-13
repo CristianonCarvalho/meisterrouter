@@ -14,10 +14,18 @@ if [ -z "$DIFF_SUMMARY" ]; then
     exit 0
 fi
 
-# 2. Run automatic test checks if the project supports them
+# Internal worker commits were already verified by the gate before committing.
+if [ -n "${MEISTER_INTERNAL_COMMIT:-}" ]; then
+    exit 0
+fi
+
+# 2. Run the project's deterministic gate when the meister CLI is available
 TEST_RESULT="pass"
 
-if [ -f "package.json" ]; then
+if command -v meister >/dev/null 2>&1; then
+    echo "🔍 [MeisterRouter] Running project gate (meister gate)..."
+    meister gate || TEST_RESULT="fail"
+elif [ -f "package.json" ]; then
     echo "📦 [MeisterRouter] Node/JS project detected. Running quick tests..."
     if grep -q '"test"' package.json; then
         npm test || TEST_RESULT="fail"
