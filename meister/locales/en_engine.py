@@ -69,6 +69,8 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.integration_gate_rollback": "Gate failed during integration after merging {task_id}. Rolling back to {sha}...",
     "engine.worktree.integration_none_active": "No active integration.",
     "engine.worktree.infrastructure_message": "{prefix} {detail}. The worker's code was not rejected; fix the environment and rerun the same command to resume.",
+    "engine.worktree.commit_infrastructure_message": "{prefix} {detail}. The worker's work was not rejected and is preserved in {archive}; fix the environment and rerun the same command.",
+    "engine.worktree.commit_infrastructure_unarchived": "{prefix} {detail}. The worker's work was not rejected, but it could not be archived; the worktree at {path} was kept. Fix the environment and rerun the same command.",
     "engine.worktree.ancestry_none_active": "No active integration to validate ancestry.",
     "engine.worktree.ancestry_violation": "Integrity invariant violated: integrated commit {sha} from subtask '{task_id}' is NOT an ancestor of the integration branch.",
     "engine.worktree.ancestry_valid": "Completed subtask ancestry validated successfully.",

@@ -69,6 +69,8 @@ MESSAGES: dict[str, str] = {
     "engine.worktree.integration_gate_rollback": "Portão falhou na integração após merge de {task_id}. Executando rollback para {sha}...",
     "engine.worktree.integration_none_active": "Nenhuma integração ativa.",
     "engine.worktree.infrastructure_message": "{prefix} {detail}. O código do worker não foi reprovado; corrija o ambiente e rode o mesmo comando para retomar.",
+    "engine.worktree.commit_infrastructure_message": "{prefix} {detail}. O trabalho do worker não foi reprovado e está preservado em {archive}; corrija o ambiente e rode o mesmo comando.",
+    "engine.worktree.commit_infrastructure_unarchived": "{prefix} {detail}. O trabalho do worker não foi reprovado, mas não foi possível arquivá-lo; o worktree {path} foi mantido. Corrija o ambiente e rode o mesmo comando.",
     "engine.worktree.ancestry_none_active": "Nenhuma integração ativa para validar ancestrais.",
     "engine.worktree.ancestry_violation": "Invariante de integridade violada: commit integrado {sha} da subtarefa '{task_id}' NÃO é ancestral da branch de integração.",
     "engine.worktree.ancestry_valid": "Ancestralidade de subtarefas concluídas validada com sucesso.",
