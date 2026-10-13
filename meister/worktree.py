@@ -878,11 +878,16 @@ class WorktreeManager:
                 "GIT_COMMITTER_EMAIL": "meister@localhost",
             })
             self._run_git(["read-tree", "HEAD"], cwd=wt_path, env=env)
-            self._run_git(
-                ["add", "-A", "--", ".", ":(exclude).venv"],
+            add_args = ["add", "-A", "--", "."]
+            venv_ignored = subprocess.run(
+                ["git", "check-ignore", "-q", ".venv"],
                 cwd=wt_path,
-                env=env,
-            )
+                capture_output=True,
+            ).returncode == 0
+            if not venv_ignored:
+                # `git add` rejects an explicit exclusion of an ignored path, so only exclude when not ignored.
+                add_args.append(":(exclude).venv")
+            self._run_git(add_args, cwd=wt_path, env=env)
             tree_sha = self._run_git(["write-tree"], cwd=wt_path, env=env)
             head_tree = self._run_git(["rev-parse", "HEAD^{tree}"], cwd=wt_path)
             if tree_sha == head_tree:
