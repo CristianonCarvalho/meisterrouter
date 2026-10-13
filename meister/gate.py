@@ -935,7 +935,7 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
         if read_tree.returncode != 0:
             return None
         add = subprocess.run(
-            ["git", "add", "-A", "--", ".", ":(exclude).venv"],
+            ["git", "add", "-A"],
             cwd=path,
             capture_output=True,
             text=True,
@@ -945,6 +945,18 @@ def _worktree_tree_hash(path: str) -> Optional[str]:
             env=env,
         )
         if add.returncode != 0:
+            return None
+        remove_venv = subprocess.run(
+            ["git", "rm", "-r", "--cached", "-q", "--ignore-unmatch", "--", ".venv", "venv"],
+            cwd=path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+            env=env,
+        )
+        if remove_venv.returncode != 0:
             return None
         write_tree = subprocess.run(
             ["git", "write-tree"],
