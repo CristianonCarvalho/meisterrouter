@@ -141,6 +141,12 @@ def _scope_files(text: str) -> Optional[List[str]]:
     return [str(item) for item in parsed]
 
 
+def _test_file_path(test_id: str) -> str:
+    """Arquivo de um id ``caminho::teste``, com separadores normalizados."""
+    path = str(test_id).split("::", 1)[0].strip()
+    return os.path.normpath(path).replace("\\", "/")
+
+
 def _gate_failure_line(text: str) -> Optional[str]:
     """Primeira linha de falha de ruff, mypy ou pytest; senão a primeira linha não vazia."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -2200,9 +2206,22 @@ class HerdrEventBridge:
                             if self.config and hasattr(self.config, "gate"):
                                 max_repair_attempts = getattr(self.config.gate, "repair_attempts", 1)
 
+                            # Teste reprovado fora de target_files: reparar não resolve, então encerra a tarefa.
+                            scope_conflict: Optional[tuple[str, str]] = None
+                            if err_code == "gate" and scope_files and failed_tests:
+                                from meister.worktree import scope_violations
+
+                                tolerated = self.config.scope.tolerated_files if self.config and self.config.scope else None
+                                for test_id in failed_tests:
+                                    test_file = _test_file_path(test_id)
+                                    if scope_violations([test_file], scope_files, tolerated):
+                                        scope_conflict = (test_id, test_file)
+                                        break
+
                             can_repair = (
                                 subtask_wt is not None
                                 and not is_infra_error
+                                and scope_conflict is None
                                 and (err_code in ("gate", "scope") or (err_code is None and reason in ("gate", "scope")))
                                 and (repair_used < max_repair_attempts)
                             )
@@ -2287,6 +2306,14 @@ class HerdrEventBridge:
                             )
                             short_err = int_err.strip()[:200]
                             self.last_failure_reason = f"Subtask {task_id} rejected: {reason} ({short_err})"
+                            if scope_conflict is not None:
+                                reason = "scope_conflict"
+                                self.last_failure_reason = t(
+                                    "engine.bridge.scope_conflict",
+                                    task_id=task_id,
+                                    test_id=scope_conflict[0],
+                                    file=scope_conflict[1],
+                                )
                             event_kwargs: Dict[str, Any] = {
                                 "event_type": "subtask_rejected",
                                 "run_id": active_run_id,
@@ -2299,7 +2326,7 @@ class HerdrEventBridge:
                                 "exit_code": 1,
                                 "detail": _event_detail(reason, int_err),
                             }
-                            if reason in ("gate", "scope"):
+                            if reason in ("gate", "scope", "scope_conflict"):
                                 event_kwargs["failed_tests"] = failed_tests
                                 event_kwargs["failure_summary"] = failure_summary
                             log_event(**event_kwargs)

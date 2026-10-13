@@ -90,7 +90,7 @@ async def _run_rejected_subtask(repo: Path, label: str, merge_results: list[Any]
     wt_mgr.create_worktree = MagicMock(return_value=subtask_wt)
 
     return await bridge.execute_subtask(
-        {"id": "task1", "description": f"Test {label}", "target_files": ["app.py"]}
+        {"id": "task1", "description": f"Test {label}", "target_files": ["app.py", "tests/test_x.py"]}
     )
 
 
