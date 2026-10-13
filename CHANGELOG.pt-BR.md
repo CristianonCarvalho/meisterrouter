@@ -71,6 +71,10 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - Um worker que falha ao iniciar por erro de configuração (ex.: `Unknown lane`) passa a gravar o resultado de erro e registrar `worker_task_error` imediatamente, em vez de esperar o timeout de inatividade de 600 s e escalar para outra via.
 - O Jev passa a receber chaves opacas das vias (`lane_a`, `lane_b`...) em vez dos nomes: nomes como `tier_N` faziam o Jev ler ranking e escolher uma via mais cara. A resposta é traduzida de volta para o nome real da via, então `recommended_implementer`, `fallback_chain` e a telemetria continuam com os nomes reais.
 
+- **Um symlink `.venv` ou `venv` deixa de contar como mudança e de entrar em commit.** A detecção de mudanças e os commits ignoram o ambiente virtual do projeto quando ele é um link simbólico.
+- **O cálculo da árvore do gate funciona com `.venv` ignorado.** O hash da árvore usado no cache do gate não falha mais quando o `.venv` está ignorado pelo git.
+- **`worker_timeout` traz `output_tail`, e `meister logs` mostra a saída do worker com o Herdr.** O evento inclui as últimas linhas da saída do worker; com o Herdr, essa saída só é gravada em arquivo quando ocorre um timeout.
+
 ### Outras alterações
 - O motor (`bridge`, `workers`, `dag`, `events`) passou de `meister/herdr/` para `meister/engine/`; `meister/herdr/` fica só com o que é do Herdr. Os caminhos antigos `meister.herdr.bridge|workers|dag|events` continuam por compatibilidade (mesmos objetos de módulo), então imports e patches existentes seguem funcionando.
 - **O superpowers é opcional.** O README, a página do formato do plano, os modelos do `init` e o `CLAUDE.md` deste repositório apresentam primeiro o fluxo nativo (`plan guide`, `plan new`, `plan import`, `plan validate`, `orchestrate`) e a skill do superpowers como "se você usa". O formato do plano é o mesmo: `--format superpowers` continua valendo, sem aviso de obsolescência, e dá o mesmo resultado que `markdown`.

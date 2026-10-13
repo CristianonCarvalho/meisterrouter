@@ -387,6 +387,8 @@ meister logs --log-dir /path/to/logs
 ```
 Worker logs are files named `<run>_<task>_<attempt>.log` in `<log_dir>/workers/`, where `<log_dir>` is `.meister/logs` in the project (or `MEISTER_LOG_DIR`, or `--log-dir`). `--run-id` takes a prefix of at least 6 characters; `--task` is the exact task id; `--lines`/`-n` sets how many lines to show (default 50). `--list` and `--follow` cannot be combined. The command only reads files. It exits with code `2` when the directory has no logs, or when the run or task is not found or the prefix is ambiguous.
 
+With Herdr, the worker's output stays in its pane and is written to a log file only when the worker times out. After a timeout, read it with `meister logs --run-id <run> --task <task>`, or open `<log_dir>/workers/`; the `worker_timeout` event in the run's log also carries the last lines of output (`output_tail`). To follow a worker that is still running, look at its pane.
+
 ---
 
 ## Clean up old branches (`clean`)
@@ -631,7 +633,7 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
   `meister.config.example.yaml`. It replaces the full gate only before and after a merge; the final integration
   gate always runs the full checks. A failure that only the full gate would catch is therefore reported at the
   final gate and fails the entire run, rather than rejecting an individual task.
-- `scope.tolerated_files`: tolerated files outside `target_files` (the list replaces the default). Each changed tolerated file emits a `scope_tolerated` event and a progress line. This repository tolerates `tests/**`; the full test suite must still pass.
+- `scope.tolerated_files`: tolerated files outside `target_files` (the list replaces the default). Each changed tolerated file emits a `scope_tolerated` event and a progress line. This repository tolerates `tests/**`; the full test suite must still pass. `.venv` no longer needs to be listed here: a virtual environment, directory or symlink, is ignored by change detection and by commits.
 - `scope.allow_dependency_files` (default `false`): when `true`, a task may also edit the files declared in the `target_files` of the tasks it depends on, directly or transitively (`depends_on`); those tasks are already integrated before it starts, so there is no race with parallel work. It does not open anything else: files of tasks it does not depend on stay blocked, the strict scope check still rejects them, and tasks without `target_files` stay unscoped. It never opens `meister.config.yaml`: the worker must never edit it, so do not list it in any task's `Files:` (with this option on, a file declared by an ancestor becomes editable by its dependents). With `false`, scope is exactly as before.
 - `gate.cache` (default `true`): the gate caches only successful passes, by code content and commands, and does not repeat
   an identical check; `gate.cache: false` disables it.
