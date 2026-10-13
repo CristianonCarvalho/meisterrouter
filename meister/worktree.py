@@ -442,9 +442,11 @@ class WorktreeManager:
         env.setdefault("GIT_AUTHOR_EMAIL", "bot@meisterrouter.dev")
         env.setdefault("GIT_COMMITTER_NAME", "MeisterRouter")
         env.setdefault("GIT_COMMITTER_EMAIL", "bot@meisterrouter.dev")
+        env["MEISTER_INTERNAL_COMMIT"] = "1"
 
+        # Commits internos do Meister não disparam hooks do repositório (ex.: pre-commit do usuário).
         subprocess.run(
-            ["git", "commit", "-m", message],
+            ["git", "commit", "--no-verify", "-m", message],
             cwd=worktree_path,
             capture_output=True,
             text=True,
