@@ -130,6 +130,7 @@ MESSAGES: dict[str, str] = {
     "engine.bridge.gate_repair_attempt": "O gate determinístico reprovou a subtask {task_id} ({reason}). Tentando reparo {attempt}/{max}...",
     "engine.bridge.gate_infrastructure_error": "Erro de infraestrutura no gate determinístico da subtask {task_id}: {error}",
     "engine.bridge.integration_failed": "Falha na validação/integração da subtask {task_id}: {error}",
+    "engine.bridge.scope_conflict": "Subtask {task_id}: o teste {test_id} falha em {file}, que está fora de target_files. Inclua-o no plano ou ajuste o plano. O trabalho do worker ficou arquivado em refs/meister/archive/* (veja `git for-each-ref refs/meister/archive/`).",
     "engine.bridge.fast_forward_main_failed": "Fast-forward na main falhou: {error}",
     "engine.bridge.interrupt_failed": "Falha ao enviar interrupção para pane {pane_id}: {error}",
     "engine.bridge.process_info_failed": "Não foi possível obter process_info do pane {pane_id}: {error}",
