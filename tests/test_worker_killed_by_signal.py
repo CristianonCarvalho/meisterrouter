@@ -7,7 +7,6 @@ Bridge: resultados com error_kind="signal" usam o orçamento de pane perdido, se
 from __future__ import annotations
 
 import asyncio
-import os
 import stat
 import subprocess
 import sys
