@@ -23,48 +23,25 @@ You keep your premium model for what it is good at: thinking. The cheaper lanes 
 | Waiting for the quota to come back | A fallback chain moves the task to the next lane, with rate-limit and circuit-breaker handling. |
 | Wondering where the time and money went | A live timeline and dashboard with per-task cost, phases and escalations. |
 
-## ⚡ In 60 seconds
+## 🚀 Get started
+
+Two commands, then just talk.
 
 ```bash
-# 1. install (macOS or Linux; Windows: see below)
+# 1. Install (macOS or Linux; Windows: see the guide)
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 
-# 2. in your project, once
+# 2. In your project, once
 meister setup --project
-
-# 3. open your orchestrator LLM (for example Claude Code) and ask in plain language:
-#    "I want a date filter on the orders screen"
 ```
 
-**That sentence is the whole interface.** Your orchestrator LLM talks to you, writes the plan, and runs it with Meister. You do not type `meister plan` or `meister orchestrate`: `meister setup --project` teaches it to use them (details in [How to use](#-how-to-use)).
+**3. Open your orchestrator LLM** (for example Claude Code) and say what you want:
 
-## 🔍 Under the hood
+> *"I want a date filter on the orders screen"*
 
-These recordings show what your orchestrator LLM runs for you. **You do not type any of it.** The workers are simulated, so the demos are fast and spend no quota; the orchestration, worktrees, gate, fallback and merge are the real thing.
+**That sentence is the whole interface.** Your LLM talks to you, writes the plan and runs it with Meister: you do not type `meister plan` or `meister orchestrate`. When the run starts, **the live timeline opens in your browser by itself**: you follow every task in real time, with the harness and model running it, its phases and its cost (in the terminal: `meister timeline`). Commit, push and merge still wait for your OK.
 
-### Parallel by default, merged only at the end
-
-Tasks 1 and 2 share no files, so they run together. Task 3 depends on both and waits. `main` moves only after everything passed.
-
-![Three tasks: two run in parallel, the third after both, then merged into main](docs/img/parallel.gif)
-
-### The gate decides, not the agent
-
-The worker's first attempt has a bug. The gate catches it before anything is integrated, the task is repaired automatically, and only the passing version reaches `main`.
-
-![The deterministic gate rejects a task, the task is repaired automatically and then integrated](docs/img/gate.gif)
-
-### Quota ran out? The next lane takes over
-
-![The first lane runs out of quota in the middle of a task and the next lane finishes it](docs/img/fallback.gif)
-
-### The dashboard
-
-`meister dashboard` (at `http://localhost:5050`) adds per-run metrics, cost, overhead and the task table:
-
-![Web dashboard with the metrics and tasks of a run](docs/img/dashboard-web.png)
-
-<sub>The dashboard image also uses a demo run (synthetic data).</sub>
+You need git and at least one AI CLI you already pay for (see [Prerequisites](#-prerequisites)). Installer options, the Jev key, running the commands by hand and recovering from failures are in the [Getting started guide](docs/getting-started.md).
 
 ## 🧭 How it works
 
@@ -96,49 +73,6 @@ The only non-deterministic piece is **Jev** (through OpenRouter), an optional ro
 | **Recommended** | An orchestrator LLM with planning, for example **Claude Code** | It talks to you, writes the plan in the [plan format](docs/plan-format.md) (`meister plan guide` and `meister plan new` give it the rules and a skeleton) and triggers Meister. If you use the [Superpowers](https://github.com/obra/superpowers) skill, its plans already follow that format. |
 | **Optional** | An OpenRouter API key | Only **Jev** uses it (picks the lane for each task). Without it, set `router: {mode: first}`. |
 | **Optional** | [Herdr](#-herdr-optional-watch-the-workers-live) or tmux | To watch each worker live, in its own tab. |
-
-## 🚀 Install
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
-```
-The installer installs `meister`, checks your environment and lists what is still missing (worker CLIs, Jev key). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.9.1` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
-
-**The Jev key** (optional, once; only Jev uses OpenRouter, the workers run on your own subscriptions):
-```bash
-echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
-```
-**Each project**, once, from inside it: `meister setup --project` (creates `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, the hooks and the guard).
-
-Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](docs/advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](docs/advanced.md#windows).
-
-## 🔧 How to use
-
-After `meister setup --project`, the project has the rules and hooks that **teach your orchestrator LLM to use Meister**. You do not type `meister plan` or `meister orchestrate`:
-
-1. **Open your orchestrator LLM** (Claude Code or Codex) in the project.
-2. **Ask in plain language**, for example: *"I want a date filter on the orders screen"*. It talks to you, designs the solution and writes the plan: it reads the rules with `meister plan guide` and starts from `meister plan new` (or, if you use the Superpowers skill, from the skill's plan).
-3. **It does the rest**: imports and validates the plan, then runs it with Meister. `CLAUDE.md` and the prompt hook (`UserPromptSubmit`) tell it that the execution method is always Meister, and the **guard** (`PreToolUse`) refuses any direct code edit, so it delegates.
-4. **You follow along** with the timeline and the dashboard:
-```bash
-meister timeline      # live Gantt of tasks and phases
-meister dashboard     # metrics, cost and tasks at http://localhost:5050
-meister logs -f       # follow the run log
-meister wait --run-id <id>   # block until the run ends (exit code tells how it went)
-```
-5. **It reviews the evidence** (tests, diff) and wraps up. Commit, push and merge still depend on your approval.
-
-If Meister is unavailable, the LLM asks before implementing by other means. If a run fails, ask it to run again: tasks already completed are skipped (what to do for each failure is in the [execution manual](docs/execution-manual.md)).
-
-Want to review or write a plan by hand, or run the commands yourself? The native flow is:
-```bash
-meister plan guide                         # the format rules
-meister plan new -o plano.md               # an empty plan with N tasks (--tasks N)
-meister plan import plano.md -o plano.json
-meister plan validate plano.json
-meister orchestrate --plan-file plano.json
-```
-See the [plan format](docs/plan-format.md) and the [advanced commands](docs/advanced.md).
 
 ## 🎯 Choose the models and their order
 
@@ -194,6 +128,34 @@ Effort values per harness:
 | `codex` | minimal, low, medium, high, xhigh |
 | `kiro-cli` | low, medium, high, xhigh, max (the model must support it) |
 
+## 🔍 Under the hood
+
+These recordings show what your orchestrator LLM runs for you. **You do not type any of it.** The workers are simulated, so the demos are fast and spend no quota; the orchestration, worktrees, gate, fallback and merge are the real thing.
+
+### Parallel by default, merged only at the end
+
+Tasks 1 and 2 share no files, so they run together. Task 3 depends on both and waits. `main` moves only after everything passed.
+
+![Three tasks: two run in parallel, the third after both, then merged into main](docs/img/parallel.gif)
+
+### The gate decides, not the agent
+
+The worker's first attempt has a bug. The gate catches it before anything is integrated, the task is repaired automatically, and only the passing version reaches `main`.
+
+![The deterministic gate rejects a task, the task is repaired automatically and then integrated](docs/img/gate.gif)
+
+### Quota ran out? The next lane takes over
+
+![The first lane runs out of quota in the middle of a task and the next lane finishes it](docs/img/fallback.gif)
+
+### The dashboard
+
+`meister dashboard` (at `http://localhost:5050`) adds per-run metrics, cost, overhead and the task table:
+
+![Web dashboard with the metrics and tasks of a run](docs/img/dashboard-web.png)
+
+<sub>The dashboard image also uses a demo run (synthetic data).</sub>
+
 ## 💻 Herdr (optional): watch the workers live
 
 [Herdr](https://herdr.dev) is a terminal workspace manager. MeisterRouter does not need it, but it can run as a Herdr plugin: each worker then opens in a **visible tab**, and shortcuts open the dashboard and the timeline as popups.
@@ -217,6 +179,7 @@ To use it, install Herdr (`curl -fsSL https://herdr.dev/install.sh | sh`) and ru
 
 ## 📚 More documentation
 
+- [Getting started](docs/getting-started.md): install options, the Jev key, how a session goes step by step, and running the commands by hand.
 - [Plan format](docs/plan-format.md): how to write or review a plan (`plan guide`, `plan new`; Superpowers is optional), dependencies and parallelism.
 - [Alternative install and advanced commands](docs/advanced.md): other ways to install, shortcuts by hand, `plan`/`orchestrate` by hand, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, dashboard and timeline options, advanced configuration, tests and project layout.
 - [Diagrams](docs/diagrams.md): components, sequence and flows.

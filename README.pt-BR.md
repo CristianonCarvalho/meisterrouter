@@ -2,7 +2,7 @@
 
 🌐 [English](README.md) · **Português (Brasil)**
 
-### Entregue um plano aos seus agentes de IA. Volte para um código já testado e integrado.
+### Entregue um plano aos seus agentes de IA. Quando voltar, o código já estará testado e integrado.
 
 O **MeisterRouter** (`meister`) divide um plano em tarefas e as executa **em paralelo** nas CLIs de IA que você já paga: **GitHub Copilot, Claude, Codex, Gemini e Kiro**. Cada tarefa trabalha no seu próprio worktree do git, e nada chega à `main` até que um **gate determinístico** (os seus testes e linters, não a opinião do agente) diga que passou. Tarefa rejeitada é reparada automaticamente. Quando uma assinatura fica sem cota, a seguinte assume.
 
@@ -23,48 +23,25 @@ Você guarda o seu modelo premium para o que ele faz de melhor: pensar. As vias 
 | Esperar a cota voltar | Uma cadeia de fallback passa a tarefa para a via seguinte, com tratamento de rate limit e circuit breaker. |
 | Não saber onde foram o tempo e o dinheiro | Timeline e dashboard ao vivo, com custo por tarefa, fases e escalonamentos. |
 
-## ⚡ Em 60 segundos
+## 🚀 Comece agora
+
+Dois comandos, e depois é só conversar.
 
 ```bash
-# 1. instale (macOS ou Linux; Windows: veja abaixo)
+# 1. Instale (macOS ou Linux; Windows: veja o guia)
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 
-# 2. no seu projeto, uma vez
+# 2. No seu projeto, uma vez
 meister setup --project
-
-# 3. abra a sua LLM orquestradora (por exemplo o Claude Code) e peça em linguagem natural:
-#    "quero um filtro por data na tela de pedidos"
 ```
 
-**Essa frase é a interface toda.** A sua LLM orquestradora conversa com você, escreve o plano e o executa com o Meister. Você não digita `meister plan` nem `meister orchestrate`: o `meister setup --project` a ensina a usá-los (detalhes em [Como usar](#-como-usar)).
+**3. Abra a sua LLM orquestradora** (por exemplo o Claude Code) e diga o que você quer:
 
-## 🔍 Por baixo dos panos
+> *"quero um filtro por data na tela de pedidos"*
 
-Estas gravações mostram o que a sua LLM orquestradora roda por você. **Você não digita nada disso.** Os workers são simulados, então as demonstrações são rápidas e não gastam cota; a orquestração, os worktrees, o gate, o fallback e a integração são os de verdade.
+**Essa frase é a interface toda.** A sua LLM conversa com você, escreve o plano e o executa com o Meister: você não digita `meister plan` nem `meister orchestrate`. Quando a run começa, **a timeline ao vivo abre sozinha no seu navegador**: você acompanha cada tarefa em tempo real, com o harness e o modelo que a executam, as fases e o custo (no terminal: `meister timeline`). Commit, push e merge continuam esperando o seu OK.
 
-### Paralelo por padrão, integrado só no fim
-
-As tarefas 1 e 2 não compartilham arquivos, então rodam juntas. A tarefa 3 depende das duas e espera. A `main` só avança depois que tudo passou.
-
-![Três tarefas: duas rodam em paralelo, a terceira depois das duas, e então a integração na main](docs/img/parallel-pt-BR.gif)
-
-### Quem decide é o gate, não o agente
-
-A primeira tentativa do worker tem um bug. O gate o pega antes de qualquer integração, a tarefa é reparada automaticamente e só a versão que passa chega à `main`.
-
-![O gate determinístico rejeita uma tarefa, ela é reparada automaticamente e então integrada](docs/img/gate-pt-BR.gif)
-
-### A cota acabou? A próxima via assume
-
-![A primeira via fica sem cota no meio de uma tarefa e a via seguinte a conclui](docs/img/fallback-pt-BR.gif)
-
-### O dashboard
-
-O `meister dashboard` (em `http://localhost:5050`) acrescenta métricas por run, custo, overhead e a tabela de tarefas:
-
-![Dashboard web com as métricas e as tarefas de uma run](docs/img/dashboard-web.png)
-
-<sub>A imagem do dashboard também usa uma run de demonstração (dados sintéticos).</sub>
+Você precisa do git e de pelo menos uma CLI de IA que já paga (veja [Pré-requisitos](#-pré-requisitos)). Opções do instalador, a chave do Jev, os comandos à mão e a recuperação de falhas estão no [guia de primeiros passos](docs/pt-BR/PRIMEIROS_PASSOS.md).
 
 ## 🧭 Como funciona
 
@@ -96,49 +73,6 @@ O único componente não determinístico é o **Jev** (via OpenRouter), um rotea
 | **Recomendado** | Uma LLM orquestradora com planejamento, por exemplo o **Claude Code** | Ela conversa com você, escreve o plano no [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) (o `meister plan guide` e o `meister plan new` dão a ela as regras e um esqueleto) e aciona o Meister. Se você usa a skill [Superpowers](https://github.com/obra/superpowers), os planos dela já seguem esse formato. |
 | **Opcional** | Uma chave da API do OpenRouter | Só o **Jev** a usa (escolhe a via de cada tarefa). Sem ela, use `router: {mode: first}`. |
 | **Opcional** | [Herdr](#-herdr-opcional-acompanhe-os-workers-ao-vivo) ou tmux | Para ver cada worker ao vivo, na sua própria aba. |
-
-## 🚀 Instalação
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
-```
-O instalador instala o `meister`, confere o seu ambiente e lista o que ainda falta (CLIs de worker, chave do Jev). Para fixar uma versão (tag) em vez da `main`: `... | bash -s -- --version v0.9.1` (ou `latest`). Você pode rodar o `meister setup` de novo quando quiser: ele não refaz o que já está feito (`--dry-run` mostra o que faria).
-
-**A chave do Jev** (opcional, uma vez; só o Jev usa o OpenRouter, os workers rodam nas suas próprias assinaturas):
-```bash
-echo 'OPENROUTER_API_KEY=sk-or-v1-...' >> ~/.meister/.env
-```
-**Cada projeto**, uma vez, de dentro dele: `meister setup --project` (cria `CLAUDE.md`, `CODEX.md`, `AGENTS.md`, os hooks e o guard).
-
-Outras formas de instalar (clone, npm, pip) estão em [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md). No Windows, use `pipx` ou `pip` (o instalador acima é bash): veja [Windows](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#windows).
-
-## 🔧 Como usar
-
-Depois do `meister setup --project`, o projeto tem as regras e os hooks que **ensinam a sua LLM orquestradora a usar o Meister**. Você não digita `meister plan` nem `meister orchestrate`:
-
-1. **Abra a sua LLM orquestradora** (Claude Code ou Codex) no projeto.
-2. **Peça em linguagem natural**, por exemplo: *"quero um filtro por data na tela de pedidos"*. Ela conversa com você, desenha a solução e escreve o plano: lê as regras com `meister plan guide` e parte do `meister plan new` (ou, se você usa a skill Superpowers, do plano da skill).
-3. **Ela faz o resto**: importa e valida o plano, e então o executa com o Meister. O `CLAUDE.md` e o hook de prompt (`UserPromptSubmit`) dizem que o método de execução é sempre o Meister, e o **guard** (`PreToolUse`) recusa qualquer edição direta de código, então ela delega.
-4. **Você acompanha** pela timeline e pelo dashboard:
-```bash
-meister timeline      # Gantt ao vivo de tarefas e fases
-meister dashboard     # métricas, custo e tarefas em http://localhost:5050
-meister logs -f       # acompanha o log da run
-meister wait --run-id <id>   # bloqueia até a run terminar (o código de saída diz como foi)
-```
-5. **Ela revisa as evidências** (testes, diff) e conclui. Commit, push e merge continuam dependendo da sua aprovação.
-
-Se o Meister estiver indisponível, a LLM pergunta antes de implementar por outro meio. Se uma run falhar, peça para rodar de novo: as tarefas já concluídas são puladas (o que fazer em cada falha está no [manual de execução](docs/pt-BR/MANUAL_DE_EXECUCAO.md)).
-
-Quer revisar ou escrever um plano à mão, ou rodar os comandos você mesmo? O fluxo nativo é:
-```bash
-meister plan guide                         # as regras do formato
-meister plan new -o plano.md               # um plano vazio com N tarefas (--tasks N)
-meister plan import plano.md -o plano.json
-meister plan validate plano.json
-meister orchestrate --plan-file plano.json
-```
-Veja o [formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md) e os [comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md).
 
 ## 🎯 Escolha os modelos e a ordem deles
 
@@ -194,6 +128,34 @@ Valores de esforço por harness:
 | `codex` | minimal, low, medium, high, xhigh |
 | `kiro-cli` | low, medium, high, xhigh, max (o modelo precisa suportar) |
 
+## 🔍 Por baixo dos panos
+
+Estas gravações mostram o que a sua LLM orquestradora roda por você. **Você não digita nada disso.** Os workers são simulados, então as demonstrações são rápidas e não gastam cota; a orquestração, os worktrees, o gate, o fallback e a integração são os de verdade.
+
+### Paralelo por padrão, integrado só no fim
+
+As tarefas 1 e 2 não compartilham arquivos, então rodam juntas. A tarefa 3 depende das duas e espera. A `main` só avança depois que tudo passou.
+
+![Três tarefas: duas rodam em paralelo, a terceira depois das duas, e então a integração na main](docs/img/parallel-pt-BR.gif)
+
+### Quem decide é o gate, não o agente
+
+A primeira tentativa do worker tem um bug. O gate o pega antes de qualquer integração, a tarefa é reparada automaticamente e só a versão que passa chega à `main`.
+
+![O gate determinístico rejeita uma tarefa, ela é reparada automaticamente e então integrada](docs/img/gate-pt-BR.gif)
+
+### A cota acabou? A próxima via assume
+
+![A primeira via fica sem cota no meio de uma tarefa e a via seguinte a conclui](docs/img/fallback-pt-BR.gif)
+
+### O dashboard
+
+O `meister dashboard` (em `http://localhost:5050`) acrescenta métricas por run, custo, overhead e a tabela de tarefas:
+
+![Dashboard web com as métricas e as tarefas de uma run](docs/img/dashboard-web.png)
+
+<sub>A imagem do dashboard também usa uma run de demonstração (dados sintéticos).</sub>
+
 ## 💻 Herdr (opcional): acompanhe os workers ao vivo
 
 O [Herdr](https://herdr.dev) é um gerenciador de espaços de trabalho de terminal. O MeisterRouter não precisa dele, mas pode rodar como plugin do Herdr: cada worker abre então numa **aba visível**, e atalhos abrem o dashboard e a timeline como popups.
@@ -217,6 +179,7 @@ Para usar, instale o Herdr (`curl -fsSL https://herdr.dev/install.sh | sh`) e ro
 
 ## 📚 Mais documentação
 
+- [Primeiros passos](docs/pt-BR/PRIMEIROS_PASSOS.md): opções de instalação, a chave do Jev, uma sessão passo a passo e os comandos à mão.
 - [Formato do plano](docs/pt-BR/FORMATO_DO_PLANO.md): como escrever ou revisar um plano (`plan guide`, `plan new`; o Superpowers é opcional), dependências e paralelismo.
 - [Instalação alternativa e comandos avançados](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md): outras formas de instalar, atalhos à mão, `plan`/`orchestrate` à mão, `init`/guard, `classify`, `control`, `worker`, `clean`, `--resume`, opções do dashboard e da timeline, configuração avançada, testes e estrutura do projeto.
 - [Diagramas](docs/pt-BR/DIAGRAMAS.md): componentes, sequência e fluxos.

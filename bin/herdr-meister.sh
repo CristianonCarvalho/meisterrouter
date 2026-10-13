@@ -36,7 +36,7 @@ fi
 
 printf "MeisterRouter: the 'meister' CLI was not found. The plugin needs it. Install it with:\n" >&2
 printf "curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash\n" >&2
-printf "(see https://github.com/CristianonCarvalho/meisterrouter#-install)\n" >&2
+printf "(see https://github.com/CristianonCarvalho/meisterrouter#-get-started)\n" >&2
 
 if [ "$HERDR_PLUGIN_EVENT" = "startup" ]; then
     exit 0

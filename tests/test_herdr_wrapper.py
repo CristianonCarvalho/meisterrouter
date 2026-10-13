@@ -152,7 +152,7 @@ exit 0
         "curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash"
         in proc.stderr
     )
-    assert "(see https://github.com/CristianonCarvalho/meisterrouter#-install)" in proc.stderr
+    assert "(see https://github.com/CristianonCarvalho/meisterrouter#-get-started)" in proc.stderr
 
     recorded = herdr_log.read_text(encoding="utf-8").splitlines()
     assert recorded == [
