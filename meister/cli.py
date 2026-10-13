@@ -1656,6 +1656,33 @@ def orchestrate(
         sys.exit(1)
 
 
+@main.command("gate", help=t("cli.gate.help"))
+@click.option(
+    "--path",
+    "project_path",
+    type=click.Path(file_okay=False, exists=True),
+    default=".",
+    show_default=True,
+    help=t("cli.gate.path_help"),
+)
+def gate_command(project_path):
+    """Run the deterministic verification gate for a project."""
+    from meister.gate import DeterministicGate
+
+    project_dir = os.path.abspath(project_path)
+    cfg = _load_cli_config(cwd=project_dir)
+    result = DeterministicGate(repo_path=project_dir, config=cfg).run_verification_ex(project_dir)
+    click.echo(result.output)
+    if result.infrastructure_error:
+        click.echo(t("cli.gate.infrastructure_error"), err=True)
+        raise click.exceptions.Exit(2)
+    if result.passed:
+        click.echo(t("cli.gate.passed"))
+        return
+    click.echo(t("cli.gate.failed"), err=True)
+    raise click.exceptions.Exit(1)
+
+
 @main.command("replay", help=t("cli.replay.help"))
 @click.argument("run_id")
 @click.option("--json", "json_format", is_flag=True, default=False, help=t("cli.replay.json_help"))
