@@ -26,20 +26,40 @@ def _git_repo(path):
     return path
 
 
-def test_init_hooks_warns_when_project_has_no_tests(tmp_path):
+@pytest.fixture
+def _lang(monkeypatch):
+    def set_lang(value: str) -> None:
+        monkeypatch.setenv("MEISTER_LANG", value)
+        reset_language_cache()
+
+    return set_lang
+
+
+def test_init_hooks_warns_in_english_only(tmp_path, _lang):
+    _lang("en")
     project = _git_repo(tmp_path / "proj")
     result = CliRunner().invoke(main, ["init", "--target", str(project), "--hooks"])
     assert result.exit_code == 0, result.output
     assert EN_MESSAGES[KEY] in result.output
+    assert PT_BR_MESSAGES[KEY] not in result.output
+
+
+def test_init_hooks_warns_in_portuguese_only(tmp_path, _lang):
+    _lang("pt-BR")
+    project = _git_repo(tmp_path / "proj")
+    result = CliRunner().invoke(main, ["init", "--target", str(project), "--hooks"])
+    assert result.exit_code == 0, result.output
     assert PT_BR_MESSAGES[KEY] in result.output
+    assert EN_MESSAGES[KEY] not in result.output
 
 
-def test_install_hooks_warns_when_project_has_no_tests(tmp_path):
+def test_install_hooks_warns_in_active_language_only(tmp_path, _lang):
+    _lang("en")
     project = _git_repo(tmp_path / "proj")
     result = CliRunner().invoke(main, ["install-hooks", "--target", str(project), "--git"])
     assert result.exit_code == 0, result.output
     assert EN_MESSAGES[KEY] in result.output
-    assert PT_BR_MESSAGES[KEY] in result.output
+    assert PT_BR_MESSAGES[KEY] not in result.output
 
 
 def test_init_hooks_does_not_warn_when_pytest_ini_present(tmp_path):
