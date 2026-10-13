@@ -1831,6 +1831,30 @@ def plan_group():
     """Manage canonical orchestration plans (import and validate)."""
 
 
+def _echo_test_collisions(tasks) -> None:
+    """Warn (never fail) about existing tests outside each task's scope that cite its target names."""
+    from meister.plan_analysis import find_test_collisions
+
+    try:
+        collisions = find_test_collisions(tasks, os.getcwd())
+    except Exception as error:
+        logger.debug("Could not check test collisions: %s", error)
+        return
+    for entry in collisions:
+        for collision in entry["collisions"]:
+            for cited in collision["names"]:
+                click.echo(
+                    t(
+                        "cli.plan.test_collision_warning",
+                        test=collision["test"],
+                        name=cited["name"],
+                        source=cited["source"],
+                        task=entry["task"],
+                    ),
+                    err=True,
+                )
+
+
 @plan_group.command("validate", help=t("cli.plan.validate.help"))
 @click.argument("plan_json", type=click.Path(exists=True, readable=True))
 def plan_validate(plan_json):
@@ -1853,6 +1877,7 @@ def plan_validate(plan_json):
             click.echo(f"  • {msg}", err=True)
         sys.exit(2)
     click.echo(t("cli.plan.valid", count=len(tasks), path=plan_json))
+    _echo_test_collisions(tasks)
 
 
 @plan_group.command("analyze", help=t("cli.plan.analyze.help"))
@@ -1880,6 +1905,7 @@ def plan_analyze(plan_json, max_workers, fmt):
 
     if max_workers is None:
         max_workers = load_config(None).concurrency.max_parallel_workers
+    _echo_test_collisions(tasks)
     analysis = analyze_plan(tasks, max_workers)
     if fmt == "json":
         click.echo(json.dumps(analysis, ensure_ascii=False, indent=2))
