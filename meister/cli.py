@@ -78,19 +78,16 @@ def _project_defines_gate_commands(target_dir: str) -> bool:
 
 
 def _warn_if_hook_will_block(target_dir: str) -> None:
-    """Avisa (em en e pt-BR) quando o hook de pre-commit vai reprovar commits; não altera o código de saída."""
+    """Avisa, no idioma ativo, quando o hook de pre-commit vai reprovar commits; não altera o código de saída."""
     try:
         from meister.gate import DeterministicGate
-        from meister.i18n import EN_MESSAGES, PT_BR_MESSAGES
 
         if _project_defines_gate_commands(target_dir):
             return
         gate = DeterministicGate(repo_path=target_dir, config=load_config(cwd=target_dir))
         if gate.detect_test_runner():
             return
-        key = "commands.hook.no_test_runner_warning"
-        click.echo(EN_MESSAGES[key])
-        click.echo(PT_BR_MESSAGES[key])
+        click.echo(t("commands.hook.no_test_runner_warning"))
     except Exception as error:
         logger.debug("Could not check whether the hook will block commits: %s", error)
 
