@@ -112,6 +112,9 @@ MESSAGES: dict[str, str] = {
     "engine.worker.changed_files_label": "Changed files:",
     "engine.worker.no_files_changed": "No files changed.",
     "engine.worker.failed": "Harness {harness} execution failed (exit code: {exit_code})",
+    "engine.worker.killed_by_signal": (
+        "Harness {harness} was killed by signal {signal} (likely out of memory or external termination)"
+    ),
     "engine.worker.pane_timeout": "Worker in pane {pane_id} exceeded the {timeout}s timeout while waiting for completion",
     "engine.worker.tab_timeout": "Worker in tab {tab_id} (pane {pane_id}) exceeded the {timeout}s timeout while waiting for completion",
     "engine.worker.pane_exited": "Worker in pane {pane_id} exited prematurely (pane.exited) without producing a result (infrastructure error)",
