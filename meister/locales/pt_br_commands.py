@@ -288,4 +288,5 @@ workers:
     "commands.progress.status_failed": "FALHOU",
     "commands.progress.completed_main": "Concluido: a main foi atualizada.",
     "commands.progress.next_step": "Proximo passo: corrija a causa e rode o mesmo comando (ou --resume se editou o plano).",
+    "commands.hook.no_test_runner_warning": "AVISO: nenhuma suíte de testes detectável e nenhum gate.commands no meister.config.yaml. O hook de pre-commit vai reprovar commits até você configurar gate.commands.",
 }

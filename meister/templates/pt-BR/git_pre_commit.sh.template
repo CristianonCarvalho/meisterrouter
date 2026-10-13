@@ -14,10 +14,18 @@ if [ -z "$DIFF_SUMMARY" ]; then
     exit 0
 fi
 
-# 2. Executar checagens de teste automáticas se existirem no projeto
+# Commits internos dos workers já foram verificados pelo gate antes do commit.
+if [ -n "${MEISTER_INTERNAL_COMMIT:-}" ]; then
+    exit 0
+fi
+
+# 2. Executar o gate determinístico do projeto quando a CLI meister estiver disponível
 TEST_RESULT="pass"
 
-if [ -f "package.json" ]; then
+if command -v meister >/dev/null 2>&1; then
+    echo "🔍 [MeisterRouter] Executando gate do projeto (meister gate)..."
+    meister gate || TEST_RESULT="fail"
+elif [ -f "package.json" ]; then
     echo "📦 [MeisterRouter] Detectado projeto Node/JS. Executando testes rápidos..."
     if grep -q '"test"' package.json; then
         npm test || TEST_RESULT="fail"

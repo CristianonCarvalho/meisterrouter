@@ -65,6 +65,27 @@ class ReplayError(RuntimeError):
     code = "replay_failed"
 
 
+class WorktreeCommitError(RuntimeError):
+    """Raised when `git commit` fails inside a worktree; carries the git output."""
+
+    def __init__(self, message: str, returncode: int, stdout: str, stderr: str):
+        super().__init__(message)
+        self.message = message
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+COMMIT_ERROR_TAIL_LINES = 20
+# Commits internos do Meister não disparam hooks do repositório (ex.: pre-commit do usuário).
+INTERNAL_COMMIT_ARGS: List[str] = ["--no-verify"]
+
+
+def _tail_lines(text: str, limit: int = COMMIT_ERROR_TAIL_LINES) -> str:
+    lines = [line for line in (text or "").strip().splitlines() if line.strip()]
+    return "\n".join(lines[-limit:]) or "-"
+
+
 def _log_cleanup_failure(task_id: str, path: str, reason: str) -> None:
     """Emite telemetria de uma falha de limpeza que foi engolida (sem alterar o retorno)."""
     from meister.logger import log_event
@@ -442,17 +463,29 @@ class WorktreeManager:
         env.setdefault("GIT_AUTHOR_EMAIL", "bot@meisterrouter.dev")
         env.setdefault("GIT_COMMITTER_NAME", "MeisterRouter")
         env.setdefault("GIT_COMMITTER_EMAIL", "bot@meisterrouter.dev")
+        env["MEISTER_INTERNAL_COMMIT"] = "1"
 
-        subprocess.run(
-            ["git", "commit", "-m", message],
-            cwd=worktree_path,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            env=env,
-            check=True,
-        )
+        try:
+            subprocess.run(
+                ["git", "commit", *INTERNAL_COMMIT_ARGS, "-m", message],
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=env,
+                check=True,
+            )
+        except subprocess.CalledProcessError as exc:
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            detail = t(
+                "engine.worktree.commit_failed",
+                returncode=exc.returncode,
+                stderr=_tail_lines(stderr),
+                stdout=_tail_lines(stdout),
+            )
+            raise WorktreeCommitError(detail, exc.returncode, stdout, stderr) from exc
 
         return self._run_git(["rev-parse", "HEAD"], cwd=worktree_path)
 
@@ -845,11 +878,16 @@ class WorktreeManager:
                 "GIT_COMMITTER_EMAIL": "meister@localhost",
             })
             self._run_git(["read-tree", "HEAD"], cwd=wt_path, env=env)
-            self._run_git(
-                ["add", "-A", "--", ".", ":(exclude).venv"],
+            add_args = ["add", "-A", "--", "."]
+            venv_ignored = subprocess.run(
+                ["git", "check-ignore", "-q", ".venv"],
                 cwd=wt_path,
-                env=env,
-            )
+                capture_output=True,
+            ).returncode == 0
+            if not venv_ignored:
+                # `git add` rejects an explicit exclusion of an ignored path, so only exclude when not ignored.
+                add_args.append(":(exclude).venv")
+            self._run_git(add_args, cwd=wt_path, env=env)
             tree_sha = self._run_git(["write-tree"], cwd=wt_path, env=env)
             head_tree = self._run_git(["rev-parse", "HEAD^{tree}"], cwd=wt_path)
             if tree_sha == head_tree:
@@ -1529,7 +1567,12 @@ class IntegrationPipeline:
 
         # 3. Commit das alterações no worktree do worker
         msg = commit_message or f"subtask({subtask_wt.task_id}): automated changes"
-        commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
+        try:
+            commit_sha = self.wt_mgr.commit_worktree(subtask_wt.worktree_path, msg)
+        except WorktreeCommitError as exc:
+            ok, message = self._commit_infrastructure_result(subtask_wt, exc)
+            prepared.early = (ok, message)
+            return prepared
         if not commit_sha and getattr(subtask_wt, "base_commit", None):
             try:
                 count_str = self.wt_mgr._run_git(
@@ -1722,6 +1765,35 @@ class IntegrationPipeline:
             ),
             code="gate_infrastructure",
         )
+
+    def _commit_infrastructure_result(
+        self,
+        subtask_wt: WorktreeInfo,
+        exc: WorktreeCommitError,
+    ) -> Tuple[bool, CodedMessage]:
+        """Trata falha do `git commit` como erro de infraestrutura, preservando o trabalho do worker."""
+        detail = str(exc).rstrip(". \n\t")
+        prefix = t("engine.worktree.infrastructure_prefix")
+        archived_ok, archive_ref = self.wt_mgr._archive_uncommitted(
+            subtask_wt.worktree_path,
+            subtask_wt.task_id,
+        )
+        self._log_gate_infrastructure_error(subtask_wt.task_id, str(exc))
+        if archived_ok and archive_ref:
+            text = t(
+                "engine.worktree.commit_infrastructure_message",
+                prefix=prefix,
+                detail=detail,
+                archive=archive_ref,
+            )
+        else:
+            text = t(
+                "engine.worktree.commit_infrastructure_unarchived",
+                prefix=prefix,
+                detail=detail,
+                path=subtask_wt.worktree_path,
+            )
+        return False, CodedMessage(text, code="gate_infrastructure")
 
     def _log_gate_infrastructure_error(self, task_id: str, detail: str) -> None:
         from meister.logger import log_event

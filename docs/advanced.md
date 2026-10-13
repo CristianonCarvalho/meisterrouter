@@ -217,9 +217,19 @@ Creates the following in the project without overwriting existing files:
 - `CLAUDE.md` (instructions for Claude Code), `CODEX.md` (OpenAI Codex), and `AGENTS.md` (Cursor, Copilot, and subagents);
 - the `.meister/logs/` telemetry directory.
 
-Hooks are optional and are installed only with `--hooks`. The Git `pre-commit` hook summarizes staged changes and
-runs available tests (`npm test`, `pytest`, or `cargo test`); it can block the commit if they fail. Existing hooks that do not belong to MeisterRouter are preserved; `--force` overwrites them.
+Hooks are optional and are installed only with `--hooks`. The managed Git `pre-commit` hook summarizes staged changes
+and runs `meister gate`, the same commands as the gate; it blocks the commit if they fail. If the project has no `gate.commands` and no detectable test suite, `meister setup` warns that the hook will reject commits. Existing hooks that do not belong to MeisterRouter are preserved; `--force` overwrites them.
 `--no-hooks` is still accepted for compatibility, with no effect.
+
+Commits that Meister makes itself (worker and integration commits) use `--no-verify`, so they do not run Git hooks: the gate has already verified them before the commit. The hook only affects commits made by hand.
+
+To set the commands the gate and the hook run, add `gate.commands` to `meister.config.yaml`. Each entry is a command run without a shell:
+```yaml
+gate:
+  commands:
+    - {name: unit, run: "pytest -q", timeout_seconds: 300, required: true}
+```
+Without it, the gate detects the project's tests on its own.
 
 `--hooks` also installs the **Claude Code** hooks in `.claude/`, including the **guard**: it prevents
 Claude from editing code directly in the project, because the execution method is always `meister orchestrate` (or
