@@ -91,13 +91,28 @@ class VerificationResult:
     flaky_tests: List[str] = field(default_factory=list)
 
 
+MISSING_DEPENDENCY_RE = re.compile(
+    r"(?:Cannot find (?:package|module)|Failed to resolve import|No module named)"
+    r"\s+['\"]([^'\"\s]+)['\"]"
+)
+MAX_MISSING_DEPENDENCIES = 5
+
+
 def summarize_gate_failure(output: str) -> Dict[str, Any]:
     """Pure function summarizing test/linter failure output into structured diagnostics."""
     if not isinstance(output, str) or not output.strip():
-        return {"failed_tests": [], "lint_errors": [], "excerpt": ""}
+        return {"failed_tests": [], "lint_errors": [], "excerpt": "", "missing_dependencies": []}
 
     try:
         lines = output.splitlines()
+
+        missing_dependencies: List[str] = []
+        for match in MISSING_DEPENDENCY_RE.finditer(output):
+            name = match.group(1)
+            if name not in missing_dependencies:
+                missing_dependencies.append(name)
+                if len(missing_dependencies) >= MAX_MISSING_DEPENDENCIES:
+                    break
         failed_tests: List[str] = []
         seen_tests: set[str] = set()
 
@@ -166,6 +181,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             "failed_tests": failed_tests,
             "lint_errors": lint_errors,
             "excerpt": excerpt,
+            "missing_dependencies": missing_dependencies,
         }
     except Exception:
         clean = (output or "").strip()
@@ -175,6 +191,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             "failed_tests": [],
             "lint_errors": [],
             "excerpt": fallback,
+            "missing_dependencies": [],
         }
 
 
