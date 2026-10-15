@@ -922,7 +922,14 @@ def test():
 @click.option("--config", "-c", "config_path", default=None, help=t("cli.common.config_file_help"))
 @click.option("--run-id", default=None, help=t("cli.common.run_id_help"))
 @click.option("--task-id", default=None, help=t("cli.common.task_id_help"))
-def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_id):
+@click.option(
+    "--timeout",
+    type=click.FloatRange(min=1),
+    default=180,
+    show_default=True,
+    help=t("cli.worker.timeout_help"),
+)
+def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_id, timeout):
     """Start a native MeisterRouter worker."""
     from meister.worker import (
         execute_worker_task,
@@ -1029,6 +1036,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                             task=task,
                             target_files=target_files,
                             cwd=worker_cwd,
+                            timeout=timeout,
                             config_path=config_path,
                             run_id=resolved_run_id,
                             task_id=resolved_task_id,
@@ -1040,6 +1048,7 @@ def worker(model, task, files, cwd, pane, tab, split, config_path, run_id, task_
                             task=task,
                             target_files=target_files,
                             cwd=worker_cwd,
+                            timeout=timeout,
                             config_path=config_path,
                             run_id=resolved_run_id,
                             task_id=resolved_task_id,
