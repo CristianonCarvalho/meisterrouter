@@ -79,7 +79,7 @@ Update the documentation.
 | Element | Rule |
 |---|---|
 | `### Task N: title` | One task per heading, numbered. Becomes the `task_N` id. |
-| `**Files:**` | List the files the task can touch, one per line: `- Create: \`path\``, `- Modify: \`path\``, or `- Test: \`path\``. Line suffixes (`src/tela.py:40-80`, ignored) and globs (`drizzle/*`, `docs/*.md`) are accepted. The **scope gate fails** any change outside this list. |
+| `**Files:**` | List the files the task can touch, one per line: `- Create: \`path\``, `- Modify: \`path\``, or `- Test: \`path\``; `Rewrite` counts as `Modify` and `Delete` is accepted, and several backtick paths on one line all count (text after them is ignored). Line suffixes (`src/tela.py:40-80`, ignored) and globs (`drizzle/*`, `docs/*.md`) are accepted. The **scope gate fails** any change outside this list. |
 | `**Depends on:**` | Optional: `Task 1` or `Task 2, Task 5`. The task only starts after the specified tasks. |
 | `## Global Constraints` | Optional: project rules. Meister **summarizes** them for each task (it does not repeat the entire plan). |
 | Task body | What the worker should do, with acceptance criteria. The more specific, the better the result. |
