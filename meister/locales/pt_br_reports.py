@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
     "reports.config.environment_object": "environment deve ser um objeto",
     "reports.config.gate_object": "gate deve ser um objeto",
     "reports.config.string_or_null": "deve ser string não vazia ou nulo",
+    "reports.config.install_invalid": "deve ser texto não vazio, lista de textos ou nulo",
     "reports.config.relative_paths_required": "deve ser uma lista não vazia de caminhos relativos sem componente '..'",
     "reports.config.required_when_enabled": "obrigatório quando enabled",
     "reports.config.worker_timeouts_disabled": "sem proteção contra worker travado (timeouts de inatividade e runtime desativados)",

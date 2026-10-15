@@ -64,18 +64,30 @@ def prepare_environment(path: str, config: MeisterConfig) -> Tuple[bool, str]:
 
     repo_path = os.path.abspath(path)
     if config.gate.install:
-        command = shlex.split(config.gate.install)
+        items = [config.gate.install] if isinstance(config.gate.install, str) else list(config.gate.install)
+        commands = [shlex.split(item) for item in items]
     elif os.path.isfile(os.path.join(repo_path, "package.json")):
         if not _node_install_is_needed(repo_path):
             # nada a instalar (ex.: o wrapper npm do próprio MeisterRouter): `npm install` só geraria um
             # package-lock.json solto em cada worktree, que depois quebra o merge ("untracked files would be overwritten")
             return True, ""
-        command = _node_install_command(repo_path)
+        commands = [_node_install_command(repo_path)]
     else:
         return True, ""
-    if not command:
-        return False, t("commands.env.node_command_unknown")
 
+    outputs: list[str] = []
+    for command in commands:
+        if not command:
+            return False, t("commands.env.node_command_unknown")
+        ok, output = _run_install_command(command, repo_path, config)
+        if not ok:
+            return False, output
+        if output:
+            outputs.append(output)
+    return True, "\n".join(outputs)
+
+
+def _run_install_command(command: list[str], repo_path: str, config: MeisterConfig) -> Tuple[bool, str]:
     # pnpm and npm use their shared global stores/caches by default; do not redirect them per worktree.
     try:
         result = subprocess.run(
