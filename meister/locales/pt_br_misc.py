@@ -6,5 +6,8 @@ MESSAGES: dict[str, str] = {
         "warning: task {name}: o comando {command} pode gerar {generated}, "
         "não coberto por Files: ou scope.tolerated_files"
     ),
+    "misc.plan_adapter.files_line_ignored": (
+        "warning: task {task}: linha Files: ignorada (nenhum caminho entre crases): {line}"
+    ),
     "misc.models.no_lane_key": "Não há chave de via para estimar o custo",
 }
