@@ -27,6 +27,7 @@ MESSAGES: dict[str, str] = {
     "reports.config.environment_object": "environment must be an object",
     "reports.config.gate_object": "gate must be an object",
     "reports.config.string_or_null": "must be a non-empty string or null",
+    "reports.config.install_invalid": "must be a non-empty string, a list of non-empty strings, or null",
     "reports.config.relative_paths_required": "must be a non-empty list of relative paths without a '..' component",
     "reports.config.required_when_enabled": "required when enabled",
     "reports.config.worker_timeouts_disabled": "worker hang protection is disabled (idle and runtime timeouts are off)",

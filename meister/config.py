@@ -232,7 +232,7 @@ class DocsOnlyGateConfig:
 
 @dataclass
 class GateConfig:
-    install: Optional[str] = field(default_factory=lambda: _default_section("gate")["install"])
+    install: Union[str, List[str], None] = field(default_factory=lambda: _default_section("gate")["install"])
     commands: List[GateCommand] = field(default_factory=list)
     allow_unverified: bool = field(default_factory=lambda: _default_section("gate")["allow_unverified"])
     env: Dict[str, str] = field(
@@ -853,8 +853,14 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         gate_data = {}
     gate_defaults = _default_section("gate")
     install = gate_data.get("install", gate_defaults["install"])
-    if install is not None and (not isinstance(install, str) or not install.strip()):
-        parse_issues.append(ConfigIssue("error", "gate.install", t("reports.config.string_or_null")))
+    if isinstance(install, list):
+        if install and all(isinstance(item, str) and item.strip() for item in install):
+            install = list(install)
+        else:
+            parse_issues.append(ConfigIssue("error", "gate.install", t("reports.config.install_invalid")))
+            install = gate_defaults["install"]
+    elif install is not None and (not isinstance(install, str) or not install.strip()):
+        parse_issues.append(ConfigIssue("error", "gate.install", t("reports.config.install_invalid")))
         install = gate_defaults["install"]
     python = gate_data.get("python", gate_defaults["python"])
     if python is not None and (not isinstance(python, str) or not python.strip()):

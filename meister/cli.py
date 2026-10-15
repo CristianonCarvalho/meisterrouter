@@ -2284,7 +2284,8 @@ def config_show(config_path, json_format):
     click.echo(f"  Install Dependencies: {cfg.environment.install_dependencies}")
     click.echo(f"  Install Timeout Seconds: {cfg.environment.install_timeout_seconds}")
     click.echo("\nGate:")
-    click.echo(f"  Install: {cfg.gate.install}")
+    install_text = " && ".join(cfg.gate.install) if isinstance(cfg.gate.install, list) else cfg.gate.install
+    click.echo(f"  Install: {install_text}")
     click.echo(f"  Python: {cfg.gate.python}")
     click.echo(f"  Allow Unverified: {cfg.gate.allow_unverified}")
     click.echo(f"  Repair Attempts: {cfg.gate.repair_attempts}")
