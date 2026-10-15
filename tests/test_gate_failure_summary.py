@@ -76,8 +76,8 @@ meister/gate.py:55:10: error: Argument 1 to "check" has incompatible type "None"
 
 def test_summarize_empty_and_no_pattern():
     # Empty string and whitespace
-    assert summarize_gate_failure("") == {"failed_tests": [], "lint_errors": [], "excerpt": ""}
-    assert summarize_gate_failure("   \n\t  ") == {"failed_tests": [], "lint_errors": [], "excerpt": ""}
+    assert summarize_gate_failure("") == {"failed_tests": [], "lint_errors": [], "excerpt": "", "missing_dependencies": []}
+    assert summarize_gate_failure("   \n\t  ") == {"failed_tests": [], "lint_errors": [], "excerpt": "", "missing_dependencies": []}
 
     # Non-matching text
     lines = [f"Generic error step {i}" for i in range(25)]
@@ -92,7 +92,7 @@ def test_summarize_empty_and_no_pattern():
     assert len(result["excerpt"]) <= 1500
 
     # Handles weird input without raising
-    assert summarize_gate_failure(None) == {"failed_tests": [], "lint_errors": [], "excerpt": ""}
+    assert summarize_gate_failure(None) == {"failed_tests": [], "lint_errors": [], "excerpt": "", "missing_dependencies": []}
 
 
 def test_summarize_over_twenty_failures_capped():
