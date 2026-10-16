@@ -283,7 +283,7 @@ class WorktreeManager:
             except Exception:
                 pass
 
-    def _prepare_node_worktree(self, info: WorktreeInfo) -> None:
+    def _prepare_node_worktree(self, info: WorktreeInfo, run_id: Optional[str] = None) -> None:
         config = load_config(cwd=self.repo_root)
         if (
             not config.gate.install
@@ -300,6 +300,7 @@ class WorktreeManager:
         if ok:
             log_event(
                 event_type="worktree_setup_ok",
+                run_id=run_id,
                 task_id=info.task_id,
                 duration_ms=duration_ms,
                 message=message,
@@ -308,6 +309,7 @@ class WorktreeManager:
             logger.warning(t("engine.worktree.setup_failed", task_id=info.task_id, message=message))
             log_event(
                 event_type="worktree_setup_failed",
+                run_id=run_id,
                 task_id=info.task_id,
                 duration_ms=duration_ms,
                 error=message,
@@ -1385,7 +1387,7 @@ class IntegrationPipeline:
 
             self.integration_info = info
             logger.info(t("engine.worktree.integration_reused", branch=branch_name, path=info.worktree_path))
-            self.wt_mgr._prepare_node_worktree(info)
+            self.wt_mgr._prepare_node_worktree(info, run_id=self.run_id)
             return info
 
         # Se a branch não existe ou não tem histórico, mas o SQLite possui subtarefas COMPLETED com SHAs:
