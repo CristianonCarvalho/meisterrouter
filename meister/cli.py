@@ -2,6 +2,7 @@
 
 import ipaddress
 import os
+import re
 import sys
 import json
 import signal
@@ -33,7 +34,7 @@ from meister.logger import (
 )
 from meister.config import load_config, ensure_meister_dir
 from meister.herdr.client import HerdrSocketClient
-from meister.engine.bridge import HerdrEventBridge, ResumeRequestError
+from meister.engine.bridge import HerdrEventBridge, ResumeRequestError, derive_run_name
 from meister.hosts import HostError, select_host
 from meister.i18n import get_language, t
 
@@ -171,6 +172,18 @@ def get_default_pid_file() -> str:
     if env_pid:
         return env_pid
     return os.path.expanduser("~/.meister/daemon.pid")
+
+
+_TASK_N_TITLE_RE = re.compile(r"^Task\s+\d+\b", re.IGNORECASE)
+_PLAN_FILE_DATE_PREFIX_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-")
+
+
+def run_name_from_plan_file(path: str) -> str:
+    """Nome legível da run a partir do arquivo do plano; vazio se ficar com menos de 3 caracteres."""
+    stem = _PLAN_FILE_DATE_PREFIX_RE.sub("", Path(path).stem)
+    words = " ".join(stem.replace("-", " ").replace("_", " ").split())
+    name = words[:1].upper() + words[1:]
+    return name if len(name) >= 3 else ""
 
 
 def get_herdr_client(socket_path: Optional[str] = None) -> Optional[HerdrSocketClient]:
@@ -1549,6 +1562,11 @@ def orchestrate(
             pass
         # Use canonical JSON as the task text so run_id is stable
         task = canonical_json(validated_tasks)
+        # Título genérico "Task N: ..." da primeira tarefa não nomeia a run: usa o nome do arquivo do plano
+        if not run_name and _TASK_N_TITLE_RE.match(derive_run_name(validated_tasks)):
+            file_run_name = run_name_from_plan_file(plan_file)
+            if len(file_run_name) >= 3:
+                run_name = file_run_name
     elif task and not allow_freeform:
         # Validate strict JSON plan from --task
         try:

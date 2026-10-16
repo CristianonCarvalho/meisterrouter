@@ -5,11 +5,11 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from click.testing import CliRunner
 
-from meister.cli import main
+from meister.cli import main, run_name_from_plan_file
 from meister.engine.bridge import derive_run_name
 from meister.engine.workers import WorkerSpawner
 from meister.logger import get_log_file
@@ -141,3 +141,68 @@ def test_old_orchestration_start_without_new_fields_still_builds_timeline():
     )
 
     assert timeline.title == "Migrate auth system"
+
+
+def test_run_name_from_plan_file_strips_extension_and_date_prefix():
+    assert run_name_from_plan_file("checkout-sem-conta.json") == "Checkout sem conta"
+    assert run_name_from_plan_file("docs/plans/2026-10-15-gate-vitest.json") == "Gate vitest"
+    assert run_name_from_plan_file("my__plan--  name.json") == "My plan name"
+
+
+def test_run_name_from_plan_file_short_name_is_empty():
+    assert run_name_from_plan_file("ab.json") == ""
+    assert run_name_from_plan_file("2026-10-15-ab.json") == ""
+
+
+def _orchestrate_plan_file(tmp_path: Path, plan_name: str, description: str, extra_args: list[str]) -> dict:
+    plan_path = tmp_path / plan_name
+    plan_path.write_text(
+        json.dumps(
+            [{"id": "task-1", "description": description, "target_files": ["app.py"], "depends_on": []}]
+        ),
+        encoding="utf-8",
+    )
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        'version: "1.0"\nruntime:\n  host: process\nconcurrency:\n  isolation_mode: "none"\n',
+        encoding="utf-8",
+    )
+    bridge = MagicMock()
+    bridge.run_orchestration_cycle = AsyncMock(return_value=True)
+    with (
+        patch("meister.cli.HerdrEventBridge", return_value=bridge),
+        patch("meister.cli.select_host", return_value=MagicMock()),
+    ):
+        result = CliRunner().invoke(
+            main,
+            ["orchestrate", "-c", str(cfg_file), "--plan-file", str(plan_path), "--quiet", "--no-open", *extra_args],
+        )
+    assert result.exit_code == 0, result.output
+    return bridge.run_orchestration_cycle.await_args.kwargs
+
+
+def test_plan_file_with_generic_task_title_uses_file_name(tmp_path):
+    kwargs = _orchestrate_plan_file(tmp_path, "checkout-sem-conta.json", "Task 1: Add the form", [])
+
+    assert kwargs["run_name"] == "Checkout sem conta"
+
+
+def test_plan_file_generic_title_with_explicit_name_keeps_name(tmp_path):
+    kwargs = _orchestrate_plan_file(
+        tmp_path, "checkout-sem-conta.json", "Task 1: Add the form", ["--name", "Login sprint"]
+    )
+
+    assert kwargs["run_name"] == "Login sprint"
+
+
+def test_plan_file_without_task_n_title_does_not_use_file_name(tmp_path):
+    kwargs = _orchestrate_plan_file(tmp_path, "checkout-sem-conta.json", "Add the login form", [])
+
+    assert "run_name" not in kwargs
+
+
+def test_plan_file_generic_title_with_short_file_name_keeps_default(tmp_path):
+    kwargs = _orchestrate_plan_file(tmp_path, "ab.json", "Task 1: Add the form", [])
+
+    assert "run_name" not in kwargs
+
