@@ -4,6 +4,8 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-16
+
 ### Added
 - **Monorepos with Node subpackages pass the gate without configuration.** After installing the root, the gate also installs every subdirectory (up to 3 levels deep) that has its own `package.json` and lockfile, skipping `node_modules`, `.git`, `.venv`, `dist` and similar, and skipping all of it when the root declares `workspaces` or `pnpm-workspace.yaml`.
 - **`gate.install` accepts a list of commands** (`["npm ci", "npm --prefix backend ci"]`), run in order and stopping at the first failure. The string form still works. Commands run without a shell, so `&&` inside a single string never worked; use the list.
