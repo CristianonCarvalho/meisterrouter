@@ -9,9 +9,12 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **`gate.install` accepts a list of commands** (`["npm ci", "npm --prefix backend ci"]`), run in order and stopping at the first failure. The string form still works. Commands run without a shell, so `&&` inside a single string never worked; use the list.
 - **The gate failure message says when a dependency is missing** (`Cannot find package`, `Cannot find module`, `Failed to resolve import`, `No module named`), with the names and a hint to set `gate.install`, so the operator does not read it as a rejected test.
 - **`meister worker --timeout`** (seconds, default 180) replaces the fixed Herdr wait; the timeout message now says partial work is archived under `refs/meister/archive/*`.
+- **A gate repair now sees which vitest test failed.** The failure summary recognises vitest output (`FAIL file > suite > test`, the assertion line and the `Test Files`/`Tests` counts) instead of passing the last lines of a DOM dump. The names go into a new `js_failed_tests` field, kept apart from `failed_tests` so the pytest rerun and the scope check are unchanged, and into the `gate_repair` and `subtask_rejected` events.
+- **The timeline shows why the gate rejected an attempt.** The tooltip used to print only `Deterministic gate failed in worker worktree:` for vitest failures; it now shows the failing test, or the test file and line taken from the failure summary, and keeps the old text when nothing is recognisable.
 
 ### Fixed
 - **`plan import` no longer drops files silently from `**Files:**`.** Several backtick-quoted paths on one line all count, text after the path (`(append at the end)`) is ignored, `Rewrite` works as `Modify` and `Delete` is accepted. A line with a known verb and no backtick path now prints a warning instead of vanishing.
+- **The integration worktree setup event carries the right run.** `worktree_setup_ok` and `worktree_setup_failed` for the integration worktree were logged with the previous run's id, which stretched run durations in reports (a 3-minute run showed as 70) and credited the `setup` phase to the wrong run.
 
 ## [0.10.0] - 2026-10-13
 
