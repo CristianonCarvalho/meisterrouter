@@ -2304,6 +2304,7 @@ class HerdrEventBridge:
                             reason = extract_rejection_reason(int_err)
                             gate_summary = summarize_gate_failure(str(int_err))
                             failed_tests = gate_summary.get("failed_tests", [])
+                            js_failed_tests = gate_summary.get("js_failed_tests", [])
                             failure_summary = gate_summary.get("excerpt", "")
 
                             max_repair_attempts = 1
@@ -2352,6 +2353,7 @@ class HerdrEventBridge:
                                     failed_tests=failed_tests,
                                     failure_summary=failure_summary,
                                     detail=_event_detail(reason, int_err),
+                                    **({"js_failed_tests": js_failed_tests} if js_failed_tests else {}),
                                 )
                                 log_event(
                                     event_type="worker_retry",
@@ -2433,6 +2435,8 @@ class HerdrEventBridge:
                             if reason in ("gate", "scope", "scope_conflict"):
                                 event_kwargs["failed_tests"] = failed_tests
                                 event_kwargs["failure_summary"] = failure_summary
+                                if js_failed_tests:
+                                    event_kwargs["js_failed_tests"] = js_failed_tests
                             log_event(**event_kwargs)
                             if active_run_id:
                                 sm.unregister_pane(pane_id)
