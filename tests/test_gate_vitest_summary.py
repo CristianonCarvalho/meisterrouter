@@ -84,12 +84,11 @@ def test_vitest_ansi_colored_output_gives_same_result():
     assert summarize_gate_failure(colored)["failed_tests"] == []
 
 
-def test_vitest_duplicate_and_cross_marker_failures_are_deduplicated():
+def test_vitest_duplicate_failures_are_deduplicated():
     output = (
-        "❯ src/a.test.ts > Suite > case one\n"
-        "× src/a.test.ts > Suite > case one\n"
         "FAIL  src/a.test.ts > Suite > case one\n"
-        "× src/a.test.ts > Suite > case two\n"
+        "FAIL  src/a.test.ts > Suite > case one\n"
+        "FAIL  src/a.test.ts > Suite > case two\n"
     )
     result = summarize_gate_failure(output)
 
@@ -97,6 +96,53 @@ def test_vitest_duplicate_and_cross_marker_failures_are_deduplicated():
         "src/a.test.ts > Suite > case one",
         "src/a.test.ts > Suite > case two",
     ]
+
+
+def test_vitest_only_fail_lines_count_as_failures():
+    output = (
+        "❯ src/a.test.ts > Suite > marker only\n"
+        "× src/a.test.ts > Suite > cross only\n"
+        "   × suite > passa so na segunda vez 3ms\n"
+    )
+
+    assert summarize_gate_failure(output)["js_failed_tests"] == []
+
+
+def test_vitest_real_output_lists_failed_test_once_without_duration_line():
+    output = """\
+ ❯ src/flaky.test.ts (2 tests | 1 failed) 8ms
+   × suite > passa so na segunda vez 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/flaky.test.ts > suite > passa so na segunda vez
+AssertionError: expected 0 to be greater than or equal to 1
+ ❯ src/flaky.test.ts:8:15
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed (2)
+"""
+    result = summarize_gate_failure(output)
+
+    assert result["js_failed_tests"] == ["src/flaky.test.ts > suite > passa so na segunda vez"]
+    assert result["failed_tests"] == []
+
+
+def test_vitest_fail_line_with_ansi_color_is_recognized():
+    output = (
+        "\x1b[31m   × suite > passa so na segunda vez 3ms\x1b[39m\n"
+        "\x1b[1m FAIL \x1b[22m \x1b[31msrc/flaky.test.ts > suite > passa so na segunda vez\x1b[39m\n"
+        "AssertionError: boom\n"
+    )
+    result = summarize_gate_failure(output)
+
+    assert result["js_failed_tests"] == ["src/flaky.test.ts > suite > passa so na segunda vez"]
+
+
+def test_vitest_fail_line_duration_suffix_is_removed():
+    output = "FAIL  src/a.test.ts > Suite > slow case 1.2s\n"
+
+    assert summarize_gate_failure(output)["js_failed_tests"] == ["src/a.test.ts > Suite > slow case"]
 
 
 def test_vitest_js_failed_tests_capped_at_ten():

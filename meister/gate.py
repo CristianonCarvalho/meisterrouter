@@ -97,7 +97,9 @@ MISSING_DEPENDENCY_RE = re.compile(
 )
 MAX_MISSING_DEPENDENCIES = 5
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
-VITEST_FAIL_RE = re.compile(r"^(?:FAIL|❯|×)\s+(.+?\s+>\s+.+)$")
+VITEST_FAIL_RE = re.compile(r"^FAIL\s+(.+?\s+>\s+.+)$")
+VITEST_DURATION_SUFFIX_RE = re.compile(r"\s+\d+(?:\.\d+)?(?:ms|s)$")
+VITEST_PROJECT_PREFIX_RE = re.compile(r"^\|[^|]*\|\s+")
 VITEST_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "Error:", "TypeError")
 VITEST_COUNT_RE = re.compile(r"^(?:Test Files|Tests)\s")
 MAX_JS_FAILED_TESTS = 10
@@ -151,7 +153,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             stripped = line.strip()
             fail_match = VITEST_FAIL_RE.match(stripped)
             if fail_match:
-                item = fail_match.group(1).strip()
+                item = VITEST_DURATION_SUFFIX_RE.sub("", fail_match.group(1).strip()).strip()
                 if item not in seen_js_tests and len(js_failed_tests) < MAX_JS_FAILED_TESTS:
                     seen_js_tests.add(item)
                     js_failed_tests.append(item)
@@ -248,11 +250,18 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
 
 
 def _vitest_failed_files(items: List[str]) -> List[str]:
-    """Extrai os arquivos (antes do primeiro ' > ') de itens vitest, sem repetição e na ordem."""
+    """Extrai os arquivos (antes do primeiro ' > ') de itens vitest, sem repetição e na ordem.
+
+    Remove o prefixo de projeto `|nome| ` (modo workspace) e ignora itens cujo primeiro
+    trecho não pareça um arquivo (sem ponto ou sem barra).
+    """
     files: List[str] = []
     for item in items:
-        file_path = item.split(" > ", 1)[0].strip()
-        if file_path and file_path not in files:
+        text = VITEST_PROJECT_PREFIX_RE.sub("", item.strip(), count=1)
+        file_path = text.split(" > ", 1)[0].strip()
+        if "." not in file_path or "/" not in file_path:
+            continue
+        if file_path not in files:
             files.append(file_path)
     return files
 
