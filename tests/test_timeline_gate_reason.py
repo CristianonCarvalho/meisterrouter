@@ -43,8 +43,26 @@ def test_failure_summary_vitest_location_line():
         "  \x1b[31m❯\x1b[39m src/ShareCard.test.tsx:95:5\n"
     )
     attempts = _attempts(_repair_events(reason="gate", failure_summary=summary))
-    assert attempts[0].reason == "❯ src/ShareCard.test.tsx:95:5"
+    assert attempts[0].reason == "src/ShareCard.test.tsx:95:5"
     assert attempts[0].outcome == "gate_rejected"
+
+
+def test_failure_summary_location_strips_frame_marker():
+    summary = "noise\n❯ src/Tela1.test.tsx:54:34\n"
+    attempts = _attempts(_repair_events(reason="gate", failure_summary=summary))
+    assert attempts[0].reason == "src/Tela1.test.tsx:54:34"
+
+
+def test_failure_summary_location_strips_cross_marker():
+    summary = "noise\n× src/Tela1.test.tsx:54:34\n"
+    attempts = _attempts(_repair_events(reason="gate", failure_summary=summary))
+    assert attempts[0].reason == "src/Tela1.test.tsx:54:34"
+
+
+def test_failure_summary_fail_line_keeps_fail_prefix():
+    summary = "FAIL  src/Tela1.test.tsx > Tela1 > works\n× src/Tela1.test.tsx:54:34\n"
+    attempts = _attempts(_repair_events(reason="gate", failure_summary=summary))
+    assert attempts[0].reason == "FAIL  src/Tela1.test.tsx > Tela1 > works"
 
 
 def test_failure_summary_fail_line_wins_over_location():

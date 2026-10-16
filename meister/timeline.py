@@ -221,6 +221,8 @@ def _js_failed_tests_reason(event: Dict[str, Any]) -> Optional[str]:
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 _TEST_LOCATION_RE = re.compile(r"\S+\.(?:test|spec)\.(?:ts|tsx|js|jsx):\d+")
 _SUMMARY_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "TypeError", "Error:")
+# marcador de frame do vitest (❯ ou ×) que precede a localização do teste
+_FRAME_MARKER_RE = re.compile(r"^[❯×]\s+")
 
 
 def _summary_reason(event: Dict[str, Any]) -> Optional[str]:
@@ -233,7 +235,9 @@ def _summary_reason(event: Dict[str, Any]) -> Optional[str]:
         chosen = next((line for line in lines if _TEST_LOCATION_RE.search(line)), None)
     if chosen is None:
         chosen = next((line for line in lines if line.startswith(_SUMMARY_ERROR_PREFIXES)), None)
-    return _clip_detail(chosen) if chosen else None
+    if chosen is None:
+        return None
+    return _clip_detail(_FRAME_MARKER_RE.sub("", chosen))
 
 
 def _gate_failure_reason(event: Dict[str, Any]) -> Optional[str]:
