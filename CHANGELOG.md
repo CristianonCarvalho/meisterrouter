@@ -4,6 +4,15 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+### Added
+- **Monorepos with Node subpackages pass the gate without configuration.** After installing the root, the gate also installs every subdirectory (up to 3 levels deep) that has its own `package.json` and lockfile, skipping `node_modules`, `.git`, `.venv`, `dist` and similar, and skipping all of it when the root declares `workspaces` or `pnpm-workspace.yaml`.
+- **`gate.install` accepts a list of commands** (`["npm ci", "npm --prefix backend ci"]`), run in order and stopping at the first failure. The string form still works. Commands run without a shell, so `&&` inside a single string never worked; use the list.
+- **The gate failure message says when a dependency is missing** (`Cannot find package`, `Cannot find module`, `Failed to resolve import`, `No module named`), with the names and a hint to set `gate.install`, so the operator does not read it as a rejected test.
+- **`meister worker --timeout`** (seconds, default 180) replaces the fixed Herdr wait; the timeout message now says partial work is archived under `refs/meister/archive/*`.
+
+### Fixed
+- **`plan import` no longer drops files silently from `**Files:**`.** Several backtick-quoted paths on one line all count, text after the path (`(append at the end)`) is ignored, `Rewrite` works as `Modify` and `Delete` is accepted. A line with a known verb and no backtick path now prints a warning instead of vanishing.
+
 ## [0.10.0] - 2026-10-13
 
 ### Changed (incompatible)

@@ -4,6 +4,15 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Adicionado
+- **Monorepos com subpacotes Node passam no gate sem configuração.** Depois de instalar a raiz, o gate instala também cada subdiretório (até 3 níveis) com `package.json` e lockfile próprios, ignorando `node_modules`, `.git`, `.venv`, `dist` e semelhantes, e não faz nada disso quando a raiz declara `workspaces` ou `pnpm-workspace.yaml`.
+- **`gate.install` aceita uma lista de comandos** (`["npm ci", "npm --prefix backend ci"]`), executados em ordem e interrompidos na primeira falha. A forma em texto continua valendo. Os comandos rodam sem shell, então `&&` dentro de um único texto nunca funcionou; use a lista.
+- **A mensagem de falha do gate diz quando falta dependência** (`Cannot find package`, `Cannot find module`, `Failed to resolve import`, `No module named`), com os nomes e a dica de configurar `gate.install`, para o operador não ler como teste reprovado.
+- **`meister worker --timeout`** (segundos, padrão 180) no lugar da espera fixa do Herdr; a mensagem de timeout agora diz que o trabalho parcial fica arquivado em `refs/meister/archive/*`.
+
+### Corrigido
+- **`plan import` não descarta mais arquivos de `**Files:**` em silêncio.** Vários caminhos entre crases numa linha valem todos, o texto depois do caminho (`(append ao final)`) é ignorado, `Rewrite` vale como `Modify` e `Delete` é aceito. Linha com verbo conhecido e sem caminho entre crases agora imprime um aviso em vez de sumir.
+
 ## [0.10.0] - 2026-10-13
 
 ### Changed (incompatible)

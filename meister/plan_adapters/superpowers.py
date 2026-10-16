@@ -33,13 +33,16 @@ _FILES_BLOCK_RE = re.compile(r"\*\*Files:\*\*\s*\n((?:\s*-[^\n]*\n?)+)", re.MULT
 _DEPENDS_ON_RE = re.compile(
     r"\*\*Depends on:\*\*\s*(.+?)$", re.MULTILINE | re.IGNORECASE
 )
-_FILE_BULLET_RE = re.compile(
-    r"^\s*-\s*(Create|Modify|Test):\s*`([^`]+)`\s*$", re.IGNORECASE
+_FILE_LINE_RE = re.compile(
+    r"^\s*-\s*(Create|Modify|Test|Rewrite|Delete):(.*)$", re.IGNORECASE
 )
+_BACKTICK_PATH_RE = re.compile(r"`([^`]+)`")
 # Strip line-range suffix :N or :N-M
 _RANGE_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
 
-_KNOWN_VERBS = frozenset(["create", "modify", "test"])
+_KNOWN_VERBS = frozenset(["create", "modify", "test", "rewrite", "delete"])
+# Verbs whose paths count as writes for --deps files (Rewrite is treated as Modify)
+_WRITE_VERBS = frozenset(["create", "modify", "delete"])
 
 
 _FENCE_LINE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
@@ -156,6 +159,17 @@ def _warn_generated_files(name: str, body: str, files: list[str], tolerated: lis
             )
 
 
+def _parse_files_line(line: str) -> tuple[str, list[str]] | None:
+    """Return (normalised_verb, backtick-quoted raw paths) for a known-verb Files line, or None."""
+    m = _FILE_LINE_RE.match(line)
+    if not m:
+        return None
+    verb = m.group(1).lower()
+    if verb == "rewrite":
+        verb = "modify"
+    return verb, _BACKTICK_PATH_RE.findall(m.group(2))
+
+
 def _extract_files_block(task_body: str, loc: str) -> tuple[list[str], list[str]]:
     """Return (target_files, errors) from the **Files:** block in task_body."""
     m = _FILES_BLOCK_RE.search(task_body)
@@ -168,8 +182,8 @@ def _extract_files_block(task_body: str, loc: str) -> tuple[list[str], list[str]
     errors: list[str] = []
 
     for line in block.splitlines():
-        bm = _FILE_BULLET_RE.match(line)
-        if not bm:
+        parsed = _parse_files_line(line)
+        if parsed is None:
             stripped = line.strip()
             if stripped and stripped.startswith("-"):
                 # Unknown verb bullet
@@ -178,16 +192,22 @@ def _extract_files_block(task_body: str, loc: str) -> tuple[list[str], list[str]
                 if verb and verb not in _KNOWN_VERBS:
                     errors.append(f"{loc}: unknown Files: verb {verb!r} in line {stripped!r}")
             continue
-        verb = bm.group(1).lower()
-        raw_path = bm.group(2)
-        path = _normalise_path(raw_path)
-        err = _validate_path_chars(path, loc)
-        if err:
-            errors.append(err)
+        _, raw_paths = parsed
+        if not raw_paths:
+            print(
+                t("misc.plan_adapter.files_line_ignored", task=loc, line=line.strip()),
+                file=sys.stderr,
+            )
             continue
-        if path not in seen:
-            paths.append(path)
-            seen.add(path)
+        for raw_path in raw_paths:
+            path = _normalise_path(raw_path)
+            err = _validate_path_chars(path, loc)
+            if err:
+                errors.append(err)
+                continue
+            if path not in seen:
+                paths.append(path)
+                seen.add(path)
 
     return paths, errors
 
@@ -341,9 +361,10 @@ def convert(
             fm = _FILES_BLOCK_RE.search(body)
             if fm:
                 for line in fm.group(1).splitlines():
-                    bm = _FILE_BULLET_RE.match(line)
-                    if bm and bm.group(1).lower() in ("create", "modify"):
-                        create_modify.add(_normalise_path(bm.group(2)))
+                    parsed = _parse_files_line(line)
+                    if parsed and parsed[0] in _WRITE_VERBS:
+                        for raw_path in parsed[1]:
+                            create_modify.add(_normalise_path(raw_path))
         write_sets[task_id] = create_modify
 
         # ── depends_on ──────────────────────────────────────────────────

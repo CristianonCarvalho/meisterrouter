@@ -1579,15 +1579,28 @@ class IntegrationPipeline:
             message = t("engine.worktree.worker_gate_failed", output=out)
             from meister.gate import summarize_gate_failure
 
-            failed_tests = summarize_gate_failure(out)["failed_tests"]
+            summary = summarize_gate_failure(out)
+            failed_tests = summary["failed_tests"]
+            missing = summary["missing_dependencies"]
+            headers: List[str] = []
+            if missing:
+                headers.append(
+                    t(
+                        "engine.worktree.worker_gate_missing_dependencies",
+                        names=", ".join(missing),
+                    )
+                )
             if failed_tests:
                 more = f" (+{len(failed_tests) - 3})" if len(failed_tests) > 3 else ""
-                headline = t(
-                    "engine.worktree.worker_gate_failed_tests",
-                    tests=", ".join(failed_tests[:3]),
-                    more=more,
+                headers.append(
+                    t(
+                        "engine.worktree.worker_gate_failed_tests",
+                        tests=", ".join(failed_tests[:3]),
+                        more=more,
+                    )
                 )
-                message = f"{headline}\n{message}"
+            if headers:
+                message = "\n".join([*headers, message])
             prepared.early = (False, CodedMessage(message, code="gate"))
             return prepared
 

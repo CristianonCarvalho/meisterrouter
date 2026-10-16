@@ -79,7 +79,7 @@ Atualize a documentação.
 | Elemento | Regra |
 |---|---|
 | `### Task N: título` | Uma tarefa por cabeçalho, numerada. Vira o id `task_N`. |
-| `**Files:**` | Lista dos arquivos que a tarefa pode tocar, um por linha: `- Create: \`caminho\``, `- Modify: \`caminho\`` ou `- Test: \`caminho\``. Aceita sufixo de linhas (`src/tela.py:40-80`, ignorado) e glob (`drizzle/*`, `docs/*.md`). O **gate de escopo reprova** qualquer mudança fora dessa lista. |
+| `**Files:**` | Lista dos arquivos que a tarefa pode tocar, um por linha: `- Create: \`caminho\``, `- Modify: \`caminho\`` ou `- Test: \`caminho\``; `Rewrite` vale como `Modify`, `Delete` é aceito, e vários caminhos entre crases na mesma linha valem todos (o texto depois deles é ignorado). Aceita sufixo de linhas (`src/tela.py:40-80`, ignorado) e glob (`drizzle/*`, `docs/*.md`). O **gate de escopo reprova** qualquer mudança fora dessa lista. |
 | `**Depends on:**` | Opcional: `Task 1` ou `Task 2, Task 5`. A tarefa só começa depois das indicadas. |
 | `## Global Constraints` | Opcional: regras do projeto. O Meister as **resume** para cada tarefa (não repete o plano inteiro). |
 | Corpo da tarefa | O que o worker deve fazer, com os critérios de aceite. Quanto mais específico, melhor o resultado. |
