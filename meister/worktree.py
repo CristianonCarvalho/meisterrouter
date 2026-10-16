@@ -1580,7 +1580,7 @@ class IntegrationPipeline:
             from meister.gate import summarize_gate_failure
 
             summary = summarize_gate_failure(out)
-            failed_tests = summary["failed_tests"]
+            failed_tests = summary["failed_tests"] or summary["js_failed_tests"]
             missing = summary["missing_dependencies"]
             headers: List[str] = []
             if missing:
