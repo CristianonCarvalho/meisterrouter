@@ -9,9 +9,12 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **`gate.install` aceita uma lista de comandos** (`["npm ci", "npm --prefix backend ci"]`), executados em ordem e interrompidos na primeira falha. A forma em texto continua valendo. Os comandos rodam sem shell, então `&&` dentro de um único texto nunca funcionou; use a lista.
 - **A mensagem de falha do gate diz quando falta dependência** (`Cannot find package`, `Cannot find module`, `Failed to resolve import`, `No module named`), com os nomes e a dica de configurar `gate.install`, para o operador não ler como teste reprovado.
 - **`meister worker --timeout`** (segundos, padrão 180) no lugar da espera fixa do Herdr; a mensagem de timeout agora diz que o trabalho parcial fica arquivado em `refs/meister/archive/*`.
+- **O reparo do gate agora vê qual teste do vitest falhou.** O resumo da falha reconhece a saída do vitest (`FAIL arquivo > suite > teste`, a linha da asserção e as contagens `Test Files`/`Tests`) em vez de repassar as últimas linhas de um dump de DOM. Os nomes vão para um campo novo, `js_failed_tests`, separado de `failed_tests` para que o retry do pytest e a checagem de escopo não mudem, e para os eventos `gate_repair` e `subtask_rejected`.
+- **A timeline mostra por que o gate reprovou a tentativa.** O tooltip imprimia só `Deterministic gate failed in worker worktree:` nas falhas do vitest; agora mostra o teste que falhou, ou o arquivo de teste e a linha tirados do resumo da falha, e mantém o texto antigo quando nada é reconhecível.
 
 ### Corrigido
 - **`plan import` não descarta mais arquivos de `**Files:**` em silêncio.** Vários caminhos entre crases numa linha valem todos, o texto depois do caminho (`(append ao final)`) é ignorado, `Rewrite` vale como `Modify` e `Delete` é aceito. Linha com verbo conhecido e sem caminho entre crases agora imprime um aviso em vez de sumir.
+- **O evento de preparo do worktree de integração leva a run certa.** `worktree_setup_ok` e `worktree_setup_failed` do worktree de integração saíam com o id da run anterior, o que esticava a duração das runs nos relatórios (uma run de 3 minutos aparecia com 70) e creditava a fase `setup` à run errada.
 
 ## [0.10.0] - 2026-10-13
 

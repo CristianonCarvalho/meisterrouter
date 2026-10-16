@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -187,22 +188,57 @@ def _event_detail(event: Dict[str, Any]) -> Optional[str]:
     return _clip_detail(event.get("detail") or event.get("matched_line") or event.get("error"))
 
 
-def _failed_tests_reason(event: Dict[str, Any]) -> Optional[str]:
-    failed_tests = event.get("failed_tests")
-    if not failed_tests or not isinstance(failed_tests, list):
+def _format_failed_names(names: List[str]) -> Optional[str]:
+    if not names:
         return None
-    names = [str(item).split("::")[-1] for item in failed_tests]
     if len(names) > 3:
         names_str = f"{', '.join(names[:3])}, +{len(names) - 3}"
     else:
         names_str = ", ".join(names)
-    if len(failed_tests) == 1:
+    if len(names) == 1:
         return t("gate_repair.timeline.failure_singular", tests=names_str)
     return t(
         "gate_repair.timeline.failure_plural",
-        count=len(failed_tests),
+        count=len(names),
         tests=names_str,
     )
+
+
+def _failed_tests_reason(event: Dict[str, Any]) -> Optional[str]:
+    failed_tests = event.get("failed_tests")
+    if not failed_tests or not isinstance(failed_tests, list):
+        return None
+    return _format_failed_names([str(item).split("::")[-1] for item in failed_tests])
+
+
+def _js_failed_tests_reason(event: Dict[str, Any]) -> Optional[str]:
+    js_failed = event.get("js_failed_tests")
+    if not js_failed or not isinstance(js_failed, list):
+        return None
+    return _format_failed_names([str(item).split(" > ")[-1] for item in js_failed])
+
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+_TEST_LOCATION_RE = re.compile(r"\S+\.(?:test|spec)\.(?:ts|tsx|js|jsx):\d+")
+_SUMMARY_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "TypeError", "Error:")
+
+
+def _summary_reason(event: Dict[str, Any]) -> Optional[str]:
+    summary = event.get("failure_summary")
+    if not summary or not isinstance(summary, str):
+        return None
+    lines = [line.strip() for line in _ANSI_RE.sub("", summary).splitlines()]
+    chosen = next((line for line in lines if line.startswith("FAIL")), None)
+    if chosen is None:
+        chosen = next((line for line in lines if _TEST_LOCATION_RE.search(line)), None)
+    if chosen is None:
+        chosen = next((line for line in lines if line.startswith(_SUMMARY_ERROR_PREFIXES)), None)
+    return _clip_detail(chosen) if chosen else None
+
+
+def _gate_failure_reason(event: Dict[str, Any]) -> Optional[str]:
+    """Motivo da reprovação do gate: pytest, depois vitest/jest, depois a linha do resumo."""
+    return _failed_tests_reason(event) or _js_failed_tests_reason(event) or _summary_reason(event)
 
 
 _REPAIR_OUTCOMES = {"scope": "scope", "gate": "gate_rejected"}
@@ -284,7 +320,7 @@ def _build_row(
             current["repair"] = {
                 "reason": str(event.get("reason") or ""),
                 "detail": _event_detail(event),
-                "failed": _failed_tests_reason(event),
+                "failed": _gate_failure_reason(event),
             }
             continue
         if kind == "worker_phase":
@@ -305,7 +341,7 @@ def _build_row(
             if current["outcome"] != "quota" or outcome == "completed":
                 current["outcome"] = outcome
                 current["detail"] = None if outcome == "completed" else _event_detail(event)
-            formatted_reason = _failed_tests_reason(event)
+            formatted_reason = _gate_failure_reason(event)
 
             if kind == "worker_end":
                 current["worker_status"] = str(event.get("status") or "")

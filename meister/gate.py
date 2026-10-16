@@ -96,15 +96,28 @@ MISSING_DEPENDENCY_RE = re.compile(
     r"\s+['\"]([^'\"\s]+)['\"]"
 )
 MAX_MISSING_DEPENDENCIES = 5
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+VITEST_FAIL_RE = re.compile(r"^(?:FAIL|❯|×)\s+(.+?\s+>\s+.+)$")
+VITEST_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "Error:", "TypeError")
+VITEST_COUNT_RE = re.compile(r"^(?:Test Files|Tests)\s")
+MAX_JS_FAILED_TESTS = 10
+MAX_JS_ERROR_LINES = 10
 
 
 def summarize_gate_failure(output: str) -> Dict[str, Any]:
     """Pure function summarizing test/linter failure output into structured diagnostics."""
     if not isinstance(output, str) or not output.strip():
-        return {"failed_tests": [], "lint_errors": [], "excerpt": "", "missing_dependencies": []}
+        return {
+            "failed_tests": [],
+            "lint_errors": [],
+            "excerpt": "",
+            "missing_dependencies": [],
+            "js_failed_tests": [],
+        }
 
     try:
         lines = output.splitlines()
+        clean_lines = [ANSI_ESCAPE_RE.sub("", line) for line in lines]
 
         missing_dependencies: List[str] = []
         for match in MISSING_DEPENDENCY_RE.finditer(output):
@@ -126,6 +139,36 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
                     failed_tests.append(test_id)
                     if len(failed_tests) >= 20:
                         break
+
+        js_failed_tests: List[str] = []
+        js_fail_lines: List[str] = []
+        js_error_lines: List[str] = []
+        js_count_lines: List[str] = []
+        seen_js_tests: set[str] = set()
+        seen_js_errors: set[str] = set()
+        seen_js_counts: set[str] = set()
+        for line in clean_lines:
+            stripped = line.strip()
+            fail_match = VITEST_FAIL_RE.match(stripped)
+            if fail_match:
+                item = fail_match.group(1).strip()
+                if item not in seen_js_tests and len(js_failed_tests) < MAX_JS_FAILED_TESTS:
+                    seen_js_tests.add(item)
+                    js_failed_tests.append(item)
+                    js_fail_lines.append(stripped)
+                continue
+            if stripped.startswith(VITEST_ERROR_PREFIXES):
+                if stripped not in seen_js_errors and len(js_error_lines) < MAX_JS_ERROR_LINES:
+                    seen_js_errors.add(stripped)
+                    js_error_lines.append(stripped)
+            elif VITEST_COUNT_RE.match(stripped) and stripped not in seen_js_counts:
+                seen_js_counts.add(stripped)
+                js_count_lines.append(stripped)
+
+        has_pytest_markers = any(
+            line.startswith("E   ") or "short test summary info" in line for line in clean_lines
+        )
+        js_mode = bool(js_failed_tests) and not failed_tests and not has_pytest_markers
 
         lint_errors: List[str] = []
         seen_lints: set[str] = set()
@@ -173,6 +216,13 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             non_empty = [line for line in lines if line.strip()]
             excerpt_parts.append("\n".join(non_empty[-15:]))
 
+        if js_mode:
+            excerpt_parts = [
+                "\n".join(js_fail_lines),
+                "\n".join(js_error_lines),
+                "\n".join(js_count_lines),
+            ]
+
         excerpt = "\n\n".join(part for part in excerpt_parts if part).strip()
         if len(excerpt) > 1500:
             excerpt = excerpt[:1500]
@@ -182,6 +232,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             "lint_errors": lint_errors,
             "excerpt": excerpt,
             "missing_dependencies": missing_dependencies,
+            "js_failed_tests": js_failed_tests,
         }
     except Exception:
         clean = (output or "").strip()
@@ -192,6 +243,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             "lint_errors": [],
             "excerpt": fallback,
             "missing_dependencies": [],
+            "js_failed_tests": [],
         }
 
 
