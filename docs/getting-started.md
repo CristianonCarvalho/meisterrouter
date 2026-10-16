@@ -8,7 +8,7 @@ The [README](../README.md#-get-started) has the short version: install, `meister
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash
 ```
 
-The installer installs `meister`, checks your environment and lists what is still missing (worker CLIs, Jev key). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.10.0` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
+The installer installs `meister`, checks your environment and lists what is still missing (worker CLIs, Jev key). To pin a version (tag) instead of `main`: `... | bash -s -- --version v0.11.0` (or `latest`). You can run `meister setup` again at any time: it does not redo what is already done (`--dry-run` shows what it would do).
 
 Other ways to install (clone, npm, pip) are in [Alternative install and advanced commands](advanced.md). On Windows, use `pipx` or `pip` (the installer above is bash): see [Windows](advanced.md#windows).
 

@@ -4,6 +4,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-16
+
 ### Adicionado
 - **Monorepos com subpacotes Node passam no gate sem configuração.** Depois de instalar a raiz, o gate instala também cada subdiretório (até 3 níveis) com `package.json` e lockfile próprios, ignorando `node_modules`, `.git`, `.venv`, `dist` e semelhantes, e não faz nada disso quando a raiz declara `workspaces` ou `pnpm-workspace.yaml`.
 - **`gate.install` aceita uma lista de comandos** (`["npm ci", "npm --prefix backend ci"]`), executados em ordem e interrompidos na primeira falha. A forma em texto continua valendo. Os comandos rodam sem shell, então `&&` dentro de um único texto nunca funcionou; use a lista.
