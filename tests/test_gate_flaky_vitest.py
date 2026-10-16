@@ -199,8 +199,8 @@ def test_rerun_command_carries_only_failed_files_without_repetition(tmp_path, mo
         run=[
             sys.executable,
             "-c",
-            "print('FAIL  a.test.ts > s > one'); print('FAIL  a.test.ts > s > two');"
-            " print('FAIL  b.test.ts > t > three'); print('FAIL  c.test.ts > u > ok');"
+            "print('FAIL  src/a.test.ts > s > one'); print('FAIL  src/a.test.ts > s > two');"
+            " print('FAIL  src/b.test.ts > t > three'); print('FAIL  src/c.test.ts > u > ok');"
             " raise SystemExit(1)",
         ],
         timeout_seconds=30,
@@ -219,8 +219,8 @@ def test_rerun_command_carries_only_failed_files_without_repetition(tmp_path, mo
 
     gate.run_verification_ex()
 
-    assert seen == [["a.test.ts", "b.test.ts", "c.test.ts"]]
-    assert _reruns(log) == ["CI=1 run a.test.ts b.test.ts c.test.ts"]
+    assert seen == [["src/a.test.ts", "src/b.test.ts", "src/c.test.ts"]]
+    assert _reruns(log) == ["CI=1 run src/a.test.ts src/b.test.ts src/c.test.ts"]
 
 
 def test_pytest_output_keeps_pytest_rerun_path(tmp_path, py_rerun_calls, js_rerun_calls):
@@ -253,3 +253,75 @@ def test_pytest_output_keeps_pytest_rerun_path(tmp_path, py_rerun_calls, js_reru
     assert not result.passed
     assert py_rerun_calls == [["test_always.py::test_always"], ["test_always.py::test_always"]]
     assert js_rerun_calls == []
+
+
+REAL_VITEST_FAILURE_OUTPUT = """\
+ ❯ src/flaky.test.ts (2 tests | 1 failed) 8ms
+   × suite > passa so na segunda vez 3ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/flaky.test.ts > suite > passa so na segunda vez
+AssertionError: expected 0 to be greater than or equal to 1
+ ❯ src/flaky.test.ts:8:15
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed (2)
+"""
+
+
+def _static_failing_vitest(tmp_path: Path, output: str) -> GateCommand:
+    output_file = tmp_path / "vitest-output.txt"
+    output_file.write_bytes(output.encode("utf-8"))
+    return GateCommand(
+        name="vitest",
+        run=[
+            sys.executable,
+            "-c",
+            "import sys; sys.stdout.buffer.write(open(%r, 'rb').read()); raise SystemExit(1)"
+            % str(output_file),
+        ],
+        timeout_seconds=30,
+        required=True,
+    )
+
+
+def test_real_vitest_output_reruns_only_real_file_once(tmp_path, js_rerun_calls):
+    log = tmp_path / "vitest.log"
+    repo = _make_repo(tmp_path, {"app.txt": "x\n"})
+    _install_fake_vitest(repo, log, rerun_exit=1)
+    gate = _gate(repo, retries=1, commands=[_static_failing_vitest(tmp_path, REAL_VITEST_FAILURE_OUTPUT)])
+
+    result = gate.run_verification_ex()
+
+    assert not result.passed
+    assert js_rerun_calls == [[FLAKY_FILE]]
+    assert _reruns(log) == [f"CI=1 run {FLAKY_FILE}"]
+
+
+def test_workspace_project_prefix_is_filtered_before_rerun(tmp_path, js_rerun_calls):
+    log = tmp_path / "vitest.log"
+    repo = _make_repo(tmp_path, {"app.txt": "x\n"})
+    _install_fake_vitest(repo, log, rerun_exit=1)
+    output = "FAIL  |app| src/x.test.ts > a > b\nAssertionError: boom\n"
+    gate = _gate(repo, retries=1, commands=[_static_failing_vitest(tmp_path, output)])
+
+    result = gate.run_verification_ex()
+
+    assert not result.passed
+    assert js_rerun_calls == [["src/x.test.ts"]]
+    assert _reruns(log) == ["CI=1 run src/x.test.ts"]
+
+
+def test_items_without_file_do_not_trigger_rerun(tmp_path, js_rerun_calls):
+    log = tmp_path / "vitest.log"
+    repo = _make_repo(tmp_path, {"app.txt": "x\n"})
+    _install_fake_vitest(repo, log, rerun_exit=0)
+    output = "FAIL  suite > teste\nAssertionError: boom\n"
+    gate = _gate(repo, retries=2, commands=[_static_failing_vitest(tmp_path, output)])
+
+    result = gate.run_verification_ex()
+
+    assert not result.passed
+    assert js_rerun_calls == []
+    assert _reruns(log) == []
