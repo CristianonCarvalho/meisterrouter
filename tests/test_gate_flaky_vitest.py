@@ -11,7 +11,7 @@ from typing import Dict, List
 import pytest
 
 from meister.config import GateCommand, MeisterConfig
-from meister.gate import DeterministicGate
+from meister.gate import DeterministicGate, _vitest_failed_files
 
 FLAKY_ITEM = "src/flaky.test.ts > suite > flaky"
 FLAKY_FILE = "src/flaky.test.ts"
@@ -325,3 +325,34 @@ def test_items_without_file_do_not_trigger_rerun(tmp_path, js_rerun_calls):
     assert not result.passed
     assert js_rerun_calls == []
     assert _reruns(log) == []
+
+
+def test_root_level_test_file_triggers_rerun(tmp_path, js_rerun_calls):
+    log = tmp_path / "vitest.log"
+    repo = _make_repo(tmp_path, {"app.txt": "x\n"})
+    _install_fake_vitest(repo, log, rerun_exit=0)
+    output = "FAIL  raiz.test.ts > suite > teste\nAssertionError: boom\n"
+    gate = _gate(repo, retries=1, commands=[_static_failing_vitest(tmp_path, output)])
+
+    result = gate.run_verification_ex()
+
+    assert not result.passed
+    assert js_rerun_calls == [["raiz.test.ts"]]
+    assert _reruns(log) == ["CI=1 run raiz.test.ts"]
+
+
+@pytest.mark.parametrize(
+    ("items", "expected"),
+    [
+        (["raiz.test.ts > suite > teste"], ["raiz.test.ts"]),
+        (["src/a.test.tsx > x"], ["src/a.test.tsx"]),
+        (["|app| lib/b.spec.mts > y"], ["lib/b.spec.mts"]),
+        (["ARQ.TEST.TS > x"], ["ARQ.TEST.TS"]),
+        (["suite > teste"], []),
+        (["v1.2 > teste"], []),
+        (["src/readme.md > x"], []),
+        (["raiz.test.ts > a", "raiz.test.ts > b", "src/c.js > d"], ["raiz.test.ts", "src/c.js"]),
+    ],
+)
+def test_vitest_failed_files_recognizes_files_by_script_extension(items, expected):
+    assert _vitest_failed_files(items) == expected

@@ -102,6 +102,7 @@ VITEST_DURATION_SUFFIX_RE = re.compile(r"\s+\d+(?:\.\d+)?(?:ms|s)$")
 VITEST_PROJECT_PREFIX_RE = re.compile(r"^\|[^|]*\|\s+")
 VITEST_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "Error:", "TypeError")
 VITEST_COUNT_RE = re.compile(r"^(?:Test Files|Tests)\s")
+VITEST_SCRIPT_FILE_RE = re.compile(r"\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$", re.IGNORECASE)
 MAX_JS_FAILED_TESTS = 10
 MAX_JS_ERROR_LINES = 10
 
@@ -253,13 +254,13 @@ def _vitest_failed_files(items: List[str]) -> List[str]:
     """Extrai os arquivos (antes do primeiro ' > ') de itens vitest, sem repetição e na ordem.
 
     Remove o prefixo de projeto `|nome| ` (modo workspace) e ignora itens cujo primeiro
-    trecho não pareça um arquivo (sem ponto ou sem barra).
+    trecho não termine em extensão de script JS/TS (ex.: `.ts`, `.mjs`, sem diferenciar caixa).
     """
     files: List[str] = []
     for item in items:
         text = VITEST_PROJECT_PREFIX_RE.sub("", item.strip(), count=1)
         file_path = text.split(" > ", 1)[0].strip()
-        if "." not in file_path or "/" not in file_path:
+        if not file_path or not VITEST_SCRIPT_FILE_RE.search(file_path):
             continue
         if file_path not in files:
             files.append(file_path)
