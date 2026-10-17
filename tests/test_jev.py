@@ -193,13 +193,13 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
 
 
 def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
-    # tier_1c e tier_3b vêm desligadas: o Jev só recebe as vias ativas.
-    configured_names = ["tier_1", "tier_1b", "tier_2", "tier_3"]
-    opaque_keys = ["lane_a", "lane_b", "lane_c", "lane_d"]
+    # tier_3b vem desligada: o Jev só recebe as vias ativas.
+    configured_names = ["tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"]
+    opaque_keys = ["lane_a", "lane_b", "lane_c", "lane_d", "lane_e"]
     response = {
         "answers": {
             "complexity": {"choice": "high"},
-            "recommended_implementer": {"choice": "lane_c"},
+            "recommended_implementer": {"choice": "lane_d"},
         },
         "usage": {},
     }
