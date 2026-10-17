@@ -325,7 +325,7 @@
   <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-escalation"></span><span>{{ messages.escalation }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-lateral"></span><span>{{ messages.lateral_fallback }}</span></div>
-  <div class="legend-item"><span class="legend-swatch swatch-reused"></span><span>{{ messages.legend_reused or ('Reaproveitada' if language == 'pt-BR' else 'Reused') }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-reused"></span><span>{{ messages.legend_reused }}</span></div>
 </div>
 
 <div class="timeline-wrapper">
@@ -1500,8 +1500,8 @@
 
           lanesGroup.appendChild(marker);
 
-          const markerText = "reaproveitada";
-          if (markerText.length * 6.2 <= fixedMarkerW - 4) {
+          const markerText = text.legend_reused;
+          if (markerText && markerText.length * 6.2 <= fixedMarkerW - 4) {
             const labelEl = createSvgText(markerText, {
               x: rowStartXVal + fixedMarkerW / 2,
               y: rY + ROW_H / 2 + 3,
