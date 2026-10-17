@@ -88,7 +88,6 @@ workers:
     - name: tier_1c
       harness: codex
       model: gpt-6-luna
-      enabled: false
       cost_per_m_tokens: 0.20
       max_retries: 2
       best_for:
