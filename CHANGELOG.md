@@ -14,6 +14,9 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **The timeline tooltip shows the execution under the mouse.** A task that ran on several lanes (for example `tier_1`, `tier_1b`, then `tier_2`) is drawn once per lane, but every bar listed the attempts of all lanes and the final status. Each bar now lists only the attempts of its lane, with their original numbers, the outcome of that lane and its own total and wait times.
 - **Reused tasks no longer inflate "Peak parallel" and "Average parallel".** After a `--resume`, the eight tasks reused in a fraction of a second counted as eight simultaneous workers (peak 8); they are now left out of both numbers and still count as completed.
 
+### Other changes
+- **The Codex lane (`tier_1c`, Luna) is enabled in the default catalog.** It sits between `tier_1b` (Luna on Copilot) and `tier_2` (Gemini), so when Copilot runs out of credits the fallback tries Codex before Gemini. The default catalog, `meister.config.example.yaml` and the file written by `meister config init` agree. Codex credits are limited: a project that wants the old behaviour sets `enabled: false` on the lane. A `meister.config.yaml` that lists `workers.tier_order` replaces the whole list, so existing projects keep their own setting.
+
 ## [0.11.0] - 2026-10-16
 
 ### Added

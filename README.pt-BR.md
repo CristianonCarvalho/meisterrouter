@@ -84,9 +84,9 @@ meister models
   #  NAME                     HARNESS          MODEL                        EFFORT        COST/1M  STATUS
   1  tier_1                   copilot          claude-haiku-5.5             -          $0.200  enabled
   2  tier_1b                  copilot          gpt-6-luna                   -          $0.200  enabled
-  3  tier_2                   agy              gemini-3.8-flash-high        -          $1.500  enabled
-  4  tier_3                   claude           sonnet                       -          $4.000  enabled
-  5  tier_1c                  codex            gpt-6-luna                   -          $0.200  disabled
+  3  tier_1c                  codex            gpt-6-luna                   -          $0.200  enabled
+  4  tier_2                   agy              gemini-3.8-flash-high        -          $1.500  enabled
+  5  tier_3                   claude           sonnet                       -          $4.000  enabled
   6  tier_3b                  claude           opus                         -          $8.000  disabled
 ```
 (O exemplo mostra os rótulos do `language: en` padrão: `COST/1M` = custo por 1M de tokens, `EFFORT` = esforço de raciocínio, `-` = padrão do harness. Com `language: pt-BR` os rótulos viram `NOME`, `MODELO`, `ESFORÇO`, `ligada`/`desligada`.) Para alterá-los, crie o arquivo do projeto com as vias padrão e edite-o:
@@ -101,7 +101,7 @@ workers:
   tier_order:              # a ORDEM destas linhas é a cadeia de fallback
     - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
     - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: tier_1c, harness: codex, model: gpt-6-luna, enabled: false, cost_per_m_tokens: 0.20, max_retries: 2}
+    - {name: tier_1c, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2}
     - {name: tier_2, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
     - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
     - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}

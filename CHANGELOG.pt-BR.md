@@ -14,6 +14,9 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **O tooltip da timeline mostra a execução sob o mouse.** Uma task que rodou em várias vias (por exemplo `tier_1`, `tier_1b` e depois `tier_2`) é desenhada uma vez por via, mas toda barra listava as tentativas de todas as vias e o status final. Cada barra passa a listar só as tentativas da sua via, com a numeração original, o desfecho dessa via e os tempos de total e de espera dela.
 - **Tasks reaproveitadas não inflam mais o "Pico paralelo" nem o "Paralelo médio".** Depois de um `--resume`, as oito tasks reaproveitadas em frações de segundo contavam como oito workers simultâneos (pico 8); agora ficam fora dos dois números e continuam contando como concluídas.
 
+### Outras alterações
+- **A via do Codex (`tier_1c`, Luna) vem ativada no catálogo padrão.** Ela fica entre a `tier_1b` (Luna no Copilot) e a `tier_2` (Gemini): quando o Copilot fica sem créditos, o fallback tenta o Codex antes do Gemini. O catálogo padrão, o `meister.config.example.yaml` e o arquivo escrito por `meister config init` concordam. Os créditos do Codex são limitados: quem quiser o comportamento antigo põe `enabled: false` na via. Um `meister.config.yaml` que lista `workers.tier_order` substitui a lista inteira, então os projetos existentes mantêm a configuração própria.
+
 ## [0.11.0] - 2026-10-16
 
 ### Adicionado

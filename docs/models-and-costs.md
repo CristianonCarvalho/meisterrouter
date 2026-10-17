@@ -43,7 +43,7 @@ for cost per task and intelligence index. The per-token prices from both sources
 |---|---|---|---|
 | `tier_1` | `copilot` | Claude Haiku 5.5 | Copilot credits (1 credit = US$ 0.01); tiered price, see above |
 | `tier_1b` | `copilot` | GPT-6 Luna | Copilot credits (1 credit = US$ 0.01), for input, output, and cache tokens |
-| `tier_1c` (disabled) | `codex` | GPT-6 Luna | Codex credits, free and limited: do not spend them on testing |
+| `tier_1c` | `codex` | GPT-6 Luna | Codex credits, free and limited: on by default as the fallback after Copilot; do not spend them on testing |
 | `tier_2` | `agy` | Gemini 3.8 Flash high | Owner's subsidized subscription: the effective cost is lower than list price |
 | `tier_3` | `claude` | Sonnet 5.5 | Not verified (subscription or API); routed only for the ESCALATE class |
 | `tier_3b` (disabled) | `claude` | Opus 5.5 | Not verified (subscription or API) |
