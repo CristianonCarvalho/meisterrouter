@@ -45,3 +45,14 @@ def test_page_hides_tooltip_on_scroll_and_resize(timeline_html: str) -> None:
 def test_helpers_block_still_appears_once(timeline_html: str) -> None:
     assert timeline_html.count("// helpers:begin") == 1
     assert timeline_html.count("// helpers:end") == 1
+
+
+def test_show_task_tooltip_uses_placement_tooltip_row(timeline_html: str) -> None:
+    assert "function showTaskTooltip(event, row, via, phase, seg)" in timeline_html
+    show_task_body = timeline_html.split(
+        "function showTaskTooltip(event, row, via, phase, seg)", 1
+    )[1].split("function showLaneTooltip", 1)[0]
+    assert "placementTooltipRow(row, via)" in show_task_body
+    assert timeline_html.count("// helpers:begin") == 1
+    assert timeline_html.count("// helpers:end") == 1
+

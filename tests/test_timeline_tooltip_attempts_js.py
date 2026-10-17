@@ -119,7 +119,7 @@ def test_english_labels_have_no_accents() -> None:
 def test_tooltip_writes_extra_lines_with_text_content() -> None:
     source = TIMELINE_TEMPLATE.read_text(encoding="utf-8")
     body = source[source.index("function showTaskTooltip"):source.index("function showLaneTooltip")]
-    assert "taskTooltipExtraLines(row)" in body
+    assert "taskTooltipExtraLines(scoped)" in body
     assert "innerHTML" not in body
 
 
