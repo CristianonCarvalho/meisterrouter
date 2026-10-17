@@ -827,11 +827,12 @@
 
   function showTaskTooltip(event, row, via, phase, seg) {
     const tip = byId("tooltip");
+    const scoped = placementTooltipRow(row, via);
     byId("tooltip-title").textContent = row.title || row.task_id;
-    byId("tooltip-body").textContent = [row.task_id, via, phase, row.status]
+    byId("tooltip-body").textContent = [row.task_id, via, phase, scoped.status]
       .filter(Boolean)
       .join(" · ");
-    const timing = taskTiming(row, seg, Date.now());
+    const timing = taskTiming(scoped, seg, Date.now());
     const timingBox = byId("tooltip-timing");
     timingBox.replaceChildren();
     [
@@ -845,7 +846,7 @@
       timingBox.appendChild(line);
     });
     // Attempt reasons come from error text, so they only ever go in through textContent.
-    taskTooltipExtraLines(row).forEach((content) => {
+    taskTooltipExtraLines(scoped).forEach((content) => {
       const line = document.createElement("div");
       line.textContent = content;
       timingBox.appendChild(line);
