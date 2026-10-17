@@ -173,6 +173,7 @@ def _timeline_messages() -> Dict[str, str]:
         "lateral_fallback",
         "escalation",
         "critical_path",
+        "legend_reused",
         "now",
         "cost_river",
         "dashboard",

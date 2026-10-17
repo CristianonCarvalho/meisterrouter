@@ -40,6 +40,7 @@ def test_helpers_block_appears_exactly_once() -> None:
     source = TIMELINE_TEMPLATE.read_text(encoding="utf-8")
     assert source.count(BEGIN_MARKER) == 1
     assert source.count(END_MARKER) == 1
+    assert "'Reaproveitada' if language" not in source
     helpers = extract_helpers()
     assert "function reusedMarkerWidth" in helpers
 
@@ -60,6 +61,7 @@ def test_served_html_contains_swatch_reused_and_english_legend() -> None:
         html = response.get_data(as_text=True)
         assert "swatch-reused" in html
         assert "Reused" in html
+        assert "'Reaproveitada' if language" not in html
     finally:
         reset_language_cache()
 
@@ -73,5 +75,6 @@ def test_served_html_contains_swatch_reused_and_portuguese_legend() -> None:
         html = response.get_data(as_text=True)
         assert "swatch-reused" in html
         assert "Reaproveitada" in html
+        assert "'Reaproveitada' if language" not in html
     finally:
         reset_language_cache()
