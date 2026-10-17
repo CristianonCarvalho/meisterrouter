@@ -4,6 +4,13 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 
 ## [Unreleased]
 
+### Added
+- **`gate.flaky_retries` also covers vitest.** Before rejecting a vitest failure, the gate reruns only the failing test files with the project's local vitest (up to `gate.flaky_retries` times); if they pass, the full gate runs once more and decides, and the tests are reported as `flaky_tests`. A pytest failure still takes priority, and without a local `node_modules/.bin/vitest` nothing is rerun. No new option.
+- **A run started without `--name` gets a readable name from its plan file.** When the first task's title is a generic `Task N: ...`, `meister orchestrate --plan-file checkout-sem-conta.json` names the run "Checkout sem conta" (a leading `YYYY-MM-DD-` is dropped). `--name` still wins.
+
+### Fixed
+- **The timeline reason for a vitest failure no longer starts with the stack-frame marker (`❯ `).** The gate-failure summary lists a vitest test once, from the `FAIL file > suite > test` lines (the progress lines with timings are ignored), so `js_failed_tests` has no duplicates and no durations.
+
 ## [0.11.0] - 2026-10-16
 
 ### Added

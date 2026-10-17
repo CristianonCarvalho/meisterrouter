@@ -97,9 +97,12 @@ MISSING_DEPENDENCY_RE = re.compile(
 )
 MAX_MISSING_DEPENDENCIES = 5
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
-VITEST_FAIL_RE = re.compile(r"^(?:FAIL|❯|×)\s+(.+?\s+>\s+.+)$")
+VITEST_FAIL_RE = re.compile(r"^FAIL\s+(.+?\s+>\s+.+)$")
+VITEST_DURATION_SUFFIX_RE = re.compile(r"\s+\d+(?:\.\d+)?(?:ms|s)$")
+VITEST_PROJECT_PREFIX_RE = re.compile(r"^\|[^|]*\|\s+")
 VITEST_ERROR_PREFIXES = ("AssertionError", "TestingLibraryElementError", "Error:", "TypeError")
 VITEST_COUNT_RE = re.compile(r"^(?:Test Files|Tests)\s")
+VITEST_SCRIPT_FILE_RE = re.compile(r"\.(?:js|jsx|ts|tsx|mjs|cjs|mts|cts)$", re.IGNORECASE)
 MAX_JS_FAILED_TESTS = 10
 MAX_JS_ERROR_LINES = 10
 
@@ -151,7 +154,7 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             stripped = line.strip()
             fail_match = VITEST_FAIL_RE.match(stripped)
             if fail_match:
-                item = fail_match.group(1).strip()
+                item = VITEST_DURATION_SUFFIX_RE.sub("", fail_match.group(1).strip()).strip()
                 if item not in seen_js_tests and len(js_failed_tests) < MAX_JS_FAILED_TESTS:
                     seen_js_tests.add(item)
                     js_failed_tests.append(item)
@@ -245,6 +248,30 @@ def summarize_gate_failure(output: str) -> Dict[str, Any]:
             "missing_dependencies": [],
             "js_failed_tests": [],
         }
+
+
+def _vitest_failed_files(items: List[str]) -> List[str]:
+    """Extrai os arquivos (antes do primeiro ' > ') de itens vitest, sem repetição e na ordem.
+
+    Remove o prefixo de projeto `|nome| ` (modo workspace) e ignora itens cujo primeiro
+    trecho não termine em extensão de script JS/TS (ex.: `.ts`, `.mjs`, sem diferenciar caixa).
+    """
+    files: List[str] = []
+    for item in items:
+        text = VITEST_PROJECT_PREFIX_RE.sub("", item.strip(), count=1)
+        file_path = text.split(" > ", 1)[0].strip()
+        if not file_path or not VITEST_SCRIPT_FILE_RE.search(file_path):
+            continue
+        if file_path not in files:
+            files.append(file_path)
+    return files
+
+
+def _local_vitest_binary(path: str) -> Optional[str]:
+    """Retorna o vitest local do projeto em node_modules/.bin, se existir."""
+    name = "vitest.cmd" if os.name == "nt" else "vitest"
+    candidate = os.path.join(path, "node_modules", ".bin", name)
+    return candidate if os.path.isfile(candidate) else None
 
 
 class DeterministicGate:
@@ -529,15 +556,28 @@ class DeterministicGate:
         retries = self.config.gate.flaky_retries
         if result.passed or result.infrastructure_error or retries <= 0:
             return result
-        ids = summarize_gate_failure(result.output)["failed_tests"]
-        if not ids:
-            return result
-        try:
-            python, _ = self._resolve_python()
-        except OSError:
-            return result
+        summary = summarize_gate_failure(result.output)
+        if summary["failed_tests"]:
+            ids = list(summary["failed_tests"])
+            try:
+                python, _ = self._resolve_python()
+            except OSError:
+                return result
+
+            def rerun() -> bool:
+                return self._rerun_failed_tests(path, python, ids)
+
+        else:
+            ids = list(summary["js_failed_tests"])
+            files = _vitest_failed_files(ids)
+            if not files or _local_vitest_binary(path) is None:
+                return result
+
+            def rerun() -> bool:
+                return self._rerun_failed_js_files(path, files)
+
         for _ in range(retries):
-            if self._rerun_failed_tests(path, python, ids):
+            if rerun():
                 break
         else:
             return result
@@ -546,13 +586,13 @@ class DeterministicGate:
             return retried
         return replace(retried, flaky_tests=list(ids))
 
-    def _rerun_failed_tests(self, path: str, python: str, ids: List[str]) -> bool:
-        """Roda só os ids informados no mesmo ambiente do gate; True somente se todos passarem."""
+    def _rerun_env(self, path: str, python: Optional[str]) -> Dict[str, str]:
+        """Monta o ambiente das reexecuções isoladas, igual ao do gate."""
         env = os.environ.copy()
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         path_entries = []
-        python_bin = self._project_python_bin(python)
+        python_bin = self._project_python_bin(python) if python else None
         if python_bin:
             path_entries.append(python_bin)
         local_bin = os.path.join(path, "node_modules", ".bin")
@@ -560,6 +600,38 @@ class DeterministicGate:
             path_entries.append(local_bin)
         path_entries.append(env.get("PATH", ""))
         env["PATH"] = os.pathsep.join(entry for entry in path_entries if entry)
+        return env
+
+    def _rerun_failed_js_files(self, path: str, files: List[str]) -> bool:
+        """Roda só os arquivos vitest informados com o vitest local; True somente se passarem."""
+        binary = _local_vitest_binary(path)
+        if binary is None:
+            return False
+        try:
+            python, _ = self._resolve_python()
+        except OSError:
+            python = None
+        env = self._rerun_env(path, python)
+        env["CI"] = "1"
+        try:
+            proc = subprocess.run(
+                [binary, "run", *files],
+                cwd=path,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180,
+                env=env,
+                shell=False,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return False
+        return proc.returncode == 0
+
+    def _rerun_failed_tests(self, path: str, python: str, ids: List[str]) -> bool:
+        """Roda só os ids informados no mesmo ambiente do gate; True somente se todos passarem."""
+        env = self._rerun_env(path, python)
         cmd = [python, "-m", "pytest", "-p", "no:cacheprovider", "-q", *ids]
         try:
             proc = subprocess.run(
