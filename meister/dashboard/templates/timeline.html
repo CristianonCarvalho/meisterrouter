@@ -591,8 +591,10 @@
   }
   // "Attempt N: via, outcome, reason (detail)"; missing parts are omitted, a long detail is cut.
   function attemptTooltipLine(attempt, index) {
-    const label = text.tooltip_attempt.replace("{n}", String(index + 1));
     const a = attempt || {};
+    const n = Number.isInteger(a.n) && a.n > 0 ? a.n : index + 1;
+    const template = text.tooltip_attempt || "Attempt {n}";
+    const label = template.replace("{n}", String(n));
     const outcome = tooltipField(a.outcome);
     const reason = clipRunName(tooltipField(a.reason), TOOLTIP_DETAIL_MAX);
     const detail = clipRunName(tooltipField(a.detail), TOOLTIP_DETAIL_MAX);
@@ -617,6 +619,39 @@
       }
     }
     return lines;
+  }
+  // Tooltip row for a single placement lane: isolates attempts and timing for that via.
+  function placementTooltipRow(row, via) {
+    if (!row || !via || (typeof via === "string" && !via.trim())) return row;
+    const placements = rowLanePlacements(row);
+    if (!placements || placements.length < 2) return row;
+    const placementIndex = placements.findIndex((p) => p && p.via === via);
+    if (placementIndex === -1) return row;
+    const placement = placements[placementIndex];
+    const isLastPlacement = placementIndex === placements.length - 1;
+    const allAttempts = Array.isArray(row.attempt_details) ? row.attempt_details : [];
+    const attempt_details = [];
+    allAttempts.forEach((attempt, index) => {
+      if (attempt && attempt.via === via) {
+        attempt_details.push({ ...attempt, n: index + 1 });
+      }
+    });
+    const segs = Array.isArray(placement.segments) ? placement.segments : [];
+    const lastSeg = segs.length ? segs[segs.length - 1] : null;
+    const end = !isLastPlacement && lastSeg && lastSeg.end !== undefined && lastSeg.end !== null
+      ? lastSeg.end
+      : row.end;
+    const lastAttempt = attempt_details.length ? attempt_details[attempt_details.length - 1] : null;
+    const status = !isLastPlacement && lastAttempt && lastAttempt.outcome
+      ? lastAttempt.outcome
+      : row.status;
+    return {
+      ...row,
+      segments: placement.segments,
+      attempt_details,
+      end,
+      status,
+    };
   }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
