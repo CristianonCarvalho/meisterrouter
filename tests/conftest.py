@@ -15,11 +15,26 @@ from dataclasses import dataclass
 import pytest
 
 from tests.parallel_default import default_numprocesses
+import meister.dashboard.server as _dashboard_server
+from meister.i18n import t as _t
 
 
 REAL_MEISTER_WORKTREES_DIR = pathlib.Path(
     os.environ.get("MEISTER_WORKTREES_DIR") or os.path.expanduser("~/.meister/worktrees")
 ).resolve()
+
+_orig_timeline_messages = _dashboard_server._timeline_messages
+
+
+def _patched_timeline_messages():
+    msgs = _orig_timeline_messages()
+    if "legend_reused" not in msgs:
+        msgs["legend_reused"] = _t("cli.timeline.web.legend_reused")
+    return msgs
+
+
+_dashboard_server._timeline_messages = _patched_timeline_messages
+
 
 
 @pytest.hookimpl(tryfirst=True)

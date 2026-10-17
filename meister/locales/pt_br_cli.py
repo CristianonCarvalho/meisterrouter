@@ -305,6 +305,7 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.lateral_fallback": "Fallback lateral",
     "cli.timeline.web.escalation": "Escalonamento",
     "cli.timeline.web.critical_path": "Caminho crítico",
+    "cli.timeline.web.legend_reused": "Reaproveitada",
     "cli.timeline.web.now": "agora",
     "cli.timeline.web.cost_river": "Rio de custo",
     "cli.timeline.web.dashboard": "Dashboard",
