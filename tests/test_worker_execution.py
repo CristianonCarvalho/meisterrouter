@@ -476,21 +476,21 @@ async def test_run_worker_in_herdr_pane_real_event_handling(tmp_path):
 
 def test_disabled_tier_is_used_only_by_explicit_name():
     from meister.config import MeisterConfig
-    from meister.worker import HARNESS_CODEX, HARNESS_COPILOT, UnknownTierError, resolve_worker_harness_and_model
+    from meister.worker import HARNESS_COPILOT, UnknownTierError, resolve_worker_harness_and_model
 
     cfg = MeisterConfig()
-    # tier_1c e tier_3b vêm desligadas (fora da ordem ativa).
-    assert "tier_1c" not in [t.name for t in cfg.workers.tier_order]
-    assert [t.name for t in cfg.workers.disabled] == ["tier_1c", "tier_3b"]
+    # tier_3b vem desligada (fora da ordem ativa).
+    assert "tier_3b" not in [t.name for t in cfg.workers.tier_order]
+    assert [t.name for t in cfg.workers.disabled] == ["tier_3b"]
 
     # sem nome: vale a primeira via ATIVA, nunca uma desligada
     assert resolve_worker_harness_and_model(None, config=cfg) == (
         HARNESS_COPILOT, "claude-haiku-5.5"
     )
     # por nome explicito a via desligada funciona
-    assert resolve_worker_harness_and_model("tier_1c", config=cfg) == (HARNESS_CODEX, "gpt-6-luna")
+    assert resolve_worker_harness_and_model("tier_3b", config=cfg) == ("claude", "opus")
     # nome inexistente continua sendo erro e a mensagem cita as desligadas
-    with pytest.raises(UnknownTierError, match="desligadas.*tier_1c.*tier_3b"):
+    with pytest.raises(UnknownTierError, match="desligadas.*tier_3b"):
         resolve_worker_harness_and_model("nao_existe", config=cfg)
 
 

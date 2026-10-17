@@ -45,11 +45,11 @@ def test_cli_config_show_default(tmp_path, monkeypatch):
     assert "0.01" in result.output
     assert "Classes" in result.output
     assert "ESCALATE" in result.output
-    # Somente tier_1c e tier_3b vêm desligadas por padrão.
+    # Somente tier_3b vem desligada por padrão.
     ativas, desligadas = result.output.split("Vias desabilitadas:")
-    assert "tier_1c" not in ativas
+    assert "tier_1c" in ativas
     assert "tier_3b" not in ativas
-    assert "tier_1c" in desligadas
+    assert "tier_1c" not in desligadas
     assert "tier_3b" in desligadas
 
 
@@ -100,9 +100,9 @@ def test_cli_config_show_json(tmp_path, monkeypatch):
         "pane_lost_backoff_seconds": 5.0,
     }
     assert [tier["name"] for tier in data["workers"]["tier_order"]] == [
-        "tier_1", "tier_1b", "tier_2", "tier_3"
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"
     ]
-    assert [tier["name"] for tier in data["workers"]["disabled"]] == ["tier_1c", "tier_3b"]
+    assert [tier["name"] for tier in data["workers"]["disabled"]] == ["tier_3b"]
     assert next(
         tier["model"] for tier in data["workers"]["tier_order"]
         if tier["name"] == "tier_1"
@@ -424,8 +424,8 @@ def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
     )
     assert invalid.exit_code == 2
     assert "Via desconhecida 'gemini'" in invalid.output
-    assert "tier_1, tier_1b, tier_2, tier_3" in invalid.output
-    assert "desligadas, só por escolha explícita: tier_1c, tier_3b" in invalid.output
+    assert "tier_1, tier_1b, tier_1c, tier_2, tier_3" in invalid.output
+    assert "desligadas, só por escolha explícita: tier_3b" in invalid.output
 
 
 def test_native_harness_cli_validation_and_orchestrate_abort_without_run(tmp_path):
