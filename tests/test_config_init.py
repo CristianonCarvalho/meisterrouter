@@ -9,16 +9,6 @@ from meister.config import load_config
 
 
 def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
-    import meister.i18n
-
-    for lang in ("en", "pt-BR"):
-        orig = meister.i18n.CATALOGS[lang]["commands.setup.config_template"]
-        updated = orig.replace(
-            "    - name: tier_1c\n      harness: codex\n      model: gpt-6-luna\n      enabled: false\n",
-            "    - name: tier_1c\n      harness: codex\n      model: gpt-6-luna\n",
-        )
-        monkeypatch.setitem(meister.i18n.CATALOGS[lang], "commands.setup.config_template", updated)
-
     monkeypatch.chdir(tmp_path)
     target_yaml = tmp_path / "meister.config.yaml"
     runner = CliRunner()
@@ -72,11 +62,7 @@ def test_config_init_locale_catalogs_match_default_tiers():
 
     for messages in (en_messages, pt_messages):
         template = yaml.safe_load(messages["commands.setup.config_template"])
-        cleaned_template_tiers = [
-            {k: v for k, v in tier.items() if not (k == "enabled" and tier.get("name") == "tier_1c")}
-            for tier in template["workers"]["tier_order"]
-        ]
-        assert cleaned_template_tiers == expected_tiers
+        assert template["workers"]["tier_order"] == expected_tiers
 
 
 def test_config_init_refuses_overwrite_without_force(tmp_path):
