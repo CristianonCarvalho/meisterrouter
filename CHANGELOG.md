@@ -7,9 +7,12 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 ### Added
 - **`gate.flaky_retries` also covers vitest.** Before rejecting a vitest failure, the gate reruns only the failing test files with the project's local vitest (up to `gate.flaky_retries` times); if they pass, the full gate runs once more and decides, and the tests are reported as `flaky_tests`. A pytest failure still takes priority, and without a local `node_modules/.bin/vitest` nothing is rerun. No new option.
 - **A run started without `--name` gets a readable name from its plan file.** When the first task's title is a generic `Task N: ...`, `meister orchestrate --plan-file checkout-sem-conta.json` names the run "Checkout sem conta" (a leading `YYYY-MM-DD-` is dropped). `--name` still wins.
+- **The timeline marks tasks reused by a resumed run.** A task reused from an earlier run (`subtask_reused`) is drawn as a fixed-width dashed marker with a "Reused" legend entry, instead of a zero-width bar stacked at the start of the axis; the tooltip still names the source run and the original duration.
 
 ### Fixed
 - **The timeline reason for a vitest failure no longer starts with the stack-frame marker (`❯ `).** The gate-failure summary lists a vitest test once, from the `FAIL file > suite > test` lines (the progress lines with timings are ignored), so `js_failed_tests` has no duplicates and no durations.
+- **The timeline tooltip shows the execution under the mouse.** A task that ran on several lanes (for example `tier_1`, `tier_1b`, then `tier_2`) is drawn once per lane, but every bar listed the attempts of all lanes and the final status. Each bar now lists only the attempts of its lane, with their original numbers, the outcome of that lane and its own total and wait times.
+- **Reused tasks no longer inflate "Peak parallel" and "Average parallel".** After a `--resume`, the eight tasks reused in a fraction of a second counted as eight simultaneous workers (peak 8); they are now left out of both numbers and still count as completed.
 
 ## [0.11.0] - 2026-10-16
 

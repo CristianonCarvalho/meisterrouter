@@ -7,9 +7,12 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 ### Adicionado
 - **O `gate.flaky_retries` também cobre o vitest.** Antes de reprovar uma falha do vitest, o gate reexecuta só os arquivos de teste que falharam, com o vitest local do projeto (até `gate.flaky_retries` vezes); se passarem, o gate completo roda mais uma vez e decide, e os testes são registrados em `flaky_tests`. A falha do pytest continua tendo prioridade, e sem `node_modules/.bin/vitest` local nada é reexecutado. Sem opção nova.
 - **A run lançada sem `--name` ganha um nome legível a partir do arquivo do plano.** Quando o título da primeira tarefa é um genérico `Task N: ...`, `meister orchestrate --plan-file checkout-sem-conta.json` nomeia a run "Checkout sem conta" (um prefixo `AAAA-MM-DD-` é descartado). `--name` continua valendo.
+- **A timeline marca as tasks reaproveitadas por uma retomada.** Uma task reaproveitada de uma run anterior (`subtask_reused`) é desenhada como um marcador tracejado de largura fixa, com item "Reaproveitada" na legenda, no lugar de uma barra de largura zero empilhada no início do eixo; o tooltip continua citando a run de origem e a duração original.
 
 ### Corrigido
 - **O motivo de uma falha do vitest na timeline não começa mais com o marcador de frame (`❯ `).** O resumo da falha do gate lista cada teste do vitest uma vez, a partir das linhas `FAIL arquivo > suite > teste` (as linhas de andamento com tempos são ignoradas), então `js_failed_tests` não tem duplicatas nem durações.
+- **O tooltip da timeline mostra a execução sob o mouse.** Uma task que rodou em várias vias (por exemplo `tier_1`, `tier_1b` e depois `tier_2`) é desenhada uma vez por via, mas toda barra listava as tentativas de todas as vias e o status final. Cada barra passa a listar só as tentativas da sua via, com a numeração original, o desfecho dessa via e os tempos de total e de espera dela.
+- **Tasks reaproveitadas não inflam mais o "Pico paralelo" nem o "Paralelo médio".** Depois de um `--resume`, as oito tasks reaproveitadas em frações de segundo contavam como oito workers simultâneos (pico 8); agora ficam fora dos dois números e continuam contando como concluídas.
 
 ## [0.11.0] - 2026-10-16
 
