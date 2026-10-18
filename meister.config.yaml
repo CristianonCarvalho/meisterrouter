@@ -31,3 +31,79 @@ gate:
       run: "{python} -m pytest -q -p no:cacheprovider"
       timeout_seconds: 900
       required: true
+workers:
+  # tier_order gerado pela tela /config do dashboard
+  tier_order:
+    - name: tier_1
+      harness: copilot
+      model: claude-haiku-5.5
+      cost_per_m_tokens: 0.2
+      credit_usd: 0.01
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+    - name: tier_1b
+      harness: copilot
+      model: gpt-6-luna
+      cost_per_m_tokens: 0.2
+      credit_usd: 0.01
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+    - name: tier_1c
+      harness: codex
+      model: gpt-6-luna
+      cost_per_m_tokens: 0.2
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+    - name: tier_2
+      harness: agy
+      model: gemini-3.8-flash-high
+      cost_per_m_tokens: 1.5
+      max_retries: 2
+      best_for:
+        - deep_reasoning
+        - complex_algorithms
+        - hard_bugs
+    - name: tier_2b
+      harness: claude
+      model: claude-haiku-5-5
+      cost_per_m_tokens: 0.2
+      max_retries: 2
+      eligible_classes:
+        - SMALL
+      best_for:
+        - deep_reasoning
+        - complex_algorithms
+        - hard_bugs
+    - name: tier_3
+      harness: claude
+      model: sonnet
+      cost_per_m_tokens: 4
+      max_retries: 1
+      eligible_classes:
+        - ESCALATE
+      best_for:
+        - architectural_recovery
+        - systemic_regressions
+    - name: tier_3b
+      harness: claude
+      model: opus
+      enabled: false
+      cost_per_m_tokens: 8
+      max_retries: 1
+      eligible_classes:
+        - ESCALATE
+      best_for:
+        - architectural_recovery
+        - systemic_regressions

@@ -136,7 +136,8 @@ def test_test_network_requests_are_blocked():
 
 # ─── Testes do classify_task (Cost, Deterministic ID, Fallback) ──────────────
 
-def test_classify_task_tier_alignment():
+def test_classify_task_tier_alignment(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     mock_raw = {
         "answers": {
             "complexity": {"choice": "high", "confidence": 0.95},
@@ -192,7 +193,8 @@ def test_classify_task_api_unavailable_signal_is_only_set_for_api_exception():
         assert classify_task("unavailable Jev")["api_unavailable"] is True
 
 
-def test_classify_task_default_options_and_failure_fallback_use_configured_routes():
+def test_classify_task_default_options_and_failure_fallback_use_configured_routes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     # tier_3b vem desligada: o Jev só recebe as vias ativas.
     configured_names = ["tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"]
     opaque_keys = ["lane_a", "lane_b", "lane_c", "lane_d", "lane_e"]

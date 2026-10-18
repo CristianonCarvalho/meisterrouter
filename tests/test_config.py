@@ -192,7 +192,7 @@ def test_default_tier_catalog_order_and_values():
     assert tiers[5]["eligible_classes"] == ["ESCALATE"]
 
 
-def test_worker_eligible_classes_parse_normalize_and_default(tmp_path):
+def test_worker_eligible_classes_parse_normalize_and_default(tmp_path, monkeypatch):
     config_file = tmp_path / "eligible_classes.yaml"
     config_file.write_text("""
 workers:
@@ -206,6 +206,7 @@ workers:
     assert config.workers.tier_order[0].eligible_classes == ["SMALL", "HIGH"]
     assert config.workers.tier_order[1].eligible_classes == []
 
+    monkeypatch.chdir(tmp_path)
     defaults = load_config()
     default_tiers = {
         tier.name: tier for tier in [*defaults.workers.tier_order, *defaults.workers.disabled]
