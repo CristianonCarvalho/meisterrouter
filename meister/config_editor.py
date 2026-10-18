@@ -13,6 +13,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import io
+import math
 import os
 import stat
 from dataclasses import asdict, dataclass, field
@@ -23,14 +24,35 @@ if TYPE_CHECKING:
     from ruamel.yaml import YAML
     from ruamel.yaml.comments import CommentedMap, CommentedSeq
 
-from meister.config import ConfigIssue, _default_config_data, _parse_config_dict, validate_config
+from meister.config import (
+    VALID_WORKER_CLASSES,
+    ConfigIssue,
+    _default_config_data,
+    _parse_config_dict,
+    validate_config,
+)
 from meister.harness_effort import HARNESS_EFFORT_VALUES
 from meister.i18n import CATALOGS, t
 from meister.lane_toggle import _restore_backup, _write_temp
 
 
 EMPTY_STAMP = hashlib.sha256(b"").hexdigest()
-EDITABLE_FIELDS = ("name", "harness", "model", "effort", "enabled", "max_parallel")
+EDITABLE_FIELDS = (
+    "name",
+    "harness",
+    "model",
+    "effort",
+    "enabled",
+    "max_parallel",
+    "cost_per_m_tokens",
+    "credit_usd",
+    "max_retries",
+    "idle_timeout_seconds",
+    "max_runtime_seconds",
+    "eligible_classes",
+    "best_for",
+)
+NULLABLE_FIELDS = EDITABLE_FIELDS[6:]
 GENERATED_COMMENT = "tier_order gerado pela tela /config do dashboard"
 NEW_FILE_MODE = 0o644
 
@@ -51,6 +73,12 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.empty_model": "Model cannot be empty.",
         "config_editor.enabled_boolean": "enabled must be true or false.",
         "config_editor.max_parallel": "max_parallel must be an integer >= 1 or empty.",
+        "config_editor.cost_per_m_tokens": "cost_per_m_tokens must be a number >= 0.",
+        "config_editor.credit_usd": "credit_usd must be a number >= 0 or empty.",
+        "config_editor.max_retries": "max_retries must be an integer >= 0.",
+        "config_editor.timeout_seconds": "{field} must be a number > 0 or empty.",
+        "config_editor.eligible_classes": "eligible_classes must be a list of: {values}",
+        "config_editor.best_for": "best_for must be a list of non-empty texts.",
         "config_editor.no_enabled_lane": "At least one lane must be enabled.",
         "config_editor.stamp_mismatch": "The file changed on disk; reload before saving.",
         "config_editor.invalid_lanes": "The lanes are invalid: {details}",
@@ -78,6 +106,12 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.empty_model": "O modelo n\u00e3o pode ficar vazio.",
         "config_editor.enabled_boolean": "enabled deve ser true ou false.",
         "config_editor.max_parallel": "max_parallel deve ser um inteiro >= 1 ou vazio.",
+        "config_editor.cost_per_m_tokens": "cost_per_m_tokens deve ser um n\u00famero >= 0.",
+        "config_editor.credit_usd": "credit_usd deve ser um n\u00famero >= 0 ou vazio.",
+        "config_editor.max_retries": "max_retries deve ser um inteiro >= 0.",
+        "config_editor.timeout_seconds": "{field} deve ser um n\u00famero > 0 ou vazio.",
+        "config_editor.eligible_classes": "eligible_classes deve ser uma lista de: {values}",
+        "config_editor.best_for": "best_for deve ser uma lista de textos n\u00e3o vazios.",
         "config_editor.no_enabled_lane": "Pelo menos uma via deve ficar ligada.",
         "config_editor.stamp_mismatch": "O arquivo mudou no disco; recarregue antes de salvar.",
         "config_editor.invalid_lanes": "As vias s\u00e3o inv\u00e1lidas: {details}",
@@ -140,6 +174,13 @@ class LaneEdit:
     effort: Optional[str] = None
     enabled: bool = True
     max_parallel: Optional[int] = None
+    cost_per_m_tokens: Optional[float] = None
+    credit_usd: Optional[float] = None
+    max_retries: Optional[int] = None
+    idle_timeout_seconds: Optional[float] = None
+    max_runtime_seconds: Optional[float] = None
+    eligible_classes: Optional[List[str]] = None
+    best_for: Optional[List[str]] = None
 
 
 @dataclass
@@ -223,6 +264,10 @@ def _project_data(config_path: str) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _is_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+
 def _lane_field_issues(index: int, current: Dict[str, Any]) -> List[ConfigIssue]:
     """Regras proprias de uma via ja mesclada (current + pedido)."""
     issues: List[ConfigIssue] = []
@@ -257,6 +302,36 @@ def _lane_field_issues(index: int, current: Dict[str, Any]) -> List[ConfigIssue]
         isinstance(max_parallel, bool) or not isinstance(max_parallel, int) or max_parallel < 1
     ):
         issues.append(ConfigIssue("error", f"{prefix}.max_parallel", t("config_editor.max_parallel")))
+    cost = current.get("cost_per_m_tokens")
+    if cost is not None and not (_is_number(cost) and cost >= 0):
+        issues.append(ConfigIssue("error", f"{prefix}.cost_per_m_tokens", t("config_editor.cost_per_m_tokens")))
+    credit = current.get("credit_usd")
+    if credit is not None and not (_is_number(credit) and credit >= 0):
+        issues.append(ConfigIssue("error", f"{prefix}.credit_usd", t("config_editor.credit_usd")))
+    max_retries = current.get("max_retries")
+    if max_retries is not None and (isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0):
+        issues.append(ConfigIssue("error", f"{prefix}.max_retries", t("config_editor.max_retries")))
+    for key in ("idle_timeout_seconds", "max_runtime_seconds"):
+        seconds = current.get(key)
+        if seconds is not None and not (_is_number(seconds) and seconds > 0):
+            issues.append(ConfigIssue("error", f"{prefix}.{key}", t("config_editor.timeout_seconds", field=key)))
+    classes = current.get("eligible_classes")
+    if classes is not None and (
+        not isinstance(classes, list)
+        or any(not isinstance(value, str) or value.upper() not in VALID_WORKER_CLASSES for value in classes)
+    ):
+        issues.append(
+            ConfigIssue(
+                "error",
+                f"{prefix}.eligible_classes",
+                t("config_editor.eligible_classes", values=", ".join(sorted(VALID_WORKER_CLASSES))),
+            )
+        )
+    best_for = current.get("best_for")
+    if best_for is not None and (
+        not isinstance(best_for, list) or any(not isinstance(value, str) or not value.strip() for value in best_for)
+    ):
+        issues.append(ConfigIssue("error", f"{prefix}.best_for", t("config_editor.best_for")))
     return issues
 
 
@@ -290,6 +365,9 @@ def _merge_lanes(document: LaneDocument, lanes: Any) -> tuple[List[Dict[str, Any
         seen.add(name)
         current = copy.deepcopy(existing[name])
         current.update({key: value for key, value in request.items() if key in EDITABLE_FIELDS})
+        for key in NULLABLE_FIELDS:
+            if current.get(key) is None:
+                current.pop(key, None)
         if not extra:
             issues.extend(_lane_field_issues(index, current))
         merged.append(current)
@@ -361,10 +439,15 @@ def _update_lane_node(node: CommentedMap, lane: Dict[str, Any]) -> None:
     """Grava os campos editaveis no no existente; os demais campos e comentarios ficam como estao."""
     for key in EDITABLE_FIELDS[1:]:
         value = lane.get(key)
-        if value is None or (key == "enabled" and value is True and key not in node):
+        if value is None or value == [] or (key == "enabled" and value is True and key not in node):
             node.pop(key, None)
-        elif node.get(key) != value or type(node.get(key)) is not type(value):
-            node[key] = value
+        elif isinstance(value, list):
+            if node.get(key) != value:
+                node[key] = _yaml().CommentedSeq(value)
+        else:
+            current = node.get(key)
+            if key not in node or current != value or isinstance(current, bool) != isinstance(value, bool):
+                node[key] = value
 
 
 def _new_lane_node(lane: Dict[str, Any]) -> CommentedMap:
