@@ -199,22 +199,19 @@ def test_duplicate_name_is_error(tmp_path):
     assert "lanes[1].name" in paths
 
 
-def test_unknown_lane_cannot_be_created(tmp_path):
+def test_unknown_lane_is_created_when_complete(tmp_path):
     document = _project_document(tmp_path)
-    lanes = _valid_request() + [{"name": "lane_new", "harness": "codex", "model": "m", "enabled": True}]
+    lanes = _valid_request() + [
+        {"name": "lane_new1", "harness": "codex", "model": "m", "cost_per_m_tokens": 0.5, "enabled": True}
+    ]
 
-    paths = [issue.path for issue in _errors(validate_lanes(document, lanes))]
-
-    assert paths == ["lanes[2].name"]
+    assert _errors(validate_lanes(document, lanes)) == []
 
 
-def test_missing_lane_cannot_be_removed(tmp_path):
+def test_missing_lane_is_removed(tmp_path):
     document = _project_document(tmp_path)
 
-    issues = _errors(validate_lanes(document, _valid_request()[:1]))
-
-    assert [issue.path for issue in issues] == ["lanes"]
-    assert "lane_a" in issues[0].message
+    assert _errors(validate_lanes(document, _valid_request()[:1])) == []
 
 
 def test_missing_name_is_error(tmp_path):

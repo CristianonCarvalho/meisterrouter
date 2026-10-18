@@ -15,6 +15,7 @@ import hashlib
 import io
 import math
 import os
+import re
 import stat
 from dataclasses import asdict, dataclass, field
 from types import SimpleNamespace
@@ -53,6 +54,11 @@ EDITABLE_FIELDS = (
     "best_for",
 )
 NULLABLE_FIELDS = EDITABLE_FIELDS[6:]
+LANE_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*\d[a-z]?$")
+LANE_LEVEL_PATTERN = re.compile(r"(\d+)[a-z]?$")
+REQUIRED_NEW_LANE_FIELDS = ("name", "harness", "model", "cost_per_m_tokens")
+ORIGINAL_NAME = "original_name"
+_ORIGINAL_KEY = "_original_name"
 GENERATED_COMMENT = "tier_order gerado pela tela /config do dashboard"
 NEW_FILE_MODE = 0o644
 
@@ -63,9 +69,14 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.lane_object": "each lane must be an object.",
         "config_editor.field_not_editable": "Field '{field}' cannot be edited here.",
         "config_editor.missing_name": "Each lane needs its name.",
-        "config_editor.unknown_lane": "Unknown lane '{lane}'; lanes cannot be created here.",
+        "config_editor.invalid_lane_name": (
+            "Lane name '{lane}' is invalid; use lowercase letters, digits and underscores, ending in a level number "
+            "with an optional letter (for example tier_1 or tier_1b)."
+        ),
+        "config_editor.required_field": "Field '{field}' is required for a new lane.",
+        "config_editor.level_order": "Lane '{lane}' has a lower level than a lane before it; levels cannot decrease.",
+        "config_editor.invalid_original_name": "original_name must be a non-empty text.",
         "config_editor.duplicate_lane": "Lane '{lane}' appears more than once.",
-        "config_editor.missing_lanes": "Missing lane(s): {lanes}; lanes cannot be removed here.",
         "config_editor.invalid_harness": "Harness '{harness}' is invalid. Accepted values: {values}",
         "config_editor.invalid_effort": (
             "Effort '{effort}' is invalid for harness '{harness}'. Accepted values: {values}"
@@ -96,9 +107,16 @@ _MESSAGES: Dict[str, Dict[str, str]] = {
         "config_editor.lane_object": "cada via deve ser um objeto.",
         "config_editor.field_not_editable": "O campo '{field}' n\u00e3o pode ser editado aqui.",
         "config_editor.missing_name": "Cada via precisa do seu nome.",
-        "config_editor.unknown_lane": "Via desconhecida '{lane}'; n\u00e3o se criam vias aqui.",
+        "config_editor.invalid_lane_name": (
+            "O nome de via '{lane}' \u00e9 inv\u00e1lido; use letras min\u00fasculas, d\u00edgitos e sublinhados, "
+            "terminando no n\u00famero do n\u00edvel com uma letra opcional (por exemplo tier_1 ou tier_1b)."
+        ),
+        "config_editor.required_field": "O campo '{field}' \u00e9 obrigat\u00f3rio em uma via nova.",
+        "config_editor.level_order": (
+            "A via '{lane}' tem n\u00edvel menor que o de uma via anterior; o n\u00edvel n\u00e3o pode diminuir."
+        ),
+        "config_editor.invalid_original_name": "original_name deve ser um texto n\u00e3o vazio.",
         "config_editor.duplicate_lane": "A via '{lane}' aparece mais de uma vez.",
-        "config_editor.missing_lanes": "Via(s) ausente(s): {lanes}; n\u00e3o se removem vias aqui.",
         "config_editor.invalid_harness": "Harness '{harness}' inv\u00e1lido. Valores aceitos: {values}",
         "config_editor.invalid_effort": (
             "Esfor\u00e7o '{effort}' inv\u00e1lido para o harness '{harness}'. Valores aceitos: {values}"
@@ -181,6 +199,7 @@ class LaneEdit:
     max_runtime_seconds: Optional[float] = None
     eligible_classes: Optional[List[str]] = None
     best_for: Optional[List[str]] = None
+    original_name: Optional[str] = None
 
 
 @dataclass
@@ -335,47 +354,103 @@ def _lane_field_issues(index: int, current: Dict[str, Any]) -> List[ConfigIssue]
     return issues
 
 
+def _lane_level(name: str) -> Optional[int]:
+    match = LANE_LEVEL_PATTERN.search(name)
+    return int(match.group(1)) if match else None
+
+
+def _level_order_issues(merged: List[Dict[str, Any]], changed: List[bool]) -> List[ConfigIssue]:
+    """Nivel nao decresce ao longo da lista; so vale se uma das duas vias comparadas e nova ou renomeada."""
+    issues: List[ConfigIssue] = []
+    levels = [_lane_level(lane["name"]) for lane in merged]
+    for index, level in enumerate(levels):
+        if level is None:
+            continue
+        for before in range(index):
+            earlier = levels[before]
+            if earlier is not None and earlier > level and (changed[index] or changed[before]):
+                issues.append(
+                    ConfigIssue(
+                        "error", f"lanes[{index}].name", t("config_editor.level_order", lane=merged[index]["name"])
+                    )
+                )
+                break
+    return issues
+
+
 def _merge_lanes(document: LaneDocument, lanes: Any) -> tuple[List[Dict[str, Any]], List[ConfigIssue]]:
-    """Aplica o pedido sobre as vias do documento, preservando os campos nao editaveis."""
+    """Aplica o pedido sobre as vias do documento, preservando os campos nao editaveis.
+
+    Cada via do pedido e identificada por original_name (ou name): se existe no arquivo, e atualizada
+    (e renomeada quando name difere); senao e nova. Vias existentes ausentes do pedido sao removidas.
+    As vias existentes levam o nome original no campo interno _original_name.
+    """
     if not isinstance(lanes, list):
         return [], [ConfigIssue("error", "lanes", t("config_editor.lanes_list"))]
     existing = {lane.get("name"): lane for lane in document.lanes}
     merged: List[Dict[str, Any]] = []
+    changed: List[bool] = []
     issues: List[ConfigIssue] = []
-    seen: set = set()
+    seen_originals: set = set()
+    seen_names: set = set()
     for index, raw in enumerate(lanes):
         prefix = f"lanes[{index}]"
         request = asdict(raw) if isinstance(raw, LaneEdit) else raw
         if not isinstance(request, dict):
             issues.append(ConfigIssue("error", prefix, t("config_editor.lane_object")))
             continue
-        extra = [key for key in request if key not in EDITABLE_FIELDS]
+        extra = [key for key in request if key not in EDITABLE_FIELDS and key != ORIGINAL_NAME]
         for key in extra:
             issues.append(ConfigIssue("error", f"{prefix}.{key}", t("config_editor.field_not_editable", field=key)))
         name = request.get("name")
         if not isinstance(name, str) or not name:
             issues.append(ConfigIssue("error", f"{prefix}.name", t("config_editor.missing_name")))
             continue
-        if name not in existing:
-            issues.append(ConfigIssue("error", f"{prefix}.name", t("config_editor.unknown_lane", lane=name)))
+        original = request.get(ORIGINAL_NAME)
+        if original is not None and (not isinstance(original, str) or not original):
+            issues.append(ConfigIssue("error", f"{prefix}.{ORIGINAL_NAME}", t("config_editor.invalid_original_name")))
             continue
-        if name in seen:
+        key_name = original if original is not None else name
+        if key_name in existing and key_name in seen_originals:
             issues.append(ConfigIssue("error", f"{prefix}.name", t("config_editor.duplicate_lane", lane=name)))
             continue
-        seen.add(name)
-        current = copy.deepcopy(existing[name])
+        if name in seen_names:
+            issues.append(ConfigIssue("error", f"{prefix}.name", t("config_editor.duplicate_lane", lane=name)))
+            continue
+        is_new = key_name not in existing
+        is_changed = is_new or name != key_name
+        seen_names.add(name)
+        field_issues: List[ConfigIssue] = []
+        if is_new:
+            current: Dict[str, Any] = {}
+        else:
+            seen_originals.add(key_name)
+            current = copy.deepcopy(existing[key_name])
+            current[_ORIGINAL_KEY] = key_name
         current.update({key: value for key, value in request.items() if key in EDITABLE_FIELDS})
         for key in NULLABLE_FIELDS:
             if current.get(key) is None:
                 current.pop(key, None)
+        if is_new:
+            for key in REQUIRED_NEW_LANE_FIELDS:
+                if current.get(key) is None:
+                    field_issues.append(
+                        ConfigIssue("error", f"{prefix}.{key}", t("config_editor.required_field", field=key))
+                    )
+        if is_changed and not LANE_NAME_PATTERN.match(name):
+            field_issues.append(
+                ConfigIssue("error", f"{prefix}.name", t("config_editor.invalid_lane_name", lane=name))
+            )
         if not extra:
-            issues.extend(_lane_field_issues(index, current))
+            reported = {issue.path for issue in field_issues}
+            field_issues.extend(
+                issue for issue in _lane_field_issues(index, current) if issue.path not in reported
+            )
+        issues.extend(field_issues)
         merged.append(current)
-    missing = [name for name in existing if name not in seen]
-    if missing and not issues:
-        issues.append(
-            ConfigIssue("error", "lanes", t("config_editor.missing_lanes", lanes=", ".join(map(str, missing))))
-        )
+        changed.append(is_changed)
+    if not issues:
+        issues.extend(_level_order_issues(merged, changed))
     if not issues and not any(lane.get("enabled", True) is True for lane in merged):
         issues.append(ConfigIssue("error", "lanes", t("config_editor.no_enabled_lane")))
     return merged, issues
@@ -394,7 +469,7 @@ def validate_lanes(document: LaneDocument, lanes: Any) -> List[ConfigIssue]:
     data = _project_data(document.path) if document.path else {}
     workers = data.get("workers")
     data["workers"] = dict(workers) if isinstance(workers, dict) else {}
-    data["workers"]["tier_order"] = merged
+    data["workers"]["tier_order"] = [{k: v for k, v in lane.items() if k != _ORIGINAL_KEY} for lane in merged]
     return validate_config(_parse_config_dict(data))
 
 
@@ -437,6 +512,8 @@ def _workers_map(path: str, data: CommentedMap, create: bool) -> Optional[Commen
 
 def _update_lane_node(node: CommentedMap, lane: Dict[str, Any]) -> None:
     """Grava os campos editaveis no no existente; os demais campos e comentarios ficam como estao."""
+    if node.get("name") != lane["name"]:
+        node["name"] = lane["name"]
     for key in EDITABLE_FIELDS[1:]:
         value = lane.get(key)
         if value is None or value == [] or (key == "enabled" and value is True and key not in node):
@@ -452,8 +529,9 @@ def _update_lane_node(node: CommentedMap, lane: Dict[str, Any]) -> None:
 
 def _new_lane_node(lane: Dict[str, Any]) -> CommentedMap:
     node = _yaml().CommentedMap()
-    for key, value in lane.items():
-        if (key in ("effort", "max_parallel") and value is None) or (key == "enabled" and value is True):
+    for key in (*EDITABLE_FIELDS, *(key for key in lane if key not in EDITABLE_FIELDS)):
+        value = lane.get(key)
+        if key == _ORIGINAL_KEY or value is None or (key == "enabled" and value is True):
             continue
         node[key] = copy.deepcopy(value)
     return node
@@ -466,7 +544,7 @@ def _tier_order_seq(current: Any, merged: List[Dict[str, Any]]) -> CommentedSeq:
         nodes = {node.get("name"): node for node in current if isinstance(node, ruamel.CommentedMap)}
     seq = ruamel.CommentedSeq()
     for lane in merged:
-        node = nodes.get(lane["name"])
+        node = nodes.get(lane.get(_ORIGINAL_KEY))
         if node is None:
             node = _new_lane_node(lane)
         else:
