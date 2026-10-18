@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional, Union
 
 from meister import osops
+from meister.code_id import current_code_id
 from meister.dashboard.state import is_alive, read_state
 
 
@@ -20,6 +21,7 @@ from meister.dashboard.state import is_alive, read_state
 class Outcome:
     kind: str
     url: Optional[str] = None
+    fresh: bool = False
 
 
 
@@ -122,11 +124,17 @@ def default_profile_dir() -> str:
     return os.path.expanduser("~/.meister/browser-profile")
 
 
-def _format_timeline_url(base_url: str) -> str:
+def _format_view_url(base_url: str, view: str = "timeline") -> str:
     cleaned = base_url.rstrip("/")
-    if cleaned.endswith("/timeline"):
+    path = view.strip("/")
+    suffix = f"/{path}" if path else ""
+    if suffix and cleaned.endswith(suffix):
         return cleaned
-    return f"{cleaned}/timeline"
+    return f"{cleaned}{suffix}"
+
+
+def _format_timeline_url(base_url: str) -> str:
+    return _format_view_url(base_url, "timeline")
 
 
 def _parse_config(config: Any) -> tuple[str, int, int, int]:
@@ -205,26 +213,40 @@ def ensure_dashboard(
     config: Any = None,
     *,
     open_window: bool = True,
+    view: str = "timeline",
+    require_current_code: bool = False,
+    url_only: bool = False,
 ) -> Outcome:
-    """Ensure the project's dashboard server is running and open the timeline view."""
+    """Ensure the project's dashboard server is running and open the requested view."""
     try:
         project_root = resolve_project_root(project_root)
         open_mode, idle_exit_minutes, width, height = _parse_config(config)
 
-        if not open_window or open_mode == "never":
-            return Outcome(kind="disabled", url=None)
+        if not url_only:
+            if not open_window:
+                return Outcome(kind="disabled", url=None)
+            if open_mode == "never" and view == "timeline":
+                return Outcome(kind="disabled", url=None)
 
         start_time = time.monotonic()
-        deadline = start_time + 2.0
-
         state = read_state(project_root)
         now = datetime.now(timezone.utc)
 
+        cur_code = current_code_id() if require_current_code else ""
         server_alive = False
         window_alive = False
+        restarted_for_old_code = False
+
         if state is not None and is_alive(state, now=now, max_age_s=float("inf")):
-            server_alive = True
-            window_alive = is_alive(state, now=now, max_age_s=5.0)
+            if require_current_code and state.code_id != cur_code:
+                restarted_for_old_code = True
+                server_alive = False
+                state = None
+            else:
+                server_alive = True
+                window_alive = is_alive(state, now=now, max_age_s=5.0)
+
+        deadline = start_time + (8.0 if restarted_for_old_code else 2.0)
 
         if not server_alive:
             meister_dir = project_root / ".meister"
@@ -254,9 +276,13 @@ def ensure_dashboard(
                     time.sleep(0.02)
                     st = read_state(project_root)
                     if st is not None and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf")):
-                        state = st
-                        server_alive = True
-                        break
+                        if require_current_code and st.code_id != cur_code:
+                            restarted_for_old_code = True
+                            deadline = max(deadline, start_time + 8.0)
+                        else:
+                            state = st
+                            server_alive = True
+                            break
                 except OSError:
                     time.sleep(0.02)
 
@@ -264,10 +290,23 @@ def ensure_dashboard(
                 try:
                     os.close(lock_fd)
                     st = read_state(project_root)
-                    if st is not None and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf")):
+                    if (
+                        st is not None
+                        and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf"))
+                        and (not require_current_code or st.code_id == cur_code)
+                    ):
                         state = st
                         server_alive = True
                     else:
+                        if (
+                            require_current_code
+                            and st is not None
+                            and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf"))
+                            and st.code_id != cur_code
+                        ):
+                            restarted_for_old_code = True
+                            deadline = max(deadline, start_time + 8.0)
+
                         cmd = [
                             sys.executable,
                             "-m",
@@ -292,7 +331,11 @@ def ensure_dashboard(
 
                         while time.monotonic() < deadline:
                             st = read_state(project_root)
-                            if st is not None and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf")):
+                            if (
+                                st is not None
+                                and is_alive(st, now=datetime.now(timezone.utc), max_age_s=float("inf"))
+                                and (not require_current_code or st.code_id == cur_code)
+                            ):
                                 state = st
                                 server_alive = True
                                 break
@@ -311,22 +354,22 @@ def ensure_dashboard(
         if state is None:
             return Outcome(kind="failed", url=None)
 
-        timeline_url = _format_timeline_url(state.url)
+        target_url = _format_view_url(state.url, view)
 
-        if not has_display(sys.platform, os.environ):
-            return Outcome(kind="url_only", url=timeline_url)
+        if url_only or (open_mode == "never" and view != "timeline") or not has_display(sys.platform, os.environ):
+            return Outcome(kind="url_only", url=target_url, fresh=restarted_for_old_code)
 
         chromium_bin = find_chromium(sys.platform, os.environ) if open_mode in ("auto", "app") else None
 
-        if window_alive:
+        if window_alive and view == "timeline":
             kind = "window" if chromium_bin is not None else "tab"
-            return Outcome(kind=kind, url=timeline_url)
+            return Outcome(kind=kind, url=target_url, fresh=restarted_for_old_code)
 
         if chromium_bin is not None and open_mode in ("auto", "app"):
             profile_dir = default_profile_dir()
             argv = build_app_argv(
                 chromium_bin,
-                timeline_url,
+                target_url,
                 profile_dir,
                 width=width,
                 height=height,
@@ -339,13 +382,13 @@ def ensure_dashboard(
                     stderr=subprocess.DEVNULL,
                     stdin=subprocess.DEVNULL,
                 )
-                return Outcome(kind="window", url=timeline_url)
+                return Outcome(kind="window", url=target_url, fresh=restarted_for_old_code)
             except Exception:
                 return Outcome(kind="failed", url=None)
         else:
             try:
-                webbrowser.open(timeline_url)
-                return Outcome(kind="tab", url=timeline_url)
+                webbrowser.open(target_url)
+                return Outcome(kind="tab", url=target_url, fresh=restarted_for_old_code)
             except Exception:
                 return Outcome(kind="failed", url=None)
 
