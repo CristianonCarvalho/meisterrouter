@@ -66,16 +66,8 @@ workers:
         - single_file
         - css_fixes
         - unit_test_additions
-    - name: tier_2
-      harness: agy
-      model: gemini-3.8-flash-high
-      cost_per_m_tokens: 1.5
-      max_retries: 2
-      best_for:
-        - deep_reasoning
-        - complex_algorithms
-        - hard_bugs
     - name: tier_2b
+      idle_timeout_seconds: 1800
       harness: claude
       model: claude-haiku-5-5
       cost_per_m_tokens: 0.2
@@ -86,7 +78,17 @@ workers:
         - deep_reasoning
         - complex_algorithms
         - hard_bugs
+    - name: tier_2
+      harness: agy
+      model: gemini-3.8-flash-high
+      cost_per_m_tokens: 1.5
+      max_retries: 2
+      best_for:
+        - deep_reasoning
+        - complex_algorithms
+        - hard_bugs
     - name: tier_3
+      idle_timeout_seconds: 1800
       harness: claude
       model: sonnet
       cost_per_m_tokens: 4

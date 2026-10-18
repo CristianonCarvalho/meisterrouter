@@ -584,7 +584,15 @@ the dashboard.
   maximum runtime, the classes Jev may assign (`eligible_classes`) and `best_for`. **+ lane in this level** adds a
   lateral alternative (`tier_1d`, `tier_2b`...), **+ new level** adds the next level at the end of the chain (a level
   cannot be inserted in the middle), and **Remove lane** deletes one (confirm with a second tap). Renaming a lane
-  does not migrate its history in logs and the timeline. Before saving, the server validates with the same rules as
+  does not migrate its history in logs and the timeline. The model field has a tree of **known models for the lane's
+  harness**, each with its id, its cost when known and where the list came from: `agy models` (read live), the Codex
+  cache (`~/.codex/models_cache.json`), the Claude aliases and ids, and the Copilot cache
+  (`~/.meister/model_catalog/copilot.json`). Free text is still accepted, and a model that is not in the harness's lists
+  shows an "unknown model" notice (it does not block saving). Each harness wants a different spelling of the same model
+  (for example `claude-haiku-5.5` on Copilot, `haiku` or `claude-haiku-5-5` on the Claude CLI), so use the id from the
+  tree. Copilot has no list command, only `/model` inside its interactive session: `meister config refresh-models
+  copilot` opens that selector once in a simulated terminal (no prompt is sent, so it spends no credit), reads the list
+  and updates the cache, keeping the previous file as `copilot.json.bak`. It is opt-in and never runs by itself. Before saving, the server validates with the same rules as
   `meister config validate`, plus: a new or renamed name looks like `tier_<number><optional letter>`, is unique and
   its level does not go back along the list (lanes that already exist with other names keep saving normally), at
   least one lane stays on, and an effort must be one the harness accepts. A "Changes to save" panel lists what will

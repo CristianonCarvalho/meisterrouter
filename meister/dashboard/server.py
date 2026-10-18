@@ -41,6 +41,7 @@ from meister.dashboard.state import (
 from meister.config import ConfigIssue
 from meister.i18n import CATALOGS, get_language, t
 from meister.logger import find_project_root, get_log_file
+from meister.model_catalog import list_models
 from meister.report import compute_run_report
 from meister.timeline import build_timeline
 from meister.timeline_cli import (
@@ -326,6 +327,11 @@ def _config_messages() -> Dict[str, str]:
         "change_renamed",
         "change_fields",
         "change_reordered",
+        "model_unknown",
+        "tree_title",
+        "tree_loading",
+        "tree_unavailable",
+        "tree_empty",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 
@@ -633,6 +639,7 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
         "reports.dashboard.config_run_active": "A run is in progress; editing is blocked until it ends.",
         "reports.dashboard.config_body_object": "The request body must be an object.",
         "reports.dashboard.config_stamp_required": "stamp must be the text returned by GET /api/config.",
+        "reports.dashboard.models_missing_harness": "Pass the harness name in the harness query parameter.",
     },
     "pt-BR": {
         "reports.dashboard.config_csrf": (
@@ -645,6 +652,7 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
         ),
         "reports.dashboard.config_body_object": "O corpo do pedido deve ser um objeto.",
         "reports.dashboard.config_stamp_required": "stamp deve ser o texto devolvido por GET /api/config.",
+        "reports.dashboard.models_missing_harness": "Informe o nome do harness no par\u00e2metro harness.",
     },
 }
 for _language, _messages in _CONFIG_API_MESSAGES.items():
@@ -671,6 +679,15 @@ def _config_payload(document: LaneDocument) -> Dict[str, Any]:
 @app.route("/api/config")
 def api_config():
     return jsonify(_config_payload(load_effective_lanes(_project_config_path())))
+
+
+@app.route("/api/config/models")
+def api_config_models():
+    """Modelos de um harness para os seletores do /config; leitura, sem cabecalhos de escrita."""
+    harness = (request.args.get("harness") or "").strip()
+    if not harness:
+        return _config_error(400, "missing_harness", t("reports.dashboard.models_missing_harness"))
+    return jsonify(list_models(harness))
 
 
 def _config_error(status: int, reason: str, message: str, issues: Optional[List[ConfigIssue]] = None):

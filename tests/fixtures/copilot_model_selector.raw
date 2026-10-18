@@ -1,0 +1,89 @@
+[?2026h[?25l[7A[38;2;68;147;248;48;2;20;27;34m┃[39m [38;2;240;246;252m❯ /model[0;48;2;20;27;34m[K
+[0;38;2;145;152;161m┃[m [38;2;240;246;252m  /model plan[38;2;145;152;161m  Set the model used while in plan mode
+┃[m [38;2;240;246;252m  /model auto[38;2;145;152;161m  Let Copilot pick the model automatically
+┃[m [38;2;240;246;252m  /model --session[38;2;145;152;161m|[38;2;240;246;252m-s[38;2;145;152;161m  Set the model for this session
+┃[m [38;2;240;246;252m  /model --global[38;2;145;152;161m  Set the default model for future sessions
+┃[m [38;2;240;246;252m  /model --repo[38;2;145;152;161m  Set the model default for this repository[m[K
+
+[2C[48;2;20;27;34m/model[38;2;145;152;161m [plan|auto|--session|--global|--repo|--local|--plan|<model-id>]
+
+[C[mInteractive · Manual Approval [38;2;145;152;161m· [1m@[22m files · [1m#[22m issues[m                                 [?2026l[58;9H[?25h[?2026h[?25l[5;6H[38;2;48;148;255m─╮╭╮
+[5C─╯╰╯
+[4C[38;2;133;52;243m█ [38;2;95;237;131m▘▝[38;2;133;52;243m▐
+[4C ▔[m[?2026l[58;9H[?25h[?2026h[?25l[5;6H[38;2;48;148;255m╮╭─╮
+[5C╯╰─╯
+[4C[38;2;133;52;243m [38;2;95;237;131m▘▝[38;2;133;52;243m █
+[4C▔▔[m[?2026l[58;9H[?25h[?2026h[?25l[7A[K
+[K
+[K
+[K
+[K
+ [38;2;145;152;161m/private/tmp/claude-501/copilot_probe[m                      [56;141H[38;2;145;152;161mSession: 0 AIC used
+
+[2C[0;48;2;20;27;34m [48;2;20;27;34m[K
+
+[C[0;1;38;2;145;152;161m←[22m open sidebar[m [38;2;145;152;161m· [mInteractive · Manual Approval [38;2;145;152;161m· [1m/[22m commands · [1m?[22m help · [1mtab[22m next tab[m[?2026l[58;3H[?25h[?2026h[?25l[H
+
+ [38;2;128;128;128m![m [38;2;201;201;201mFailed to load 1 skill. Run /skills for more details.[m                                                                                                       [38;2;145;152;161m┃
+[158C[m[1K [38;2;240;246;252m┃
+[m [38;2;128;128;128m●[m [38;2;201;201;201mTip: /resume[5;38H[m                  [102C  [38;2;240;246;252m┃
+[m   [38;2;145;152;161m└ Switch sessions by local or cloud history ID, task ID, or name[m                                  [56C  [38;2;240;246;252m┃
+[158C[m[1K [38;2;240;246;252m┃
+[38;2;61;68;77m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[m[K
+ [38;2;145;152;161m  Auto is [1;38;2;63;185;80m10% off[0;38;2;145;152;161m right now[m[K
+[K
+   [38;2;201;201;201mAuto routes based on your task, real-time system health, and model performance. [4;38;2;128;128;128m]8;id=md-1ub4yfi;https://docs.github.com/en/copilot/concepts/models/auto-model-selectionLearn More[m]8;;[K
+[K
+   Optimize for[K
+[4C[1K [1mEfficiency[0;38;2;145;152;161m — Favors faster models while preserving the quality needed for the task.[m[K
+[5C[1mBalance[0;38;2;145;152;161m — Balances model quality and speed while adapting to each task.
+[C[m    [1mIntelligence[0;38;2;145;152;161m — Favors stronger models for complex work while remaining adaptive for simpler tasks.
+
+[38;2;61;68;77m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+[m[K
+ [38;2;145;152;161mSession only. Auto chooses a model; it does not change Autopilot or Assisted Permissions. Use `/config model` for future sessions.
+
+[3C[1m                       [m  [1;38;2;145;152;161mCategory    [m  [1;38;2;145;152;161mTier              [98C[0;38;2;68;147;248m┃
+[C[38;2;255;255;255;48;2;9;105;218m❯ Auto[39m                     [38;2;255;255;255m            [39m  [38;2;255;255;255m← Balance →[39m       [48;2;9;105;218m                                                                                                 [m [38;2;68;147;248m┃[B┃
+[3C[1;38;2;145;152;161m                       [m  [1;38;2;145;152;161mCategory    [m  [1;38;2;145;152;161mContext  [m  [1;38;2;145;152;161mReasoning[96C[0;38;2;68;147;248m┃
+[3C[1;38;2;145;152;161mRecent models[142C[0;38;2;68;147;248m┃
+[3C[mClaude Haiku 5.5[28;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m100K[7CMedium[99C[38;2;68;147;248m┃
+[3C[38;2;63;185;80mGPT-6 Luna ✓[29;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m272K[7CMedium[99C[38;2;68;147;248m┃[B┃
+[3C[1;38;2;145;152;161mRecommended models[137C[0;38;2;68;147;248m┃
+[3C[mGPT-5.6 Terra[38;2;145;152;161m (default)[m  [38;2;145;152;161mVersatile   [m  [38;2;145;152;161m272K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mClaude Sonnet 5.5[33;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃[B┃
+[3C[1;38;2;145;152;161mOther models[143C[0;38;2;68;147;248m┃
+[3C[mGPT-5.6 Luna[36;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mGPT-5.4[37;29H[38;2;145;152;161mPowerful    [m  [38;2;145;152;161m272K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mGPT-5.4 mini[38;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m—[38;54HMedium[99C[38;2;68;147;248m┃
+[3C[mGPT-5.3-Codex[39;29H[38;2;145;152;161mPowerful    [m  [38;2;145;152;161m—[39;54HMedium[99C[38;2;68;147;248m┃
+[3C[mGPT-5 mini[40;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m—[40;54HMedium[99C[38;2;68;147;248m┃
+[3C[mClaude Sonnet 5[41;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mClaude Haiku 4.5[42;29H[38;2;145;152;161mLightweight [m  [38;2;145;152;161m—[42;54H—[104C[38;2;68;147;248m┃
+[3C[mMAI-Code-1.1-Flash[7C[38;2;145;152;161mLightweight [m  [38;2;145;152;161m—[43;54HMedium[99C[38;2;68;147;248m┃
+[3C[mGemini 3.8 Flash[44;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mGemini 3.7 Flash[45;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mGrok 4.7[46;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CHigh[101C[38;2;68;147;248m┃
+[3C[mGrok 4.6[47;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mGrok 4.5[48;29H[38;2;145;152;161mVersatile   [m  [38;2;145;152;161m200K[7CMedium[99C[38;2;68;147;248m┃
+[3C[mKimi K3[49;29H[38;2;145;152;161mPowerful    [m  [38;2;145;152;161m—[49;54HHigh[101C[38;2;61;68;77m┃[B┃
+[3C[1;38;2;145;152;161mUnavailable models[137C[0;38;2;61;68;77m┃
+[3C[38;2;145;152;161mgpt-6.1-sol[52;29H            [m  [38;2;145;152;161m—[52;54H—[104C[38;2;61;68;77m┃
+[3C[38;2;145;152;161mgpt-6-sol[53;29H            [m  [38;2;145;152;161m—[53;54H—[104C[38;2;61;68;77m┃
+[3C[38;2;145;152;161mgpt-6-astra[54;29H            [m  [38;2;145;152;161m—[54;54H—[104C[38;2;61;68;77m┃
+[3C[38;2;145;152;161mgpt-5.6-sol[55;29H            [m  [38;2;145;152;161m—[55;54H—[104C[38;2;61;68;77m┃
+[m[K
+ [38;2;20;27;34m▄[157C[m[K
+ [48;2;20;27;34m [38;2;129;139;152;48;2;20;27;34m❯ [7;39m [27;38;2;145;152;161mSearch models…[C[139C[m[K
+ [38;2;20;27;34m▀[157C[m[K
+ [38;2;68;147;248m●[38;2;145;152;161m [38;2;68;147;248mScanning local providers[38;2;145;152;161m · [1m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mtab[22m context window · [1mshift+tab[22m group: recommended · [1menter[22m to select · [1mesc[22m to cancel[m[K[?2026l[?2026h[60;13H[38;2;68;147;248mOllama[38;2;145;152;161m · [1m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mtab[22m context window · [1mshift+tab[22m group: recommended · [1menter[22m to select · [1mesc[22m to cancel[m[K[?2026l[?2026h [38;2;68;147;248m◉[38;2;145;152;161m [m[?2026l[?2026h[30;55r[30;1HMMMM[1;60r[26;63H[1;38;2;145;152;161m [m  [1;38;2;145;152;161mStatus[28;66H[0;38;2;128;128;128m          [29;66H          
+[158C[38;2;68;147;248m┃
+[3C[1;38;2;145;152;161mLocal and self-hosted[134C[0;38;2;68;147;248m┃
+[3C[mgpt-oss:20b[32;29H[38;2;145;152;161m            [m  [38;2;145;152;161m—[32;54H—[32;66H[38;2;128;128;128mDiscovered[83C[38;2;68;147;248m┃
+[3C[mllama3.1:latest[33;29H[38;2;145;152;161m            [m  [38;2;145;152;161m131K[7C—[33;66H[38;2;128;128;128mDiscovered[83C[38;2;68;147;248m┃[36;66H[38;2;128;128;128m          [37;66H          [40;66H          [41;66H          [42;66H          [43;66H          [44;66H          [83C[38;2;61;68;77m┃[45;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[46;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[47;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[48;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[49;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[50;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[51;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[52;66H[38;2;128;128;128m          [83C[38;2;61;68;77m┃[53;66H[38;2;128;128;128m          
+[158C[m 
+[K[5B [1;38;2;145;152;161m↑/↓[22m to navigate · [1m←/→[22m routing profile · [1mtab[22m context window · [1mshift+tab[22m group: recommended · [1mctrl+r[22m rescan providers · [1menter[22m to select · [1mesc[22m to cancel[m[?2026l[?2026h[3;7r[7;1H
+
+[1;60r[3;160H[38;2;145;152;161m┃[6;2H[38;2;128;128;128m●[m [38;2;201;201;201mMCP Servers reloaded: 1 server connected[116C[38;2;240;246;252m┃
+[159C┃[m[?2026l

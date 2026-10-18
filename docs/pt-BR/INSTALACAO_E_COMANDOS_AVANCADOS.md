@@ -586,7 +586,16 @@ para a linha do tempo e para o dashboard.
   `max_parallel`, tempo ocioso e duração máxima, as classes que o Jev pode atribuir (`eligible_classes`) e
   `best_for`. **+ via neste nível** cria uma alternativa lateral (`tier_1d`, `tier_2b`...), **+ novo nível** cria o
   próximo nível no fim da cadeia (não dá para inserir um nível no meio) e **Remover via** apaga uma (confirme com um
-  segundo toque). Renomear uma via não migra o histórico dela nos logs e na linha do tempo. Antes de gravar, o
+  segundo toque). Renomear uma via não migra o histórico dela nos logs e na linha do tempo. O campo de modelo tem uma árvore dos
+  **modelos conhecidos do harness da via**, cada um com o id, o custo quando conhecido e a origem da lista: `agy models`
+  (lido ao vivo), o cache do Codex (`~/.codex/models_cache.json`), os aliases e ids do Claude e o cache do Copilot
+  (`~/.meister/model_catalog/copilot.json`). O texto livre continua valendo, e um modelo que não está nas listas do
+  harness mostra o aviso "modelo desconhecido" (ele não impede de salvar). Cada harness quer uma grafia diferente do
+  mesmo modelo (por exemplo `claude-haiku-5.5` no Copilot, `haiku` ou `claude-haiku-5-5` no Claude CLI), então use o id
+  da árvore. O Copilot não tem comando de listagem, só o `/model` dentro da sessão interativa: `meister config
+  refresh-models copilot` abre esse seletor uma vez num terminal simulado (nenhum prompt é enviado, então não gasta
+  crédito), lê a lista e atualiza o cache, guardando o arquivo anterior como `copilot.json.bak`. É opt-in e nunca roda
+  sozinho. Antes de gravar, o
   servidor valida com as mesmas regras do `meister config validate`, e mais: o nome de uma via nova ou renomeada tem a
   forma `tier_<número><letra opcional>`, é único e seu nível não volta atrás ao longo da lista (vias que já existem
   com outros nomes continuam gravando normalmente), pelo menos uma via fica ligada e o esforço é um que o harness

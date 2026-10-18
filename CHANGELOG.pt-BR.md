@@ -4,6 +4,10 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+### Adicionado
+- **A gaveta de via da `/config` lista os modelos conhecidos do harness da via.** O campo de modelo ganha uma árvore com o id de cada modelo, o custo quando conhecido e a origem: `agy models` (lido ao vivo), o cache do Codex (`~/.codex/models_cache.json`), os aliases e ids do Claude e o cache do Copilot. O texto livre continua valendo, e um modelo fora das listas mostra o aviso "modelo desconhecido" sem impedir de salvar. Cada harness grafa o mesmo modelo de um jeito (`claude-haiku-5.5` no Copilot, `haiku` ou `claude-haiku-5-5` no Claude CLI), então o id vem da árvore. As listas saem só para leitura em `GET /api/config/models?harness=...`.
+- **`meister config refresh-models copilot` lê a lista de modelos do Copilot pelo próprio seletor `/model`.** O Copilot não tem comando de listagem, então o comando abre o seletor interativo uma vez num terminal simulado (nenhum prompt é enviado, então não gasta crédito), lê a tela real e atualiza `~/.meister/model_catalog/copilot.json`, guardando o arquivo anterior como `.bak` e deixando-o intacto se nenhum modelo for lido. É opt-in e nunca roda sozinho.
+
 ## [0.12.0] - 2026-10-18
 
 ### Adicionado
