@@ -329,3 +329,103 @@ def test_write_catalog_creates_missing_directory(home):
 
     assert json.loads(catalog.read_text(encoding="utf-8"))["unavailable"] == ["gpt-6-sol"]
     assert not catalog.parent.joinpath("copilot.json.bak").exists()
+
+
+REAL_SELECTOR_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "copilot_model_selector.raw"
+REAL_MODEL_NAMES = [
+    "Claude Haiku 5.5",
+    "GPT-6 Luna",
+    "GPT-5.6 Terra",
+    "Claude Sonnet 5.5",
+    "GPT-5.6 Luna",
+    "GPT-5.4",
+    "GPT-5.4 mini",
+    "GPT-5.3-Codex",
+    "GPT-5 mini",
+    "Claude Sonnet 5",
+    "Claude Haiku 4.5",
+    "MAI-Code-1.1-Flash",
+    "Gemini 3.8 Flash",
+    "Gemini 3.7 Flash",
+    "Grok 4.7",
+    "Grok 4.6",
+    "Grok 4.5",
+    "Kimi K3",
+]
+
+
+@pytest.fixture
+def real_selector():
+    """Saída bruta real do seletor ``/model`` do Copilot, já sem ANSI."""
+    raw = REAL_SELECTOR_FIXTURE.read_bytes().decode("utf-8", errors="replace")
+    return parse_selector(strip_ansi(raw))
+
+
+def test_real_selector_lists_the_18_models_in_screen_order(real_selector):
+    assert [model["name"] for model in real_selector.models] == REAL_MODEL_NAMES
+
+
+def test_real_selector_marks_selected_and_default(real_selector):
+    by_name = {model["name"]: model for model in real_selector.models}
+
+    assert by_name["GPT-6 Luna"]["selected"] is True
+    assert by_name["GPT-6 Luna"]["default"] is False
+    assert by_name["GPT-5.6 Terra"]["default"] is True
+    assert by_name["GPT-5.6 Terra"]["selected"] is False
+    assert sum(model["selected"] for model in real_selector.models) == 1
+    assert sum(model["default"] for model in real_selector.models) == 1
+
+
+def test_real_selector_groups_have_expected_sizes(real_selector):
+    groups = [model["group"] for model in real_selector.models]
+
+    assert groups.count("recent") == 2
+    assert groups.count("recommended") == 2
+    assert groups.count("other") == 14
+
+
+def test_real_selector_reads_tier_context_and_effort_glued_to_name(real_selector):
+    by_name = {model["name"]: model for model in real_selector.models}
+
+    assert by_name["Claude Haiku 5.5"]["tier"] == "Lightweight"
+    assert by_name["Claude Haiku 5.5"]["context"] == "100K"
+    assert by_name["Gemini 3.8 Flash"]["context"] == "200K"
+    assert by_name["Kimi K3"]["tier"] == "Powerful"
+    assert by_name["Kimi K3"]["reasoning"] == "High"
+
+
+def test_real_selector_absent_context_and_effort_become_none(real_selector):
+    by_name = {model["name"]: model for model in real_selector.models}
+
+    assert by_name["GPT-5.4 mini"]["context"] is None
+    assert by_name["GPT-5.4 mini"]["reasoning"] == "Medium"
+    assert by_name["Claude Haiku 4.5"]["context"] is None
+    assert by_name["Claude Haiku 4.5"]["reasoning"] is None
+
+
+def test_real_selector_unavailable_and_local_blocks(real_selector):
+    assert real_selector.unavailable == ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-astra", "gpt-5.6-sol"]
+    assert real_selector.local_ollama == ["gpt-oss:20b", "llama3.1:latest"]
+
+
+def test_real_selector_ignores_help_text_and_chrome(real_selector):
+    names = [model["name"] for model in real_selector.models]
+
+    assert not any("Auto" in name or "Optimize" in name or "Category" in name for name in names)
+    assert all(model["id_verified"] is False for model in real_selector.models)
+
+
+@pytest.mark.parametrize(
+    ("name", "expected_id"),
+    [
+        ("Claude Haiku 5.5", "claude-haiku-5.5"),
+        ("GPT-5.4 mini", "gpt-5.4-mini"),
+        ("MAI-Code-1.1-Flash", "mai-code-1.1-flash"),
+        ("GPT-5.3-Codex", "gpt-5.3-codex"),
+        ("Kimi K3", "kimi-k3"),
+    ],
+)
+def test_real_selector_ids_come_from_names(real_selector, name, expected_id):
+    by_name = {model["name"]: model for model in real_selector.models}
+
+    assert by_name[name]["id"] == model_id_from_name(name) == expected_id
