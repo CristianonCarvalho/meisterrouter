@@ -16,6 +16,8 @@ def isolated_catalog(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
     monkeypatch.chdir(project)
+    # Sem agy no PATH: a fonte `agy models` nunca roda o executável real.
+    monkeypatch.setattr(model_catalog.shutil, "which", lambda name: None)
     model_catalog.clear_model_catalog_cache()
     yield home
     model_catalog.clear_model_catalog_cache()
@@ -116,7 +118,7 @@ def test_config_source_lists_default_models_for_agy_and_alias_matches():
     result = model_catalog.list_models("agy")
     models = _by_id(result)
 
-    assert _statuses(result) == {"config": "ok"}
+    assert _statuses(result) == {"agy models": "unavailable", "config": "ok"}
     assert models["gemini-3.8-flash-high"]["cost_per_m_tokens"] == 1.5
     assert models["gemini-3.8-flash-high"]["source"] == "config"
     assert model_catalog.list_models("antigravity")["models"] == result["models"]
@@ -141,7 +143,11 @@ def test_broken_project_config_makes_config_source_unavailable(tmp_path):
 
     result = model_catalog.list_models("agy")
 
-    assert result == {"harness": "agy", "models": [], "sources": [{"name": "config", "status": "unavailable"}]}
+    assert result == {
+        "harness": "agy",
+        "models": [],
+        "sources": [{"name": "agy models", "status": "unavailable"}, {"name": "config", "status": "unavailable"}],
+    }
 
 
 def test_config_source_empty_for_harness_without_default_tiers():

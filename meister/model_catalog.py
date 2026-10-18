@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -19,6 +21,11 @@ from meister.config import _all_default_worker_tiers, load_config
 
 CACHE_TTL_SECONDS = 300.0
 
+AGY_EXECUTABLE = "agy"
+AGY_MODELS_TIMEOUT_SECONDS = 10.0
+
+SOURCE_AGY_MODELS = "agy models"
+SOURCE_CODEX_CACHE = "codex cache"
 SOURCE_CLAUDE_ALIASES = "claude aliases"
 SOURCE_COPILOT_CACHE = "copilot cache"
 SOURCE_CONFIG = "config"
@@ -125,6 +132,10 @@ def _build_catalog(group: str) -> Dict[str, Any]:
 
 
 def _fixed_sources(group: str) -> List[Tuple[str, SourceReader]]:
+    if group == "agy":
+        return [(SOURCE_AGY_MODELS, _agy_models)]
+    if group == "codex":
+        return [(SOURCE_CODEX_CACHE, _codex_cache)]
     if group == "claude":
         return [(SOURCE_CLAUDE_ALIASES, _claude_aliases)]
     if group == "copilot":
@@ -136,18 +147,71 @@ def _entry(model_id: str, label: Optional[str], source: str) -> ModelEntry:
     return {"id": model_id, "label": label, "cost_per_m_tokens": None, "source": source}
 
 
+def _agy_models() -> Optional[List[ModelEntry]]:
+    # Sem shell e só se o executável existir: nunca roda um comando que não foi encontrado no PATH.
+    if shutil.which(AGY_EXECUTABLE) is None:
+        return None
+    try:
+        result = subprocess.run(
+            [AGY_EXECUTABLE, "models"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=AGY_MODELS_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+
+    models: List[ModelEntry] = []
+    for line in result.stdout.splitlines():
+        # Linhas válidas são "id<TAB>nome"; o aviso ("Fetching available models...") não tem tab.
+        if "\t" not in line:
+            continue
+        model_id, _, name = line.partition("\t")
+        model_id = model_id.strip()
+        if not model_id or any(char.isspace() for char in model_id):
+            continue
+        models.append(_entry(model_id, name.strip() or None, SOURCE_AGY_MODELS))
+    return models
+
+
+def _codex_cache() -> Optional[List[ModelEntry]]:
+    data = _read_json_file(os.path.join(os.path.expanduser("~"), ".codex", "models_cache.json"))
+    items = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return None
+
+    models: List[ModelEntry] = []
+    for item in items:
+        if not isinstance(item, dict) or item.get("visibility") != "list":
+            continue
+        slug = item.get("slug")
+        if not isinstance(slug, str) or not slug.strip():
+            continue
+        display_name = item.get("display_name")
+        label = display_name.strip() if isinstance(display_name, str) and display_name.strip() else None
+        models.append(_entry(slug.strip(), label, SOURCE_CODEX_CACHE))
+    return models
+
+
+def _read_json_file(path: str) -> Any:
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return None
+
+
 def _claude_aliases() -> Optional[List[ModelEntry]]:
     return [_entry(alias, None, SOURCE_CLAUDE_ALIASES) for alias in _CLAUDE_ALIASES]
 
 
 def _copilot_cache() -> Optional[List[ModelEntry]]:
-    path = os.path.join(os.path.expanduser("~"), ".meister", "model_catalog", "copilot.json")
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-    except (OSError, ValueError):
-        return None
-
+    data = _read_json_file(os.path.join(os.path.expanduser("~"), ".meister", "model_catalog", "copilot.json"))
     items = data.get("models") if isinstance(data, dict) else None
     if not isinstance(items, list):
         return None
