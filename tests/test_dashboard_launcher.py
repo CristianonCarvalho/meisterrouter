@@ -145,6 +145,7 @@ def test_ensure_dashboard_no_display_returns_url_only(
 
     assert outcome.kind == "url_only"
     assert outcome.url == "http://127.0.0.1:5050/timeline"
+    assert outcome.fresh is False
     assert not opened_tabs
 
 
@@ -241,6 +242,7 @@ def test_ensure_dashboard_server_alive_and_window_alive_opens_nothing(
 
     assert outcome.kind == "window"
     assert outcome.url == "http://127.0.0.1:5050/timeline"
+    assert outcome.fresh is False
     assert not popen_called
     assert not opened_tabs
 

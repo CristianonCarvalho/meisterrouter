@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Flask, jsonify, render_template, request
 from werkzeug.serving import make_server
 
+from meister.code_id import current_code_id
 from meister.config import load_config
 from meister.config_editor import (
     ConfigEditorError,
@@ -811,6 +812,7 @@ def start_server(
             url=f"http://{host}:{actual_port}",
             started_at=now_str,
             last_seen=now_str,
+            code_id=current_code_id(),
         )
         write_state(project_root, state)
         atexit.register(remove_state, project_root)
@@ -831,6 +833,7 @@ def start_server(
         url=f"http://{host}:{actual_port}",
         started_at=now_str,
         last_seen=now_str,
+        code_id=current_code_id(),
     )
     write_state(project_root, state)
     atexit.register(remove_state, project_root)

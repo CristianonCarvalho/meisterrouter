@@ -20,7 +20,7 @@ import click
 
 from meister import __version__, osops
 from meister.console import ensure_utf8_streams
-from meister.dashboard.launcher import ensure_dashboard
+from meister.dashboard.launcher import ensure_dashboard, resolve_project_root
 from meister.envvars import is_worker_env
 from meister.jev import classify_task, control_cycle, call_decisions
 from meister.hooks import install_git_hook, install_claude_hook
@@ -2393,6 +2393,58 @@ def config_init(target_path, force, kiro):
         f.write(content)
 
     click.echo(t("cli.config.init.generated", path=resolved_path))
+
+
+@config_group.command("web", help=t("cli.config.web.help"))
+@click.option(
+    "--config-path",
+    "-c",
+    "config_path",
+    default=None,
+    help=t("cli.common.config_file_help"),
+)
+@click.option(
+    "--no-open",
+    is_flag=True,
+    default=False,
+    help=t("cli.config.web.no_open_help"),
+)
+def config_web(config_path: Optional[str], no_open: bool) -> None:
+    """Open or print the URL of the web-based configuration editor."""
+    project_root = resolve_project_root(Path.cwd())
+    try:
+        cfg = _load_cli_config(config_path)
+    except FileNotFoundError as e:
+        click.echo(t("cli.config.error", error=e), err=True)
+        sys.exit(2)
+
+    try:
+        outcome = ensure_dashboard(
+            project_root,
+            cfg.dashboard,
+            view="config",
+            require_current_code=True,
+            url_only=no_open,
+        )
+    except Exception:
+        click.echo(t("cli.config.web.failed"), err=True)
+        sys.exit(1)
+
+    if outcome.fresh:
+        click.echo(t("cli.config.web.fresh_server"))
+
+    if outcome.kind in ("window", "tab", "open") and outcome.url:
+        if outcome.kind == "window":
+            click.echo(t("cli.config.web.window", url=outcome.url))
+        elif outcome.kind == "tab":
+            click.echo(t("cli.config.web.tab", url=outcome.url))
+        else:
+            click.echo(t("cli.config.web.open", url=outcome.url))
+    elif outcome.kind == "url_only" and outcome.url:
+        click.echo(t("cli.config.web.url_only", url=outcome.url))
+    else:
+        click.echo(t("cli.config.web.failed"), err=True)
+        sys.exit(1)
 
 
 # Aliases for compatibility with direct callers.

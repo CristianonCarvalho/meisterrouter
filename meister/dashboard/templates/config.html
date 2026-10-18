@@ -472,6 +472,9 @@
   </div>
 </header>
 
+<div id="banner-server-older" class="notice error" hidden>
+  <span>Restart the dashboard: the server is older than this page.</span> · <span>Reinicie o dashboard: o servidor é mais antigo que esta página.</span>
+</div>
 <div id="banner-run-active" class="notice" hidden>{{ messages.blocked_run_active }}</div>
 <div id="banner-remote" class="notice" hidden>{{ messages.read_only_remote }}</div>
 <div id="banner-error" class="notice error" hidden>{{ messages.load_failed }}</div>
@@ -620,7 +623,7 @@
 
 <script>
 (() => {
-  const text = {{ messages|tojson }};
+  const rawText = {{ messages|tojson }};
   const byId = (id) => document.getElementById(id);
 
   // helpers:begin
@@ -965,7 +968,96 @@
     }
     return result;
   }
+
+  const requiredKeys = [
+    "add_lane",
+    "change_added",
+    "change_fields",
+    "change_removed",
+    "change_renamed",
+    "change_reordered",
+    "changes_none",
+    "chip_all_classes",
+    "chip_disabled",
+    "chip_enabled",
+    "chip_only_classes",
+    "chip_parallel",
+    "chip_retries",
+    "content_effort",
+    "cost_value",
+    "edit",
+    "effort",
+    "effort_default",
+    "enabled",
+    "err_duplicate_name",
+    "err_empty_model",
+    "err_invalid_name",
+    "err_invalid_number",
+    "err_level_order",
+    "err_no_enabled_lane",
+    "err_required",
+    "escalation",
+    "escalation_cost",
+    "field_best_for",
+    "field_cost_per_m_tokens",
+    "field_credit_usd",
+    "field_eligible_classes",
+    "field_idle_timeout",
+    "field_max_retries",
+    "field_max_runtime",
+    "harness",
+    "invalid",
+    "level_order_hint",
+    "level_other",
+    "level_title",
+    "max_parallel",
+    "model",
+    "name",
+    "no_lanes",
+    "no_model",
+    "path_before_start",
+    "path_disabled",
+    "path_failed",
+    "path_runs_here",
+    "restored",
+    "result_all_failed",
+    "result_escalated",
+    "result_failed_before",
+    "result_no_eligible",
+    "result_ok",
+    "save_failed",
+    "saved",
+    "saving",
+    "source",
+    "source_default",
+    "unsaved",
+  ];
+
+  function missingTextKeys(text, keys) {
+    const list = Array.isArray(keys) ? keys : requiredKeys;
+    const target = text || {};
+    return list.filter((key) => !(key in target) || target[key] === undefined);
+  }
+
+  function withTextFallback(text, keys) {
+    const list = Array.isArray(keys) ? keys : requiredKeys;
+    const target = text || {};
+    const result = { ...target };
+    for (const key of list) {
+      if (!(key in result) || result[key] === undefined) {
+        result[key] = key;
+      }
+    }
+    return result;
+  }
   // helpers:end
+
+  const missingKeys = missingTextKeys(rawText, requiredKeys);
+  const oldServerBanner = byId("banner-server-older");
+  if (oldServerBanner && missingKeys.length > 0) {
+    oldServerBanner.hidden = false;
+  }
+  const text = withTextFallback(rawText, requiredKeys);
 
   const state = {
     original: [],

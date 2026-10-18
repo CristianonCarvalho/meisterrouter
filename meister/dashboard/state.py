@@ -22,6 +22,7 @@ class ServerState:
     url: str
     started_at: str
     last_seen: str
+    code_id: str = ""
 
 
 def format_iso_utc(dt: datetime) -> str:
@@ -53,12 +54,14 @@ def read_state(project_root: Union[str, Path]) -> Optional[ServerState]:
         url = str(data["url"])
         started_at = str(data["started_at"])
         last_seen = str(data["last_seen"])
+        code_id = str(data.get("code_id") or "")
         return ServerState(
             pid=pid,
             port=port,
             url=url,
             started_at=started_at,
             last_seen=last_seen,
+            code_id=code_id,
         )
     except Exception:
         return None

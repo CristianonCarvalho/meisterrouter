@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from meister.code_id import current_code_id
+from meister.dashboard.server import start_server
 from meister.dashboard.state import (
     ServerState,
     is_alive,
@@ -197,4 +199,83 @@ def test_two_projects_independent_states(tmp_path: Path):
     assert loaded_a == state_a
     assert loaded_b == state_b
     assert loaded_a != loaded_b
+
+
+def test_write_state_and_read_state_roundtrip_with_code_id(tmp_path: Path):
+    project = tmp_path / "project"
+    state = ServerState(
+        pid=12345,
+        port=5050,
+        url="http://127.0.0.1:5050",
+        started_at="2026-10-08T08:00:00Z",
+        last_seen="2026-10-08T08:05:00Z",
+        code_id="0.11.0+abcdef1",
+    )
+    write_state(project, state)
+    loaded = read_state(project)
+    assert loaded is not None
+    assert loaded.pid == 12345
+    assert loaded.port == 5050
+    assert loaded.url == "http://127.0.0.1:5050"
+    assert loaded.started_at == "2026-10-08T08:00:00Z"
+    assert loaded.last_seen == "2026-10-08T08:05:00Z"
+    assert loaded.code_id == "0.11.0+abcdef1"
+
+
+def test_read_state_without_code_id_defaults_to_empty(tmp_path: Path):
+    project = tmp_path / "project"
+    meister_dir = project / ".meister"
+    meister_dir.mkdir(parents=True)
+    legacy_payload = {
+        "pid": 12345,
+        "port": 5050,
+        "url": "http://127.0.0.1:5050",
+        "started_at": "2026-10-08T08:00:00Z",
+        "last_seen": "2026-10-08T08:05:00Z",
+    }
+    (meister_dir / "dashboard.json").write_text(json.dumps(legacy_payload), encoding="utf-8")
+    loaded = read_state(project)
+    assert loaded is not None
+    assert loaded.pid == 12345
+    assert loaded.port == 5050
+    assert loaded.url == "http://127.0.0.1:5050"
+    assert loaded.started_at == "2026-10-08T08:00:00Z"
+    assert loaded.last_seen == "2026-10-08T08:05:00Z"
+    assert loaded.code_id == ""
+
+
+def test_start_server_records_current_code_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".meister").mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setattr("meister.dashboard.server.atexit.register", lambda *a, **k: None)
+    monkeypatch.setattr("meister.dashboard.server.remove_state", lambda *a, **k: None)
+    mock_server = MagicMock()
+    mock_server.port = 5050
+    mock_server.serve_forever.return_value = None
+    monkeypatch.setattr("meister.dashboard.server.make_server", lambda *a, **kw: mock_server)
+
+    start_server(port=5050)
+
+    loaded = read_state(project)
+    assert loaded is not None
+    assert loaded.code_id == current_code_id()
+
+
+def test_start_server_custom_app_run_records_current_code_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / ".meister").mkdir()
+    monkeypatch.chdir(project)
+    monkeypatch.setattr("meister.dashboard.server.atexit.register", lambda *a, **k: None)
+    monkeypatch.setattr("meister.dashboard.server.remove_state", lambda *a, **k: None)
+    monkeypatch.setattr("meister.dashboard.server.app.run", lambda **kw: None)
+
+    start_server(port=5050)
+
+    loaded = read_state(project)
+    assert loaded is not None
+    assert loaded.code_id == current_code_id()
+
 
