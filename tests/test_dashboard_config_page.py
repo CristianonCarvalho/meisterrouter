@@ -46,6 +46,18 @@ DRAWER_KEYS = (
     "err_no_enabled_lane",
 )
 
+CHANGES_PANEL_KEYS = (
+    "add_lane",
+    "add_level",
+    "changes_title",
+    "changes_none",
+    "change_added",
+    "change_removed",
+    "change_renamed",
+    "change_fields",
+    "change_reordered",
+)
+
 
 
 @pytest.fixture
@@ -163,4 +175,30 @@ def test_config_page_has_drawer_markup(page_client):
     assert "function clientFieldErrors(" in html
     assert "function openDrawer(" in html
     assert "function closeDrawer(" in html
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_task7_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in CHANGES_PANEL_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+
+
+def test_config_page_has_swap_and_creation_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    assert 'id="panel-changes"' in html
+    assert 'id="changes-summary"' in html
+    assert 'id="changes-list"' in html
+    assert 'id="add-level"' in html
+    assert "add-lane-btn" in html
+    assert "function swapContent(" in html
+    assert "function diffChain(" in html
+    assert "function renderChanges(" in html
+    assert "function isContentChanged(" in html
+
 

@@ -444,4 +444,13 @@ MESSAGES: dict[str, str] = {
     "cli.config.web.err_invalid_number": "Número inválido.",
     "cli.config.web.err_required": "Custo é obrigatório em vias novas.",
     "cli.config.web.err_no_enabled_lane": "Pelo menos uma via deve estar ativa.",
+    "cli.config.web.add_lane": "+ via neste nível",
+    "cli.config.web.add_level": "+ novo nível",
+    "cli.config.web.changes_title": "Alterações a gravar",
+    "cli.config.web.changes_none": "Nenhuma alteração a gravar.",
+    "cli.config.web.change_added": "Nova via: {name}",
+    "cli.config.web.change_removed": "Via removida: {name}",
+    "cli.config.web.change_renamed": "Via renomeada: {old} → {new}",
+    "cli.config.web.change_fields": "Via {name}: {fields}",
+    "cli.config.web.change_reordered": "Ordem das vias alterada.",
 }

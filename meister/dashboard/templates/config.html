@@ -172,7 +172,14 @@
     border-radius: 8px;
     background: var(--surface);
     padding: 9px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: outline 0.15s ease, opacity 0.15s ease;
   }
+  .content.dragging { opacity: 0.45; }
+  .content.drag-over { outline: 2px dashed var(--cyan); outline-offset: 2px; }
+  .content.changed { outline: 2px solid var(--amber); }
+  .content.selected { outline: 2px solid var(--cyan); }
   .content .h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
   .content .m { font-weight: 600; margin: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
   .content .c { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
@@ -180,6 +187,73 @@
   .hc-codex { border-left-color: var(--green); }
   .hc-agy { border-left-color: var(--yellow); }
   .hc-claude { border-left-color: var(--purple); }
+  .level-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .add-lane-btn {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    background: var(--bg);
+    color: var(--cyan);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .add-lane-btn:hover:not(:disabled) {
+    border-color: var(--cyan);
+    background: var(--hover);
+  }
+  .chain-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin: 12px 0;
+  }
+  .add-level-btn {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+    background: var(--surface);
+    color: var(--cyan);
+    cursor: pointer;
+  }
+  .add-level-btn:hover:not(:disabled) {
+    border-color: var(--cyan);
+    background: var(--hover);
+  }
+  .changes-summary {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .changes-list {
+    margin: 0 0 10px;
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .changes-list:empty {
+    display: none;
+  }
+  .change-item-added {
+    color: var(--green);
+  }
+  .change-item-removed {
+    color: var(--red);
+  }
+  .change-item-changed {
+    color: var(--amber);
+  }
+  .change-item-reordered {
+    color: var(--cyan);
+  }
   .legend { display: flex; gap: 14px 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: 14px 0; }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
   .read-only { color: var(--muted); font-size: 12px; margin-top: 12px; }
@@ -425,11 +499,19 @@
 </section>
 
 <div id="chain" class="chain"></div>
+<div class="chain-actions">
+  <button type="button" id="add-level" class="add-level-btn">{{ messages.add_level }}</button>
+</div>
 <div class="legend">
   <span><span class="sep-l">⇄</span> {{ messages.legend_lateral }}</span>
   <span class="sep-e">⤹ {{ messages.legend_escalation }}</span>
 </div>
-<ul id="errors" class="errors"></ul>
+<section class="panel" id="panel-changes">
+  <h2>{{ messages.changes_title }}</h2>
+  <div id="changes-summary" class="changes-summary">{{ messages.changes_none }}</div>
+  <ul id="changes-list" class="changes-list"></ul>
+  <ul id="errors" class="errors"></ul>
+</section>
 <p class="hint">{{ messages.project_list_notice }}</p>
 <div class="actions-bar">
   <button type="button" id="save" class="primary">{{ messages.save }}</button>
@@ -857,6 +939,17 @@
     return { added, removed, changed, reordered: JSON.stringify(baseOrder) !== JSON.stringify(kept) };
   }
 
+  // Verifica se o conteúdo da via (campos em CONTENT_FIELDS) difere do arquivo original.
+  function isContentChanged(original, lane) {
+    const origName = originalNameOf(lane);
+    if (origName === null) return true;
+    const orig = original.find((o) => originalNameOf(o) === origName);
+    if (!orig) return true;
+    const was = editableLane(orig);
+    const now = editableLane(lane);
+    return CONTENT_FIELDS.some((field) => JSON.stringify(was[field]) !== JSON.stringify(now[field]));
+  }
+
   // Agrupa os problemas do validateChain por via e campo: {lanes: {"0": {model: ["empty_model"]}}, general: ["no_enabled_lane"]}
   function clientFieldErrors(issues) {
     const result = { lanes: {}, general: [] };
@@ -885,9 +978,28 @@
     busy: false,
     sim: { cls: "SMALL", start: "", failed: new Set() },
     drawerIndex: null,
+    selectedCardIndex: null,
   };
 
+  let isDragging = false;
+
   const CLASSES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"];
+
+  const FIELD_LABELS = {
+    name: text.name,
+    enabled: text.enabled,
+    harness: text.harness,
+    model: text.model,
+    effort: text.effort,
+    cost_per_m_tokens: text.field_cost_per_m_tokens,
+    credit_usd: text.field_credit_usd,
+    max_retries: text.field_max_retries,
+    max_parallel: text.max_parallel,
+    idle_timeout_seconds: text.field_idle_timeout,
+    max_runtime_seconds: text.field_max_runtime,
+    eligible_classes: text.field_eligible_classes,
+    best_for: text.field_best_for,
+  };
 
   const ISSUE_TEXTS = {
     invalid_name: text.err_invalid_name,
@@ -938,7 +1050,14 @@
     const policy = el("div", "policy");
     policy.append(...slotChips(lane));
     const harnessClass = String(lane.harness || "").replace(/[^a-z0-9-]/gi, "");
-    const content = el("div", `content hc-${harnessClass}`);
+    let contentClasses = `content hc-${harnessClass}`;
+    if (isContentChanged(state.original, lane)) {
+      contentClasses += " changed";
+    }
+    if (state.selectedCardIndex === index) {
+      contentClasses += " selected";
+    }
+    const content = el("div", contentClasses);
     content.append(
       el("div", "h", lane.harness || "—"),
       el("div", "m", lane.model || text.no_model),
@@ -949,6 +1068,71 @@
       el("span", "", money(lane.cost_per_m_tokens)),
     );
     content.appendChild(detail);
+
+    if (locked()) {
+      content.style.cursor = "default";
+      content.draggable = false;
+    } else {
+      content.draggable = true;
+      content.addEventListener("dragstart", (e) => {
+        if (locked()) {
+          e.preventDefault();
+          return;
+        }
+        isDragging = true;
+        e.dataTransfer.setData("text/plain", String(index));
+        e.dataTransfer.effectAllowed = "move";
+        content.classList.add("dragging");
+      });
+      content.addEventListener("dragend", () => {
+        content.classList.remove("dragging");
+        document.querySelectorAll(".content.drag-over").forEach((n) => n.classList.remove("drag-over"));
+        setTimeout(() => { isDragging = false; }, 50);
+      });
+      content.addEventListener("dragover", (e) => {
+        if (locked()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      });
+      content.addEventListener("dragenter", (e) => {
+        if (locked()) return;
+        content.classList.add("drag-over");
+      });
+      content.addEventListener("dragleave", () => {
+        content.classList.remove("drag-over");
+      });
+      content.addEventListener("drop", (e) => {
+        if (locked()) return;
+        e.preventDefault();
+        content.classList.remove("drag-over");
+        const raw = e.dataTransfer.getData("text/plain");
+        const fromIndex = Number(raw);
+        if (!Number.isNaN(fromIndex) && fromIndex !== index) {
+          state.selectedCardIndex = null;
+          state.lanes = swapContent(state.lanes, fromIndex, index);
+          render();
+          if (state.drawerIndex !== null) populateDrawer(state.drawerIndex);
+        }
+      });
+      content.addEventListener("click", () => {
+        if (locked()) return;
+        if (isDragging) return;
+        if (state.selectedCardIndex === null) {
+          state.selectedCardIndex = index;
+          renderChain();
+        } else if (state.selectedCardIndex === index) {
+          state.selectedCardIndex = null;
+          renderChain();
+        } else {
+          const fromIndex = state.selectedCardIndex;
+          state.selectedCardIndex = null;
+          state.lanes = swapContent(state.lanes, fromIndex, index);
+          render();
+          if (state.drawerIndex !== null) populateDrawer(state.drawerIndex);
+        }
+      });
+    }
+
     slot.append(policy, content);
     return slot;
   }
@@ -985,11 +1169,32 @@
         chain.appendChild(escalationEl(previous, group, step));
       }
       const box = el("div", "level");
-      box.append(
+      const head = el("div", "level-head");
+      const titleCol = el("div");
+      titleCol.append(
         el("div", "level-title", levelLabel(group.level)),
         el("div", "level-hint", text.level_order_hint),
         el("div", "level-order", group.indexes.map((index) => state.lanes[index].name).join("  ⇄  ")),
       );
+      head.appendChild(titleCol);
+      const addLaneBtn = el("button", "add-lane-btn", text.add_lane);
+      addLaneBtn.type = "button";
+      addLaneBtn.disabled = locked();
+      addLaneBtn.addEventListener("click", () => {
+        if (locked()) return;
+        state.selectedCardIndex = null;
+        const lastIndex = group.indexes[group.indexes.length - 1];
+        const lastLane = state.lanes[lastIndex];
+        const newName = nextLaneName(state.lanes, group.level || 1);
+        const newLane = newLaneFrom(lastLane, newName);
+        const targetIndex = lastIndex + 1;
+        state.lanes.splice(targetIndex, 0, newLane);
+        render();
+        openDrawer(targetIndex);
+      });
+      head.appendChild(addLaneBtn);
+      box.appendChild(head);
+
       const row = el("div", "slots");
       group.indexes.forEach((index, position) => {
         if (position) row.appendChild(el("div", "lateral", "⇄"));
@@ -1228,17 +1433,88 @@
     onDrawerLaneChanged("eligible_classes");
   }
 
+  function renderChanges() {
+    const diff = diffChain(state.original, state.lanes);
+    const summary = byId("changes-summary");
+    const list = byId("changes-list");
+    list.replaceChildren();
+
+    const hasChanges = diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0 || diff.reordered;
+    if (!hasChanges) {
+      summary.textContent = text.changes_none;
+      return;
+    }
+
+    summary.textContent = "";
+
+    diff.added.forEach((name) => {
+      const li = el("li", "change-item-added", fmt(text.change_added, { name }));
+      list.appendChild(li);
+    });
+
+    diff.removed.forEach((name) => {
+      const li = el("li", "change-item-removed", fmt(text.change_removed, { name }));
+      list.appendChild(li);
+    });
+
+    diff.changed.forEach((item) => {
+      if (item.original_name !== item.name) {
+        const li = el("li", "change-item-changed", fmt(text.change_renamed, { old: item.original_name, new: item.name }));
+        list.appendChild(li);
+        const otherFields = item.fields.filter((f) => f !== "name");
+        if (otherFields.length) {
+          const names = otherFields.map((f) => FIELD_LABELS[f] || f).join(", ");
+          const li2 = el("li", "change-item-changed", fmt(text.change_fields, { name: item.name, fields: names }));
+          list.appendChild(li2);
+        }
+      } else {
+        const names = item.fields.map((f) => FIELD_LABELS[f] || f).join(", ");
+        const li = el("li", "change-item-changed", fmt(text.change_fields, { name: item.name, fields: names }));
+        list.appendChild(li);
+      }
+    });
+
+    if (diff.reordered) {
+      const li = el("li", "change-item-reordered", text.change_reordered);
+      list.appendChild(li);
+    }
+  }
+
   function renderErrors() {
     const list = byId("errors");
     list.replaceChildren();
     const clientIssues = validateChain(state.lanes);
-    const clientMap = clientFieldErrors(clientIssues);
-    const allGeneral = [...state.errors.general, ...clientMap.general.map((c) => ISSUE_TEXTS[c] || c)];
-    allGeneral.forEach((message) => {
-      const item = document.createElement("li");
-      item.textContent = message;
-      list.appendChild(item);
+    clientIssues.forEach((issue) => {
+      const msg = ISSUE_TEXTS[issue.code] || issue.code;
+      const li = document.createElement("li");
+      if (issue.index !== null && issue.index !== undefined && state.lanes[issue.index]) {
+        const laneName = state.lanes[issue.index].name;
+        li.textContent = laneName ? `${laneName}: ${msg}` : msg;
+      } else {
+        li.textContent = msg;
+      }
+      list.appendChild(li);
     });
+    if (state.errors.general) {
+      state.errors.general.forEach((message) => {
+        const li = document.createElement("li");
+        li.textContent = message;
+        list.appendChild(li);
+      });
+    }
+    if (state.errors.lanes) {
+      for (const [laneIdx, fieldMap] of Object.entries(state.errors.lanes)) {
+        const lane = state.lanes[Number(laneIdx)];
+        const laneName = lane ? lane.name : laneIdx;
+        for (const messages of Object.values(fieldMap)) {
+          for (const msg of messages) {
+            const li = document.createElement("li");
+            li.textContent = `${laneName}: ${msg}`;
+            list.appendChild(li);
+          }
+        }
+      }
+    }
   }
 
   function renderControls() {
@@ -1250,6 +1526,9 @@
     byId("restore").disabled = locked() || !state.hasTierOrder;
     byId("restore-yes").disabled = locked();
     byId("read-only").hidden = state.editable;
+    const addLevelBtn = byId("add-level");
+    if (addLevelBtn) addLevelBtn.disabled = locked();
+    if (locked()) state.selectedCardIndex = null;
     const status = byId("status");
     if (hasClientErrors && changed && !state.busy) setStatus(text.invalid, "error");
     else if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
@@ -1258,6 +1537,7 @@
 
   function render() {
     renderLanes();
+    renderChanges();
     renderErrors();
     renderControls();
     renderDrawerErrors();
@@ -1283,6 +1563,7 @@
     state.reason = data.reason || null;
     state.hasTierOrder = data.has_tier_order === true;
     state.errors = { lanes: {}, general: [] };
+    state.selectedCardIndex = null;
     byId("banner-stale").hidden = true;
     byId("restore-confirm").hidden = true;
     byId("source").textContent = state.hasTierOrder
@@ -1359,6 +1640,34 @@
     handleWriteResponse(status, body, successText);
   }
 
+  byId("add-level").addEventListener("click", () => {
+    if (locked()) return;
+    state.selectedCardIndex = null;
+    const newName = nextLevelName(state.lanes);
+    const template = state.lanes.length
+      ? state.lanes[state.lanes.length - 1]
+      : {
+          name: newName,
+          harness: "codex",
+          model: "",
+          effort: null,
+          cost_per_m_tokens: null,
+          credit_usd: null,
+          max_retries: null,
+          max_parallel: null,
+          idle_timeout_seconds: null,
+          max_runtime_seconds: null,
+          eligible_classes: null,
+          best_for: null,
+          enabled: true,
+        };
+    const newLane = newLaneFrom(template, newName);
+    state.lanes.push(newLane);
+    const targetIndex = state.lanes.length - 1;
+    render();
+    openDrawer(targetIndex);
+  });
+
   byId("save").addEventListener("click", () => {
     if (locked()) return;
     const clientIssues = validateChain(state.lanes);
@@ -1371,6 +1680,7 @@
     write("/api/config/lanes", saveRequest(state.stamp, state.lanes), text.saved);
   });
   byId("revert").addEventListener("click", () => {
+    state.selectedCardIndex = null;
     state.lanes = state.original.map((lane) => ({ ...lane }));
     state.errors = { lanes: {}, general: [] };
     setStatus("", "");
@@ -1498,6 +1808,7 @@
   });
   byId("drawer-remove-yes").addEventListener("click", () => {
     if (locked() || state.drawerIndex === null) return;
+    state.selectedCardIndex = null;
     state.lanes.splice(state.drawerIndex, 1);
     closeDrawer();
     render();
