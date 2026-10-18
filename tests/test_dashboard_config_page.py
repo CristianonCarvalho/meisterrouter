@@ -111,7 +111,7 @@ def test_timeline_links_to_config(page_client):
 
 
 def _page_texts(html: str) -> dict:
-    match = re.search(r"const text = (\{.*?\});\n", html)
+    match = re.search(r"const (?:rawText|text) = (\{.*?\});\n", html)
     assert match
     return json.loads(match.group(1))
 
@@ -200,5 +200,15 @@ def test_config_page_has_swap_and_creation_markup(page_client):
     assert "function diffChain(" in html
     assert "function renderChanges(" in html
     assert "function isContentChanged(" in html
+
+
+def test_config_page_contains_older_server_warning_hidden_by_default(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    assert "Restart the dashboard: the server is older than this page." in html
+    assert "Reinicie o dashboard: o servidor é mais antigo que esta página." in html
+    assert 'id="banner-server-older"' in html
+    match = re.search(r'<div[^>]+id="banner-server-older"[^>]*>', html)
+    assert match is not None
+    assert "hidden" in match.group(0)
 
 
