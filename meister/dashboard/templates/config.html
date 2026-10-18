@@ -226,8 +226,163 @@
     border-radius: 8px;
   }
   .confirm[hidden] { display: none; }
+  .slot-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .slot-edit {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .drawer-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 100;
+  }
+  .drawer-backdrop[hidden] { display: none; }
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 440px;
+    max-width: 100vw;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.35);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .drawer[hidden] { display: none; }
+  .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .drawer-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .drawer-group {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  fieldset.drawer-group legend {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 6px;
+  }
+  fieldset.drawer-group.travels {
+    border-color: color-mix(in srgb, var(--purple) 40%, var(--border));
+  }
+  fieldset.drawer-group.travels legend {
+    color: var(--purple);
+  }
+  fieldset.drawer-group.stays {
+    border-color: color-mix(in srgb, var(--cyan) 40%, var(--border));
+  }
+  fieldset.drawer-group.stays legend {
+    color: var(--cyan);
+  }
+  .field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field-row.inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .field-row label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .field-row input[type="text"],
+  .field-row select {
+    width: 100%;
+  }
+  .field-row.inline input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  .field-hint {
+    font-size: 11px;
+    color: var(--amber);
+  }
+  .field-error {
+    font-size: 11px;
+    color: var(--red);
+    margin-top: 2px;
+  }
+  .field-error:empty { display: none; }
+  input.has-error, select.has-error {
+    border-color: var(--red);
+  }
+  .classes-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 2px;
+  }
+  .class-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    cursor: pointer;
+  }
+  .class-option input {
+    margin: 0;
+  }
+  .drawer-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .drawer-footer[hidden] { display: none; }
   @media (max-width: 640px) {
     body { padding: 12px; }
+    .drawer {
+      width: 100vw;
+      left: 0;
+      border-left: none;
+    }
   }
 </style>
 </head>
@@ -288,6 +443,98 @@
   <button type="button" id="restore-no">{{ messages.confirm_no }}</button>
 </div>
 <p id="read-only" class="read-only" hidden>{{ messages.read_only_notice }}</p>
+
+<aside id="drawer" class="drawer" hidden>
+  <div class="drawer-header">
+    <h2><span>{{ messages.drawer_title }}</span> <span id="drawer-lane-name" class="mono"></span></h2>
+    <button type="button" id="drawer-close">{{ messages.close }}</button>
+  </div>
+  <div class="drawer-body">
+    <fieldset class="drawer-group travels">
+      <legend>{{ messages.group_content }}</legend>
+      <div class="field-row">
+        <label for="drawer-harness">{{ messages.harness }}</label>
+        <select id="drawer-harness"></select>
+        <div id="err-harness" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-effort">{{ messages.effort }}</label>
+        <select id="drawer-effort"></select>
+        <div id="err-effort" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-model">{{ messages.model }}</label>
+        <input type="text" id="drawer-model" class="mono">
+        <div id="err-model" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-cost-per-m-tokens">{{ messages.field_cost_per_m_tokens }}</label>
+        <input type="text" id="drawer-cost-per-m-tokens">
+        <div id="err-cost_per_m_tokens" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-credit-usd">{{ messages.field_credit_usd }}</label>
+        <input type="text" id="drawer-credit-usd">
+        <div id="err-credit_usd" class="field-error"></div>
+      </div>
+    </fieldset>
+
+    <fieldset class="drawer-group stays">
+      <legend>{{ messages.group_policy }}</legend>
+      <div class="field-row">
+        <label for="drawer-name">{{ messages.name }}</label>
+        <input type="text" id="drawer-name" class="mono">
+        <div class="field-hint">{{ messages.rename_warning }}</div>
+        <div id="err-name" class="field-error"></div>
+      </div>
+      <div class="field-row inline">
+        <input type="checkbox" id="drawer-enabled">
+        <label for="drawer-enabled">{{ messages.enabled }}</label>
+        <div id="err-enabled" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-retries">{{ messages.field_max_retries }}</label>
+        <input type="text" id="drawer-max-retries">
+        <div id="err-max_retries" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-parallel">{{ messages.max_parallel }}</label>
+        <input type="text" id="drawer-max-parallel">
+        <div id="err-max_parallel" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-idle-timeout-seconds">{{ messages.field_idle_timeout }}</label>
+        <input type="text" id="drawer-idle-timeout-seconds">
+        <div id="err-idle_timeout_seconds" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-runtime-seconds">{{ messages.field_max_runtime }}</label>
+        <input type="text" id="drawer-max-runtime-seconds">
+        <div id="err-max_runtime_seconds" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label>{{ messages.field_eligible_classes }}</label>
+        <div id="drawer-classes" class="classes-group"></div>
+        <div class="field-hint">{{ messages.eligible_classes_all }}</div>
+        <div id="err-eligible_classes" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-best-for">{{ messages.field_best_for }}</label>
+        <input type="text" id="drawer-best-for">
+        <div id="err-best_for" class="field-error"></div>
+      </div>
+    </fieldset>
+  </div>
+  <div id="drawer-footer" class="drawer-footer">
+    <button type="button" id="drawer-remove" class="danger">{{ messages.remove_lane }}</button>
+    <div id="drawer-remove-confirm" class="confirm" hidden>
+      <span>{{ messages.remove_lane_confirm }}</span>
+      <button type="button" id="drawer-remove-yes" class="danger">{{ messages.remove_lane_yes }}</button>
+      <button type="button" id="drawer-remove-no">{{ messages.confirm_no }}</button>
+    </div>
+  </div>
+</aside>
+<div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
 
 <script>
 (() => {
@@ -609,6 +856,22 @@
     const baseOrder = original.map((lane) => lane.name).filter((name) => keptSet.has(name));
     return { added, removed, changed, reordered: JSON.stringify(baseOrder) !== JSON.stringify(kept) };
   }
+
+  // Agrupa os problemas do validateChain por via e campo: {lanes: {"0": {model: ["empty_model"]}}, general: ["no_enabled_lane"]}
+  function clientFieldErrors(issues) {
+    const result = { lanes: {}, general: [] };
+    if (!Array.isArray(issues)) return result;
+    for (const issue of issues) {
+      if (issue.index === null || issue.index === undefined) {
+        result.general.push(issue.code);
+        continue;
+      }
+      const lane = result.lanes[String(issue.index)] || (result.lanes[String(issue.index)] = {});
+      const field = issue.field || "general";
+      (lane[field] || (lane[field] = [])).push(issue.code);
+    }
+    return result;
+  }
   // helpers:end
 
   const state = {
@@ -621,9 +884,20 @@
     errors: { lanes: {}, general: [] },
     busy: false,
     sim: { cls: "SMALL", start: "", failed: new Set() },
+    drawerIndex: null,
   };
 
   const CLASSES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"];
+
+  const ISSUE_TEXTS = {
+    invalid_name: text.err_invalid_name,
+    duplicate_name: text.err_duplicate_name,
+    level_order: text.err_level_order,
+    empty_model: text.err_empty_model,
+    invalid_number: text.err_invalid_number,
+    required: text.err_required,
+    no_enabled_lane: text.err_no_enabled_lane,
+  };
 
   const locked = () => !state.editable || state.busy;
 
@@ -652,9 +926,15 @@
     return chips;
   }
 
-  function slotEl(lane) {
+  function slotEl(lane, index) {
     const slot = el("div", lane.enabled === false ? "slot disabled" : "slot");
-    slot.appendChild(el("div", "slot-name", lane.name || "—"));
+    const head = el("div", "slot-head");
+    head.appendChild(el("span", "slot-name", lane.name || "—"));
+    const editBtn = el("button", "slot-edit", text.edit);
+    editBtn.type = "button";
+    editBtn.addEventListener("click", () => openDrawer(index));
+    head.appendChild(editBtn);
+    slot.appendChild(head);
     const policy = el("div", "policy");
     policy.append(...slotChips(lane));
     const harnessClass = String(lane.harness || "").replace(/[^a-z0-9-]/gi, "");
@@ -713,7 +993,7 @@
       const row = el("div", "slots");
       group.indexes.forEach((index, position) => {
         if (position) row.appendChild(el("div", "lateral", "⇄"));
-        row.appendChild(slotEl(state.lanes[index]));
+        row.appendChild(slotEl(state.lanes[index], index));
       });
       box.appendChild(row);
       chain.appendChild(box);
@@ -804,10 +1084,157 @@
     renderChain();
   }
 
+  const DRAWER_FIELDS = [
+    "harness", "effort", "model", "cost_per_m_tokens", "credit_usd",
+    "name", "enabled", "max_retries", "max_parallel", "idle_timeout_seconds",
+    "max_runtime_seconds", "eligible_classes", "best_for"
+  ];
+
+  function initClassesCheckboxes() {
+    const container = byId("drawer-classes");
+    container.replaceChildren();
+    CLASSES.forEach((cls) => {
+      const label = document.createElement("label");
+      label.className = "class-option";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = `drawer-cls-${cls}`;
+      cb.value = cls;
+      cb.addEventListener("change", onClassCheckboxChange);
+      const span = document.createElement("span");
+      span.textContent = cls;
+      label.append(cb, span);
+      container.appendChild(label);
+    });
+  }
+
+  function updateEffortSelect(harness, currentEffort) {
+    const select = byId("drawer-effort");
+    select.replaceChildren();
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = text.effort_default;
+    select.appendChild(defaultOpt);
+    const options = effortOptions(harness);
+    options.forEach((opt) => {
+      const item = document.createElement("option");
+      item.value = opt;
+      item.textContent = opt;
+      select.appendChild(item);
+    });
+    select.value = currentEffort && options.includes(currentEffort) ? currentEffort : "";
+  }
+
+  function renderDrawerErrors() {
+    if (state.drawerIndex === null) return;
+    const idx = state.drawerIndex;
+    const clientIssues = validateChain(state.lanes);
+    const clientMap = clientFieldErrors(clientIssues);
+    const laneClient = clientMap.lanes[String(idx)] || {};
+    const laneServer = (state.errors.lanes && state.errors.lanes[String(idx)]) || {};
+
+    DRAWER_FIELDS.forEach((field) => {
+      const errEl = byId(`err-${field}`);
+      const inputEl = byId(`drawer-${field.replace(/_/g, "-")}`) || byId(`drawer-${field}`);
+      if (!errEl) return;
+      const clientCodes = laneClient[field] || [];
+      const clientMsgs = clientCodes.map((code) => ISSUE_TEXTS[code] || code);
+      const serverMsgs = laneServer[field] || [];
+      const allMsgs = [...clientMsgs, ...serverMsgs];
+      if (allMsgs.length) {
+        errEl.textContent = allMsgs.join(" · ");
+        if (inputEl) inputEl.classList.add("has-error");
+      } else {
+        errEl.textContent = "";
+        if (inputEl) inputEl.classList.remove("has-error");
+      }
+    });
+  }
+
+  function populateDrawer(index) {
+    const lane = state.lanes[index];
+    if (!lane) return;
+    state.drawerIndex = index;
+    byId("drawer-lane-name").textContent = lane.name || "—";
+
+    fillSelect(byId("drawer-harness"), harnessOptions(), lane.harness || "");
+    updateEffortSelect(lane.harness, lane.effort);
+
+    byId("drawer-model").value = typeof lane.model === "string" ? lane.model : "";
+    byId("drawer-cost-per-m-tokens").value = lane.cost_per_m_tokens !== null && lane.cost_per_m_tokens !== undefined ? lane.cost_per_m_tokens : "";
+    byId("drawer-credit-usd").value = lane.credit_usd !== null && lane.credit_usd !== undefined ? lane.credit_usd : "";
+
+    byId("drawer-name").value = lane.name || "";
+    byId("drawer-enabled").checked = lane.enabled !== false;
+    byId("drawer-max-retries").value = lane.max_retries !== null && lane.max_retries !== undefined ? lane.max_retries : "";
+    byId("drawer-max-parallel").value = lane.max_parallel !== null && lane.max_parallel !== undefined ? lane.max_parallel : "";
+    byId("drawer-idle-timeout-seconds").value = lane.idle_timeout_seconds !== null && lane.idle_timeout_seconds !== undefined ? lane.idle_timeout_seconds : "";
+    byId("drawer-max-runtime-seconds").value = lane.max_runtime_seconds !== null && lane.max_runtime_seconds !== undefined ? lane.max_runtime_seconds : "";
+
+    const activeClasses = Array.isArray(lane.eligible_classes) ? lane.eligible_classes.map((c) => String(c).toUpperCase()) : [];
+    CLASSES.forEach((cls) => {
+      const cb = byId(`drawer-cls-${cls}`);
+      if (cb) cb.checked = activeClasses.includes(cls);
+    });
+
+    byId("drawer-best-for").value = Array.isArray(lane.best_for) ? lane.best_for.join(", ") : "";
+
+    const readOnly = !state.editable;
+    const inputs = byId("drawer").querySelectorAll("input, select");
+    inputs.forEach((input) => { input.disabled = readOnly; });
+
+    byId("drawer-footer").hidden = readOnly;
+    byId("drawer-remove").hidden = readOnly;
+    byId("drawer-remove-confirm").hidden = true;
+
+    renderDrawerErrors();
+  }
+
+  function openDrawer(index) {
+    populateDrawer(index);
+    byId("drawer").hidden = false;
+    byId("drawer-backdrop").hidden = false;
+  }
+
+  function closeDrawer() {
+    state.drawerIndex = null;
+    byId("drawer").hidden = true;
+    byId("drawer-backdrop").hidden = true;
+    byId("drawer-remove-confirm").hidden = true;
+  }
+
+  function onDrawerLaneChanged(field) {
+    if (field && state.errors.lanes && state.errors.lanes[String(state.drawerIndex)]) {
+      delete state.errors.lanes[String(state.drawerIndex)][field];
+    }
+    renderLanes();
+    renderControls();
+    renderDrawerErrors();
+  }
+
+  function onClassCheckboxChange() {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    const checked = [];
+    CLASSES.forEach((cls) => {
+      const cb = byId(`drawer-cls-${cls}`);
+      if (cb && cb.checked) checked.push(cls);
+    });
+    const custom = Array.isArray(lane.eligible_classes)
+      ? lane.eligible_classes.filter((c) => !CLASSES.includes(String(c).toUpperCase()))
+      : [];
+    const all = [...checked, ...custom];
+    lane.eligible_classes = all.length ? all : null;
+    onDrawerLaneChanged("eligible_classes");
+  }
+
   function renderErrors() {
     const list = byId("errors");
     list.replaceChildren();
-    state.errors.general.forEach((message) => {
+    const clientIssues = validateChain(state.lanes);
+    const clientMap = clientFieldErrors(clientIssues);
+    const allGeneral = [...state.errors.general, ...clientMap.general.map((c) => ISSUE_TEXTS[c] || c)];
+    allGeneral.forEach((message) => {
       const item = document.createElement("li");
       item.textContent = message;
       list.appendChild(item);
@@ -816,20 +1243,24 @@
 
   function renderControls() {
     const changed = lanesChanged(state.original, state.lanes);
-    byId("save").disabled = locked() || !changed || !state.lanes.length;
+    const clientIssues = validateChain(state.lanes);
+    const hasClientErrors = clientIssues.length > 0;
+    byId("save").disabled = locked() || !changed || !state.lanes.length || hasClientErrors;
     byId("revert").disabled = locked() || !changed;
     byId("restore").disabled = locked() || !state.hasTierOrder;
     byId("restore-yes").disabled = locked();
     byId("read-only").hidden = state.editable;
     const status = byId("status");
-    if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
-    if (!changed && status.textContent === text.unsaved) setStatus("", "");
+    if (hasClientErrors && changed && !state.busy) setStatus(text.invalid, "error");
+    else if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
+    if (!changed && (status.textContent === text.unsaved || status.textContent === text.invalid)) setStatus("", "");
   }
 
   function render() {
     renderLanes();
     renderErrors();
     renderControls();
+    renderDrawerErrors();
   }
 
   function setStatus(message, kind) {
@@ -845,8 +1276,8 @@
 
   function applyData(data) {
     const lanes = Array.isArray(data.lanes) ? data.lanes : [];
-    state.original = lanes.map((lane) => ({ ...lane }));
-    state.lanes = lanes.map((lane) => ({ ...lane }));
+    state.original = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
+    state.lanes = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
     state.stamp = typeof data.stamp === "string" ? data.stamp : "";
     state.editable = data.editable === true;
     state.reason = data.reason || null;
@@ -859,6 +1290,13 @@
       : text.source_default;
     renderState();
     render();
+    if (state.drawerIndex !== null) {
+      if (state.lanes[state.drawerIndex]) {
+        populateDrawer(state.drawerIndex);
+      } else {
+        closeDrawer();
+      }
+    }
   }
 
   async function load() {
@@ -923,6 +1361,13 @@
 
   byId("save").addEventListener("click", () => {
     if (locked()) return;
+    const clientIssues = validateChain(state.lanes);
+    if (clientIssues.length > 0) {
+      renderErrors();
+      renderDrawerErrors();
+      setStatus(text.invalid, "error");
+      return;
+    }
     write("/api/config/lanes", saveRequest(state.stamp, state.lanes), text.saved);
   });
   byId("revert").addEventListener("click", () => {
@@ -930,6 +1375,13 @@
     state.errors = { lanes: {}, general: [] };
     setStatus("", "");
     render();
+    if (state.drawerIndex !== null) {
+      if (state.lanes[state.drawerIndex]) {
+        populateDrawer(state.drawerIndex);
+      } else {
+        closeDrawer();
+      }
+    }
   });
   byId("restore").addEventListener("click", () => {
     byId("restore-confirm").hidden = false;
@@ -956,6 +1408,107 @@
     renderPath();
   });
 
+  byId("drawer-harness").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.harness = e.target.value;
+    updateEffortSelect(lane.harness, lane.effort);
+    const opts = effortOptions(lane.harness);
+    if (lane.effort && !opts.includes(lane.effort)) {
+      lane.effort = null;
+    }
+    onDrawerLaneChanged("harness");
+  });
+  byId("drawer-effort").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.effort = e.target.value || null;
+    onDrawerLaneChanged("effort");
+  });
+  byId("drawer-model").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.model = e.target.value;
+    onDrawerLaneChanged("model");
+  });
+  byId("drawer-cost-per-m-tokens").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.cost_per_m_tokens = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("cost_per_m_tokens");
+  });
+  byId("drawer-credit-usd").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.credit_usd = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("credit_usd");
+  });
+  byId("drawer-name").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.name = e.target.value;
+    byId("drawer-lane-name").textContent = lane.name || "—";
+    onDrawerLaneChanged("name");
+  });
+  byId("drawer-enabled").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.enabled = e.target.checked;
+    onDrawerLaneChanged("enabled");
+  });
+  byId("drawer-max-retries").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_retries = normalizeMaxParallel(e.target.value);
+    onDrawerLaneChanged("max_retries");
+  });
+  byId("drawer-max-parallel").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_parallel = normalizeMaxParallel(e.target.value);
+    onDrawerLaneChanged("max_parallel");
+  });
+  byId("drawer-idle-timeout-seconds").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.idle_timeout_seconds = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("idle_timeout_seconds");
+  });
+  byId("drawer-max-runtime-seconds").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_runtime_seconds = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("max_runtime_seconds");
+  });
+  byId("drawer-best-for").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    const raw = e.target.value;
+    const items = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    lane.best_for = items.length ? items : (raw.trim() === "" ? null : []);
+    onDrawerLaneChanged("best_for");
+  });
+  byId("drawer-remove").addEventListener("click", () => {
+    byId("drawer-remove").hidden = true;
+    byId("drawer-remove-confirm").hidden = false;
+  });
+  byId("drawer-remove-no").addEventListener("click", () => {
+    byId("drawer-remove-confirm").hidden = true;
+    byId("drawer-remove").hidden = false;
+  });
+  byId("drawer-remove-yes").addEventListener("click", () => {
+    if (locked() || state.drawerIndex === null) return;
+    state.lanes.splice(state.drawerIndex, 1);
+    closeDrawer();
+    render();
+  });
+  byId("drawer-close").addEventListener("click", closeDrawer);
+  byId("drawer-backdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.drawerIndex !== null) closeDrawer();
+  });
+
+  initClassesCheckboxes();
   render();
   load();
 })();
