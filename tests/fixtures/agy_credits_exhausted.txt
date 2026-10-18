@@ -1,0 +1,2 @@
+error: Your AI credits balance is too low to continue.
+AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED","error_code":429,"code_kind":"http","retryable":true,"error_id":"6a11b862-d6d8-47f1-89d5-edd9cd9f5982-1-2008"}
