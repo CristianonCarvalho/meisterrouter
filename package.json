@@ -1,6 +1,6 @@
 {
   "name": "meisterrouter",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Multi-model orchestration for AI coding CLIs: runs workers as background processes, in Herdr or in tmux",
   "main": "bin/cli.js",
   "bin": {

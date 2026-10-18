@@ -49,23 +49,23 @@ cd meisterrouter
 ### Pin a version (tag)
 The recommended installer installs `main` by default. For a curl installation, pin a tag with `--version`:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version v0.11.0
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version v0.12.0
 ```
 `latest` selects the highest available tag; `main` selects the latest code from the main branch:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version latest
 curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | bash -s -- --version main
 ```
-You can also set `MEISTER_VERSION=v0.11.0` in the environment; for example, in a piped installation:
+You can also set `MEISTER_VERSION=v0.12.0` in the environment; for example, in a piped installation:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | MEISTER_VERSION=v0.11.0 bash
+curl -fsSL https://raw.githubusercontent.com/CristianonCarvalho/meisterrouter/main/bin/install.sh | MEISTER_VERSION=v0.12.0 bash
 ```
 The `--version` argument takes precedence if both are used. If `~/.local/share/meisterrouter` already exists as a clone, a tag is fetched and selected in that clone; with `main`, the installer selects `main` and updates the branch. When run inside a local clone, that clone is not changed and a requested pinned version is ignored with a warning.
 To clone the tag manually, use:
 ```bash
-git clone --branch v0.11.0 https://github.com/CristianonCarvalho/meisterrouter.git
+git clone --branch v0.12.0 https://github.com/CristianonCarvalho/meisterrouter.git
 cd meisterrouter && ./bin/install.sh
-meister --version     # meister 0.11.0 (commit ...)
+meister --version     # meister 0.12.0 (commit ...)
 ```
 Versions and release notes are available in [Releases](https://github.com/CristianonCarvalho/meisterrouter/releases) and the [`CHANGELOG.md`](../CHANGELOG.md).
 
