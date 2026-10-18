@@ -567,13 +567,26 @@ O dashboard tem a página `/config` (por exemplo, `http://localhost:5050/config`
 workers sem abrir o YAML. O cabeçalho da linha do tempo tem um link **Config** para ela, e a página tem links de volta
 para a linha do tempo e para o dashboard.
 
-- **O que mostra:** as vias efetivas (o padrão empacotado mais o que o `meister.config.yaml` do projeto sobrescreve)
-  e o arquivo de onde vêm.
-- **O que edita:** ligar e desligar, a ordem, `harness`, `model`, `effort` (a lista acompanha o harness) e
-  `max_parallel`. O nome da via é só leitura, e os demais campos de cada via (custos, `eligible_classes`,
-  `max_retries`...) ficam como estão. Não dá para criar nem remover vias por aqui. Antes de gravar, o servidor valida
-  com as mesmas regras do `meister config validate` (pelo menos uma via ligada, nomes únicos, esforço aceito pelo
-  harness, modelo não vazio).
+- **O que mostra:** a cadeia de vias em **níveis**. O número no fim do nome da via é o nível (`tier_1`, `tier_1b` e
+  `tier_1c` são o nível 1): as vias do mesmo nível são tentadas uma após a outra (fallback lateral) e, quando todas
+  falham, a tarefa escala para o nível seguinte, com o salto de custo entre os dois na faixa entre os níveis. Cada via
+  é um **slot** (nome e política) com um **cartão de conteúdo** (harness, modelo, esforço, custo). O arquivo de
+  origem aparece no alto.
+- **Caminho de uma tarefa:** um simulador no alto escolhe a classe da tarefa e a via inicial (a que o Jev escolheria
+  entre as que aceitam a classe); tocar numa via simula que ela falhou, e uma frase diz onde a tarefa acaba
+  executando e se houve escalonamento. Nada é executado.
+- **Trocar o conteúdo:** arraste um cartão de conteúdo sobre outro slot (ou toque num cartão e depois no outro, em tela
+  de toque) para trocar harness, modelo, esforço, custo e crédito entre os dois. O slot mantém o nome e a política.
+- **O que edita:** **Editar** num slot abre uma gaveta com todos os campos da via: harness, esforço (a lista acompanha
+  o harness), modelo, custo por 1M de tokens, crédito, nome, ligada ou desligada, tentativas (`max_retries`),
+  `max_parallel`, tempo ocioso e duração máxima, as classes que o Jev pode atribuir (`eligible_classes`) e
+  `best_for`. **+ via neste nível** cria uma alternativa lateral (`tier_1d`, `tier_2b`...), **+ novo nível** cria o
+  próximo nível no fim da cadeia (não dá para inserir um nível no meio) e **Remover via** apaga uma (confirme com um
+  segundo toque). Renomear uma via não migra o histórico dela nos logs e na linha do tempo. Antes de gravar, o
+  servidor valida com as mesmas regras do `meister config validate`, e mais: o nome de uma via nova ou renomeada tem a
+  forma `tier_<número><letra opcional>`, é único e seu nível não volta atrás ao longo da lista (vias que já existem
+  com outros nomes continuam gravando normalmente), pelo menos uma via fica ligada e o esforço é um que o harness
+  aceita. Um painel "Alterações a gravar" lista o que será escrito.
 - **Quando fica bloqueada:** a escrita é recusada com uma run ativa (a run já carregou a configuração), quando o
   arquivo mudou no disco desde que a página o leu e para acesso remoto (pedidos que chegam pelo Tailscale). Nesses
   casos a página fica somente leitura e diz o motivo; a leitura é sempre liberada.
