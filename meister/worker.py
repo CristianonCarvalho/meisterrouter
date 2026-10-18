@@ -764,7 +764,14 @@ class HarnessWorker:
                 signal_number=signal_number,
             )
         if exit_code != 0:
-            raise RuntimeError(f"Harness {self.harness} failed with exit code {exit_code}")
+            message = f"Harness {self.harness} failed with exit code {exit_code}"
+            # Trecho de cota/rate limit da saída do harness, para o motivo da falha aparecer na mensagem.
+            from meister.engine.workers import find_quota_match
+
+            quota_snippet = find_quota_match(captured_output)
+            if quota_snippet:
+                message = f"{message}: {quota_snippet}"
+            raise RuntimeError(message)
 
         return {
             "status": "done",
