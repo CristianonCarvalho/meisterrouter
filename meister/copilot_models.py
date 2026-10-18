@@ -43,12 +43,20 @@ _TRUST_PROMPT_MARK = "1. Yes"
 _TRUST_PROMPT_WORD = re.compile(r"trust", re.IGNORECASE)
 _SELECTOR_HEADER = re.compile(r"^(recent|recommended|other|unavailable) models\b", re.IGNORECASE)
 _LOCAL_HEADER = re.compile(r"ollama|local", re.IGNORECASE)
-_OLLAMA_ID = re.compile(r"[\w.\-]+:[\w.\-]+")
+_OLLAMA_ID = re.compile(r"^[\w.\-]+:[\w.\-]+(?=\s|$)")
+# Linha de modelo: o tier é uma das palavras conhecidas e fica colado ao nome na tela real
+# (``Claude Haiku 5.5Lightweight``); contexto e esforço vêm em seguida, com ou sem espaço.
 _ROW = re.compile(
-    r"^(?P<name>.*?\S)\s+(?:✓\s+)?(?:\(default\)\s+)?(?P<tier>\S+)\s+(?P<context>\S+)\s+(?P<effort>\S+)$"
+    r"^(?P<name>.*?\S)\s*(?P<marks>(?:✓|\(default\)|\s)*)"
+    r"(?P<tier>Lightweight|Versatile|Powerful)\s*"
+    r"(?P<context>\d+(?:\.\d+)?[KkMm]|—|-)\s*"
+    r"(?P<effort>Low|Medium|High|—|-)$"
 )
-_CONTEXT = re.compile(r"^(?:\d+(?:\.\d+)?[KkMm]|—|-)$")
+# Modelo indisponível: só o id seguido de ``— —``.
+_UNAVAILABLE_ROW = re.compile(r"^(?P<name>.*?\S)\s*—\s*—$")
 _ROW_EDGES = " \t│|❯>›*•▸▶"
+# Moldura da TUI (barra de rolagem, backspace de sobrescrita) que não faz parte do texto.
+_FRAME = re.compile(r"[\x08┃│]")
 
 # Sequências ANSI/OSC/CSI; o avanço do cursor (CSI n C) vira espaço para não colar palavras.
 _CURSOR_FORWARD = re.compile(r"\x1b\[(\d*)C")
@@ -125,22 +133,26 @@ def answer_terminal_queries(buffer: bytes) -> Tuple[bytes, bytes]:
     return b"".join(replies), buffer[end:][-_QUERY_TAIL_BYTES:]
 
 
+def _clean(line: str) -> str:
+    """Tira a moldura e as bordas de uma linha do seletor."""
+    return _FRAME.sub(" ", line).strip(_ROW_EDGES)
+
+
 def _row_fields(line: str) -> Optional[Dict[str, Any]]:
     """Lê ``Nome [✓] [(default)] Tier Contexto Esforço``; devolve None se a linha não for um modelo."""
-    stripped = line.strip(_ROW_EDGES)
-    match = _ROW.match(stripped)
-    if match is None or not _CONTEXT.match(match.group("context")):
+    match = _ROW.match(_clean(line))
+    if match is None:
         return None
-    name = match.group("name").strip(_ROW_EDGES)
+    name = " ".join(match.group("name").split())
     if not re.search(r"[A-Za-z]", name):
         return None
     # O marcador ✓ e (default) ficam entre o nome e o tier.
-    marks = stripped[match.end("name") : match.start("tier")]
+    marks = match.group("marks")
     return {
         "name": name,
         "selected": "✓" in marks,
         "default": "(default)" in marks,
-        "tier": _dash_to_none(match.group("tier")),
+        "tier": match.group("tier"),
         "context": _dash_to_none(match.group("context")),
         "reasoning": _dash_to_none(match.group("effort")),
     }
@@ -156,7 +168,7 @@ def parse_selector(text: str) -> ParsedSelector:
     seen: set = set()
     group: Optional[str] = None
     for raw in text.split("\n"):
-        line = raw.strip(_ROW_EDGES)
+        line = _clean(raw)
         if not line:
             continue
         header = _SELECTOR_HEADER.match(line)
@@ -168,17 +180,24 @@ def parse_selector(text: str) -> ParsedSelector:
             group = "local"
             continue
         if group == "local":
-            ollama = _OLLAMA_ID.search(line)
+            ollama = _OLLAMA_ID.match(line)
             if ollama is not None and ollama.group(0) not in parsed.local_ollama:
                 parsed.local_ollama.append(ollama.group(0))
             continue
-        if group is None or fields is None:
+        if group is None:
+            continue
+        if group == "unavailable":
+            # Tela real: só ``id — —``; uma linha de modelo completa também conta.
+            unavailable = _UNAVAILABLE_ROW.match(line)
+            name = unavailable.group("name") if unavailable is not None else (fields or {}).get("name")
+            if name is not None:
+                model_id = model_id_from_name(name)
+                if model_id not in parsed.unavailable:
+                    parsed.unavailable.append(model_id)
+            continue
+        if fields is None:
             continue
         model_id = model_id_from_name(fields["name"])
-        if group == "unavailable":
-            if model_id not in parsed.unavailable:
-                parsed.unavailable.append(model_id)
-            continue
         if model_id in seen:
             continue
         seen.add(model_id)
@@ -199,7 +218,7 @@ def parse_selector(text: str) -> ParsedSelector:
 
 
 def _has_selector(text: str) -> bool:
-    return any(_SELECTOR_HEADER.match(line.strip(_ROW_EDGES)) for line in text.split("\n"))
+    return any(_SELECTOR_HEADER.match(_clean(line)) for line in text.split("\n"))
 
 
 def _has_trust_prompt(text: str) -> bool:
