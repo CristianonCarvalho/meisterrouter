@@ -262,17 +262,52 @@
     return /^\d+$/.test(raw) ? Number(raw) : raw;
   }
 
+  // Número de texto: vazio vira null; número decimal vira número; o resto segue cru para o servidor recusar.
+  function normalizeNumber(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return value;
+    const raw = String(value).trim();
+    if (raw === "") return null;
+    return /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : raw;
+  }
+
+  function listOrNull(value) {
+    return Array.isArray(value) ? value.slice() : null;
+  }
+
+  // A via só com os campos editáveis, normalizados (é o que o servidor recebe e o que diffChain compara).
+  function editableLane(lane) {
+    return {
+      name: lane.name,
+      enabled: lane.enabled !== false,
+      harness: lane.harness,
+      model: typeof lane.model === "string" ? lane.model : "",
+      effort: lane.effort ? lane.effort : null,
+      cost_per_m_tokens: normalizeNumber(lane.cost_per_m_tokens),
+      credit_usd: normalizeNumber(lane.credit_usd),
+      max_retries: normalizeMaxParallel(lane.max_retries),
+      max_parallel: normalizeMaxParallel(lane.max_parallel),
+      idle_timeout_seconds: normalizeNumber(lane.idle_timeout_seconds),
+      max_runtime_seconds: normalizeNumber(lane.max_runtime_seconds),
+      eligible_classes: listOrNull(lane.eligible_classes),
+      best_for: listOrNull(lane.best_for),
+    };
+  }
+
+  // Nome que a via tinha no arquivo; null para via nova.
+  function originalNameOf(lane) {
+    if (lane._new === true) return null;
+    return typeof lane.original_name === "string" && lane.original_name ? lane.original_name : lane.name;
+  }
+
   function buildLanesBody(stamp, lanes) {
     return {
       stamp,
-      lanes: lanes.map((lane) => ({
-        name: lane.name,
-        harness: lane.harness,
-        model: typeof lane.model === "string" ? lane.model : "",
-        effort: lane.effort ? lane.effort : null,
-        enabled: lane.enabled !== false,
-        max_parallel: normalizeMaxParallel(lane.max_parallel),
-      })),
+      lanes: lanes.map((lane) => {
+        const body = editableLane(lane);
+        const original = originalNameOf(lane);
+        return original === null ? body : { ...body, original_name: original };
+      }),
     };
   }
 
@@ -312,6 +347,194 @@
 
   function lanesChanged(original, edited) {
     return JSON.stringify(buildLanesBody("", original).lanes) !== JSON.stringify(buildLanesBody("", edited).lanes);
+  }
+
+  const CONTENT_FIELDS = ["harness", "model", "effort", "cost_per_m_tokens", "credit_usd"];
+
+  // Nível = número no fim do nome, com uma letra opcional (tier_1, tier_1b e tier_1c são o nível 1).
+  function levelOf(name) {
+    const match = /(\d+)[a-z]?$/.exec(typeof name === "string" ? name : "");
+    return match ? Number(match[1]) : null;
+  }
+
+  // Grupos consecutivos de vias com o mesmo nível: [{level, indexes}].
+  function groupByLevel(lanes) {
+    const groups = [];
+    lanes.forEach((lane, index) => {
+      const level = levelOf(lane.name);
+      const last = groups[groups.length - 1];
+      if (last && last.level === level) last.indexes.push(index);
+      else groups.push({ level, indexes: [index] });
+    });
+    return groups;
+  }
+
+  // Troca só o conteúdo (modelo e custo) entre dois slots; o resto é política do slot e fica na posição.
+  function swapContent(lanes, i, j) {
+    const result = lanes.map((lane) => ({ ...lane }));
+    if (i === j || !result[i] || !result[j]) return result;
+    for (const field of CONTENT_FIELDS) {
+      const held = result[i][field];
+      result[i][field] = result[j][field];
+      result[j][field] = held;
+    }
+    return result;
+  }
+
+  // Por par de níveis vizinhos: o menor custo das vias ativas de cada um e a razão entre eles.
+  function levelCostSteps(lanes) {
+    const cheapest = new Map();
+    for (const lane of lanes) {
+      const level = levelOf(lane.name);
+      if (level === null) continue;
+      if (!cheapest.has(level)) cheapest.set(level, null);
+      const cost = normalizeNumber(lane.cost_per_m_tokens);
+      if (lane.enabled === false || typeof cost !== "number") continue;
+      const best = cheapest.get(level);
+      if (best === null || cost < best) cheapest.set(level, cost);
+    }
+    const levels = Array.from(cheapest.keys()).sort((a, b) => a - b);
+    const steps = [];
+    for (let i = 1; i < levels.length; i++) {
+      const fromCost = cheapest.get(levels[i - 1]);
+      const toCost = cheapest.get(levels[i]);
+      const ratio = fromCost !== null && toCost !== null && fromCost > 0 ? toCost / fromCost : null;
+      steps.push({ from: levels[i - 1], to: levels[i], fromCost, toCost, ratio });
+    }
+    return steps;
+  }
+
+  function acceptsClass(lane, cls) {
+    const classes = Array.isArray(lane.eligible_classes) ? lane.eligible_classes : [];
+    return classes.length === 0 || classes.some((value) => String(value).toUpperCase() === String(cls).toUpperCase());
+  }
+
+  // Simula o caminho de uma tarefa: a via inicial respeita eligible_classes (vazio = todas); a queda segue
+  // para frente sem filtrar por classe e pula vias desligadas. startName (opcional) é de onde a busca parte.
+  function simulatePath(lanes, cls, startName, failedNames) {
+    const failed = new Set(failedNames || []);
+    const from = Math.max(0, lanes.findIndex((lane) => lane.name === startName));
+    const result = { startIndex: null, executedIndex: null, tried: [], escalated: false, state: "no_eligible" };
+    const startIndex = lanes.findIndex((lane, index) => index >= from && lane.enabled !== false && acceptsClass(lane, cls));
+    if (startIndex < 0) return result;
+    result.startIndex = startIndex;
+    result.state = "all_failed";
+    for (let index = startIndex; index < lanes.length; index++) {
+      if (lanes[index].enabled === false) continue;
+      result.tried.push(lanes[index].name);
+      if (failed.has(lanes[index].name)) continue;
+      result.executedIndex = index;
+      result.state = "ok";
+      break;
+    }
+    result.escalated = result.tried.length > 1;
+    return result;
+  }
+
+  // Próximo nome livre do nível: tier_2, depois tier_2b, tier_2c...
+  function nextLaneName(lanes, level) {
+    const taken = new Set(lanes.map((lane) => lane.name));
+    const base = `tier_${level}`;
+    if (!taken.has(base)) return base;
+    for (const letter of "bcdefghijklmnopqrstuvwxyz") {
+      if (!taken.has(base + letter)) return base + letter;
+    }
+    return base;
+  }
+
+  // Nome da via que abre um nível novo, depois do maior nível existente.
+  function nextLevelName(lanes) {
+    const levels = lanes.map((lane) => levelOf(lane.name)).filter((level) => level !== null);
+    return nextLaneName(lanes, levels.length ? Math.max(...levels) + 1 : 1);
+  }
+
+  // Cópia da via com outro nome, marcada como nova (não envia original_name).
+  function newLaneFrom(lane, name) {
+    const copy = { ...lane, name, _new: true };
+    delete copy.original_name;
+    return copy;
+  }
+
+  const LANE_NAME_RULE = /^[a-z][a-z0-9_]*\d[a-z]?$/;
+
+  function numberProblem(value, integer, minimum, strict) {
+    const number = normalizeNumber(value);
+    if (number === null) return false;
+    if (typeof number !== "number" || !Number.isFinite(number)) return true;
+    if (integer && !Number.isInteger(number)) return true;
+    return strict ? number <= minimum : number < minimum;
+  }
+
+  // Mesmas regras do servidor; devolve [{code, index, field?}] (index null = a lista toda), sem texto.
+  function validateChain(lanes) {
+    const issues = [];
+    const changed = lanes.map((lane) => lane._new === true || originalNameOf(lane) !== lane.name);
+    const seen = new Set();
+    lanes.forEach((lane, index) => {
+      const name = lane.name;
+      if (typeof name !== "string" || !name) {
+        issues.push({ code: "invalid_name", index, field: "name" });
+      } else {
+        if (seen.has(name)) issues.push({ code: "duplicate_name", index, field: "name" });
+        seen.add(name);
+        if (changed[index] && !LANE_NAME_RULE.test(name)) issues.push({ code: "invalid_name", index, field: "name" });
+      }
+      if (typeof lane.model !== "string" || !lane.model.trim()) {
+        issues.push({ code: "empty_model", index, field: "model" });
+      }
+      const rules = [
+        ["max_parallel", true, 1, false],
+        ["cost_per_m_tokens", false, 0, false],
+        ["credit_usd", false, 0, false],
+        ["max_retries", true, 0, false],
+        ["idle_timeout_seconds", false, 0, true],
+        ["max_runtime_seconds", false, 0, true],
+      ];
+      for (const [field, integer, minimum, strict] of rules) {
+        if (numberProblem(lane[field], integer, minimum, strict)) issues.push({ code: "invalid_number", index, field });
+      }
+      if (lane._new === true && normalizeNumber(lane.cost_per_m_tokens) === null) {
+        issues.push({ code: "required", index, field: "cost_per_m_tokens" });
+      }
+    });
+    const levels = lanes.map((lane) => levelOf(lane.name));
+    levels.forEach((level, index) => {
+      if (level === null) return;
+      for (let before = 0; before < index; before++) {
+        const earlier = levels[before];
+        if (earlier !== null && earlier > level && (changed[index] || changed[before])) {
+          issues.push({ code: "level_order", index, field: "name" });
+          break;
+        }
+      }
+    });
+    if (!lanes.some((lane) => lane.enabled !== false)) issues.push({ code: "no_enabled_lane", index: null });
+    return issues;
+  }
+
+  // Diferenças entre a lista original e a atual: vias adicionadas, removidas, com campo alterado e ordem alterada.
+  function diffChain(original, current) {
+    const originalByName = new Map(original.map((lane) => [lane.name, lane]));
+    const kept = [];
+    const added = [];
+    const changed = [];
+    for (const lane of current) {
+      const key = originalNameOf(lane);
+      const before = key === null ? undefined : originalByName.get(key);
+      if (!before) {
+        added.push(lane.name);
+        continue;
+      }
+      kept.push(key);
+      const was = editableLane(before);
+      const now = editableLane(lane);
+      const fields = Object.keys(now).filter((field) => JSON.stringify(was[field]) !== JSON.stringify(now[field]));
+      if (fields.length) changed.push({ name: lane.name, original_name: key, fields });
+    }
+    const keptSet = new Set(kept);
+    const removed = original.filter((lane) => !current.some((item) => originalNameOf(item) === lane.name)).map((lane) => lane.name);
+    const baseOrder = original.map((lane) => lane.name).filter((name) => keptSet.has(name));
+    return { added, removed, changed, reordered: JSON.stringify(baseOrder) !== JSON.stringify(kept) };
   }
   // helpers:end
 
