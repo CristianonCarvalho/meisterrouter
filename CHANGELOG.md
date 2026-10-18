@@ -8,6 +8,10 @@ This changelog follows the [Keep a Changelog](https://keepachangelog.com/pt-BR/1
 - **The `/config` lane drawer lists the known models of the lane's harness.** The model field gets a tree with each model's id, cost when known and source: `agy models` (read live), the Codex cache (`~/.codex/models_cache.json`), the Claude aliases and ids, and the Copilot cache. Free text still works, and a model missing from the lists shows an "unknown model" notice without blocking the save. Each harness spells the same model differently (`claude-haiku-5.5` on Copilot, `haiku` or `claude-haiku-5-5` on the Claude CLI), so the id comes from the tree. The lists are served read-only at `GET /api/config/models?harness=...`.
 - **`meister config refresh-models copilot` reads the Copilot model list from its own `/model` selector.** Copilot has no list command, so the command opens the interactive selector once in a simulated terminal (no prompt is sent, so no credit is spent), parses the real screen, and updates `~/.meister/model_catalog/copilot.json`, keeping the previous file as `.bak` and leaving it untouched if no model could be read. It is opt-in and never runs by itself.
 
+### Fixed
+- **A worker uses the same `meister.config.yaml` the orchestrator loaded, even when the file is not in git.** Workers run in a worktree (a checkout of the last commit), so an untracked or uncommitted configuration was invisible to them and they fell back to the packaged default catalog: a lane defined only in the project (for example `tier_2b`) failed with "Unknown lane", and lane timeouts and `eligible_classes` were ignored. The loaded configuration now records the absolute path of its file and the worker task carries it.
+- **A harness failure shows the cause when its output has a quota signal.** The worker error used to say only "failed with exit code 3"; when the harness output contains a signal recognised by the quota detector, the message now appends that excerpt (up to 200 characters).
+
 ## [0.12.0] - 2026-10-18
 
 ### Added
