@@ -19,6 +19,7 @@
     --blue: #38bdf8;
     --cyan: #22d3ee;
     --amber: #f59e0b;
+    --pink: #ec4899;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -32,6 +33,7 @@
       --red: #b91c1c;
       --cyan: #0e7490;
       --amber: #b45309;
+      --pink: #be185d;
     }
   }
   * { box-sizing: border-box; }
@@ -86,26 +88,99 @@
   .notice.error { border-color: var(--red); color: var(--red); background: rgba(248, 113, 113, 0.1); }
   .notice[hidden] { display: none; }
   .source { color: var(--muted); font-size: 12px; margin-bottom: 12px; word-break: break-all; }
-  .table-wrapper {
+  .panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow-x: auto;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
   }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th {
-    color: var(--muted);
+  .panel h2 {
+    margin: 0 0 8px;
+    font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: .04em;
-    font-size: 11px;
-    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--muted);
   }
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--hover); }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .on { color: var(--green); font-weight: 600; }
-  .off { color: var(--muted); }
+  .mono { font-family: ui-monospace, Menlo, monospace; }
+  .simbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pchip {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 9px;
+    cursor: pointer;
+    background: var(--bg);
+    font-size: 12px;
+    line-height: 1.3;
+    text-align: left;
+  }
+  .pchip b { font-family: ui-monospace, Menlo, monospace; }
+  .pchip small { display: block; color: var(--muted); }
+  .pchip.fail { border-color: var(--red); }
+  .pchip.fail b { text-decoration: line-through; color: var(--red); }
+  .pchip.run { border-color: var(--green); background: color-mix(in srgb, var(--green) 14%, var(--bg)); }
+  .pchip.skip { opacity: .45; cursor: default; }
+  .sep-l { color: var(--cyan); }
+  .sep-e { color: var(--pink); font-weight: 600; }
+  .result { margin-top: 10px; font-size: 13px; }
+  .result.ok b { color: var(--green); }
+  .result.bad { color: var(--red); }
+  .chain { display: flex; flex-direction: column; }
+  .level {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 12px 14px 14px;
+  }
+  .level-title { font-size: 13px; font-weight: 700; letter-spacing: .02em; margin-bottom: 4px; }
+  .level-hint { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .level-order { color: var(--cyan); font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-bottom: 10px; }
+  .slots { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; }
+  .lateral { display: flex; align-items: center; justify-content: center; width: 30px; color: var(--cyan); font-size: 18px; }
+  .escal {
+    margin: 4px 0;
+    padding: 6px 4px 6px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--pink);
+    font-size: 12.5px;
+    flex-wrap: wrap;
+  }
+  .escal .line { width: 2px; height: 30px; background: var(--pink); opacity: .7; }
+  .escal .cost { border: 1px solid var(--pink); border-radius: 999px; padding: 1px 9px; }
+  .slot {
+    width: 275px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .slot.disabled { opacity: .55; }
+  .slot-name { font-weight: 600; font-family: ui-monospace, Menlo, monospace; }
+  .policy { display: flex; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--muted); }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  .chip.ok { color: var(--green); border-color: var(--green); }
+  .content {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--purple);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 9px 10px;
+  }
+  .content .h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .content .m { font-weight: 600; margin: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .content .c { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .hc-copilot { border-left-color: var(--blue); }
+  .hc-codex { border-left-color: var(--green); }
+  .hc-agy { border-left-color: var(--yellow); }
+  .hc-claude { border-left-color: var(--purple); }
+  .legend { display: flex; gap: 14px 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: 14px 0; }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
   .read-only { color: var(--muted); font-size: 12px; margin-top: 12px; }
   .read-only[hidden] { display: none; }
@@ -128,7 +203,6 @@
   button:disabled, input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
   button.primary { border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
   button.danger { border-color: var(--red); color: var(--red); }
-  button.icon { padding: 2px 8px; }
   input, select {
     font: inherit;
     font-size: 13px;
@@ -138,10 +212,6 @@
     background: var(--bg);
     color: var(--text);
   }
-  input.model { min-width: 180px; }
-  input.parallel { width: 70px; }
-  .invalid { border-color: var(--red); }
-  .field-error { color: var(--red); font-size: 11px; margin-top: 3px; white-space: normal; }
   .errors { color: var(--red); margin: 12px 0 0; padding-left: 18px; }
   .errors:empty { display: none; }
   .notice .inline { margin-left: 10px; }
@@ -158,7 +228,6 @@
   .confirm[hidden] { display: none; }
   @media (max-width: 640px) {
     body { padding: 12px; }
-    th, td { padding: 8px; }
   }
 </style>
 </head>
@@ -184,22 +253,26 @@
 
 <div id="source" class="source">{{ messages.loading }}</div>
 
-<div class="table-wrapper">
-  <table>
-    <thead>
-      <tr>
-        <th>{{ messages.position }}</th>
-        <th>{{ messages.actions }}</th>
-        <th>{{ messages.name }}</th>
-        <th>{{ messages.harness }}</th>
-        <th>{{ messages.model }}</th>
-        <th>{{ messages.effort }}</th>
-        <th>{{ messages.max_parallel }}</th>
-        <th>{{ messages.enabled }}</th>
-      </tr>
-    </thead>
-    <tbody id="lanes-body"></tbody>
-  </table>
+<section class="panel">
+  <h2>{{ messages.path_title }}</h2>
+  <p class="hint">{{ messages.path_help }}</p>
+  <div class="simbar">
+    <label>{{ messages.path_class }}
+      <select id="sim-class"></select>
+    </label>
+    <label>{{ messages.path_start }}
+      <select id="sim-start"></select>
+    </label>
+    <button type="button" id="sim-clear">{{ messages.path_clear }}</button>
+  </div>
+  <div id="path" class="path"></div>
+  <div id="result" class="result" role="status"></div>
+</section>
+
+<div id="chain" class="chain"></div>
+<div class="legend">
+  <span><span class="sep-l">⇄</span> {{ messages.legend_lateral }}</span>
+  <span class="sep-e">⤹ {{ messages.legend_escalation }}</span>
 </div>
 <ul id="errors" class="errors"></ul>
 <p class="hint">{{ messages.project_list_notice }}</p>
@@ -547,147 +620,188 @@
     hasTierOrder: false,
     errors: { lanes: {}, general: [] },
     busy: false,
+    sim: { cls: "SMALL", start: "", failed: new Set() },
   };
+
+  const CLASSES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"];
 
   const locked = () => !state.editable || state.busy;
 
-  function cell(value, className) {
-    const td = document.createElement("td");
-    td.textContent = value === null || value === undefined || value === "" ? "—" : String(value);
-    if (className) td.className = className;
-    return td;
+  const fmt = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => (key in values ? String(values[key]) : ""));
+  const money = (value) => fmt(text.cost_value, { cost: Number(value || 0).toFixed(2) });
+
+  function el(tag, className, content) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (content !== undefined && content !== null) node.textContent = content;
+    return node;
   }
 
-  function fieldCell(control, index, field) {
-    const td = document.createElement("td");
-    td.appendChild(control);
-    const messages = (state.errors.lanes[String(index)] || {})[field];
-    if (messages && messages.length) {
-      control.classList.add("invalid");
-      const error = document.createElement("div");
-      error.className = "field-error";
-      error.textContent = messages.join(" ");
-      td.appendChild(error);
-    }
-    return td;
+  function levelLabel(level) {
+    return level === null ? text.level_other : fmt(text.level_title, { level });
   }
 
-  function option(value, label) {
-    const element = document.createElement("option");
-    element.value = value;
-    element.textContent = label;
-    return element;
+  function slotChips(lane) {
+    const chips = [el("span", "chip", lane.enabled === false ? text.chip_disabled : text.chip_enabled)];
+    const retries = normalizeMaxParallel(lane.max_retries);
+    if (retries !== null) chips.push(el("span", "chip", fmt(text.chip_retries, { count: retries })));
+    const classes = Array.isArray(lane.eligible_classes) ? lane.eligible_classes : [];
+    chips.push(el("span", "chip", classes.length ? fmt(text.chip_only_classes, { classes: classes.join(", ") }) : text.chip_all_classes));
+    const parallel = normalizeMaxParallel(lane.max_parallel);
+    if (parallel !== null) chips.push(el("span", "chip", fmt(text.chip_parallel, { count: parallel })));
+    return chips;
   }
 
-  function updateLane(index, changes) {
-    state.lanes[index] = { ...state.lanes[index], ...changes };
-    render();
-  }
-
-  function moveButton(index, delta, label, symbol) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "icon";
-    button.textContent = symbol;
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    const target = index + delta;
-    button.disabled = locked() || target < 0 || target >= state.lanes.length;
-    button.addEventListener("click", () => {
-      state.lanes = moveLane(state.lanes, index, delta);
-      state.errors = { lanes: {}, general: [] };
-      render();
-    });
-    return button;
-  }
-
-  function laneRow(lane, index) {
-    const row = document.createElement("tr");
-    const disabled = locked();
-
-    const order = document.createElement("td");
-    order.append(moveButton(index, -1, text.move_up, "↑"), " ", moveButton(index, 1, text.move_down, "↓"));
-
-    const harness = document.createElement("select");
-    const harnesses = harnessOptions();
-    if (!harnesses.includes(lane.harness)) harnesses.push(lane.harness);
-    harnesses.forEach((value) => harness.appendChild(option(value, value)));
-    harness.value = lane.harness;
-    harness.disabled = disabled;
-    harness.addEventListener("change", () => {
-      const keepEffort = effortOptions(harness.value).includes(lane.effort);
-      updateLane(index, { harness: harness.value, effort: keepEffort ? lane.effort : null });
-    });
-
-    const model = document.createElement("input");
-    model.type = "text";
-    model.className = "model";
-    model.value = typeof lane.model === "string" ? lane.model : "";
-    model.disabled = disabled;
-    model.addEventListener("input", () => {
-      state.lanes[index] = { ...state.lanes[index], model: model.value };
-      renderControls();
-    });
-
-    const effort = document.createElement("select");
-    const efforts = effortOptions(lane.harness);
-    if (lane.effort && !efforts.includes(lane.effort)) efforts.push(lane.effort);
-    effort.appendChild(option("", text.effort_default));
-    efforts.forEach((value) => effort.appendChild(option(value, value)));
-    effort.value = lane.effort || "";
-    effort.disabled = disabled;
-    effort.addEventListener("change", () => updateLane(index, { effort: effort.value || null }));
-
-    const parallel = document.createElement("input");
-    parallel.type = "number";
-    parallel.min = "1";
-    parallel.step = "1";
-    parallel.className = "parallel";
-    parallel.value = lane.max_parallel === null || lane.max_parallel === undefined ? "" : String(lane.max_parallel);
-    parallel.disabled = disabled;
-    parallel.addEventListener("input", () => {
-      state.lanes[index] = { ...state.lanes[index], max_parallel: parallel.value };
-      renderControls();
-    });
-
-    const enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.checked = lane.enabled !== false;
-    enabled.disabled = disabled;
-    enabled.setAttribute("aria-label", text.enabled);
-    enabled.addEventListener("change", () => updateLane(index, { enabled: enabled.checked }));
-
-    row.append(
-      cell(index + 1, "num"),
-      order,
-      fieldCell(nameSpan(lane.name), index, "name"),
-      fieldCell(harness, index, "harness"),
-      fieldCell(model, index, "model"),
-      fieldCell(effort, index, "effort"),
-      fieldCell(parallel, index, "max_parallel"),
-      fieldCell(enabled, index, "enabled"),
+  function slotEl(lane) {
+    const slot = el("div", lane.enabled === false ? "slot disabled" : "slot");
+    slot.appendChild(el("div", "slot-name", lane.name || "—"));
+    const policy = el("div", "policy");
+    policy.append(...slotChips(lane));
+    const harnessClass = String(lane.harness || "").replace(/[^a-z0-9-]/gi, "");
+    const content = el("div", `content hc-${harnessClass}`);
+    content.append(
+      el("div", "h", lane.harness || "—"),
+      el("div", "m", lane.model || text.no_model),
     );
-    return row;
+    const detail = el("div", "c");
+    detail.append(
+      el("span", "", fmt(text.content_effort, { effort: lane.effort || "—" })),
+      el("span", "", money(lane.cost_per_m_tokens)),
+    );
+    content.appendChild(detail);
+    slot.append(policy, content);
+    return slot;
   }
 
-  function nameSpan(name) {
-    const span = document.createElement("span");
-    span.textContent = name || "—";
-    return span;
+  function escalationEl(from, to, step) {
+    const band = el("div", "escal");
+    band.append(
+      el("span", "line"),
+      el("span", "", `⤹ ${fmt(text.escalation, { from: from.level === null ? "—" : from.level, to: to.level === null ? "—" : to.level })}`),
+    );
+    if (step && step.ratio !== null) {
+      band.appendChild(el("span", "cost", fmt(text.escalation_cost, {
+        from: Number(step.fromCost).toFixed(2),
+        to: Number(step.toCost).toFixed(2),
+        ratio: step.ratio.toFixed(1),
+      })));
+    }
+    return band;
+  }
+
+  function renderChain() {
+    const chain = byId("chain");
+    chain.replaceChildren();
+    if (!state.lanes.length) {
+      chain.appendChild(el("div", "empty", text.no_lanes));
+      return;
+    }
+    const groups = groupByLevel(state.lanes);
+    const steps = levelCostSteps(state.lanes);
+    groups.forEach((group, groupIndex) => {
+      if (groupIndex > 0) {
+        const previous = groups[groupIndex - 1];
+        const step = steps.find((item) => item.from === previous.level && item.to === group.level);
+        chain.appendChild(escalationEl(previous, group, step));
+      }
+      const box = el("div", "level");
+      box.append(
+        el("div", "level-title", levelLabel(group.level)),
+        el("div", "level-hint", text.level_order_hint),
+        el("div", "level-order", group.indexes.map((index) => state.lanes[index].name).join("  ⇄  ")),
+      );
+      const row = el("div", "slots");
+      group.indexes.forEach((index, position) => {
+        if (position) row.appendChild(el("div", "lateral", "⇄"));
+        row.appendChild(slotEl(state.lanes[index]));
+      });
+      box.appendChild(row);
+      chain.appendChild(box);
+    });
+  }
+
+  function eligibleStarts() {
+    return state.lanes.filter((lane) => lane.enabled !== false && acceptsClass(lane, state.sim.cls));
+  }
+
+  function fillSelect(select, values, selected) {
+    select.replaceChildren();
+    values.forEach((value) => {
+      const item = document.createElement("option");
+      item.value = value;
+      item.textContent = value;
+      select.appendChild(item);
+    });
+    select.value = selected;
+  }
+
+  function chipNote(lane, index, sim) {
+    if (lane.enabled === false) return text.path_disabled;
+    if (sim.startIndex === null || index < sim.startIndex) return text.path_before_start;
+    if (state.sim.failed.has(lane.name)) return text.path_failed;
+    if (index === sim.executedIndex) return `${text.path_runs_here}: ${lane.harness} · ${lane.model}`;
+    return `${lane.harness} · ${lane.model}`;
+  }
+
+  function resultEl(sim) {
+    const cls = state.sim.cls;
+    const result = byId("result");
+    result.className = "result";
+    if (sim.state === "no_eligible") {
+      result.classList.add("bad");
+      result.textContent = fmt(text.result_no_eligible, { cls });
+      return;
+    }
+    const start = state.lanes[sim.startIndex];
+    if (sim.state === "all_failed") {
+      result.classList.add("bad");
+      result.textContent = fmt(text.result_all_failed, { start: start.name });
+      return;
+    }
+    const executed = state.lanes[sim.executedIndex];
+    const failed = sim.tried.slice(0, -1);
+    let message = fmt(text.result_ok, { cls, start: start.name, executed: executed.name });
+    if (failed.length) message += ` ${fmt(text.result_failed_before, { failed: failed.join(", ") })}`;
+    if (levelOf(executed.name) !== levelOf(start.name)) message += ` ${text.result_escalated}`;
+    result.classList.add("ok");
+    result.textContent = message;
+  }
+
+  function renderPath() {
+    const eligible = eligibleStarts().map((lane) => lane.name);
+    if (!eligible.includes(state.sim.start)) state.sim.start = eligible.length ? eligible[0] : "";
+    fillSelect(byId("sim-class"), CLASSES, state.sim.cls);
+    fillSelect(byId("sim-start"), eligible, state.sim.start);
+    const sim = simulatePath(state.lanes, state.sim.cls, state.sim.start, Array.from(state.sim.failed));
+    const path = byId("path");
+    path.replaceChildren();
+    state.lanes.forEach((lane, index) => {
+      if (index > 0) {
+        const same = levelOf(state.lanes[index - 1].name) === levelOf(lane.name);
+        path.appendChild(el("span", same ? "sep-l" : "sep-e", same ? "⇄" : "⤹"));
+      }
+      const active = lane.enabled !== false && sim.startIndex !== null && index >= sim.startIndex;
+      let kind = "pchip";
+      if (!active) kind += " skip";
+      else if (state.sim.failed.has(lane.name)) kind += " fail";
+      else if (index === sim.executedIndex) kind += " run";
+      const chip = el("button", kind);
+      chip.type = "button";
+      chip.append(el("b", "", lane.name), el("small", "", chipNote(lane, index, sim)));
+      chip.disabled = !active;
+      chip.addEventListener("click", () => {
+        if (state.sim.failed.has(lane.name)) state.sim.failed.delete(lane.name);
+        else state.sim.failed.add(lane.name);
+        renderPath();
+      });
+      path.appendChild(chip);
+    });
+    resultEl(sim);
   }
 
   function renderLanes() {
-    const body = byId("lanes-body");
-    body.replaceChildren();
-    if (!state.lanes.length) {
-      const row = document.createElement("tr");
-      const td = cell(text.no_lanes, "empty");
-      td.colSpan = 8;
-      row.appendChild(td);
-      body.appendChild(row);
-      return;
-    }
-    state.lanes.forEach((lane, index) => body.appendChild(laneRow(lane, index)));
+    renderPath();
+    renderChain();
   }
 
   function renderErrors() {
@@ -829,6 +943,18 @@
     write("/api/config/restore-default", restoreRequest(state.stamp), text.restored);
   });
   byId("reload").addEventListener("click", load);
+  byId("sim-class").addEventListener("change", (event) => {
+    state.sim.cls = event.target.value;
+    renderPath();
+  });
+  byId("sim-start").addEventListener("change", (event) => {
+    state.sim.start = event.target.value;
+    renderPath();
+  });
+  byId("sim-clear").addEventListener("click", () => {
+    state.sim.failed.clear();
+    renderPath();
+  });
 
   render();
   load();
