@@ -42,21 +42,26 @@ def test_move_lane_does_not_mutate_input() -> None:
     assert run_js(expression) == "a"
 
 
-def test_build_lanes_body_keeps_only_editable_fields_and_normalizes_values() -> None:
+def test_build_lanes_body_sends_all_editable_fields_and_original_name() -> None:
     lanes = [
-        {**LANES[0], "max_parallel": "3", "effort": ""},
+        {**LANES[0], "max_parallel": "3", "effort": "", "original_name": "old_a", "cost_per_m_tokens": "2.5",
+         "eligible_classes": ["SMALL"], "extra": "ignored"},
         {**LANES[1], "max_parallel": ""},
-        LANES[2],
+        {**LANES[2], "_new": True, "original_name": "stale"},
     ]
     body = run_js(f"buildLanesBody('stamp-1', {_js(lanes)})")
+    empty = {"credit_usd": None, "max_retries": None, "idle_timeout_seconds": None, "max_runtime_seconds": None,
+             "eligible_classes": None, "best_for": None}
     assert body == {
         "stamp": "stamp-1",
         "lanes": [
-            {"name": "a", "harness": "codex", "model": "m1", "effort": None, "enabled": True, "max_parallel": 3},
-            {"name": "b", "harness": "claude", "model": "m2", "effort": None, "enabled": False,
-             "max_parallel": None},
-            {"name": "c", "harness": "agy", "model": "m3", "effort": "high", "enabled": True,
-             "max_parallel": None},
+            {"name": "a", "enabled": True, "harness": "codex", "model": "m1", "effort": None,
+             "cost_per_m_tokens": 2.5, "max_parallel": 3, **{**empty, "eligible_classes": ["SMALL"]},
+             "original_name": "old_a"},
+            {"name": "b", "enabled": False, "harness": "claude", "model": "m2", "effort": None,
+             "cost_per_m_tokens": None, "max_parallel": None, **empty, "original_name": "b"},
+            {"name": "c", "enabled": True, "harness": "agy", "model": "m3", "effort": "high",
+             "cost_per_m_tokens": None, "max_parallel": None, **empty},
         ],
     }
 

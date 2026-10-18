@@ -1,6 +1,6 @@
 # Tela `/config`: cadeia de vias com slots, criação de vias e edição completa
 
-**Status:** desenho aprovado pelo dono em 2026-10-17; plano por escrever. Nada implementado.
+**Status:** desenho aprovado pelo dono em 2026-10-17; plano da fase 1 em `docs/superpowers/plans/2026-10-17-config-cadeia-de-vias-fase-1.md`. Nada implementado.
 **Estende:** `2026-10-11-config-screen-design.md` (a tela `/config` atual, implementada).
 **Protótipo de referência:** `2026-10-17-config-cadeia-de-vias-prototipo.html` (arquivo único, dados de exemplo, nada é gravado). O desenho abaixo é o que o protótipo mostra; em caso de dúvida visual, vale o protótipo.
 **Origem:** conversa de 2026-10-17 com o dono, durante a run do chronoastro em que o Copilot ficou sem créditos e a cadeia caiu de `tier_1` e `tier_1b` direto para o `tier_2`.
@@ -55,7 +55,7 @@ Ver o protótipo. Resumo dos blocos, de cima para baixo:
 ## 5. Regras e decisões
 
 ### 5.1 Validação (além da já existente)
-- Nome: `^[a-z][a-z0-9_]*$`, terminando em número com letra opcional; único; o nível não pode retroceder na ordem do arquivo.
+- Nome: `^[a-z][a-z0-9_]*\d[a-z]?$` (termina em número com letra opcional); único; o nível não pode retroceder na ordem do arquivo. A regra de formato e a de ordem valem só para vias **novas ou renomeadas**: vias existentes com nome fora do padrão (por exemplo `fast`) continuam gravando sem erro, para a tela não bloquear configs de outros projetos.
 - Modelo não vazio; esforço válido para o harness (`harness_effort.py`); pelo menos uma via ativa; números não negativos (`max_parallel` e timeouts aceitam vazio = sem limite).
 - Toda a validação roda **no servidor** (a mesma lógica de `meister config validate`); a página repete só para o retorno imediato.
 
@@ -63,7 +63,7 @@ Ver o protótipo. Resumo dos blocos, de cima para baixo:
 Criar um nível no meio exigiria renumerar as vias seguintes, e o nome é a identidade da via em logs, timeline, breaker e histórico. Nesta etapa, "+ novo nível" só acrescenta no fim. "Renumerar" (com aviso de que o histórico não migra) fica como evolução.
 
 ### 5.3 Renomear
-Permitido (o campo `name` já é editável no editor atual), com o aviso na gaveta: "renomear não migra o histórico". Renomear muda o nível se mudar o número; a validação de ordem cobre o resultado.
+Permitido, com o aviso na gaveta: "renomear não migra o histórico". Hoje o editor identifica cada via pelo nome, então renomear exige um identificador: o pedido passa a trazer `original_name` (o nome que a via tinha no arquivo; ausente equivale ao próprio `name`). Via sem `original_name` e com nome desconhecido é **nova**; via existente ausente da lista é **removida**; `original_name` diferente de `name` é renomeação, e o nó do YAML (com seus comentários) é localizado pelo nome original. Renomear muda o nível se mudar o número; a validação de ordem cobre o resultado.
 
 ### 5.4 Elegibilidade na simulação
 O Jev só pode atribuir a uma via as classes de `eligible_classes` (vazio = todas). A **queda** para a via seguinte não filtra por classe (`get_next_available_tier` só olha `enabled` e o circuit breaker). A simulação reproduz isso: a via inicial respeita a classe; a cadeia daí em diante anda para frente sem filtro. Verificar no código ao planejar; se mudar, ajustar a simulação, não o motor.
@@ -97,7 +97,7 @@ Substitui a tabela pelo desenho da seção 4. Helpers puros (nível por nome, tr
 ## 7. Riscos
 - **Estado do breaker pode enganar.** O breaker de hoje dura 60 s por via e é gravado só pelo nome da via. O chip mostra o que existe; mudar o cooldown ou gravar por harness é outro assunto (registrado na conversa de 2026-10-17, não decidido).
 - **Catálogo defasado.** Modelos novos podem faltar na lista; o texto livre cobre. Mostrar a origem de cada item evita passar por "ao vivo" o que é do repositório.
-- **Dependência do nome.** Nomes fora do padrão `tier_<n><letra>` quebram a regra de nível da timeline e da tela; a validação os recusa.
+- **Dependência do nome.** Nomes fora do padrão `tier_<n><letra>` não têm nível na timeline nem na tela; a validação recusa-os só em vias novas ou renomeadas.
 - **Run ativa lê o config no início.** Continua valendo o bloqueio de escrita durante a run.
 - **Mobile.** Arrastar com o dedo não funciona nesse tipo de página; o "tocar e tocar" é o caminho no toque.
 

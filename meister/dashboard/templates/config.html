@@ -19,6 +19,7 @@
     --blue: #38bdf8;
     --cyan: #22d3ee;
     --amber: #f59e0b;
+    --pink: #ec4899;
   }
   @media (prefers-color-scheme: light) {
     :root {
@@ -32,6 +33,7 @@
       --red: #b91c1c;
       --cyan: #0e7490;
       --amber: #b45309;
+      --pink: #be185d;
     }
   }
   * { box-sizing: border-box; }
@@ -86,26 +88,173 @@
   .notice.error { border-color: var(--red); color: var(--red); background: rgba(248, 113, 113, 0.1); }
   .notice[hidden] { display: none; }
   .source { color: var(--muted); font-size: 12px; margin-bottom: 12px; word-break: break-all; }
-  .table-wrapper {
+  .panel {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow-x: auto;
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 14px;
   }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
-  th {
-    color: var(--muted);
+  .panel h2 {
+    margin: 0 0 8px;
+    font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: .04em;
-    font-size: 11px;
-    font-weight: 600;
+    letter-spacing: .08em;
+    color: var(--muted);
   }
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover { background: var(--hover); }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
-  .on { color: var(--green); font-weight: 600; }
-  .off { color: var(--muted); }
+  .mono { font-family: ui-monospace, Menlo, monospace; }
+  .simbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pchip {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 9px;
+    cursor: pointer;
+    background: var(--bg);
+    font-size: 12px;
+    line-height: 1.3;
+    text-align: left;
+  }
+  .pchip b { font-family: ui-monospace, Menlo, monospace; }
+  .pchip small { display: block; color: var(--muted); }
+  .pchip.fail { border-color: var(--red); }
+  .pchip.fail b { text-decoration: line-through; color: var(--red); }
+  .pchip.run { border-color: var(--green); background: color-mix(in srgb, var(--green) 14%, var(--bg)); }
+  .pchip.skip { opacity: .45; cursor: default; }
+  .sep-l { color: var(--cyan); }
+  .sep-e { color: var(--pink); font-weight: 600; }
+  .result { margin-top: 10px; font-size: 13px; }
+  .result.ok b { color: var(--green); }
+  .result.bad { color: var(--red); }
+  .chain { display: flex; flex-direction: column; }
+  .level {
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 12px;
+    padding: 12px 14px 14px;
+  }
+  .level-title { font-size: 13px; font-weight: 700; letter-spacing: .02em; margin-bottom: 4px; }
+  .level-hint { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  .level-order { color: var(--cyan); font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-bottom: 10px; }
+  .slots { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; }
+  .lateral { display: flex; align-items: center; justify-content: center; width: 30px; color: var(--cyan); font-size: 18px; }
+  .escal {
+    margin: 4px 0;
+    padding: 6px 4px 6px 22px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--pink);
+    font-size: 12.5px;
+    flex-wrap: wrap;
+  }
+  .escal .line { width: 2px; height: 30px; background: var(--pink); opacity: .7; }
+  .escal .cost { border: 1px solid var(--pink); border-radius: 999px; padding: 1px 9px; }
+  .slot {
+    width: 275px;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--bg);
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .slot.disabled { opacity: .55; }
+  .slot-name { font-weight: 600; font-family: ui-monospace, Menlo, monospace; }
+  .policy { display: flex; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--muted); }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  .chip.ok { color: var(--green); border-color: var(--green); }
+  .content {
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--purple);
+    border-radius: 8px;
+    background: var(--surface);
+    padding: 9px 10px;
+    cursor: pointer;
+    user-select: none;
+    transition: outline 0.15s ease, opacity 0.15s ease;
+  }
+  .content.dragging { opacity: 0.45; }
+  .content.drag-over { outline: 2px dashed var(--cyan); outline-offset: 2px; }
+  .content.changed { outline: 2px solid var(--amber); }
+  .content.selected { outline: 2px solid var(--cyan); }
+  .content .h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .content .m { font-weight: 600; margin: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .content .c { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .hc-copilot { border-left-color: var(--blue); }
+  .hc-codex { border-left-color: var(--green); }
+  .hc-agy { border-left-color: var(--yellow); }
+  .hc-claude { border-left-color: var(--purple); }
+  .level-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .add-lane-btn {
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    border: 1px dashed var(--border);
+    background: var(--bg);
+    color: var(--cyan);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .add-lane-btn:hover:not(:disabled) {
+    border-color: var(--cyan);
+    background: var(--hover);
+  }
+  .chain-actions {
+    display: flex;
+    justify-content: flex-start;
+    margin: 12px 0;
+  }
+  .add-level-btn {
+    font-size: 13px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 8px;
+    border: 1px dashed var(--border);
+    background: var(--surface);
+    color: var(--cyan);
+    cursor: pointer;
+  }
+  .add-level-btn:hover:not(:disabled) {
+    border-color: var(--cyan);
+    background: var(--hover);
+  }
+  .changes-summary {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .changes-list {
+    margin: 0 0 10px;
+    padding-left: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .changes-list:empty {
+    display: none;
+  }
+  .change-item-added {
+    color: var(--green);
+  }
+  .change-item-removed {
+    color: var(--red);
+  }
+  .change-item-changed {
+    color: var(--amber);
+  }
+  .change-item-reordered {
+    color: var(--cyan);
+  }
+  .legend { display: flex; gap: 14px 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin: 14px 0; }
   .empty { padding: 30px; text-align: center; color: var(--muted); }
   .read-only { color: var(--muted); font-size: 12px; margin-top: 12px; }
   .read-only[hidden] { display: none; }
@@ -128,7 +277,6 @@
   button:disabled, input:disabled, select:disabled { opacity: .5; cursor: not-allowed; }
   button.primary { border-color: var(--cyan); color: var(--cyan); font-weight: 600; }
   button.danger { border-color: var(--red); color: var(--red); }
-  button.icon { padding: 2px 8px; }
   input, select {
     font: inherit;
     font-size: 13px;
@@ -138,10 +286,6 @@
     background: var(--bg);
     color: var(--text);
   }
-  input.model { min-width: 180px; }
-  input.parallel { width: 70px; }
-  .invalid { border-color: var(--red); }
-  .field-error { color: var(--red); font-size: 11px; margin-top: 3px; white-space: normal; }
   .errors { color: var(--red); margin: 12px 0 0; padding-left: 18px; }
   .errors:empty { display: none; }
   .notice .inline { margin-left: 10px; }
@@ -156,9 +300,163 @@
     border-radius: 8px;
   }
   .confirm[hidden] { display: none; }
+  .slot-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .slot-edit {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .drawer-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 100;
+  }
+  .drawer-backdrop[hidden] { display: none; }
+  .drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 440px;
+    max-width: 100vw;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.35);
+    z-index: 101;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .drawer[hidden] { display: none; }
+  .drawer-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .drawer-header h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .drawer-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .drawer-group {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 0;
+    padding: 12px 14px;
+    background: var(--bg);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  fieldset.drawer-group legend {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 6px;
+  }
+  fieldset.drawer-group.travels {
+    border-color: color-mix(in srgb, var(--purple) 40%, var(--border));
+  }
+  fieldset.drawer-group.travels legend {
+    color: var(--purple);
+  }
+  fieldset.drawer-group.stays {
+    border-color: color-mix(in srgb, var(--cyan) 40%, var(--border));
+  }
+  fieldset.drawer-group.stays legend {
+    color: var(--cyan);
+  }
+  .field-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field-row.inline {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+  }
+  .field-row label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .field-row input[type="text"],
+  .field-row select {
+    width: 100%;
+  }
+  .field-row.inline input[type="checkbox"] {
+    width: auto;
+    margin: 0;
+  }
+  .field-hint {
+    font-size: 11px;
+    color: var(--amber);
+  }
+  .field-error {
+    font-size: 11px;
+    color: var(--red);
+    margin-top: 2px;
+  }
+  .field-error:empty { display: none; }
+  input.has-error, select.has-error {
+    border-color: var(--red);
+  }
+  .classes-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 2px;
+  }
+  .class-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-family: ui-monospace, Menlo, monospace;
+    cursor: pointer;
+  }
+  .class-option input {
+    margin: 0;
+  }
+  .drawer-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .drawer-footer[hidden] { display: none; }
   @media (max-width: 640px) {
     body { padding: 12px; }
-    th, td { padding: 8px; }
+    .drawer {
+      width: 100vw;
+      left: 0;
+      border-left: none;
+    }
   }
 </style>
 </head>
@@ -184,24 +482,36 @@
 
 <div id="source" class="source">{{ messages.loading }}</div>
 
-<div class="table-wrapper">
-  <table>
-    <thead>
-      <tr>
-        <th>{{ messages.position }}</th>
-        <th>{{ messages.actions }}</th>
-        <th>{{ messages.name }}</th>
-        <th>{{ messages.harness }}</th>
-        <th>{{ messages.model }}</th>
-        <th>{{ messages.effort }}</th>
-        <th>{{ messages.max_parallel }}</th>
-        <th>{{ messages.enabled }}</th>
-      </tr>
-    </thead>
-    <tbody id="lanes-body"></tbody>
-  </table>
+<section class="panel">
+  <h2>{{ messages.path_title }}</h2>
+  <p class="hint">{{ messages.path_help }}</p>
+  <div class="simbar">
+    <label>{{ messages.path_class }}
+      <select id="sim-class"></select>
+    </label>
+    <label>{{ messages.path_start }}
+      <select id="sim-start"></select>
+    </label>
+    <button type="button" id="sim-clear">{{ messages.path_clear }}</button>
+  </div>
+  <div id="path" class="path"></div>
+  <div id="result" class="result" role="status"></div>
+</section>
+
+<div id="chain" class="chain"></div>
+<div class="chain-actions">
+  <button type="button" id="add-level" class="add-level-btn">{{ messages.add_level }}</button>
 </div>
-<ul id="errors" class="errors"></ul>
+<div class="legend">
+  <span><span class="sep-l">⇄</span> {{ messages.legend_lateral }}</span>
+  <span class="sep-e">⤹ {{ messages.legend_escalation }}</span>
+</div>
+<section class="panel" id="panel-changes">
+  <h2>{{ messages.changes_title }}</h2>
+  <div id="changes-summary" class="changes-summary">{{ messages.changes_none }}</div>
+  <ul id="changes-list" class="changes-list"></ul>
+  <ul id="errors" class="errors"></ul>
+</section>
 <p class="hint">{{ messages.project_list_notice }}</p>
 <div class="actions-bar">
   <button type="button" id="save" class="primary">{{ messages.save }}</button>
@@ -215,6 +525,98 @@
   <button type="button" id="restore-no">{{ messages.confirm_no }}</button>
 </div>
 <p id="read-only" class="read-only" hidden>{{ messages.read_only_notice }}</p>
+
+<aside id="drawer" class="drawer" hidden>
+  <div class="drawer-header">
+    <h2><span>{{ messages.drawer_title }}</span> <span id="drawer-lane-name" class="mono"></span></h2>
+    <button type="button" id="drawer-close">{{ messages.close }}</button>
+  </div>
+  <div class="drawer-body">
+    <fieldset class="drawer-group travels">
+      <legend>{{ messages.group_content }}</legend>
+      <div class="field-row">
+        <label for="drawer-harness">{{ messages.harness }}</label>
+        <select id="drawer-harness"></select>
+        <div id="err-harness" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-effort">{{ messages.effort }}</label>
+        <select id="drawer-effort"></select>
+        <div id="err-effort" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-model">{{ messages.model }}</label>
+        <input type="text" id="drawer-model" class="mono">
+        <div id="err-model" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-cost-per-m-tokens">{{ messages.field_cost_per_m_tokens }}</label>
+        <input type="text" id="drawer-cost-per-m-tokens">
+        <div id="err-cost_per_m_tokens" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-credit-usd">{{ messages.field_credit_usd }}</label>
+        <input type="text" id="drawer-credit-usd">
+        <div id="err-credit_usd" class="field-error"></div>
+      </div>
+    </fieldset>
+
+    <fieldset class="drawer-group stays">
+      <legend>{{ messages.group_policy }}</legend>
+      <div class="field-row">
+        <label for="drawer-name">{{ messages.name }}</label>
+        <input type="text" id="drawer-name" class="mono">
+        <div class="field-hint">{{ messages.rename_warning }}</div>
+        <div id="err-name" class="field-error"></div>
+      </div>
+      <div class="field-row inline">
+        <input type="checkbox" id="drawer-enabled">
+        <label for="drawer-enabled">{{ messages.enabled }}</label>
+        <div id="err-enabled" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-retries">{{ messages.field_max_retries }}</label>
+        <input type="text" id="drawer-max-retries">
+        <div id="err-max_retries" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-parallel">{{ messages.max_parallel }}</label>
+        <input type="text" id="drawer-max-parallel">
+        <div id="err-max_parallel" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-idle-timeout-seconds">{{ messages.field_idle_timeout }}</label>
+        <input type="text" id="drawer-idle-timeout-seconds">
+        <div id="err-idle_timeout_seconds" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-max-runtime-seconds">{{ messages.field_max_runtime }}</label>
+        <input type="text" id="drawer-max-runtime-seconds">
+        <div id="err-max_runtime_seconds" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label>{{ messages.field_eligible_classes }}</label>
+        <div id="drawer-classes" class="classes-group"></div>
+        <div class="field-hint">{{ messages.eligible_classes_all }}</div>
+        <div id="err-eligible_classes" class="field-error"></div>
+      </div>
+      <div class="field-row">
+        <label for="drawer-best-for">{{ messages.field_best_for }}</label>
+        <input type="text" id="drawer-best-for">
+        <div id="err-best_for" class="field-error"></div>
+      </div>
+    </fieldset>
+  </div>
+  <div id="drawer-footer" class="drawer-footer">
+    <button type="button" id="drawer-remove" class="danger">{{ messages.remove_lane }}</button>
+    <div id="drawer-remove-confirm" class="confirm" hidden>
+      <span>{{ messages.remove_lane_confirm }}</span>
+      <button type="button" id="drawer-remove-yes" class="danger">{{ messages.remove_lane_yes }}</button>
+      <button type="button" id="drawer-remove-no">{{ messages.confirm_no }}</button>
+    </div>
+  </div>
+</aside>
+<div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
 
 <script>
 (() => {
@@ -262,17 +664,52 @@
     return /^\d+$/.test(raw) ? Number(raw) : raw;
   }
 
+  // Número de texto: vazio vira null; número decimal vira número; o resto segue cru para o servidor recusar.
+  function normalizeNumber(value) {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "number") return value;
+    const raw = String(value).trim();
+    if (raw === "") return null;
+    return /^\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : raw;
+  }
+
+  function listOrNull(value) {
+    return Array.isArray(value) ? value.slice() : null;
+  }
+
+  // A via só com os campos editáveis, normalizados (é o que o servidor recebe e o que diffChain compara).
+  function editableLane(lane) {
+    return {
+      name: lane.name,
+      enabled: lane.enabled !== false,
+      harness: lane.harness,
+      model: typeof lane.model === "string" ? lane.model : "",
+      effort: lane.effort ? lane.effort : null,
+      cost_per_m_tokens: normalizeNumber(lane.cost_per_m_tokens),
+      credit_usd: normalizeNumber(lane.credit_usd),
+      max_retries: normalizeMaxParallel(lane.max_retries),
+      max_parallel: normalizeMaxParallel(lane.max_parallel),
+      idle_timeout_seconds: normalizeNumber(lane.idle_timeout_seconds),
+      max_runtime_seconds: normalizeNumber(lane.max_runtime_seconds),
+      eligible_classes: listOrNull(lane.eligible_classes),
+      best_for: listOrNull(lane.best_for),
+    };
+  }
+
+  // Nome que a via tinha no arquivo; null para via nova.
+  function originalNameOf(lane) {
+    if (lane._new === true) return null;
+    return typeof lane.original_name === "string" && lane.original_name ? lane.original_name : lane.name;
+  }
+
   function buildLanesBody(stamp, lanes) {
     return {
       stamp,
-      lanes: lanes.map((lane) => ({
-        name: lane.name,
-        harness: lane.harness,
-        model: typeof lane.model === "string" ? lane.model : "",
-        effort: lane.effort ? lane.effort : null,
-        enabled: lane.enabled !== false,
-        max_parallel: normalizeMaxParallel(lane.max_parallel),
-      })),
+      lanes: lanes.map((lane) => {
+        const body = editableLane(lane);
+        const original = originalNameOf(lane);
+        return original === null ? body : { ...body, original_name: original };
+      }),
     };
   }
 
@@ -313,6 +750,221 @@
   function lanesChanged(original, edited) {
     return JSON.stringify(buildLanesBody("", original).lanes) !== JSON.stringify(buildLanesBody("", edited).lanes);
   }
+
+  const CONTENT_FIELDS = ["harness", "model", "effort", "cost_per_m_tokens", "credit_usd"];
+
+  // Nível = número no fim do nome, com uma letra opcional (tier_1, tier_1b e tier_1c são o nível 1).
+  function levelOf(name) {
+    const match = /(\d+)[a-z]?$/.exec(typeof name === "string" ? name : "");
+    return match ? Number(match[1]) : null;
+  }
+
+  // Grupos consecutivos de vias com o mesmo nível: [{level, indexes}].
+  function groupByLevel(lanes) {
+    const groups = [];
+    lanes.forEach((lane, index) => {
+      const level = levelOf(lane.name);
+      const last = groups[groups.length - 1];
+      if (last && last.level === level) last.indexes.push(index);
+      else groups.push({ level, indexes: [index] });
+    });
+    return groups;
+  }
+
+  // Troca só o conteúdo (modelo e custo) entre dois slots; o resto é política do slot e fica na posição.
+  function swapContent(lanes, i, j) {
+    const result = lanes.map((lane) => ({ ...lane }));
+    if (i === j || !result[i] || !result[j]) return result;
+    for (const field of CONTENT_FIELDS) {
+      const held = result[i][field];
+      result[i][field] = result[j][field];
+      result[j][field] = held;
+    }
+    return result;
+  }
+
+  // Por par de níveis vizinhos: o menor custo das vias ativas de cada um e a razão entre eles.
+  function levelCostSteps(lanes) {
+    const cheapest = new Map();
+    for (const lane of lanes) {
+      const level = levelOf(lane.name);
+      if (level === null) continue;
+      if (!cheapest.has(level)) cheapest.set(level, null);
+      const cost = normalizeNumber(lane.cost_per_m_tokens);
+      if (lane.enabled === false || typeof cost !== "number") continue;
+      const best = cheapest.get(level);
+      if (best === null || cost < best) cheapest.set(level, cost);
+    }
+    const levels = Array.from(cheapest.keys()).sort((a, b) => a - b);
+    const steps = [];
+    for (let i = 1; i < levels.length; i++) {
+      const fromCost = cheapest.get(levels[i - 1]);
+      const toCost = cheapest.get(levels[i]);
+      const ratio = fromCost !== null && toCost !== null && fromCost > 0 ? toCost / fromCost : null;
+      steps.push({ from: levels[i - 1], to: levels[i], fromCost, toCost, ratio });
+    }
+    return steps;
+  }
+
+  function acceptsClass(lane, cls) {
+    const classes = Array.isArray(lane.eligible_classes) ? lane.eligible_classes : [];
+    return classes.length === 0 || classes.some((value) => String(value).toUpperCase() === String(cls).toUpperCase());
+  }
+
+  // Simula o caminho de uma tarefa: a via inicial respeita eligible_classes (vazio = todas); a queda segue
+  // para frente sem filtrar por classe e pula vias desligadas. startName (opcional) é de onde a busca parte.
+  function simulatePath(lanes, cls, startName, failedNames) {
+    const failed = new Set(failedNames || []);
+    const from = Math.max(0, lanes.findIndex((lane) => lane.name === startName));
+    const result = { startIndex: null, executedIndex: null, tried: [], escalated: false, state: "no_eligible" };
+    const startIndex = lanes.findIndex((lane, index) => index >= from && lane.enabled !== false && acceptsClass(lane, cls));
+    if (startIndex < 0) return result;
+    result.startIndex = startIndex;
+    result.state = "all_failed";
+    for (let index = startIndex; index < lanes.length; index++) {
+      if (lanes[index].enabled === false) continue;
+      result.tried.push(lanes[index].name);
+      if (failed.has(lanes[index].name)) continue;
+      result.executedIndex = index;
+      result.state = "ok";
+      break;
+    }
+    result.escalated = result.tried.length > 1;
+    return result;
+  }
+
+  // Próximo nome livre do nível: tier_2, depois tier_2b, tier_2c...
+  function nextLaneName(lanes, level) {
+    const taken = new Set(lanes.map((lane) => lane.name));
+    const base = `tier_${level}`;
+    if (!taken.has(base)) return base;
+    for (const letter of "bcdefghijklmnopqrstuvwxyz") {
+      if (!taken.has(base + letter)) return base + letter;
+    }
+    return base;
+  }
+
+  // Nome da via que abre um nível novo, depois do maior nível existente.
+  function nextLevelName(lanes) {
+    const levels = lanes.map((lane) => levelOf(lane.name)).filter((level) => level !== null);
+    return nextLaneName(lanes, levels.length ? Math.max(...levels) + 1 : 1);
+  }
+
+  // Cópia da via com outro nome, marcada como nova (não envia original_name).
+  function newLaneFrom(lane, name) {
+    const copy = { ...lane, name, _new: true };
+    delete copy.original_name;
+    return copy;
+  }
+
+  const LANE_NAME_RULE = /^[a-z][a-z0-9_]*\d[a-z]?$/;
+
+  function numberProblem(value, integer, minimum, strict) {
+    const number = normalizeNumber(value);
+    if (number === null) return false;
+    if (typeof number !== "number" || !Number.isFinite(number)) return true;
+    if (integer && !Number.isInteger(number)) return true;
+    return strict ? number <= minimum : number < minimum;
+  }
+
+  // Mesmas regras do servidor; devolve [{code, index, field?}] (index null = a lista toda), sem texto.
+  function validateChain(lanes) {
+    const issues = [];
+    const changed = lanes.map((lane) => lane._new === true || originalNameOf(lane) !== lane.name);
+    const seen = new Set();
+    lanes.forEach((lane, index) => {
+      const name = lane.name;
+      if (typeof name !== "string" || !name) {
+        issues.push({ code: "invalid_name", index, field: "name" });
+      } else {
+        if (seen.has(name)) issues.push({ code: "duplicate_name", index, field: "name" });
+        seen.add(name);
+        if (changed[index] && !LANE_NAME_RULE.test(name)) issues.push({ code: "invalid_name", index, field: "name" });
+      }
+      if (typeof lane.model !== "string" || !lane.model.trim()) {
+        issues.push({ code: "empty_model", index, field: "model" });
+      }
+      const rules = [
+        ["max_parallel", true, 1, false],
+        ["cost_per_m_tokens", false, 0, false],
+        ["credit_usd", false, 0, false],
+        ["max_retries", true, 0, false],
+        ["idle_timeout_seconds", false, 0, true],
+        ["max_runtime_seconds", false, 0, true],
+      ];
+      for (const [field, integer, minimum, strict] of rules) {
+        if (numberProblem(lane[field], integer, minimum, strict)) issues.push({ code: "invalid_number", index, field });
+      }
+      if (lane._new === true && normalizeNumber(lane.cost_per_m_tokens) === null) {
+        issues.push({ code: "required", index, field: "cost_per_m_tokens" });
+      }
+    });
+    const levels = lanes.map((lane) => levelOf(lane.name));
+    levels.forEach((level, index) => {
+      if (level === null) return;
+      for (let before = 0; before < index; before++) {
+        const earlier = levels[before];
+        if (earlier !== null && earlier > level && (changed[index] || changed[before])) {
+          issues.push({ code: "level_order", index, field: "name" });
+          break;
+        }
+      }
+    });
+    if (!lanes.some((lane) => lane.enabled !== false)) issues.push({ code: "no_enabled_lane", index: null });
+    return issues;
+  }
+
+  // Diferenças entre a lista original e a atual: vias adicionadas, removidas, com campo alterado e ordem alterada.
+  function diffChain(original, current) {
+    const originalByName = new Map(original.map((lane) => [lane.name, lane]));
+    const kept = [];
+    const added = [];
+    const changed = [];
+    for (const lane of current) {
+      const key = originalNameOf(lane);
+      const before = key === null ? undefined : originalByName.get(key);
+      if (!before) {
+        added.push(lane.name);
+        continue;
+      }
+      kept.push(key);
+      const was = editableLane(before);
+      const now = editableLane(lane);
+      const fields = Object.keys(now).filter((field) => JSON.stringify(was[field]) !== JSON.stringify(now[field]));
+      if (fields.length) changed.push({ name: lane.name, original_name: key, fields });
+    }
+    const keptSet = new Set(kept);
+    const removed = original.filter((lane) => !current.some((item) => originalNameOf(item) === lane.name)).map((lane) => lane.name);
+    const baseOrder = original.map((lane) => lane.name).filter((name) => keptSet.has(name));
+    return { added, removed, changed, reordered: JSON.stringify(baseOrder) !== JSON.stringify(kept) };
+  }
+
+  // Verifica se o conteúdo da via (campos em CONTENT_FIELDS) difere do arquivo original.
+  function isContentChanged(original, lane) {
+    const origName = originalNameOf(lane);
+    if (origName === null) return true;
+    const orig = original.find((o) => originalNameOf(o) === origName);
+    if (!orig) return true;
+    const was = editableLane(orig);
+    const now = editableLane(lane);
+    return CONTENT_FIELDS.some((field) => JSON.stringify(was[field]) !== JSON.stringify(now[field]));
+  }
+
+  // Agrupa os problemas do validateChain por via e campo: {lanes: {"0": {model: ["empty_model"]}}, general: ["no_enabled_lane"]}
+  function clientFieldErrors(issues) {
+    const result = { lanes: {}, general: [] };
+    if (!Array.isArray(issues)) return result;
+    for (const issue of issues) {
+      if (issue.index === null || issue.index === undefined) {
+        result.general.push(issue.code);
+        continue;
+      }
+      const lane = result.lanes[String(issue.index)] || (result.lanes[String(issue.index)] = {});
+      const field = issue.field || "general";
+      (lane[field] || (lane[field] = [])).push(issue.code);
+    }
+    return result;
+  }
   // helpers:end
 
   const state = {
@@ -324,175 +976,571 @@
     hasTierOrder: false,
     errors: { lanes: {}, general: [] },
     busy: false,
+    sim: { cls: "SMALL", start: "", failed: new Set() },
+    drawerIndex: null,
+    selectedCardIndex: null,
+  };
+
+  let isDragging = false;
+
+  const CLASSES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"];
+
+  const FIELD_LABELS = {
+    name: text.name,
+    enabled: text.enabled,
+    harness: text.harness,
+    model: text.model,
+    effort: text.effort,
+    cost_per_m_tokens: text.field_cost_per_m_tokens,
+    credit_usd: text.field_credit_usd,
+    max_retries: text.field_max_retries,
+    max_parallel: text.max_parallel,
+    idle_timeout_seconds: text.field_idle_timeout,
+    max_runtime_seconds: text.field_max_runtime,
+    eligible_classes: text.field_eligible_classes,
+    best_for: text.field_best_for,
+  };
+
+  const ISSUE_TEXTS = {
+    invalid_name: text.err_invalid_name,
+    duplicate_name: text.err_duplicate_name,
+    level_order: text.err_level_order,
+    empty_model: text.err_empty_model,
+    invalid_number: text.err_invalid_number,
+    required: text.err_required,
+    no_enabled_lane: text.err_no_enabled_lane,
   };
 
   const locked = () => !state.editable || state.busy;
 
-  function cell(value, className) {
-    const td = document.createElement("td");
-    td.textContent = value === null || value === undefined || value === "" ? "—" : String(value);
-    if (className) td.className = className;
-    return td;
+  const fmt = (template, values) => String(template).replace(/\{(\w+)\}/g, (_, key) => (key in values ? String(values[key]) : ""));
+  const money = (value) => fmt(text.cost_value, { cost: Number(value || 0).toFixed(2) });
+
+  function el(tag, className, content) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (content !== undefined && content !== null) node.textContent = content;
+    return node;
   }
 
-  function fieldCell(control, index, field) {
-    const td = document.createElement("td");
-    td.appendChild(control);
-    const messages = (state.errors.lanes[String(index)] || {})[field];
-    if (messages && messages.length) {
-      control.classList.add("invalid");
-      const error = document.createElement("div");
-      error.className = "field-error";
-      error.textContent = messages.join(" ");
-      td.appendChild(error);
+  function levelLabel(level) {
+    return level === null ? text.level_other : fmt(text.level_title, { level });
+  }
+
+  function slotChips(lane) {
+    const chips = [el("span", "chip", lane.enabled === false ? text.chip_disabled : text.chip_enabled)];
+    const retries = normalizeMaxParallel(lane.max_retries);
+    if (retries !== null) chips.push(el("span", "chip", fmt(text.chip_retries, { count: retries })));
+    const classes = Array.isArray(lane.eligible_classes) ? lane.eligible_classes : [];
+    chips.push(el("span", "chip", classes.length ? fmt(text.chip_only_classes, { classes: classes.join(", ") }) : text.chip_all_classes));
+    const parallel = normalizeMaxParallel(lane.max_parallel);
+    if (parallel !== null) chips.push(el("span", "chip", fmt(text.chip_parallel, { count: parallel })));
+    return chips;
+  }
+
+  function slotEl(lane, index) {
+    const slot = el("div", lane.enabled === false ? "slot disabled" : "slot");
+    const head = el("div", "slot-head");
+    head.appendChild(el("span", "slot-name", lane.name || "—"));
+    const editBtn = el("button", "slot-edit", text.edit);
+    editBtn.type = "button";
+    editBtn.addEventListener("click", () => openDrawer(index));
+    head.appendChild(editBtn);
+    slot.appendChild(head);
+    const policy = el("div", "policy");
+    policy.append(...slotChips(lane));
+    const harnessClass = String(lane.harness || "").replace(/[^a-z0-9-]/gi, "");
+    let contentClasses = `content hc-${harnessClass}`;
+    if (isContentChanged(state.original, lane)) {
+      contentClasses += " changed";
     }
-    return td;
-  }
-
-  function option(value, label) {
-    const element = document.createElement("option");
-    element.value = value;
-    element.textContent = label;
-    return element;
-  }
-
-  function updateLane(index, changes) {
-    state.lanes[index] = { ...state.lanes[index], ...changes };
-    render();
-  }
-
-  function moveButton(index, delta, label, symbol) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "icon";
-    button.textContent = symbol;
-    button.title = label;
-    button.setAttribute("aria-label", label);
-    const target = index + delta;
-    button.disabled = locked() || target < 0 || target >= state.lanes.length;
-    button.addEventListener("click", () => {
-      state.lanes = moveLane(state.lanes, index, delta);
-      state.errors = { lanes: {}, general: [] };
-      render();
-    });
-    return button;
-  }
-
-  function laneRow(lane, index) {
-    const row = document.createElement("tr");
-    const disabled = locked();
-
-    const order = document.createElement("td");
-    order.append(moveButton(index, -1, text.move_up, "↑"), " ", moveButton(index, 1, text.move_down, "↓"));
-
-    const harness = document.createElement("select");
-    const harnesses = harnessOptions();
-    if (!harnesses.includes(lane.harness)) harnesses.push(lane.harness);
-    harnesses.forEach((value) => harness.appendChild(option(value, value)));
-    harness.value = lane.harness;
-    harness.disabled = disabled;
-    harness.addEventListener("change", () => {
-      const keepEffort = effortOptions(harness.value).includes(lane.effort);
-      updateLane(index, { harness: harness.value, effort: keepEffort ? lane.effort : null });
-    });
-
-    const model = document.createElement("input");
-    model.type = "text";
-    model.className = "model";
-    model.value = typeof lane.model === "string" ? lane.model : "";
-    model.disabled = disabled;
-    model.addEventListener("input", () => {
-      state.lanes[index] = { ...state.lanes[index], model: model.value };
-      renderControls();
-    });
-
-    const effort = document.createElement("select");
-    const efforts = effortOptions(lane.harness);
-    if (lane.effort && !efforts.includes(lane.effort)) efforts.push(lane.effort);
-    effort.appendChild(option("", text.effort_default));
-    efforts.forEach((value) => effort.appendChild(option(value, value)));
-    effort.value = lane.effort || "";
-    effort.disabled = disabled;
-    effort.addEventListener("change", () => updateLane(index, { effort: effort.value || null }));
-
-    const parallel = document.createElement("input");
-    parallel.type = "number";
-    parallel.min = "1";
-    parallel.step = "1";
-    parallel.className = "parallel";
-    parallel.value = lane.max_parallel === null || lane.max_parallel === undefined ? "" : String(lane.max_parallel);
-    parallel.disabled = disabled;
-    parallel.addEventListener("input", () => {
-      state.lanes[index] = { ...state.lanes[index], max_parallel: parallel.value };
-      renderControls();
-    });
-
-    const enabled = document.createElement("input");
-    enabled.type = "checkbox";
-    enabled.checked = lane.enabled !== false;
-    enabled.disabled = disabled;
-    enabled.setAttribute("aria-label", text.enabled);
-    enabled.addEventListener("change", () => updateLane(index, { enabled: enabled.checked }));
-
-    row.append(
-      cell(index + 1, "num"),
-      order,
-      fieldCell(nameSpan(lane.name), index, "name"),
-      fieldCell(harness, index, "harness"),
-      fieldCell(model, index, "model"),
-      fieldCell(effort, index, "effort"),
-      fieldCell(parallel, index, "max_parallel"),
-      fieldCell(enabled, index, "enabled"),
+    if (state.selectedCardIndex === index) {
+      contentClasses += " selected";
+    }
+    const content = el("div", contentClasses);
+    content.append(
+      el("div", "h", lane.harness || "—"),
+      el("div", "m", lane.model || text.no_model),
     );
-    return row;
+    const detail = el("div", "c");
+    detail.append(
+      el("span", "", fmt(text.content_effort, { effort: lane.effort || "—" })),
+      el("span", "", money(lane.cost_per_m_tokens)),
+    );
+    content.appendChild(detail);
+
+    if (locked()) {
+      content.style.cursor = "default";
+      content.draggable = false;
+    } else {
+      content.draggable = true;
+      content.addEventListener("dragstart", (e) => {
+        if (locked()) {
+          e.preventDefault();
+          return;
+        }
+        isDragging = true;
+        e.dataTransfer.setData("text/plain", String(index));
+        e.dataTransfer.effectAllowed = "move";
+        content.classList.add("dragging");
+      });
+      content.addEventListener("dragend", () => {
+        content.classList.remove("dragging");
+        document.querySelectorAll(".content.drag-over").forEach((n) => n.classList.remove("drag-over"));
+        setTimeout(() => { isDragging = false; }, 50);
+      });
+      content.addEventListener("dragover", (e) => {
+        if (locked()) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      });
+      content.addEventListener("dragenter", (e) => {
+        if (locked()) return;
+        content.classList.add("drag-over");
+      });
+      content.addEventListener("dragleave", () => {
+        content.classList.remove("drag-over");
+      });
+      content.addEventListener("drop", (e) => {
+        if (locked()) return;
+        e.preventDefault();
+        content.classList.remove("drag-over");
+        const raw = e.dataTransfer.getData("text/plain");
+        const fromIndex = Number(raw);
+        if (!Number.isNaN(fromIndex) && fromIndex !== index) {
+          state.selectedCardIndex = null;
+          state.lanes = swapContent(state.lanes, fromIndex, index);
+          render();
+          if (state.drawerIndex !== null) populateDrawer(state.drawerIndex);
+        }
+      });
+      content.addEventListener("click", () => {
+        if (locked()) return;
+        if (isDragging) return;
+        if (state.selectedCardIndex === null) {
+          state.selectedCardIndex = index;
+          renderChain();
+        } else if (state.selectedCardIndex === index) {
+          state.selectedCardIndex = null;
+          renderChain();
+        } else {
+          const fromIndex = state.selectedCardIndex;
+          state.selectedCardIndex = null;
+          state.lanes = swapContent(state.lanes, fromIndex, index);
+          render();
+          if (state.drawerIndex !== null) populateDrawer(state.drawerIndex);
+        }
+      });
+    }
+
+    slot.append(policy, content);
+    return slot;
   }
 
-  function nameSpan(name) {
-    const span = document.createElement("span");
-    span.textContent = name || "—";
-    return span;
+  function escalationEl(from, to, step) {
+    const band = el("div", "escal");
+    band.append(
+      el("span", "line"),
+      el("span", "", `⤹ ${fmt(text.escalation, { from: from.level === null ? "—" : from.level, to: to.level === null ? "—" : to.level })}`),
+    );
+    if (step && step.ratio !== null) {
+      band.appendChild(el("span", "cost", fmt(text.escalation_cost, {
+        from: Number(step.fromCost).toFixed(2),
+        to: Number(step.toCost).toFixed(2),
+        ratio: step.ratio.toFixed(1),
+      })));
+    }
+    return band;
+  }
+
+  function renderChain() {
+    const chain = byId("chain");
+    chain.replaceChildren();
+    if (!state.lanes.length) {
+      chain.appendChild(el("div", "empty", text.no_lanes));
+      return;
+    }
+    const groups = groupByLevel(state.lanes);
+    const steps = levelCostSteps(state.lanes);
+    groups.forEach((group, groupIndex) => {
+      if (groupIndex > 0) {
+        const previous = groups[groupIndex - 1];
+        const step = steps.find((item) => item.from === previous.level && item.to === group.level);
+        chain.appendChild(escalationEl(previous, group, step));
+      }
+      const box = el("div", "level");
+      const head = el("div", "level-head");
+      const titleCol = el("div");
+      titleCol.append(
+        el("div", "level-title", levelLabel(group.level)),
+        el("div", "level-hint", text.level_order_hint),
+        el("div", "level-order", group.indexes.map((index) => state.lanes[index].name).join("  ⇄  ")),
+      );
+      head.appendChild(titleCol);
+      const addLaneBtn = el("button", "add-lane-btn", text.add_lane);
+      addLaneBtn.type = "button";
+      addLaneBtn.disabled = locked();
+      addLaneBtn.addEventListener("click", () => {
+        if (locked()) return;
+        state.selectedCardIndex = null;
+        const lastIndex = group.indexes[group.indexes.length - 1];
+        const lastLane = state.lanes[lastIndex];
+        const newName = nextLaneName(state.lanes, group.level || 1);
+        const newLane = newLaneFrom(lastLane, newName);
+        const targetIndex = lastIndex + 1;
+        state.lanes.splice(targetIndex, 0, newLane);
+        render();
+        openDrawer(targetIndex);
+      });
+      head.appendChild(addLaneBtn);
+      box.appendChild(head);
+
+      const row = el("div", "slots");
+      group.indexes.forEach((index, position) => {
+        if (position) row.appendChild(el("div", "lateral", "⇄"));
+        row.appendChild(slotEl(state.lanes[index], index));
+      });
+      box.appendChild(row);
+      chain.appendChild(box);
+    });
+  }
+
+  function eligibleStarts() {
+    return state.lanes.filter((lane) => lane.enabled !== false && acceptsClass(lane, state.sim.cls));
+  }
+
+  function fillSelect(select, values, selected) {
+    select.replaceChildren();
+    values.forEach((value) => {
+      const item = document.createElement("option");
+      item.value = value;
+      item.textContent = value;
+      select.appendChild(item);
+    });
+    select.value = selected;
+  }
+
+  function chipNote(lane, index, sim) {
+    if (lane.enabled === false) return text.path_disabled;
+    if (sim.startIndex === null || index < sim.startIndex) return text.path_before_start;
+    if (state.sim.failed.has(lane.name)) return text.path_failed;
+    if (index === sim.executedIndex) return `${text.path_runs_here}: ${lane.harness} · ${lane.model}`;
+    return `${lane.harness} · ${lane.model}`;
+  }
+
+  function resultEl(sim) {
+    const cls = state.sim.cls;
+    const result = byId("result");
+    result.className = "result";
+    if (sim.state === "no_eligible") {
+      result.classList.add("bad");
+      result.textContent = fmt(text.result_no_eligible, { cls });
+      return;
+    }
+    const start = state.lanes[sim.startIndex];
+    if (sim.state === "all_failed") {
+      result.classList.add("bad");
+      result.textContent = fmt(text.result_all_failed, { start: start.name });
+      return;
+    }
+    const executed = state.lanes[sim.executedIndex];
+    const failed = sim.tried.slice(0, -1);
+    let message = fmt(text.result_ok, { cls, start: start.name, executed: executed.name });
+    if (failed.length) message += ` ${fmt(text.result_failed_before, { failed: failed.join(", ") })}`;
+    if (levelOf(executed.name) !== levelOf(start.name)) message += ` ${text.result_escalated}`;
+    result.classList.add("ok");
+    result.textContent = message;
+  }
+
+  function renderPath() {
+    const eligible = eligibleStarts().map((lane) => lane.name);
+    if (!eligible.includes(state.sim.start)) state.sim.start = eligible.length ? eligible[0] : "";
+    fillSelect(byId("sim-class"), CLASSES, state.sim.cls);
+    fillSelect(byId("sim-start"), eligible, state.sim.start);
+    const sim = simulatePath(state.lanes, state.sim.cls, state.sim.start, Array.from(state.sim.failed));
+    const path = byId("path");
+    path.replaceChildren();
+    state.lanes.forEach((lane, index) => {
+      if (index > 0) {
+        const same = levelOf(state.lanes[index - 1].name) === levelOf(lane.name);
+        path.appendChild(el("span", same ? "sep-l" : "sep-e", same ? "⇄" : "⤹"));
+      }
+      const active = lane.enabled !== false && sim.startIndex !== null && index >= sim.startIndex;
+      let kind = "pchip";
+      if (!active) kind += " skip";
+      else if (state.sim.failed.has(lane.name)) kind += " fail";
+      else if (index === sim.executedIndex) kind += " run";
+      const chip = el("button", kind);
+      chip.type = "button";
+      chip.append(el("b", "", lane.name), el("small", "", chipNote(lane, index, sim)));
+      chip.disabled = !active;
+      chip.addEventListener("click", () => {
+        if (state.sim.failed.has(lane.name)) state.sim.failed.delete(lane.name);
+        else state.sim.failed.add(lane.name);
+        renderPath();
+      });
+      path.appendChild(chip);
+    });
+    resultEl(sim);
   }
 
   function renderLanes() {
-    const body = byId("lanes-body");
-    body.replaceChildren();
-    if (!state.lanes.length) {
-      const row = document.createElement("tr");
-      const td = cell(text.no_lanes, "empty");
-      td.colSpan = 8;
-      row.appendChild(td);
-      body.appendChild(row);
+    renderPath();
+    renderChain();
+  }
+
+  const DRAWER_FIELDS = [
+    "harness", "effort", "model", "cost_per_m_tokens", "credit_usd",
+    "name", "enabled", "max_retries", "max_parallel", "idle_timeout_seconds",
+    "max_runtime_seconds", "eligible_classes", "best_for"
+  ];
+
+  function initClassesCheckboxes() {
+    const container = byId("drawer-classes");
+    container.replaceChildren();
+    CLASSES.forEach((cls) => {
+      const label = document.createElement("label");
+      label.className = "class-option";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = `drawer-cls-${cls}`;
+      cb.value = cls;
+      cb.addEventListener("change", onClassCheckboxChange);
+      const span = document.createElement("span");
+      span.textContent = cls;
+      label.append(cb, span);
+      container.appendChild(label);
+    });
+  }
+
+  function updateEffortSelect(harness, currentEffort) {
+    const select = byId("drawer-effort");
+    select.replaceChildren();
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = text.effort_default;
+    select.appendChild(defaultOpt);
+    const options = effortOptions(harness);
+    options.forEach((opt) => {
+      const item = document.createElement("option");
+      item.value = opt;
+      item.textContent = opt;
+      select.appendChild(item);
+    });
+    select.value = currentEffort && options.includes(currentEffort) ? currentEffort : "";
+  }
+
+  function renderDrawerErrors() {
+    if (state.drawerIndex === null) return;
+    const idx = state.drawerIndex;
+    const clientIssues = validateChain(state.lanes);
+    const clientMap = clientFieldErrors(clientIssues);
+    const laneClient = clientMap.lanes[String(idx)] || {};
+    const laneServer = (state.errors.lanes && state.errors.lanes[String(idx)]) || {};
+
+    DRAWER_FIELDS.forEach((field) => {
+      const errEl = byId(`err-${field}`);
+      const inputEl = byId(`drawer-${field.replace(/_/g, "-")}`) || byId(`drawer-${field}`);
+      if (!errEl) return;
+      const clientCodes = laneClient[field] || [];
+      const clientMsgs = clientCodes.map((code) => ISSUE_TEXTS[code] || code);
+      const serverMsgs = laneServer[field] || [];
+      const allMsgs = [...clientMsgs, ...serverMsgs];
+      if (allMsgs.length) {
+        errEl.textContent = allMsgs.join(" · ");
+        if (inputEl) inputEl.classList.add("has-error");
+      } else {
+        errEl.textContent = "";
+        if (inputEl) inputEl.classList.remove("has-error");
+      }
+    });
+  }
+
+  function populateDrawer(index) {
+    const lane = state.lanes[index];
+    if (!lane) return;
+    state.drawerIndex = index;
+    byId("drawer-lane-name").textContent = lane.name || "—";
+
+    fillSelect(byId("drawer-harness"), harnessOptions(), lane.harness || "");
+    updateEffortSelect(lane.harness, lane.effort);
+
+    byId("drawer-model").value = typeof lane.model === "string" ? lane.model : "";
+    byId("drawer-cost-per-m-tokens").value = lane.cost_per_m_tokens !== null && lane.cost_per_m_tokens !== undefined ? lane.cost_per_m_tokens : "";
+    byId("drawer-credit-usd").value = lane.credit_usd !== null && lane.credit_usd !== undefined ? lane.credit_usd : "";
+
+    byId("drawer-name").value = lane.name || "";
+    byId("drawer-enabled").checked = lane.enabled !== false;
+    byId("drawer-max-retries").value = lane.max_retries !== null && lane.max_retries !== undefined ? lane.max_retries : "";
+    byId("drawer-max-parallel").value = lane.max_parallel !== null && lane.max_parallel !== undefined ? lane.max_parallel : "";
+    byId("drawer-idle-timeout-seconds").value = lane.idle_timeout_seconds !== null && lane.idle_timeout_seconds !== undefined ? lane.idle_timeout_seconds : "";
+    byId("drawer-max-runtime-seconds").value = lane.max_runtime_seconds !== null && lane.max_runtime_seconds !== undefined ? lane.max_runtime_seconds : "";
+
+    const activeClasses = Array.isArray(lane.eligible_classes) ? lane.eligible_classes.map((c) => String(c).toUpperCase()) : [];
+    CLASSES.forEach((cls) => {
+      const cb = byId(`drawer-cls-${cls}`);
+      if (cb) cb.checked = activeClasses.includes(cls);
+    });
+
+    byId("drawer-best-for").value = Array.isArray(lane.best_for) ? lane.best_for.join(", ") : "";
+
+    const readOnly = !state.editable;
+    const inputs = byId("drawer").querySelectorAll("input, select");
+    inputs.forEach((input) => { input.disabled = readOnly; });
+
+    byId("drawer-footer").hidden = readOnly;
+    byId("drawer-remove").hidden = readOnly;
+    byId("drawer-remove-confirm").hidden = true;
+
+    renderDrawerErrors();
+  }
+
+  function openDrawer(index) {
+    populateDrawer(index);
+    byId("drawer").hidden = false;
+    byId("drawer-backdrop").hidden = false;
+  }
+
+  function closeDrawer() {
+    state.drawerIndex = null;
+    byId("drawer").hidden = true;
+    byId("drawer-backdrop").hidden = true;
+    byId("drawer-remove-confirm").hidden = true;
+  }
+
+  function onDrawerLaneChanged(field) {
+    if (field && state.errors.lanes && state.errors.lanes[String(state.drawerIndex)]) {
+      delete state.errors.lanes[String(state.drawerIndex)][field];
+    }
+    renderLanes();
+    renderControls();
+    renderDrawerErrors();
+  }
+
+  function onClassCheckboxChange() {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    const checked = [];
+    CLASSES.forEach((cls) => {
+      const cb = byId(`drawer-cls-${cls}`);
+      if (cb && cb.checked) checked.push(cls);
+    });
+    const custom = Array.isArray(lane.eligible_classes)
+      ? lane.eligible_classes.filter((c) => !CLASSES.includes(String(c).toUpperCase()))
+      : [];
+    const all = [...checked, ...custom];
+    lane.eligible_classes = all.length ? all : null;
+    onDrawerLaneChanged("eligible_classes");
+  }
+
+  function renderChanges() {
+    const diff = diffChain(state.original, state.lanes);
+    const summary = byId("changes-summary");
+    const list = byId("changes-list");
+    list.replaceChildren();
+
+    const hasChanges = diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0 || diff.reordered;
+    if (!hasChanges) {
+      summary.textContent = text.changes_none;
       return;
     }
-    state.lanes.forEach((lane, index) => body.appendChild(laneRow(lane, index)));
+
+    summary.textContent = "";
+
+    diff.added.forEach((name) => {
+      const li = el("li", "change-item-added", fmt(text.change_added, { name }));
+      list.appendChild(li);
+    });
+
+    diff.removed.forEach((name) => {
+      const li = el("li", "change-item-removed", fmt(text.change_removed, { name }));
+      list.appendChild(li);
+    });
+
+    diff.changed.forEach((item) => {
+      if (item.original_name !== item.name) {
+        const li = el("li", "change-item-changed", fmt(text.change_renamed, { old: item.original_name, new: item.name }));
+        list.appendChild(li);
+        const otherFields = item.fields.filter((f) => f !== "name");
+        if (otherFields.length) {
+          const names = otherFields.map((f) => FIELD_LABELS[f] || f).join(", ");
+          const li2 = el("li", "change-item-changed", fmt(text.change_fields, { name: item.name, fields: names }));
+          list.appendChild(li2);
+        }
+      } else {
+        const names = item.fields.map((f) => FIELD_LABELS[f] || f).join(", ");
+        const li = el("li", "change-item-changed", fmt(text.change_fields, { name: item.name, fields: names }));
+        list.appendChild(li);
+      }
+    });
+
+    if (diff.reordered) {
+      const li = el("li", "change-item-reordered", text.change_reordered);
+      list.appendChild(li);
+    }
   }
 
   function renderErrors() {
     const list = byId("errors");
     list.replaceChildren();
-    state.errors.general.forEach((message) => {
-      const item = document.createElement("li");
-      item.textContent = message;
-      list.appendChild(item);
+    const clientIssues = validateChain(state.lanes);
+    clientIssues.forEach((issue) => {
+      const msg = ISSUE_TEXTS[issue.code] || issue.code;
+      const li = document.createElement("li");
+      if (issue.index !== null && issue.index !== undefined && state.lanes[issue.index]) {
+        const laneName = state.lanes[issue.index].name;
+        li.textContent = laneName ? `${laneName}: ${msg}` : msg;
+      } else {
+        li.textContent = msg;
+      }
+      list.appendChild(li);
     });
+    if (state.errors.general) {
+      state.errors.general.forEach((message) => {
+        const li = document.createElement("li");
+        li.textContent = message;
+        list.appendChild(li);
+      });
+    }
+    if (state.errors.lanes) {
+      for (const [laneIdx, fieldMap] of Object.entries(state.errors.lanes)) {
+        const lane = state.lanes[Number(laneIdx)];
+        const laneName = lane ? lane.name : laneIdx;
+        for (const messages of Object.values(fieldMap)) {
+          for (const msg of messages) {
+            const li = document.createElement("li");
+            li.textContent = `${laneName}: ${msg}`;
+            list.appendChild(li);
+          }
+        }
+      }
+    }
   }
 
   function renderControls() {
     const changed = lanesChanged(state.original, state.lanes);
-    byId("save").disabled = locked() || !changed || !state.lanes.length;
+    const clientIssues = validateChain(state.lanes);
+    const hasClientErrors = clientIssues.length > 0;
+    byId("save").disabled = locked() || !changed || !state.lanes.length || hasClientErrors;
     byId("revert").disabled = locked() || !changed;
     byId("restore").disabled = locked() || !state.hasTierOrder;
     byId("restore-yes").disabled = locked();
     byId("read-only").hidden = state.editable;
+    const addLevelBtn = byId("add-level");
+    if (addLevelBtn) addLevelBtn.disabled = locked();
+    if (locked()) state.selectedCardIndex = null;
     const status = byId("status");
-    if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
-    if (!changed && status.textContent === text.unsaved) setStatus("", "");
+    if (hasClientErrors && changed && !state.busy) setStatus(text.invalid, "error");
+    else if (changed && !state.busy && !status.classList.contains("error")) setStatus(text.unsaved, "");
+    if (!changed && (status.textContent === text.unsaved || status.textContent === text.invalid)) setStatus("", "");
   }
 
   function render() {
     renderLanes();
+    renderChanges();
     renderErrors();
     renderControls();
+    renderDrawerErrors();
   }
 
   function setStatus(message, kind) {
@@ -508,13 +1556,14 @@
 
   function applyData(data) {
     const lanes = Array.isArray(data.lanes) ? data.lanes : [];
-    state.original = lanes.map((lane) => ({ ...lane }));
-    state.lanes = lanes.map((lane) => ({ ...lane }));
+    state.original = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
+    state.lanes = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
     state.stamp = typeof data.stamp === "string" ? data.stamp : "";
     state.editable = data.editable === true;
     state.reason = data.reason || null;
     state.hasTierOrder = data.has_tier_order === true;
     state.errors = { lanes: {}, general: [] };
+    state.selectedCardIndex = null;
     byId("banner-stale").hidden = true;
     byId("restore-confirm").hidden = true;
     byId("source").textContent = state.hasTierOrder
@@ -522,6 +1571,13 @@
       : text.source_default;
     renderState();
     render();
+    if (state.drawerIndex !== null) {
+      if (state.lanes[state.drawerIndex]) {
+        populateDrawer(state.drawerIndex);
+      } else {
+        closeDrawer();
+      }
+    }
   }
 
   async function load() {
@@ -584,15 +1640,58 @@
     handleWriteResponse(status, body, successText);
   }
 
+  byId("add-level").addEventListener("click", () => {
+    if (locked()) return;
+    state.selectedCardIndex = null;
+    const newName = nextLevelName(state.lanes);
+    const template = state.lanes.length
+      ? state.lanes[state.lanes.length - 1]
+      : {
+          name: newName,
+          harness: "codex",
+          model: "",
+          effort: null,
+          cost_per_m_tokens: null,
+          credit_usd: null,
+          max_retries: null,
+          max_parallel: null,
+          idle_timeout_seconds: null,
+          max_runtime_seconds: null,
+          eligible_classes: null,
+          best_for: null,
+          enabled: true,
+        };
+    const newLane = newLaneFrom(template, newName);
+    state.lanes.push(newLane);
+    const targetIndex = state.lanes.length - 1;
+    render();
+    openDrawer(targetIndex);
+  });
+
   byId("save").addEventListener("click", () => {
     if (locked()) return;
+    const clientIssues = validateChain(state.lanes);
+    if (clientIssues.length > 0) {
+      renderErrors();
+      renderDrawerErrors();
+      setStatus(text.invalid, "error");
+      return;
+    }
     write("/api/config/lanes", saveRequest(state.stamp, state.lanes), text.saved);
   });
   byId("revert").addEventListener("click", () => {
+    state.selectedCardIndex = null;
     state.lanes = state.original.map((lane) => ({ ...lane }));
     state.errors = { lanes: {}, general: [] };
     setStatus("", "");
     render();
+    if (state.drawerIndex !== null) {
+      if (state.lanes[state.drawerIndex]) {
+        populateDrawer(state.drawerIndex);
+      } else {
+        closeDrawer();
+      }
+    }
   });
   byId("restore").addEventListener("click", () => {
     byId("restore-confirm").hidden = false;
@@ -606,7 +1705,121 @@
     write("/api/config/restore-default", restoreRequest(state.stamp), text.restored);
   });
   byId("reload").addEventListener("click", load);
+  byId("sim-class").addEventListener("change", (event) => {
+    state.sim.cls = event.target.value;
+    renderPath();
+  });
+  byId("sim-start").addEventListener("change", (event) => {
+    state.sim.start = event.target.value;
+    renderPath();
+  });
+  byId("sim-clear").addEventListener("click", () => {
+    state.sim.failed.clear();
+    renderPath();
+  });
 
+  byId("drawer-harness").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.harness = e.target.value;
+    updateEffortSelect(lane.harness, lane.effort);
+    const opts = effortOptions(lane.harness);
+    if (lane.effort && !opts.includes(lane.effort)) {
+      lane.effort = null;
+    }
+    onDrawerLaneChanged("harness");
+  });
+  byId("drawer-effort").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.effort = e.target.value || null;
+    onDrawerLaneChanged("effort");
+  });
+  byId("drawer-model").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.model = e.target.value;
+    onDrawerLaneChanged("model");
+  });
+  byId("drawer-cost-per-m-tokens").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.cost_per_m_tokens = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("cost_per_m_tokens");
+  });
+  byId("drawer-credit-usd").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.credit_usd = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("credit_usd");
+  });
+  byId("drawer-name").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.name = e.target.value;
+    byId("drawer-lane-name").textContent = lane.name || "—";
+    onDrawerLaneChanged("name");
+  });
+  byId("drawer-enabled").addEventListener("change", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.enabled = e.target.checked;
+    onDrawerLaneChanged("enabled");
+  });
+  byId("drawer-max-retries").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_retries = normalizeMaxParallel(e.target.value);
+    onDrawerLaneChanged("max_retries");
+  });
+  byId("drawer-max-parallel").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_parallel = normalizeMaxParallel(e.target.value);
+    onDrawerLaneChanged("max_parallel");
+  });
+  byId("drawer-idle-timeout-seconds").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.idle_timeout_seconds = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("idle_timeout_seconds");
+  });
+  byId("drawer-max-runtime-seconds").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    lane.max_runtime_seconds = normalizeNumber(e.target.value);
+    onDrawerLaneChanged("max_runtime_seconds");
+  });
+  byId("drawer-best-for").addEventListener("input", (e) => {
+    if (state.drawerIndex === null || !state.editable) return;
+    const lane = state.lanes[state.drawerIndex];
+    const raw = e.target.value;
+    const items = raw.split(",").map((s) => s.trim()).filter(Boolean);
+    lane.best_for = items.length ? items : (raw.trim() === "" ? null : []);
+    onDrawerLaneChanged("best_for");
+  });
+  byId("drawer-remove").addEventListener("click", () => {
+    byId("drawer-remove").hidden = true;
+    byId("drawer-remove-confirm").hidden = false;
+  });
+  byId("drawer-remove-no").addEventListener("click", () => {
+    byId("drawer-remove-confirm").hidden = true;
+    byId("drawer-remove").hidden = false;
+  });
+  byId("drawer-remove-yes").addEventListener("click", () => {
+    if (locked() || state.drawerIndex === null) return;
+    state.selectedCardIndex = null;
+    state.lanes.splice(state.drawerIndex, 1);
+    closeDrawer();
+    render();
+  });
+  byId("drawer-close").addEventListener("click", closeDrawer);
+  byId("drawer-backdrop").addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && state.drawerIndex !== null) closeDrawer();
+  });
+
+  initClassesCheckboxes();
   render();
   load();
 })();

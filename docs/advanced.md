@@ -564,12 +564,26 @@ The dashboard has a `/config` page (for example, `http://localhost:5050/config`)
 without opening the YAML. The timeline header has a **Config** link to it, and the page links back to the timeline and
 the dashboard.
 
-- **What it shows:** the effective lanes (the packaged defaults plus what the project's `meister.config.yaml`
-  overrides) and the file they come from.
-- **What it edits:** on/off, order, `harness`, `model`, `effort` (the list follows the harness) and `max_parallel`.
-  The lane name is read-only, and the other fields of each lane (costs, `eligible_classes`, `max_retries`...) are kept
-  as they are. Lanes cannot be added or removed here. Before saving, the server validates with the same rules as
-  `meister config validate` (at least one lane on, unique names, an effort the harness accepts, a non-empty model).
+- **What it shows:** the lane chain in **levels**. The number at the end of a lane name is its level (`tier_1`,
+  `tier_1b` and `tier_1c` are level 1): lanes of the same level are tried one after another (lateral fallback), and
+  when all of them fail the task escalates to the next level, with the cost jump between the two shown in the band
+  between levels. Each lane is a **slot** (name and policy) holding a **content card** (harness, model, effort, cost).
+  The source file is shown on top.
+- **Path of a task:** a simulator at the top picks the task class and the starting lane (the one Jev would choose
+  among the lanes that accept the class); tapping a lane simulates that it failed, and a sentence says where the task
+  ends up running and whether it escalated. Nothing is executed.
+- **Swapping content:** drag a content card onto another slot (or tap one card and then the other, on a touch screen)
+  to swap harness, model, effort, cost and credit between the two. The slot keeps its name and policy.
+- **What it edits:** **Edit** on a slot opens a drawer with every field of the lane: harness, effort (the list follows
+  the harness), model, cost per 1M tokens, credit, name, on/off, attempts (`max_retries`), `max_parallel`, idle and
+  maximum runtime, the classes Jev may assign (`eligible_classes`) and `best_for`. **+ lane in this level** adds a
+  lateral alternative (`tier_1d`, `tier_2b`...), **+ new level** adds the next level at the end of the chain (a level
+  cannot be inserted in the middle), and **Remove lane** deletes one (confirm with a second tap). Renaming a lane
+  does not migrate its history in logs and the timeline. Before saving, the server validates with the same rules as
+  `meister config validate`, plus: a new or renamed name looks like `tier_<number><optional letter>`, is unique and
+  its level does not go back along the list (lanes that already exist with other names keep saving normally), at
+  least one lane stays on, and an effort must be one the harness accepts. A "Changes to save" panel lists what will
+  be written.
 - **When it is blocked:** writing is refused while a run is active (the run already loaded its configuration), when the
   file changed on disk since the page loaded it, and for remote access (requests that arrive through Tailscale). In
   those cases the page stays read-only and says why; reading is always allowed.
