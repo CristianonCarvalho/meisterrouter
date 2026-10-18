@@ -561,7 +561,12 @@ Rules:
 ## The /config screen (lanes)
 
 The dashboard has a `/config` page (for example, `http://localhost:5050/config`) to see and edit the worker lanes
-without opening the YAML. The timeline header has a **Config** link to it, and the page links back to the timeline and
+without opening the YAML. To open it without going through the timeline, run `meister config web` in the project
+folder: it finds the project's dashboard (or starts one), opens the page in a window or tab following `dashboard.open`,
+and prints the URL (`--no-open` only prints it; without a display it also only prints it). If the running dashboard
+was started by an older version of the code, the command does not reuse it: it starts a new one and says so (the old
+one exits by itself when idle). If a page ever shows a server older than itself, it displays a notice asking you to
+restart the dashboard. The timeline header has a **Config** link to it, and the page links back to the timeline and
 the dashboard.
 
 - **What it shows:** the lane chain in **levels**. The number at the end of a lane name is its level (`tier_1`,

@@ -564,7 +564,11 @@ Regras:
 ## Tela /config (vias)
 
 O dashboard tem a página `/config` (por exemplo, `http://localhost:5050/config`) para ver e editar as vias dos
-workers sem abrir o YAML. O cabeçalho da linha do tempo tem um link **Config** para ela, e a página tem links de volta
+workers sem abrir o YAML. Para abri-la sem passar pela linha do tempo, rode `meister config web` na pasta do projeto:
+ele acha o dashboard do projeto (ou sobe um), abre a página numa janela ou aba conforme `dashboard.open` e imprime a
+URL (`--no-open` só imprime; sem tela também só imprime). Se o dashboard em execução foi iniciado por uma versão
+antiga do código, o comando não o reaproveita: inicia um novo e avisa (o antigo sai sozinho ao ficar ocioso). Se uma
+página mostrar um servidor mais antigo que ela, exibe um aviso pedindo para reiniciar o dashboard. O cabeçalho da linha do tempo tem um link **Config** para ela, e a página tem links de volta
 para a linha do tempo e para o dashboard.
 
 - **O que mostra:** a cadeia de vias em **níveis**. O número no fim do nome da via é o nível (`tier_1`, `tier_1b` e
