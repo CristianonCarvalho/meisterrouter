@@ -2447,6 +2447,22 @@ def config_web(config_path: Optional[str], no_open: bool) -> None:
         sys.exit(1)
 
 
+@config_group.command("refresh-models", help=t("cli.config.refresh_models.help"))
+@click.argument("harness", type=click.Choice(["copilot"]))
+def config_refresh_models(harness: str) -> None:
+    """Read the model list of a harness from its own interface and update the local cache."""
+    from meister.copilot_models import CopilotModelsError, refresh_copilot_catalog
+
+    refreshers = {"copilot": refresh_copilot_catalog}
+    click.echo(t("cli.config.refresh_models.reading"))
+    try:
+        count, path = refreshers[harness]()
+    except CopilotModelsError as error:
+        click.echo(t(error.key, **error.fields), err=True)
+        sys.exit(1)
+    click.echo(t("cli.config.refresh_models.done", count=count, path=path))
+
+
 # Aliases for compatibility with direct callers.
 @main.command("clean", help=t("cli.clean.help"))
 @click.option("--repo", "repo_path", default=".", show_default=True, help=t("cli.clean.repo_help"))

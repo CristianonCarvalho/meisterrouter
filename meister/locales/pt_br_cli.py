@@ -461,4 +461,12 @@ MESSAGES: dict[str, str] = {
     "cli.config.web.change_renamed": "Via renomeada: {old} → {new}",
     "cli.config.web.change_fields": "Via {name}: {fields}",
     "cli.config.web.change_reordered": "Ordem das vias alterada.",
+    "cli.config.refresh_models.help": "Lê a lista de modelos de um harness pela própria interface e atualiza o cache local (opt-in, nunca automático).",
+    "cli.config.refresh_models.reading": "Lendo o seletor /model do Copilot (nenhum prompt é enviado)...",
+    "cli.config.refresh_models.done": "Copilot /model: {count} modelos lidos. Catálogo: {path}",
+    "cli.config.refresh_models.unsupported_platform": "Erro: refresh-models copilot precisa de um terminal Unix (macOS ou Linux).",
+    "cli.config.refresh_models.no_copilot": "Erro: o comando 'copilot' não foi encontrado no PATH. Instale o Copilot CLI e tente de novo.",
+    "cli.config.refresh_models.timeout": "Erro: o seletor /model do Copilot não apareceu em {seconds} s. O catálogo não foi alterado.",
+    "cli.config.refresh_models.exited": "Erro: o Copilot CLI fechou antes de o seletor /model aparecer. O catálogo não foi alterado.",
+    "cli.config.refresh_models.no_models": "Erro: nenhum modelo foi lido do seletor /model. {path} não foi alterado.",
 }
