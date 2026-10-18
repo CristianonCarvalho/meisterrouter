@@ -407,7 +407,8 @@ workers:
         mock_bridge.assert_not_called()
 
 
-def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path):
+def test_worker_uses_first_configured_route_and_rejects_unknown_names(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     runner = CliRunner()
     with patch("meister.worker.execute_worker_task", return_value={"status": "done", "cost": 0}) as execute, \
          patch("meister.worker.is_herdr_available", return_value=False):
