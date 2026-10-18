@@ -316,6 +316,15 @@ def _config_messages() -> Dict[str, str]:
         "err_invalid_number",
         "err_required",
         "err_no_enabled_lane",
+        "add_lane",
+        "add_level",
+        "changes_title",
+        "changes_none",
+        "change_added",
+        "change_removed",
+        "change_renamed",
+        "change_fields",
+        "change_reordered",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 

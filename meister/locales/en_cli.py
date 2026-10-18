@@ -444,4 +444,13 @@ MESSAGES: dict[str, str] = {
     "cli.config.web.err_invalid_number": "Invalid number.",
     "cli.config.web.err_required": "Cost is required for new lanes.",
     "cli.config.web.err_no_enabled_lane": "At least one lane must be enabled.",
+    "cli.config.web.add_lane": "+ lane in this level",
+    "cli.config.web.add_level": "+ new level",
+    "cli.config.web.changes_title": "Changes to save",
+    "cli.config.web.changes_none": "No changes to save.",
+    "cli.config.web.change_added": "New lane: {name}",
+    "cli.config.web.change_removed": "Removed lane: {name}",
+    "cli.config.web.change_renamed": "Renamed lane: {old} -> {new}",
+    "cli.config.web.change_fields": "Lane {name}: {fields}",
+    "cli.config.web.change_reordered": "Lane order changed.",
 }
