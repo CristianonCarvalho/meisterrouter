@@ -327,6 +327,11 @@ def _config_messages() -> Dict[str, str]:
         "change_renamed",
         "change_fields",
         "change_reordered",
+        "model_unknown",
+        "tree_title",
+        "tree_loading",
+        "tree_unavailable",
+        "tree_empty",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 

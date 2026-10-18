@@ -421,6 +421,26 @@
     margin-top: 2px;
   }
   .field-error:empty { display: none; }
+  .model-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .model-tree:empty { display: none; }
+  .model-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .model-row.sel { outline: 2px solid var(--cyan); }
+  .model-row span { word-break: break-all; }
+  .model-row small { color: var(--muted); white-space: nowrap; }
   input.has-error, select.has-error {
     border-color: var(--red);
   }
@@ -551,6 +571,8 @@
         <label for="drawer-model">{{ messages.model }}</label>
         <input type="text" id="drawer-model" class="mono">
         <div id="err-model" class="field-error"></div>
+        <div id="model-unknown" class="field-hint"></div>
+        <div id="model-tree" class="model-tree"></div>
       </div>
       <div class="field-row">
         <label for="drawer-cost-per-m-tokens">{{ messages.field_cost_per_m_tokens }}</label>
@@ -969,6 +991,19 @@
     return result;
   }
 
+  // Modelo conhecido do harness: o id bate com algum item da lista (id vazio nunca é conhecido).
+  function modelKnown(models, id) {
+    if (!Array.isArray(models) || typeof id !== "string" || !id) return false;
+    return models.some((model) => model && model.id === id);
+  }
+
+  // Escolha na árvore: põe o id no model e, quando o catálogo traz custo, o custo da via; custo nulo mantém o digitado.
+  function mergeCatalogChoice(lane, model) {
+    const result = { ...lane, model: model.id };
+    if (typeof model.cost_per_m_tokens === "number") result.cost_per_m_tokens = model.cost_per_m_tokens;
+    return result;
+  }
+
   const requiredKeys = [
     "add_lane",
     "change_added",
@@ -1012,6 +1047,7 @@
     "level_title",
     "max_parallel",
     "model",
+    "model_unknown",
     "name",
     "no_lanes",
     "no_model",
@@ -1030,6 +1066,10 @@
     "saving",
     "source",
     "source_default",
+    "tree_empty",
+    "tree_loading",
+    "tree_title",
+    "tree_unavailable",
     "unsaved",
   ];
 
@@ -1071,6 +1111,7 @@
     sim: { cls: "SMALL", start: "", failed: new Set() },
     drawerIndex: null,
     selectedCardIndex: null,
+    modelCache: new Map(),
   };
 
   let isDragging = false;
@@ -1446,6 +1487,64 @@
         if (inputEl) inputEl.classList.remove("has-error");
       }
     });
+    renderModelTree();
+  }
+
+  // Uma busca por harness em cada abertura da gaveta; a árvore espera a resposta sem bloquear o campo de texto.
+  async function loadModels(harness) {
+    if (harness && !state.modelCache.has(harness)) {
+      state.modelCache.set(harness, { status: "loading", models: [] });
+      renderModelTree();
+      let entry = { status: "unavailable", models: [] };
+      try {
+        const response = await fetch(`/api/config/models?harness=${encodeURIComponent(harness)}`);
+        if (!response.ok) throw new Error(String(response.status));
+        const data = await response.json();
+        entry = { status: "ok", models: Array.isArray(data.models) ? data.models : [] };
+      } catch (_) {
+        // Sem lista: a árvore mostra o aviso e a gaveta segue funcionando.
+      }
+      state.modelCache.set(harness, entry);
+    }
+    renderModelTree();
+  }
+
+  function modelRowEl(model, lane) {
+    const row = el("button", model.id === lane.model ? "model-row sel" : "model-row");
+    row.type = "button";
+    row.disabled = locked();
+    const cost = typeof model.cost_per_m_tokens === "number" ? money(model.cost_per_m_tokens) : "—";
+    row.append(el("span", "", model.label || model.id), el("small", "", cost), el("small", "", model.source || ""));
+    row.addEventListener("click", () => {
+      if (locked() || state.drawerIndex === null) return;
+      const index = state.drawerIndex;
+      state.lanes[index] = mergeCatalogChoice(state.lanes[index], model);
+      onDrawerLaneChanged("model");
+      populateDrawer(index);
+    });
+    return row;
+  }
+
+  function renderModelTree() {
+    const tree = byId("model-tree");
+    const unknown = byId("model-unknown");
+    if (!tree || !unknown) return;
+    tree.replaceChildren();
+    unknown.textContent = "";
+    const lane = state.drawerIndex === null ? null : state.lanes[state.drawerIndex];
+    if (!lane || !lane.harness) return;
+    tree.appendChild(el("div", "level-hint", fmt(text.tree_title, { harness: lane.harness })));
+    const entry = state.modelCache.get(lane.harness);
+    if (!entry || entry.status === "loading") {
+      tree.appendChild(el("div", "level-hint", text.tree_loading));
+    } else if (entry.status === "unavailable") {
+      tree.appendChild(el("div", "field-hint", text.tree_unavailable));
+    } else if (!entry.models.length) {
+      tree.appendChild(el("div", "level-hint", text.tree_empty));
+    } else {
+      entry.models.forEach((model) => tree.appendChild(modelRowEl(model, lane)));
+      if (lane.model && !modelKnown(entry.models, lane.model)) unknown.textContent = text.model_unknown;
+    }
   }
 
   function populateDrawer(index) {
@@ -1488,9 +1587,12 @@
   }
 
   function openDrawer(index) {
+    state.modelCache = new Map();
     populateDrawer(index);
     byId("drawer").hidden = false;
     byId("drawer-backdrop").hidden = false;
+    const lane = state.lanes[index];
+    loadModels(lane ? lane.harness : "");
   }
 
   function closeDrawer() {
@@ -1820,6 +1922,7 @@
       lane.effort = null;
     }
     onDrawerLaneChanged("harness");
+    loadModels(lane.harness);
   });
   byId("drawer-effort").addEventListener("change", (e) => {
     if (state.drawerIndex === null || !state.editable) return;
