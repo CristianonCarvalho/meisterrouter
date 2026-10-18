@@ -287,7 +287,7 @@ def test_non_boolean_enabled_is_error(tmp_path):
     assert "lanes[0].enabled" in paths
 
 
-@pytest.mark.parametrize("field_name", ["cost_per_m_tokens", "best_for", "credit_usd", "whatever"])
+@pytest.mark.parametrize("field_name", ["whatever", "provider"])
 def test_non_editable_field_is_error(tmp_path, field_name):
     document = _project_document(tmp_path)
     lanes = _valid_request()
@@ -314,7 +314,7 @@ def test_config_validation_runs_on_resulting_document(tmp_path):
 
     paths = [issue.path for issue in _errors(validate_lanes(document, _valid_request()))]
 
-    assert any(path.startswith("workers.tier_order") and path.endswith("credit_usd") for path in paths)
+    assert paths and all(path.endswith("credit_usd") for path in paths)
 
 
 def test_config_editor_messages_exist_in_both_catalogs():

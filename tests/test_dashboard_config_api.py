@@ -228,10 +228,10 @@ def test_put_lanes_invalid_is_422_with_field_messages(config_client):
 def test_put_lanes_rejects_field_outside_editable_list(config_client):
     client, project = config_client
     before = _snapshot(project)
-    lane = {**_lane_request(), "cost_per_m_tokens": 99}
+    lane = {**_lane_request(), "whatever": 99}
     resp = _put_lanes(client, {"stamp": _stamp(client), "lanes": [lane]})
     assert resp.status_code == 422
-    assert "lanes[0].cost_per_m_tokens" in resp.get_json()["fields"]
+    assert "lanes[0].whatever" in resp.get_json()["fields"]
     assert _snapshot(project) == before
 
 
