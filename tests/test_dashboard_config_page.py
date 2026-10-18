@@ -19,6 +19,34 @@ NEW_CHAIN_KEYS = (
     "chip_parallel", "content_effort", "cost_value", "no_model", "legend_lateral", "legend_escalation",
 )
 
+DRAWER_KEYS = (
+    "edit",
+    "drawer_title",
+    "close",
+    "group_content",
+    "group_policy",
+    "rename_warning",
+    "field_cost_per_m_tokens",
+    "field_credit_usd",
+    "field_max_retries",
+    "field_idle_timeout",
+    "field_max_runtime",
+    "field_eligible_classes",
+    "eligible_classes_all",
+    "field_best_for",
+    "remove_lane",
+    "remove_lane_confirm",
+    "remove_lane_yes",
+    "err_invalid_name",
+    "err_duplicate_name",
+    "err_level_order",
+    "err_empty_model",
+    "err_invalid_number",
+    "err_required",
+    "err_no_enabled_lane",
+)
+
+
 
 @pytest.fixture
 def page_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -99,3 +127,40 @@ def test_config_page_texts_cover_every_key_the_page_uses(page_client):
     assert used
     assert used <= set(texts)
     assert all(texts[key] for key in used)
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_drawer_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in DRAWER_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+
+
+def test_config_page_has_drawer_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    assert 'id="drawer"' in html
+    assert 'id="drawer-backdrop"' in html
+    assert 'id="drawer-remove"' in html
+    assert 'id="drawer-remove-confirm"' in html
+    assert 'id="drawer-harness"' in html
+    assert 'id="drawer-effort"' in html
+    assert 'id="drawer-model"' in html
+    assert 'id="drawer-cost-per-m-tokens"' in html
+    assert 'id="drawer-credit-usd"' in html
+    assert 'id="drawer-name"' in html
+    assert 'id="drawer-enabled"' in html
+    assert 'id="drawer-max-retries"' in html
+    assert 'id="drawer-max-parallel"' in html
+    assert 'id="drawer-idle-timeout-seconds"' in html
+    assert 'id="drawer-max-runtime-seconds"' in html
+    assert 'id="drawer-classes"' in html
+    assert 'id="drawer-best-for"' in html
+    assert "function clientFieldErrors(" in html
+    assert "function openDrawer(" in html
+    assert "function closeDrawer(" in html
+
