@@ -265,6 +265,7 @@ class MeisterConfig:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     gate: GateConfig = field(default_factory=GateConfig)
     config_source: str = field(default_factory=lambda: t("reports.config.default_source"))
+    config_path: Optional[str] = None
     _parse_issues: List[ConfigIssue] = field(default_factory=list)
 
 
@@ -1054,6 +1055,7 @@ def load_config(config_path: Optional[str] = None, cwd: Optional[str] = None) ->
 
     cfg = _parse_config_dict(data)
     cfg.config_source = str(target_path)
+    cfg.config_path = os.path.abspath(target_path)
     return cfg
 
 
