@@ -4,6 +4,8 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-18
+
 ### Adicionado
 - **O `gate.flaky_retries` também cobre o vitest.** Antes de reprovar uma falha do vitest, o gate reexecuta só os arquivos de teste que falharam, com o vitest local do projeto (até `gate.flaky_retries` vezes); se passarem, o gate completo roda mais uma vez e decide, e os testes são registrados em `flaky_tests`. A falha do pytest continua tendo prioridade, e sem `node_modules/.bin/vitest` local nada é reexecutado. Sem opção nova.
 - **A run lançada sem `--name` ganha um nome legível a partir do arquivo do plano.** Quando o título da primeira tarefa é um genérico `Task N: ...`, `meister orchestrate --plan-file checkout-sem-conta.json` nomeia a run "Checkout sem conta" (um prefixo `AAAA-MM-DD-` é descartado). `--name` continua valendo.
