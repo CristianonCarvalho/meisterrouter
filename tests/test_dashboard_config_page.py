@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 import pytest
@@ -7,6 +9,15 @@ import pytest
 import meister.dashboard.server as dashboard_server
 from meister.dashboard.server import _config_messages, app
 from meister.i18n import CATALOGS, reset_language_cache
+
+
+NEW_CHAIN_KEYS = (
+    "path_title", "path_help", "path_class", "path_start", "path_clear", "path_disabled", "path_before_start",
+    "path_failed", "path_runs_here", "result_no_eligible", "result_all_failed", "result_ok",
+    "result_failed_before", "result_escalated", "level_title", "level_other", "level_order_hint", "escalation",
+    "escalation_cost", "chip_enabled", "chip_disabled", "chip_retries", "chip_all_classes", "chip_only_classes",
+    "chip_parallel", "content_effort", "cost_value", "no_model", "legend_lateral", "legend_escalation",
+)
 
 
 @pytest.fixture
@@ -57,3 +68,34 @@ def test_config_page_writes_with_csrf_header(page_client):
 def test_timeline_links_to_config(page_client):
     html = page_client.get("/timeline").get_data(as_text=True)
     assert 'href="/config"' in html
+
+
+def _page_texts(html: str) -> dict:
+    match = re.search(r"const text = (\{.*?\});\n", html)
+    assert match
+    return json.loads(match.group(1))
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_chain_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in NEW_CHAIN_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+    assert html.count("// helpers:begin") == 1
+    assert html.count("// helpers:end") == 1
+    assert html.count("function simulatePath(") == 1
+    assert html.count("function levelCostSteps(") == 1
+
+
+def test_config_page_texts_cover_every_key_the_page_uses(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    used = set(re.findall(r"\btext\.(\w+)", html)) | set(re.findall(r"\{\{ messages\.(\w+) \}\}", html))
+    assert used
+    assert used <= set(texts)
+    assert all(texts[key] for key in used)
