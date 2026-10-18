@@ -21,7 +21,9 @@ def isolated_sources(tmp_path, monkeypatch):
     project = tmp_path / "project"
     home.mkdir()
     project.mkdir()
+    # USERPROFILE é a pasta pessoal no Windows (os.path.expanduser o usa lá).
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
     monkeypatch.chdir(project)
     model_catalog.clear_model_catalog_cache()

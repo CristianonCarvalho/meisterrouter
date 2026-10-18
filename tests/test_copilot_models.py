@@ -82,7 +82,9 @@ def fast_timings(monkeypatch):
 def home(tmp_path, monkeypatch):
     home_dir = tmp_path / "home"
     home_dir.mkdir()
+    # USERPROFILE é a pasta pessoal no Windows (os.path.expanduser o usa lá).
     monkeypatch.setenv("HOME", str(home_dir))
+    monkeypatch.setenv("USERPROFILE", str(home_dir))
     return home_dir
 
 
@@ -171,6 +173,7 @@ def test_selector_that_never_appears_times_out(home, fake_copilot, monkeypatch):
     assert not _catalog(home).exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="o terminal simulado (pty) só existe em Unix")
 def test_missing_copilot_in_path_exits_with_clear_error(home, tmp_path, monkeypatch):
     empty_bin = tmp_path / "empty"
     empty_bin.mkdir()
@@ -226,7 +229,8 @@ def test_failed_replace_keeps_previous_catalog_intact(home, monkeypatch):
 
 
 def test_catalog_path_respects_home(home):
-    assert catalog_path() == str(_catalog(home))
+    # normcase/normpath: no Windows, separador e maiúsculas/minúsculas podem diferir.
+    assert os.path.normcase(os.path.normpath(catalog_path())) == os.path.normcase(os.path.normpath(str(_catalog(home))))
 
 
 def test_ids_are_lowercase_with_spaces_turned_into_hyphens():
