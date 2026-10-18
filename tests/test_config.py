@@ -186,7 +186,7 @@ def test_default_tier_catalog_order_and_values():
         ("claude", "opus", 8.00),
     ]
     assert [tier.get("enabled", True) for tier in tiers] == [
-        True, True, False, True, True, False
+        True, True, True, True, True, False
     ]
     assert tiers[4]["eligible_classes"] == ["ESCALATE"]
     assert tiers[5]["eligible_classes"] == ["ESCALATE"]
@@ -567,9 +567,9 @@ def test_removed_copilot_and_primary_environment_overrides_are_ignored(monkeypat
     from meister.config import _default_worker_tiers
 
     baseline_tiers = _default_worker_tiers()
-    # tier_1c e tier_3b vêm desligadas por padrão.
+    # tier_3b vem desligada por padrão.
     assert [t.name for t in baseline_tiers] == [
-        "tier_1", "tier_1b", "tier_2", "tier_3"
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"
     ]
     monkeypatch.setenv("MEISTER_ENABLE_COPILOT", "true")
     monkeypatch.setenv("MEISTER_PRIMARY_WORKER", "tier_1c")
@@ -588,8 +588,8 @@ def test_example_yaml_loads_and_validates():
 
     active_names = [t.name for t in cfg.workers.tier_order]
     disabled_names = [t.name for t in cfg.workers.disabled]
-    assert active_names == ["tier_1", "tier_1b", "tier_2", "tier_3"]
-    assert disabled_names == ["tier_1c", "tier_3b"]
+    assert active_names == ["tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"]
+    assert disabled_names == ["tier_3b"]
 
 
 @pytest.mark.parametrize("value", ['"yes"', "1", "null"])
@@ -753,9 +753,9 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     monkeypatch.delenv("MEISTER_CONFIG_PATH", raising=False)
     default = load_config()
     assert [tier.name for tier in default.workers.tier_order] == [
-        "tier_1", "tier_1b", "tier_2", "tier_3"
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"
     ]
-    assert [tier.name for tier in default.workers.disabled] == ["tier_1c", "tier_3b"]
+    assert [tier.name for tier in default.workers.disabled] == ["tier_3b"]
     assert default.master.model == "typesafe/jev-1.13"
     assert default.architect.effort == "high"
     assert not [issue for issue in validate_config(default) if issue.level == "error"]
@@ -765,9 +765,9 @@ def test_packaged_default_config_values_and_deep_merge(tmp_path, monkeypatch):
     merged = load_config(str(partial))
     assert merged.router.mode == "jev"
     assert [tier.name for tier in merged.workers.tier_order] == [
-        "tier_1", "tier_1b", "tier_2", "tier_3"
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"
     ]
-    assert [tier.name for tier in merged.workers.disabled] == ["tier_1c", "tier_3b"]
+    assert [tier.name for tier in merged.workers.disabled] == ["tier_3b"]
     assert merged.concurrency.max_parallel_workers == 2
     assert merged.concurrency.parallel_tasks is True
 

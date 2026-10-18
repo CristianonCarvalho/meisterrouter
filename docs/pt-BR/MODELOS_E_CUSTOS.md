@@ -43,7 +43,7 @@ para custo por tarefa e índice de inteligência. Os preços por token dos dois 
 |---|---|---|---|
 | `tier_1` | `copilot` | Claude Haiku 5.5 | Créditos do Copilot (1 crédito = US$ 0,01); preço em faixas, ver acima |
 | `tier_1b` | `copilot` | GPT-6 Luna | Créditos do Copilot (1 crédito = US$ 0,01), pelos tokens de entrada, saída e cache |
-| `tier_1c` (desligada) | `codex` | GPT-6 Luna | Créditos do Codex, gratuitos e poucos: não gastar em teste |
+| `tier_1c` | `codex` | GPT-6 Luna | Créditos do Codex, gratuitos e poucos: ligada por padrão como fallback após o Copilot; não gastar em teste |
 | `tier_2` | `agy` | Gemini 3.8 Flash high | Assinatura subsidiada do dono: o custo efetivo é menor que o de lista |
 | `tier_3` | `claude` | Sonnet 5.5 | Não verificado (assinatura ou API); roteada só para a classe ESCALATE |
 | `tier_3b` (desligada) | `claude` | Opus 5.5 | Não verificado (assinatura ou API) |

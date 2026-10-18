@@ -488,6 +488,8 @@ def _tag_via(segments: List[Segment], first: int, via: Optional[str]) -> None:
 def _parallelism(rows: List[TaskRow], now_eff: datetime) -> Tuple[int, float]:
     marks: List[Tuple[datetime, int]] = []
     for row in rows:
+        if row.status == "reused":
+            continue
         for segment in row.segments:
             if segment.phase == "wait":
                 continue

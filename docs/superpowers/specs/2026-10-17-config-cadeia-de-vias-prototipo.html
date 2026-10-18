@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Protótipo · Cadeia de fallback</title>
+<style>
+  :root {
+    --bg: #090b10; --surface: #10141e; --hover: #161c2b; --border: #21283b;
+    --text: #f0f3fa; --muted: #8b95a5; --purple: #c084fc; --green: #4ade80;
+    --yellow: #facc15; --red: #f87171; --blue: #38bdf8; --cyan: #22d3ee; --amber: #f59e0b; --pink: #ec4899;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f6f7fb; --surface: #fff; --hover: #eef1f7; --border: #d8dde8; --text: #141824; --muted: #5b6475; --green: #15803d; --red: #b91c1c; --cyan: #0e7490; --amber: #b45309; --pink: #be185d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 14px; background: var(--bg); color: var(--text); font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: var(--muted); margin-bottom: 14px; max-width: 800px; line-height: 1.5; }
+  .banner { display: inline-block; padding: 3px 10px; border: 1px dashed var(--amber); color: var(--amber); border-radius: 999px; font-size: 12px; margin-bottom: 14px; }
+  .wrap { max-width: 1000px; }
+  .mono { font-family: ui-monospace, Menlo, monospace; }
+  .panel { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 12px 14px; margin-bottom: 14px; }
+  .panel h2 { margin: 0 0 8px; font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .help { color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0 0 8px; }
+
+  /* simulador do caminho */
+  .simbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 10px; font-size: 13px; }
+  select, input[type=text], input[type=number], input[type=search] { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font: inherit; }
+  .path { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .pchip { border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; cursor: pointer; background: var(--bg); font-size: 12px; line-height: 1.3; user-select: none; }
+  .pchip b { font-family: ui-monospace, Menlo, monospace; }
+  .pchip small { display: block; color: var(--muted); }
+  .pchip.fail { border-color: var(--red); } .pchip.fail b { text-decoration: line-through; color: var(--red); }
+  .pchip.run { border-color: var(--green); background: color-mix(in srgb, var(--green) 14%, var(--bg)); }
+  .pchip.skip { opacity: .45; cursor: default; }
+  .sep-l { color: var(--cyan); } .sep-e { color: var(--pink); font-weight: 600; }
+  .result { margin-top: 10px; font-size: 13px; }
+  .result .ok { color: var(--green); } .result .bad { color: var(--red); }
+
+  /* cadeia */
+  .chain { display: flex; flex-direction: column; }
+  .level { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px 14px; }
+  .level-title { font-size: 12px; color: var(--muted); margin-bottom: 4px; display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  .level-title b { color: var(--text); font-size: 13px; letter-spacing: .02em; }
+  .level-order { color: var(--cyan); font-family: ui-monospace, Menlo, monospace; font-size: 12px; margin-bottom: 10px; }
+  .slots { display: flex; flex-wrap: wrap; align-items: stretch; gap: 8px 0; }
+  .lateral { display: flex; align-items: center; justify-content: center; width: 30px; color: var(--cyan); font-size: 18px; }
+  .addvia { border: 1px dashed var(--cyan); color: var(--cyan); background: none; border-radius: 10px; min-width: 120px; min-height: 60px; cursor: pointer; font: inherit; margin-left: 8px; align-self: stretch; }
+  .addvia:hover { background: var(--hover); }
+  .escal { margin: 4px 0; padding: 6px 4px 6px 22px; display: flex; align-items: center; gap: 10px; color: var(--pink); font-size: 12.5px; flex-wrap: wrap; }
+  .escal .line { width: 2px; height: 30px; background: var(--pink); opacity: .7; }
+  .escal .cost { border: 1px solid var(--pink); border-radius: 999px; padding: 1px 9px; }
+  .addlevel { border: 1px dashed var(--pink); color: var(--pink); background: none; border-radius: 12px; padding: 12px; cursor: pointer; font: inherit; margin-top: 4px; }
+  .addlevel:hover { background: var(--hover); }
+
+  .slot { width: 275px; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .slot.disabled { opacity: .55; }
+  .slot.dragover { border-color: var(--purple); background: var(--hover); }
+  .slot-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .slot-name { font-weight: 600; font-family: ui-monospace, Menlo, monospace; }
+  .slot-btn { background: none; border: 1px solid var(--border); color: var(--text); border-radius: 6px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+  .slot-btn:hover { background: var(--hover); }
+  .policy { display: flex; flex-wrap: wrap; gap: 5px; font-size: 11px; color: var(--muted); }
+  .chip { border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+  .chip.warn { border-color: var(--red); color: var(--red); } .chip.ok { color: var(--green); border-color: var(--green); }
+
+  .content { border: 1px solid var(--border); border-left: 4px solid var(--purple); border-radius: 8px; background: var(--surface); padding: 9px 10px; cursor: grab; position: relative; user-select: none; }
+  .content.dragging { opacity: .35; }
+  .content.changed { box-shadow: 0 0 0 1px var(--amber); }
+  .content .grip { position: absolute; right: 8px; top: 8px; color: var(--muted); letter-spacing: -2px; }
+  .content .h { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .content .m { font-weight: 600; margin: 2px 0; font-family: ui-monospace, Menlo, monospace; font-size: 13px; word-break: break-all; }
+  .content .c { font-size: 12px; color: var(--muted); display: flex; gap: 10px; flex-wrap: wrap; }
+  .hc-copilot { border-left-color: var(--blue); } .hc-codex { border-left-color: var(--green); }
+  .hc-agy { border-left-color: var(--yellow); } .hc-claude { border-left-color: var(--purple); }
+
+  /* gaveta de edição */
+  .sheet { position: fixed; top: 0; right: 0; bottom: 0; width: min(470px, 100%); background: var(--surface); border-left: 1px solid var(--border); box-shadow: -12px 0 40px rgba(0,0,0,.45); z-index: 20; display: flex; flex-direction: column; }
+  .sheet[hidden] { display: none; }
+  .sheet-head { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .sheet-body { padding: 12px 14px; overflow: auto; flex: 1; }
+  .sheet-foot { padding: 10px 14px; border-top: 1px solid var(--border); display: flex; gap: 10px; justify-content: space-between; }
+  fieldset { border: 1px solid var(--border); border-radius: 10px; margin: 0 0 14px; padding: 10px 12px 6px; }
+  fieldset.travels { border-color: var(--purple); } fieldset.stays { border-color: var(--cyan); }
+  legend { font-size: 12px; padding: 0 6px; } .travels legend { color: var(--purple); } .stays legend { color: var(--cyan); }
+  .f { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin-bottom: 10px; align-items: center; }
+  .f label { font-size: 12px; color: var(--muted); }
+  .f.one { grid-template-columns: 1fr; }
+  .f input[type=text], .f input[type=number], .f select { width: 100%; }
+  .f .hint { grid-column: 1 / -1; font-size: 11px; color: var(--muted); margin-top: -2px; }
+  .checks { display: flex; flex-wrap: wrap; gap: 8px 14px; font-size: 13px; }
+  .tree details { margin: 2px 0; } .tree summary { cursor: pointer; padding: 4px 6px; border-radius: 6px; font-weight: 600; display: flex; justify-content: space-between; }
+  .tree summary:hover { background: var(--hover); } .tree .src { font-weight: 400; font-size: 11px; color: var(--muted); }
+  .model { display: flex; justify-content: space-between; gap: 10px; padding: 5px 6px 5px 20px; border-radius: 6px; cursor: pointer; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .model:hover { background: var(--hover); } .model.sel { color: var(--purple); } .model small { color: var(--muted); font-family: inherit; }
+  .errtxt { color: var(--red); font-size: 12px; }
+  button.primary { background: var(--purple); color: #140a24; border: 0; border-radius: 8px; padding: 7px 16px; font-weight: 600; cursor: pointer; }
+  button.primary:disabled { opacity: .4; cursor: not-allowed; }
+  button.ghost { background: none; color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 7px 16px; cursor: pointer; }
+  button.danger { background: none; color: var(--red); border: 1px solid var(--red); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+
+  .diff { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; line-height: 1.7; word-break: break-word; }
+  .diff .del { color: var(--red); } .diff .add { color: var(--green); } .diff .none { color: var(--muted); } .diff .err { color: var(--red); font-weight: 600; }
+  .actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  .legend { display: flex; gap: 14px 18px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-bottom: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Configuração · Cadeia de fallback</h1>
+  <div class="sub">Cada <b>slot</b> é uma posição da cadeia (nome e política); o <b>cartão colorido</b> dentro dele é o conteúdo (harness, modelo, esforço, custo). Arraste um cartão para outro slot, ou toque num cartão e depois no de outro slot, para trocar o conteúdo dos dois. <b>Editar</b> abre todos os parâmetros da via. <b>+ via</b> e <b>+ novo nível</b> criam vias.</div>
+  <div class="banner">Protótipo descartável: dados de exemplo, nada é gravado.</div>
+
+  <div class="panel">
+    <h2>Caminho de uma tarefa (simulação)</h2>
+    <p class="help">Mostra por onde uma tarefa passa. O Jev escolhe a via inicial entre as que aceitam a classe da tarefa (aqui você escolhe). Toque numa via para simular que ela <b>falhou</b> (sem créditos, timeout…). A cadeia anda sempre para frente: primeiro as vias do mesmo nível (<span class="sep-l">⇄</span>), depois escala para o nível seguinte (<span class="sep-e">⤹</span>).</p>
+    <div class="simbar">
+      <label>Classe da tarefa:
+        <select id="simClass"><option>SMALL</option><option>MEDIUM</option><option>HIGH</option><option>ESCALATE</option></select>
+      </label>
+      <label>Via inicial (o Jev escolhe):
+        <select id="simStart"></select>
+      </label>
+      <button class="ghost" id="simClear">limpar falhas</button>
+    </div>
+    <div class="path" id="path"></div>
+    <div class="result" id="result"></div>
+  </div>
+
+  <div class="chain" id="chain"></div>
+
+  <div class="legend" style="margin-top:14px">
+    <span><span style="color:var(--cyan)">⇄</span> fallback lateral (mesmo nível, outra via)</span>
+    <span style="color:var(--pink)">⤹ escalonamento (próximo nível, normalmente mais caro)</span>
+    <span style="color:var(--amber)">contorno âmbar = conteúdo alterado, não salvo</span>
+  </div>
+
+  <div class="panel">
+    <h2>Alterações a gravar em meister.config.yaml</h2>
+    <div class="diff" id="diff"></div>
+    <div class="actions">
+      <button class="primary" id="save">Gravar (simulado)</button>
+      <button class="ghost" id="reset">Desfazer tudo</button>
+    </div>
+  </div>
+</div>
+
+<aside class="sheet" id="sheet" hidden>
+  <div class="sheet-head"><b id="sheetTitle"></b><button class="ghost" id="sheetClose">Fechar</button></div>
+  <div class="sheet-body" id="sheetBody"></div>
+  <div class="sheet-foot"><button class="danger" id="sheetDelete">Remover via</button><button class="primary" id="sheetOk">Pronto</button></div>
+</aside>
+
+<script>
+  const CATALOG = {
+    copilot: { src: "catálogo do repositório", models: [["claude-haiku-5.5", 0.20], ["gpt-6-luna", 0.20], ["claude-sonnet-5.5", 4.00]] },
+    codex:   { src: "catálogo do repositório", models: [["gpt-6-luna", 0.20], ["gpt-6", 2.50]] },
+    agy:     { src: "agy models (ao vivo)", models: [["gemini-3.8-flash-high", 1.50], ["gemini-3.8-flash", 0.60]] },
+    claude:  { src: "aliases do harness", models: [["haiku", 1.00], ["sonnet", 4.00], ["opus", 8.00]] },
+  };
+  const EFFORT = { copilot: [], codex: ["low", "medium", "high"], agy: ["high"], claude: ["medium", "high"] };
+  const CLASSES = ["SMALL", "MEDIUM", "HIGH", "ESCALATE"];
+  const TRAVEL = ["harness", "model", "effort", "cost_per_m_tokens", "credit_usd"]; // viajam com o conteúdo
+  const STATUS = { copilot: "sem créditos" }; // exemplo do circuit breaker
+
+  const mk = (name, enabled, harness, model, effort, cost, credit, retries, classes, best) => ({
+    name, enabled, harness, model, effort, cost_per_m_tokens: cost, credit_usd: credit, max_retries: retries,
+    max_parallel: null, idle_timeout_seconds: null, max_runtime_seconds: null, eligible_classes: classes, best_for: best,
+  });
+  const SMALLS = ["small_edits", "single_file", "css_fixes", "unit_test_additions"];
+  const INITIAL = [
+    mk("tier_1",  true,  "copilot", "claude-haiku-5.5", null, 0.20, 0.01, 2, [], SMALLS),
+    mk("tier_1b", true,  "copilot", "gpt-6-luna", null, 0.20, 0.01, 2, [], SMALLS),
+    mk("tier_1c", true,  "codex", "gpt-6-luna", "medium", 0.20, null, 2, [], SMALLS),
+    mk("tier_2",  true,  "agy", "gemini-3.8-flash-high", "high", 1.50, null, 2, [], ["deep_reasoning", "complex_algorithms", "hard_bugs"]),
+    mk("tier_3",  true,  "claude", "sonnet", "high", 4.00, null, 1, ["ESCALATE"], ["architectural_recovery", "systemic_regressions"]),
+    mk("tier_3b", false, "claude", "opus", "high", 8.00, null, 1, ["ESCALATE"], ["architectural_recovery", "systemic_regressions"]),
+  ];
+  const clone = (o) => JSON.parse(JSON.stringify(o));
+  let slots = clone(INITIAL);
+  let fails = new Set();
+  let dragFrom = null, picked = null, editing = null, confirmDelete = false;
+
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const levelOf = (name) => { const m = /(\d+)[a-z]*$/.exec(name); return m ? Number(m[1]) : null; };
+  const money = (x) => "US$ " + Number(x || 0).toFixed(2) + "/M";
+  const initialByName = () => Object.fromEntries(INITIAL.map((s) => [s.name, s]));
+
+  function groups() {
+    const out = [];
+    slots.forEach((s, i) => {
+      const lv = levelOf(s.name);
+      const last = out[out.length - 1];
+      if (last && last.level === lv) last.idx.push(i); else out.push({ level: lv, idx: [i] });
+    });
+    return out;
+  }
+  const levelCost = (g) => { const c = g.idx.map((i) => slots[i]).filter((s) => s.enabled).map((s) => Number(s.cost_per_m_tokens)); return c.length ? Math.min(...c) : null; };
+
+  function render() {
+    renderChain(); renderPath(); renderDiff();
+  }
+
+  /* ---------- cadeia ---------- */
+  function renderChain() {
+    const chain = document.getElementById("chain");
+    chain.innerHTML = "";
+    const gs = groups();
+    gs.forEach((g, gi) => {
+      if (gi > 0) {
+        const prev = levelCost(gs[gi - 1]), cur = levelCost(g);
+        const e = document.createElement("div");
+        e.className = "escal";
+        const cost = prev && cur ? `<span class="cost">custo ${money(prev)} → ${money(cur)} (${(cur / prev).toFixed(1)}×)</span>` : "";
+        e.innerHTML = `<span class="line"></span><span>⤹ <b>Escalonamento</b>: se todas as vias do nível ${gs[gi - 1].level} falharem, a tarefa sobe para o nível ${g.level}</span>${cost}`;
+        chain.appendChild(e);
+      }
+      const box = document.createElement("div");
+      box.className = "level";
+      const order = g.idx.map((i) => esc(slots[i].name)).join("  ⇄  ");
+      box.innerHTML = `<div class="level-title"><b>NÍVEL ${g.level}</b><span>tenta na ordem, da esquerda para a direita:</span></div><div class="level-order">${order}</div>`;
+      const row = document.createElement("div");
+      row.className = "slots";
+      g.idx.forEach((i, k) => {
+        if (k) { const l = document.createElement("div"); l.className = "lateral"; l.textContent = "⇄"; row.appendChild(l); }
+        row.appendChild(slotEl(i));
+      });
+      const add = document.createElement("button");
+      add.className = "addvia"; add.textContent = "+ via neste nível";
+      add.addEventListener("click", () => addVia(g));
+      row.appendChild(add);
+      box.appendChild(row);
+      chain.appendChild(box);
+    });
+    const nl = document.createElement("button");
+    nl.className = "addlevel"; nl.textContent = "⤹ + novo nível de escalonamento (no fim da cadeia)";
+    nl.addEventListener("click", addLevel);
+    chain.appendChild(nl);
+  }
+
+  function slotEl(i) {
+    const s = slots[i];
+    const base = initialByName()[s.name];
+    const changedContent = !base || TRAVEL.some((k) => base[k] !== s[k]);
+    const el = document.createElement("div");
+    el.className = "slot" + (s.enabled ? "" : " disabled");
+    const st = STATUS[s.harness];
+    el.innerHTML = `
+      <div class="slot-head"><span class="slot-name">${esc(s.name)}</span><button class="slot-btn" data-edit>editar</button></div>
+      <div class="policy">
+        <span class="chip">${s.enabled ? "ativa" : "desligada"}</span>
+        <span class="chip">${s.max_retries} tent.</span>
+        <span class="chip">${s.eligible_classes.length ? "só " + s.eligible_classes.join(", ") : "todas as classes"}</span>
+        ${s.max_parallel ? `<span class="chip">${s.max_parallel} em paralelo</span>` : ""}
+        ${st ? `<span class="chip warn">${s.harness}: ${st}</span>` : '<span class="chip ok">disponível</span>'}
+      </div>
+      <div class="content hc-${esc(s.harness)} ${changedContent ? "changed" : ""}" draggable="true">
+        <span class="grip">⋮⋮</span>
+        <div class="h">${esc(s.harness)}</div>
+        <div class="m">${esc(s.model || "(sem modelo)")}</div>
+        <div class="c"><span>esforço: ${esc(s.effort || "—")}</span><span>${money(s.cost_per_m_tokens)}</span></div>
+      </div>`;
+    const card = el.querySelector(".content");
+    if (picked === i) card.style.outline = "2px solid var(--purple)";
+    card.addEventListener("dragstart", (e) => { dragFrom = i; card.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(i)); });
+    card.addEventListener("dragend", () => { dragFrom = null; render(); });
+    el.addEventListener("dragover", (e) => { if (dragFrom !== null) { e.preventDefault(); el.classList.add("dragover"); } });
+    el.addEventListener("dragleave", () => el.classList.remove("dragover"));
+    el.addEventListener("drop", (e) => { e.preventDefault(); if (dragFrom !== null && dragFrom !== i) swap(dragFrom, i); dragFrom = null; render(); });
+    card.addEventListener("click", () => {
+      if (picked === null) picked = i; else if (picked === i) picked = null; else { swap(picked, i); picked = null; }
+      render();
+    });
+    el.querySelector("[data-edit]").addEventListener("click", () => openSheet(i));
+    return el;
+  }
+
+  function swap(a, b) {
+    TRAVEL.forEach((k) => { const t = slots[a][k]; slots[a][k] = slots[b][k]; slots[b][k] = t; });
+  }
+
+  /* ---------- criação ---------- */
+  function suggestName(level) {
+    const used = slots.map((s) => s.name);
+    const base = "tier_" + level;
+    if (!used.includes(base)) return base;
+    for (const l of "bcdefghijklmnopqrstuvwxyz") if (!used.includes(base + l)) return base + l;
+    return base + "x";
+  }
+  function addVia(g) {
+    const last = slots[g.idx[g.idx.length - 1]];
+    const ns = clone(last);
+    ns.name = suggestName(g.level);
+    ns.enabled = true;
+    slots.splice(g.idx[g.idx.length - 1] + 1, 0, ns);
+    render(); openSheet(g.idx[g.idx.length - 1] + 1);
+  }
+  function addLevel() {
+    const lv = Math.max(...slots.map((s) => levelOf(s.name) || 0)) + 1;
+    const ns = mk("tier_" + lv, true, "claude", "opus", "high", 8.00, null, 1, [], []);
+    slots.push(ns);
+    render(); openSheet(slots.length - 1);
+  }
+
+  /* ---------- simulador ---------- */
+  function renderPath() {
+    const cls = document.getElementById("simClass").value;
+    const eligible = slots.map((s, i) => i).filter((i) => slots[i].enabled && (!slots[i].eligible_classes.length || slots[i].eligible_classes.includes(cls)));
+    const sel = document.getElementById("simStart");
+    const want = sel.value;
+    sel.innerHTML = eligible.map((i) => `<option value="${esc(slots[i].name)}">${esc(slots[i].name)}</option>`).join("");
+    if (eligible.some((i) => slots[i].name === want)) sel.value = want;
+    const startIdx = eligible.length ? slots.findIndex((s) => s.name === sel.value) : -1;
+    const path = document.getElementById("path"); path.innerHTML = "";
+    let running = -1;
+    for (let i = Math.max(startIdx, 0); i < slots.length; i++) {
+      if (slots[i].enabled && !fails.has(slots[i].name)) { running = i; break; }
+    }
+    slots.forEach((s, i) => {
+      if (i > 0) {
+        const sp = document.createElement("span");
+        const same = levelOf(slots[i - 1].name) === levelOf(s.name);
+        sp.className = same ? "sep-l" : "sep-e"; sp.textContent = same ? "⇄" : "⤹";
+        path.appendChild(sp);
+      }
+      const c = document.createElement("div");
+      let cls2 = "pchip", note = `${esc(s.harness)} · ${esc(s.model)}`;
+      if (!s.enabled) { cls2 += " skip"; note = "desligada: pulada"; }
+      else if (startIdx === -1 || i < startIdx) { cls2 += " skip"; note = "antes da via inicial"; }
+      else if (fails.has(s.name)) { cls2 += " fail"; note = "falhou → próxima"; }
+      else if (i === running) { cls2 += " run"; note = "executa aqui: " + note; }
+      c.className = cls2; c.innerHTML = `<b>${esc(s.name)}</b><small>${note}</small>`;
+      if (s.enabled && startIdx !== -1 && i >= startIdx) c.addEventListener("click", () => { fails.has(s.name) ? fails.delete(s.name) : fails.add(s.name); renderPath(); });
+      path.appendChild(c);
+    });
+    const r = document.getElementById("result");
+    if (startIdx === -1) r.innerHTML = '<span class="bad">Nenhuma via ativa aceita a classe ' + cls + '.</span>';
+    else if (running === -1) r.innerHTML = '<span class="bad">Todas as vias a partir de ' + esc(slots[startIdx].name) + ' falharam: a tarefa fica sem executor.</span>';
+    else {
+      const tried = slots.slice(startIdx, running).filter((s) => s.enabled).map((s) => s.name);
+      const crossed = levelOf(slots[running].name) !== levelOf(slots[startIdx].name);
+      r.innerHTML = `Via inicial para <b>${cls}</b>: <b>${esc(slots[startIdx].name)}</b>. Executa em <b class="ok">${esc(slots[running].name)}</b>` +
+        (tried.length ? ` depois de falhar ${tried.map(esc).join(", ")}` : "") + (crossed ? ' <span class="sep-e">(houve escalonamento)</span>' : "") + ".";
+    }
+  }
+
+  /* ---------- gaveta de edição ---------- */
+  function openSheet(i) { editing = i; confirmDelete = false; document.getElementById("sheet").hidden = false; drawSheet(); }
+  function closeSheet() { editing = null; document.getElementById("sheet").hidden = true; }
+  function numField(label, key, hint, step) {
+    const s = slots[editing];
+    return `<div><label>${label}</label><input type="number" min="0" step="${step || 1}" data-k="${key}" value="${s[key] ?? ""}" placeholder="sem limite"></div>`;
+  }
+  function drawSheet() {
+    if (editing === null) return;
+    const s = slots[editing];
+    document.getElementById("sheetTitle").textContent = "Via " + s.name;
+    const efforts = EFFORT[s.harness] || [];
+    const body = document.getElementById("sheetBody");
+    body.innerHTML = `
+      <fieldset class="travels"><legend>Conteúdo — viaja ao arrastar o cartão</legend>
+        <div class="f"><label>Harness</label><label>Esforço</label>
+          <select data-k="harness">${Object.keys(CATALOG).map((h) => `<option ${h === s.harness ? "selected" : ""}>${h}</option>`).join("")}</select>
+          <select data-k="effort" ${efforts.length ? "" : "disabled"}><option value="">—</option>${efforts.map((e) => `<option ${e === s.effort ? "selected" : ""}>${e}</option>`).join("")}</select>
+        </div>
+        <div class="f one"><label>Modelo (escolha na árvore ou digite)</label>
+          <input type="text" data-k="model" value="${esc(s.model)}" class="mono">
+          <div class="tree" id="tree"></div>
+        </div>
+        <div class="f"><label>Custo por 1M tokens (US$)</label><label>Crédito por tarefa (US$)</label>
+          <input type="number" min="0" step="0.01" data-k="cost_per_m_tokens" value="${s.cost_per_m_tokens ?? ""}">
+          <input type="number" min="0" step="0.01" data-k="credit_usd" value="${s.credit_usd ?? ""}" placeholder="—">
+        </div>
+      </fieldset>
+      <fieldset class="stays"><legend>Política do slot — fica na posição</legend>
+        <div class="f one"><label>Nome da via</label><input type="text" data-k="name" value="${esc(s.name)}" class="mono">
+          <div class="hint">O número do nome define o nível (tier_2b é alternativa lateral do nível 2). O nome aparece em logs, timeline e histórico: renomear não migra o histórico.</div></div>
+        <div class="f one"><label class="checks"><span><input type="checkbox" data-k="enabled" ${s.enabled ? "checked" : ""}> via ativa</span></label></div>
+        <div class="f">
+          ${numField("Tentativas (max_retries)", "max_retries")}${numField("Em paralelo (max_parallel)", "max_parallel")}
+          ${numField("Ocioso máx. (idle_timeout_seconds)", "idle_timeout_seconds")}${numField("Duração máx. (max_runtime_seconds)", "max_runtime_seconds")}
+        </div>
+        <div class="f one"><label>Classes que o Jev pode atribuir a esta via (vazio = todas)</label>
+          <div class="checks">${CLASSES.map((c) => `<label><input type="checkbox" data-class="${c}" ${s.eligible_classes.includes(c) ? "checked" : ""}> ${c}</label>`).join("")}</div></div>
+        <div class="f one"><label>Indicada para (best_for, separado por vírgula)</label>
+          <input type="text" data-k="best_for" value="${esc(s.best_for.join(", "))}"></div>
+      </fieldset>
+      <div class="errtxt" id="sheetErr"></div>`;
+    drawTree();
+    body.querySelectorAll("[data-k]").forEach((el) => {
+      const k = el.dataset.k;
+      const handler = () => {
+        let v = el.type === "checkbox" ? el.checked : el.value;
+        if (el.type === "number") v = v === "" ? null : Number(v);
+        if (k === "best_for") v = String(v).split(",").map((x) => x.trim()).filter(Boolean);
+        if (k === "effort") v = v || null;
+        slots[editing][k] = v;
+        if (k === "harness") { slots[editing].effort = null; drawSheet(); }
+        sheetErr(); render();
+      };
+      el.addEventListener(el.tagName === "SELECT" || el.type === "checkbox" ? "change" : "input", handler);
+    });
+    body.querySelectorAll("[data-class]").forEach((el) => el.addEventListener("change", () => {
+      slots[editing].eligible_classes = [...body.querySelectorAll("[data-class]:checked")].map((x) => x.dataset.class);
+      render();
+    }));
+    const del = document.getElementById("sheetDelete");
+    del.textContent = confirmDelete ? "Confirmar remoção" : "Remover via";
+    sheetErr();
+  }
+  function drawTree() {
+    const s = slots[editing];
+    const tree = document.getElementById("tree"); tree.innerHTML = "";
+    Object.entries(CATALOG).forEach(([h, info]) => {
+      const d = document.createElement("details"); d.open = h === s.harness;
+      d.innerHTML = `<summary><span>${h}</span><span class="src">${info.src}</span></summary>`;
+      info.models.forEach(([m, cost]) => {
+        const row = document.createElement("div");
+        row.className = "model" + (s.harness === h && s.model === m ? " sel" : "");
+        row.innerHTML = `<span>${m}</span><small>${money(cost)}</small>`;
+        row.addEventListener("click", () => {
+          const eff = EFFORT[h];
+          Object.assign(slots[editing], { harness: h, model: m, cost_per_m_tokens: cost, effort: eff.includes(s.effort) ? s.effort : (eff.length ? eff[eff.length - 1] : null) });
+          drawSheet(); render();
+        });
+        d.appendChild(row);
+      });
+      tree.appendChild(d);
+    });
+  }
+  function sheetErr() {
+    const el = document.getElementById("sheetErr"); if (!el) return;
+    el.textContent = validate().filter((e) => e.i === editing).map((e) => e.msg).join(" ");
+  }
+
+  /* ---------- validação e diff ---------- */
+  function validate() {
+    const errs = [];
+    const seen = new Map();
+    slots.forEach((s, i) => {
+      if (!/^[a-z][a-z0-9_]*$/.test(s.name) || levelOf(s.name) === null) errs.push({ i, msg: `Nome "${s.name}" inválido: use minúsculas e termine com número (e letra opcional), como tier_2b.` });
+      if (seen.has(s.name)) errs.push({ i, msg: `Nome "${s.name}" repetido.` });
+      seen.set(s.name, i);
+      if (!s.model) errs.push({ i, msg: `${s.name}: informe o modelo.` });
+      if (i > 0 && levelOf(s.name) !== null && levelOf(slots[i - 1].name) !== null && levelOf(s.name) < levelOf(slots[i - 1].name)) errs.push({ i, msg: `${s.name}: o nível não pode voltar atrás na cadeia.` });
+    });
+    if (!slots.some((s) => s.enabled)) errs.push({ i: -1, msg: "Pelo menos uma via precisa estar ativa." });
+    return errs;
+  }
+  const FIELDS = ["enabled", "harness", "model", "effort", "cost_per_m_tokens", "credit_usd", "max_retries", "max_parallel", "idle_timeout_seconds", "max_runtime_seconds", "eligible_classes", "best_for"];
+  function renderDiff() {
+    const init = initialByName(), now = Object.fromEntries(slots.map((s) => [s.name, s]));
+    const rows = [];
+    validate().forEach((e) => rows.push(`<div class="err">! ${esc(e.msg)}</div>`));
+    slots.forEach((s) => {
+      const b = init[s.name];
+      if (!b) { rows.push(`<div class="add">+ via nova ${esc(s.name)}: ${esc(s.harness)} / ${esc(s.model)}, ${money(s.cost_per_m_tokens)}</div>`); return; }
+      FIELDS.forEach((f) => {
+        const x = JSON.stringify(b[f]), y = JSON.stringify(s[f]);
+        if (x !== y) rows.push(`<div class="del">- ${esc(s.name)}.${f}: ${esc(x)}</div><div class="add">+ ${esc(s.name)}.${f}: ${esc(y)}</div>`);
+      });
+    });
+    INITIAL.forEach((b) => { if (!now[b.name]) rows.push(`<div class="del">- via removida ${esc(b.name)}</div>`); });
+    const order = slots.map((s) => s.name).filter((n) => init[n]).join(",");
+    const orderInit = INITIAL.map((s) => s.name).filter((n) => now[n]).join(",");
+    if (order !== orderInit) rows.push('<div class="add">~ ordem da cadeia alterada</div>');
+    document.getElementById("diff").innerHTML = rows.length ? rows.join("") : '<div class="none">Nenhuma alteração.</div>';
+    document.getElementById("save").disabled = validate().length > 0;
+  }
+
+  /* ---------- ligações ---------- */
+  document.getElementById("simClass").addEventListener("change", () => { document.getElementById("simStart").value = ""; renderPath(); });
+  document.getElementById("simStart").addEventListener("change", renderPath);
+  document.getElementById("simClear").addEventListener("click", () => { fails.clear(); renderPath(); });
+  document.getElementById("sheetClose").addEventListener("click", closeSheet);
+  document.getElementById("sheetOk").addEventListener("click", closeSheet);
+  document.getElementById("sheetDelete").addEventListener("click", () => {
+    if (!confirmDelete) { confirmDelete = true; drawSheet(); return; }
+    slots.splice(editing, 1); closeSheet(); render();
+  });
+  document.getElementById("reset").addEventListener("click", () => { slots = clone(INITIAL); fails.clear(); picked = null; closeSheet(); render(); });
+  document.getElementById("save").addEventListener("click", (e) => { e.target.textContent = "Gravado (simulado) ✓"; setTimeout(() => (e.target.textContent = "Gravar (simulado)"), 1500); });
+  render();
+</script>
+</body>
+</html>

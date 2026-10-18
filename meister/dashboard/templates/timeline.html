@@ -169,6 +169,7 @@
   .swatch-escalation { background: #ec4899; }
   .swatch-lateral { background: #22d3ee; }
   .swatch-failed-attempt { background: #be123c; }
+  .swatch-reused { border: 1px dashed var(--muted); }
   .timeline-wrapper {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -324,6 +325,7 @@
   <div class="legend-item"><span class="legend-swatch swatch-critical"></span><span>{{ messages.critical_path }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-escalation"></span><span>{{ messages.escalation }}</span></div>
   <div class="legend-item"><span class="legend-swatch swatch-lateral"></span><span>{{ messages.lateral_fallback }}</span></div>
+  <div class="legend-item"><span class="legend-swatch swatch-reused"></span><span>{{ messages.legend_reused }}</span></div>
 </div>
 
 <div class="timeline-wrapper">
@@ -591,8 +593,10 @@
   }
   // "Attempt N: via, outcome, reason (detail)"; missing parts are omitted, a long detail is cut.
   function attemptTooltipLine(attempt, index) {
-    const label = text.tooltip_attempt.replace("{n}", String(index + 1));
     const a = attempt || {};
+    const n = Number.isInteger(a.n) && a.n > 0 ? a.n : index + 1;
+    const template = text.tooltip_attempt || "Attempt {n}";
+    const label = template.replace("{n}", String(n));
     const outcome = tooltipField(a.outcome);
     const reason = clipRunName(tooltipField(a.reason), TOOLTIP_DETAIL_MAX);
     const detail = clipRunName(tooltipField(a.detail), TOOLTIP_DETAIL_MAX);
@@ -617,6 +621,44 @@
       }
     }
     return lines;
+  }
+  // Tooltip row for a single placement lane: isolates attempts and timing for that via.
+  function placementTooltipRow(row, via) {
+    if (!row || !via || (typeof via === "string" && !via.trim())) return row;
+    const placements = rowLanePlacements(row);
+    if (!placements || placements.length < 2) return row;
+    const placementIndex = placements.findIndex((p) => p && p.via === via);
+    if (placementIndex === -1) return row;
+    const placement = placements[placementIndex];
+    const isLastPlacement = placementIndex === placements.length - 1;
+    const allAttempts = Array.isArray(row.attempt_details) ? row.attempt_details : [];
+    const attempt_details = [];
+    allAttempts.forEach((attempt, index) => {
+      if (attempt && attempt.via === via) {
+        attempt_details.push({ ...attempt, n: index + 1 });
+      }
+    });
+    const segs = Array.isArray(placement.segments) ? placement.segments : [];
+    const lastSeg = segs.length ? segs[segs.length - 1] : null;
+    const end = !isLastPlacement && lastSeg && lastSeg.end !== undefined && lastSeg.end !== null
+      ? lastSeg.end
+      : row.end;
+    const lastAttempt = attempt_details.length ? attempt_details[attempt_details.length - 1] : null;
+    const status = !isLastPlacement && lastAttempt && lastAttempt.outcome
+      ? lastAttempt.outcome
+      : row.status;
+    return {
+      ...row,
+      segments: placement.segments,
+      attempt_details,
+      end,
+      status,
+    };
+  }
+  // Reused task gets a fixed-width marker (36 px) instead of proportional segment bars.
+  function reusedMarkerWidth(row) {
+    if (!row || typeof row !== "object") return null;
+    return row.status === "reused" ? 36 : null;
   }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
@@ -792,11 +834,12 @@
 
   function showTaskTooltip(event, row, via, phase, seg) {
     const tip = byId("tooltip");
+    const scoped = placementTooltipRow(row, via);
     byId("tooltip-title").textContent = row.title || row.task_id;
-    byId("tooltip-body").textContent = [row.task_id, via, phase, row.status]
+    byId("tooltip-body").textContent = [row.task_id, via, phase, scoped.status]
       .filter(Boolean)
       .join(" · ");
-    const timing = taskTiming(row, seg, Date.now());
+    const timing = taskTiming(scoped, seg, Date.now());
     const timingBox = byId("tooltip-timing");
     timingBox.replaceChildren();
     [
@@ -810,7 +853,7 @@
       timingBox.appendChild(line);
     });
     // Attempt reasons come from error text, so they only ever go in through textContent.
-    taskTooltipExtraLines(row).forEach((content) => {
+    taskTooltipExtraLines(scoped).forEach((content) => {
       const line = document.createElement("div");
       line.textContent = content;
       timingBox.appendChild(line);
@@ -1366,10 +1409,14 @@
         const rY = currentY + headerH + rowIdx * ROW_H;
         placementCenterY[row.task_id + "|" + entry.placement.via] = rY + ROW_H / 2;
 
+        const fixedMarkerW = reusedMarkerWidth(row);
+        const isReused = fixedMarkerW !== null;
         const rowStartXVal = isSplit && placementSegs.length ? timeToX(placementSegs[0].start) : timeToX(row.start);
-        const rowEndXVal = isSplit && placementSegs.length
-          ? timeToX(placementSegs[placementSegs.length - 1].end || nowTime)
-          : timeToX(row.end || nowTime);
+        const rowEndXVal = isReused
+          ? rowStartXVal + fixedMarkerW
+          : (isSplit && placementSegs.length
+            ? timeToX(placementSegs[placementSegs.length - 1].end || nowTime)
+            : timeToX(row.end || nowTime));
         if (isFirstPlacement) {
           rowFirstCenterY[row.task_id] = rY + ROW_H / 2;
           rowFirstStartX[row.task_id] = rowStartXVal;
@@ -1421,90 +1468,136 @@
 
         const isCritical = Array.isArray(data.critical_path) && data.critical_path.includes(row.task_id);
 
-        segs.forEach((seg, sIdx) => {
-          const sx1 = timeToX(seg.start);
-          const sx2 = timeToX(seg.end);
-          const sW = Math.max(4, sx2 - sx1);
-
-          const failedGap = isFailedAttemptGap(row, rowSegs.indexOf(seg));
-          let segFill = "#6366f1";
-          if (failedGap) segFill = "#be123c";
-          else if (seg.phase === "gate") segFill = "#f59e0b";
-          else if (seg.phase === "integrate") segFill = "#10b981";
-          else if (seg.phase === "lock_wait") segFill = "#64748b";
-          else if (seg.phase === "wait" || seg.phase === "queue") segFill = "#475569";
-
-          const bar = createSvgEl("rect", {
-            x: sx1,
+        if (isReused) {
+          const marker = createSvgEl("rect", {
+            x: rowStartXVal,
             y: rY + (ROW_H - BAR_H) / 2,
-            width: sW,
+            width: fixedMarkerW,
             height: BAR_H,
             rx: "4",
-            fill: segFill,
+            fill: "none",
+            stroke: "var(--muted)",
+            "stroke-dasharray": "3,3",
             class: "task-bar",
+            "pointer-events": "all",
           });
 
-          const phaseLabel = failedGap
-            ? text.phase_failed_attempt
-            : rowSegs.includes(seg)
-              ? phaseDisplayLabel(rowSegs, rowSegs.indexOf(seg), text)
-              : phaseDisplayLabel(segs, sIdx, text);
+          const seg = segs[0];
+          const phaseLabel = seg && rowSegs.includes(seg)
+            ? phaseDisplayLabel(rowSegs, rowSegs.indexOf(seg), text)
+            : phaseDisplayLabel(segs, 0, text);
           const showBar = (event) => showTaskTooltip(event, row, lane.via, phaseLabel, seg);
-          bar.addEventListener("mouseenter", (event) => {
+          marker.addEventListener("mouseenter", (event) => {
             if (isTouchLikePointer(lastPointerType)) return;
             showBar(event);
           });
-          bar.addEventListener("mousemove", (event) => {
+          marker.addEventListener("mousemove", (event) => {
             if (isTouchLikePointer(lastPointerType)) return;
             showBar(event);
           });
-          bar.addEventListener("mouseleave", hideTaskTooltip);
-          bindTooltipTap(bar, "bar:" + row.task_id + ":" + entry.index + ":" + sIdx, showBar);
+          marker.addEventListener("mouseleave", hideTaskTooltip);
+          bindTooltipTap(marker, "bar:" + row.task_id + ":" + entry.index, showBar);
 
-          lanesGroup.appendChild(bar);
+          lanesGroup.appendChild(marker);
 
-          // If waiting (task queue or merge lock), overlay the striped pattern
-          if (!failedGap && (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue")) {
-            const patOverlay = createSvgEl("rect", {
+          const markerText = text.legend_reused;
+          if (markerText && markerText.length * 6.2 <= fixedMarkerW - 4) {
+            const labelEl = createSvgText(markerText, {
+              x: rowStartXVal + fixedMarkerW / 2,
+              y: rY + ROW_H / 2 + 3,
+              "text-anchor": "middle",
+              fill: "var(--muted)",
+              "font-size": "9",
+              "pointer-events": "none",
+            });
+            lanesGroup.appendChild(labelEl);
+          }
+        } else {
+          segs.forEach((seg, sIdx) => {
+            const sx1 = timeToX(seg.start);
+            const sx2 = timeToX(seg.end);
+            const sW = Math.max(4, sx2 - sx1);
+
+            const failedGap = isFailedAttemptGap(row, rowSegs.indexOf(seg));
+            let segFill = "#6366f1";
+            if (failedGap) segFill = "#be123c";
+            else if (seg.phase === "gate") segFill = "#f59e0b";
+            else if (seg.phase === "integrate") segFill = "#10b981";
+            else if (seg.phase === "lock_wait") segFill = "#64748b";
+            else if (seg.phase === "wait" || seg.phase === "queue") segFill = "#475569";
+
+            const bar = createSvgEl("rect", {
               x: sx1,
               y: rY + (ROW_H - BAR_H) / 2,
               width: sW,
               height: BAR_H,
               rx: "4",
-              fill: "url(#pattern-wait)",
-              opacity: "0.5",
-              "pointer-events": "none",
+              fill: segFill,
+              class: "task-bar",
             });
-            lanesGroup.appendChild(patOverlay);
-          }
 
-          // Live pulse at the trailing edge of the latest segment if running
-          if (row.status === "running" && isLastPlacement && sIdx === segs.length - 1) {
-            const headCircle = createSvgEl("circle", {
-              cx: sx2,
-              cy: rY + ROW_H / 2,
-              r: "4",
-              fill: "#38bdf8",
+            const phaseLabel = failedGap
+              ? text.phase_failed_attempt
+              : rowSegs.includes(seg)
+                ? phaseDisplayLabel(rowSegs, rowSegs.indexOf(seg), text)
+                : phaseDisplayLabel(segs, sIdx, text);
+            const showBar = (event) => showTaskTooltip(event, row, lane.via, phaseLabel, seg);
+            bar.addEventListener("mouseenter", (event) => {
+              if (isTouchLikePointer(lastPointerType)) return;
+              showBar(event);
             });
-            if (!prefersReducedMotion) {
-              const animR = createSvgEl("animate", {
-                attributeName: "r",
-                values: "3;6;3",
-                dur: "1.2s",
-                repeatCount: "indefinite",
+            bar.addEventListener("mousemove", (event) => {
+              if (isTouchLikePointer(lastPointerType)) return;
+              showBar(event);
+            });
+            bar.addEventListener("mouseleave", hideTaskTooltip);
+            bindTooltipTap(bar, "bar:" + row.task_id + ":" + entry.index + ":" + sIdx, showBar);
+
+            lanesGroup.appendChild(bar);
+
+            // If waiting (task queue or merge lock), overlay the striped pattern
+            if (!failedGap && (seg.phase === "lock_wait" || seg.phase === "wait" || seg.phase === "queue")) {
+              const patOverlay = createSvgEl("rect", {
+                x: sx1,
+                y: rY + (ROW_H - BAR_H) / 2,
+                width: sW,
+                height: BAR_H,
+                rx: "4",
+                fill: "url(#pattern-wait)",
+                opacity: "0.5",
+                "pointer-events": "none",
               });
-              const animOp = createSvgEl("animate", {
-                attributeName: "opacity",
-                values: "1;0.4;1",
-                dur: "1.2s",
-                repeatCount: "indefinite",
-              });
-              headCircle.appendChild(animR);
-              headCircle.appendChild(animOp);
+              lanesGroup.appendChild(patOverlay);
             }
-            lanesGroup.appendChild(headCircle);
-          }
-        });
+
+            // Live pulse at the trailing edge of the latest segment if running
+            if (row.status === "running" && isLastPlacement && sIdx === segs.length - 1) {
+              const headCircle = createSvgEl("circle", {
+                cx: sx2,
+                cy: rY + ROW_H / 2,
+                r: "4",
+                fill: "#38bdf8",
+              });
+              if (!prefersReducedMotion) {
+                const animR = createSvgEl("animate", {
+                  attributeName: "r",
+                  values: "3;6;3",
+                  dur: "1.2s",
+                  repeatCount: "indefinite",
+                });
+                const animOp = createSvgEl("animate", {
+                  attributeName: "opacity",
+                  values: "1;0.4;1",
+                  dur: "1.2s",
+                  repeatCount: "indefinite",
+                });
+                headCircle.appendChild(animR);
+                headCircle.appendChild(animOp);
+              }
+              lanesGroup.appendChild(headCircle);
+            }
+          });
+        }
 
         // Critical path highlight border
         if (isCritical) {

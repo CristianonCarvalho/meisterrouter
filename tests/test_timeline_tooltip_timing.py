@@ -29,6 +29,14 @@ def _timing(row: dict, seg: dict | None, now_ms: int = NOW_MS) -> dict:
     return run_js(expression)  # type: ignore[return-value]
 
 
+def _scoped_timing(row: dict, via: str, seg: dict | None, now_ms: int = NOW_MS) -> dict:
+    expression = (
+        f"taskTiming(placementTooltipRow({json.dumps(row)}, {json.dumps(via)}), "
+        f"{json.dumps(seg)}, {now_ms})"
+    )
+    return run_js(expression)  # type: ignore[return-value]
+
+
 def test_completed_task_reports_phase_total_and_wait() -> None:
     row = {
         "start": _iso(0),
@@ -122,6 +130,63 @@ def test_timing_labels_reach_the_timeline_page() -> None:
 def test_timeline_page_wires_timing_into_tooltip() -> None:
     source = TIMELINE_TEMPLATE.read_text(encoding="utf-8")
     assert "function taskTiming(row, seg, nowMs)" in source
-    assert "taskTiming(row, seg, Date.now())" in source
+    assert "taskTiming(scoped, seg, Date.now())" in source
     assert "tooltip_phase_duration" in source
     assert "innerHTML" not in source
+
+
+def test_three_via_task_scopes_duration_and_wait_to_placement() -> None:
+    row = {
+        "start": _iso(0),
+        "end": _iso(100),
+        "tier": "tier_1",
+        "status": "completed",
+        "segments": [
+            # tier_1: wait 0..10, worker 10..30
+            {"via": "tier_1", "phase": "wait", "start": _iso(0), "end": _iso(10)},
+            {"via": "tier_1", "phase": "worker", "start": _iso(10), "end": _iso(30)},
+            # tier_1b: wait 30..40, worker 40..70
+            {"via": "tier_1b", "phase": "wait", "start": _iso(30), "end": _iso(40)},
+            {"via": "tier_1b", "phase": "worker", "start": _iso(40), "end": _iso(70)},
+            # tier_2: wait 70..75, worker 75..100
+            {"via": "tier_2", "phase": "wait", "start": _iso(70), "end": _iso(75)},
+            {"via": "tier_2", "phase": "worker", "start": _iso(75), "end": _iso(100)},
+        ],
+        "attempt_details": [
+            {"via": "tier_1", "outcome": "error"},
+            {"via": "tier_1b", "outcome": "error"},
+            {"via": "tier_2", "outcome": "completed"},
+        ],
+    }
+    seg_1b_worker = row["segments"][3]
+
+    # Without placement scoping: taskTiming considers the whole task
+    full_timing = _timing(row, seg_1b_worker)
+    assert full_timing == {"phaseSec": 30, "totalSec": 90, "waitSec": 25}
+
+    # With placementTooltipRow: tier_1b sums only its own segments
+    scoped_1b = _scoped_timing(row, "tier_1b", seg_1b_worker)
+    assert scoped_1b == {"phaseSec": 30, "totalSec": 30, "waitSec": 10}
+    assert scoped_1b["totalSec"] < full_timing["totalSec"]
+    assert scoped_1b["waitSec"] < full_timing["waitSec"]
+
+
+def test_single_via_task_timing_matches_today() -> None:
+    row = {
+        "start": _iso(0),
+        "end": _iso(100),
+        "tier": "tier_1",
+        "status": "completed",
+        "segments": [
+            {"via": "tier_1", "phase": "wait", "start": _iso(0), "end": _iso(20)},
+            {"phase": "worker", "start": _iso(20), "end": _iso(70)},
+            {"phase": "gate", "start": _iso(70), "end": _iso(100)},
+        ],
+        "attempt_details": [{"via": "tier_1", "outcome": "completed"}],
+    }
+    worker = row["segments"][1]
+    raw_timing = _timing(row, worker)
+    scoped_timing = _scoped_timing(row, "tier_1", worker)
+    assert scoped_timing == raw_timing
+    assert scoped_timing == {"phaseSec": 50, "totalSec": 80, "waitSec": 20}
+

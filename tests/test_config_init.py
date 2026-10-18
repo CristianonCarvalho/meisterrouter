@@ -24,7 +24,7 @@ def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
     # Vias ativas e ordem
     assert [t.name for t in cfg_init.workers.tier_order] == [t.name for t in cfg_default.workers.tier_order]
     assert [t.name for t in cfg_init.workers.tier_order] == [
-        "tier_1", "tier_1b", "tier_2", "tier_3"
+        "tier_1", "tier_1b", "tier_1c", "tier_2", "tier_3"
     ]
     assert [t.harness for t in cfg_init.workers.tier_order] == [t.harness for t in cfg_default.workers.tier_order]
     assert [t.model for t in cfg_init.workers.tier_order] == [t.model for t in cfg_default.workers.tier_order]
@@ -34,8 +34,8 @@ def test_config_init_creates_file_and_matches_default(tmp_path, monkeypatch):
 
     # Vias desabilitadas
     assert [t.name for t in cfg_init.workers.disabled] == [t.name for t in cfg_default.workers.disabled]
-    assert [t.name for t in cfg_init.workers.disabled] == ["tier_1c", "tier_3b"]
-    assert [t.enabled for t in cfg_init.workers.disabled] == [False, False]
+    assert [t.name for t in cfg_init.workers.disabled] == ["tier_3b"]
+    assert [t.enabled for t in cfg_init.workers.disabled] == [False]
     assert [t.cost_per_m_tokens for t in cfg_init.workers.disabled] == [t.cost_per_m_tokens for t in cfg_default.workers.disabled]
     assert [t.eligible_classes for t in cfg_init.workers.disabled] == [
         t.eligible_classes for t in cfg_default.workers.disabled

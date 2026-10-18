@@ -22,10 +22,10 @@ def test_cli_models():
     assert "$8.000" in res.output
     # Vias ativas primeiro na ordem de fallback; desligadas no fim.
     assert res.output.index("tier_1") < res.output.index("tier_1b")
-    assert res.output.index("tier_1b") < res.output.index("tier_2")
+    assert res.output.index("tier_1b") < res.output.index("tier_1c")
+    assert res.output.index("tier_1c") < res.output.index("tier_2")
     assert res.output.index("tier_2") < res.output.index("tier_3")
-    assert res.output.index("tier_3") < res.output.index("tier_1c")
-    assert res.output.index("tier_1c") < res.output.index("tier_3b")
+    assert res.output.index("tier_3") < res.output.index("tier_3b")
     assert "desligada" in res.output
 
 
