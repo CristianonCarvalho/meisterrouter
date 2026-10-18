@@ -202,6 +202,52 @@ def test_config_page_has_swap_and_creation_markup(page_client):
     assert "function isContentChanged(" in html
 
 
+MODEL_TREE_KEYS = (
+    "model_unknown",
+    "tree_title",
+    "tree_loading",
+    "tree_unavailable",
+    "tree_empty",
+)
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_model_tree_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in MODEL_TREE_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+    assert "modelo desconhecido" in CATALOGS["pt-BR"]["cli.config.web.model_unknown"]
+
+
+def test_config_messages_include_model_tree_keys():
+    messages = _config_messages()
+    for key in MODEL_TREE_KEYS:
+        assert key in messages
+
+
+def test_config_page_has_model_tree_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    assert 'id="model-tree"' in html
+    assert 'id="model-unknown"' in html
+    assert "function modelKnown(" in html
+    assert "function mergeCatalogChoice(" in html
+
+
+def test_config_page_serves_no_new_fixed_text_outside_the_text_block(page_client, monkeypatch):
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    outside = re.sub(r"const (?:rawText|text) = \{.*?\};\n", "", html, count=1)
+    catalog = CATALOGS["pt-BR"]
+    for key in MODEL_TREE_KEYS:
+        assert catalog[f"cli.config.web.{key}"] not in outside
+
+
 def test_config_page_contains_older_server_warning_hidden_by_default(page_client):
     html = page_client.get("/config").get_data(as_text=True)
     assert "Restart the dashboard: the server is older than this page." in html
