@@ -42,6 +42,7 @@ from meister.config import ConfigIssue
 from meister.i18n import CATALOGS, get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.model_catalog import list_models
+from meister.projects import register_project
 from meister.report import compute_run_report
 from meister.timeline import build_timeline
 from meister.timeline_cli import (
@@ -819,6 +820,10 @@ def start_server(
         os.environ["MEISTER_LOG_DIR"] = os.path.abspath(log_dir)
 
     project_root = _current_project_root() or os.getcwd()
+    try:
+        register_project(project_root)
+    except Exception:
+        pass
 
     if getattr(app.run, "__func__", None) is not Flask.run:
         actual_port = port if port != 0 else _find_free_port()
