@@ -15,6 +15,7 @@ from typing import Any, Mapping, Optional, Union
 from meister import osops
 from meister.code_id import current_code_id
 from meister.dashboard.state import is_alive, read_state
+from meister.projects import register_project
 
 
 @dataclass
@@ -220,6 +221,10 @@ def ensure_dashboard(
     """Ensure the project's dashboard server is running and open the requested view."""
     try:
         project_root = resolve_project_root(project_root)
+        try:
+            register_project(str(project_root))
+        except Exception:
+            pass
         open_mode, idle_exit_minutes, width, height = _parse_config(config)
 
         if not url_only:
