@@ -88,6 +88,29 @@
   .notice.error { border-color: var(--red); color: var(--red); background: rgba(248, 113, 113, 0.1); }
   .notice[hidden] { display: none; }
   .source { color: var(--muted); font-size: 12px; margin-bottom: 12px; word-break: break-all; }
+  .project-bar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 8px 0;
+    margin-bottom: 12px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .project-bar label { color: var(--muted); font-weight: 600; }
+  .project-strip {
+    flex: 1;
+    min-width: 0;
+    color: var(--cyan);
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 12px;
+    word-break: break-all;
+  }
   .panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -492,6 +515,17 @@
   </div>
 </header>
 
+<div class="project-bar">
+  <label for="project-select">{{ messages.project_label }}</label>
+  <select id="project-select"></select>
+  <div id="project-strip" class="project-strip"></div>
+</div>
+<div id="project-confirm" class="confirm" hidden>
+  <span>{{ messages.project_switch_confirm }}</span>
+  <button type="button" id="project-switch-yes" class="danger">{{ messages.project_switch_yes }}</button>
+  <button type="button" id="project-switch-no">{{ messages.confirm_no }}</button>
+</div>
+
 <div id="banner-server-older" class="notice error" hidden>
   <span>Restart the dashboard: the server is older than this page.</span> · <span>Reinicie o dashboard: o servidor é mais antigo que esta página.</span>
 </div>
@@ -738,12 +772,39 @@
     };
   }
 
-  function saveRequest(stamp, lanes) {
-    return { method: "PUT", headers: { ...WRITE_HEADERS }, body: JSON.stringify(buildLanesBody(stamp, lanes)) };
+  // Leitura da via do projeto escolhido; sem identificador, o servidor usa o projeto atual.
+  function configUrl(projectId) {
+    return projectId ? `/api/config?project=${encodeURIComponent(projectId)}` : "/api/config";
   }
 
-  function restoreRequest(stamp) {
-    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify({ stamp }) };
+  // Acrescenta o identificador do projeto ao corpo de uma escrita (sem ele, o corpo segue igual).
+  function withProject(body, projectId) {
+    return projectId ? { ...body, project: projectId } : { ...body };
+  }
+
+  // Opções da caixa de projetos: o projeto escolhido entra mesmo fora da lista; sumido do disco fica desabilitado.
+  function projectOptions(projects, current) {
+    const list = Array.isArray(projects) ? projects.slice() : [];
+    if (current && current.id && !list.some((project) => project && project.id === current.id)) {
+      list.unshift(current);
+    }
+    return list
+      .filter((project) => project && typeof project.id === "string")
+      .map((project) => ({
+        id: project.id,
+        name: project.name || project.path || project.id,
+        path: project.path || "",
+        missing: project.exists === false,
+      }));
+  }
+
+  function saveRequest(stamp, lanes, projectId) {
+    const body = withProject(buildLanesBody(stamp, lanes), projectId);
+    return { method: "PUT", headers: { ...WRITE_HEADERS }, body: JSON.stringify(body) };
+  }
+
+  function restoreRequest(stamp, projectId) {
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify(withProject({ stamp }, projectId)) };
   }
 
   // {"lanes[0].model": [...], "lanes": [...]} -> {lanes: {"0": {model: [...]}}, general: [...]}
@@ -766,6 +827,7 @@
   function saveOutcome(status, body) {
     if (status >= 200 && status < 300) return "saved";
     const reason = body && typeof body === "object" ? body.reason : null;
+    if (status === 409 && (reason === "project_missing" || reason === "unknown_project")) return "error";
     if (status === 409) return reason === "run_active" ? "run_active" : "stale";
     if (status === 403) return "remote";
     if (status === 422) return "invalid";
@@ -1045,6 +1107,7 @@
     "level_order_hint",
     "level_other",
     "level_title",
+    "loading",
     "max_parallel",
     "model",
     "model_unknown",
@@ -1055,6 +1118,8 @@
     "path_disabled",
     "path_failed",
     "path_runs_here",
+    "project_missing",
+    "project_strip",
     "restored",
     "result_all_failed",
     "result_escalated",
@@ -1112,6 +1177,12 @@
     drawerIndex: null,
     selectedCardIndex: null,
     modelCache: new Map(),
+    // Projeto escolhido nesta página (só na sessão): null até a lista chegar; aí é o atual do servidor.
+    projectId: null,
+    projects: [],
+    projectName: "",
+    projectPath: "",
+    pendingProjectId: null,
   };
 
   let isDragging = false;
@@ -1720,6 +1791,7 @@
     byId("restore").disabled = locked() || !state.hasTierOrder;
     byId("restore-yes").disabled = locked();
     byId("read-only").hidden = state.editable;
+    byId("project-select").disabled = state.busy;
     const addLevelBtn = byId("add-level");
     if (addLevelBtn) addLevelBtn.disabled = locked();
     if (locked()) state.selectedCardIndex = null;
@@ -1748,7 +1820,74 @@
     byId("banner-remote").hidden = state.reason !== "remote";
   }
 
+  // Caixa de projetos: nome como texto, caminho como dica; projeto sumido do disco aparece desabilitado.
+  function renderProjects() {
+    const select = byId("project-select");
+    const current = state.projectId ? { id: state.projectId, name: state.projectName, path: state.projectPath } : null;
+    select.replaceChildren();
+    projectOptions(state.projects, current).forEach((option) => {
+      const item = document.createElement("option");
+      item.value = option.id;
+      item.textContent = option.missing ? fmt(text.project_missing, { name: option.name }) : option.name;
+      item.title = option.path;
+      item.disabled = option.missing;
+      select.appendChild(item);
+    });
+    select.value = state.projectId || "";
+    byId("project-strip").textContent = fmt(text.project_strip, { path: state.projectPath });
+  }
+
+  async function loadProjects() {
+    try {
+      const response = await fetch("/api/projects");
+      if (!response.ok) throw new Error(String(response.status));
+      const data = await response.json();
+      state.projects = Array.isArray(data.projects) ? data.projects : [];
+      if (state.projectId === null && typeof data.current === "string") state.projectId = data.current;
+    } catch (_) {
+      state.projects = [];
+    }
+    renderProjects();
+  }
+
+  function renderProjectSwitch() {
+    byId("project-confirm").hidden = state.pendingProjectId === null;
+  }
+
+  // Troca de projeto: esvazia a página até a via do novo projeto chegar; a escolha vale só nesta sessão.
+  function switchProject(projectId) {
+    const project = state.projects.find((item) => item.id === projectId) || {};
+    state.pendingProjectId = null;
+    renderProjectSwitch();
+    state.projectId = projectId;
+    state.projectName = project.name || "";
+    state.projectPath = project.path || "";
+    state.original = [];
+    state.lanes = [];
+    state.stamp = "";
+    state.editable = false;
+    state.reason = null;
+    state.hasTierOrder = false;
+    state.errors = { lanes: {}, general: [] };
+    state.selectedCardIndex = null;
+    state.modelCache = new Map();
+    closeDrawer();
+    byId("restore-confirm").hidden = true;
+    byId("banner-stale").hidden = true;
+    byId("source").textContent = text.loading;
+    setStatus("", "");
+    renderState();
+    renderProjects();
+    render();
+    load();
+  }
+
   function applyData(data) {
+    if (data.project && typeof data.project === "object") {
+      if (typeof data.project.id === "string") state.projectId = data.project.id;
+      state.projectName = data.project.name || "";
+      state.projectPath = data.project.path || "";
+    }
     const lanes = Array.isArray(data.lanes) ? data.lanes : [];
     state.original = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
     state.lanes = lanes.map((lane) => ({ ...lane, original_name: originalNameOf(lane) }));
@@ -1764,6 +1903,7 @@
       ? text.source.replace("{path}", data.source || "")
       : text.source_default;
     renderState();
+    renderProjects();
     render();
     if (state.drawerIndex !== null) {
       if (state.lanes[state.drawerIndex]) {
@@ -1775,14 +1915,18 @@
   }
 
   async function load() {
+    // Resposta de um projeto que já não é o escolhido não entra na página.
+    const requested = state.projectId;
     try {
-      const response = await fetch("/api/config");
+      const response = await fetch(configUrl(requested));
       if (!response.ok) throw new Error(String(response.status));
       const data = await response.json();
+      if (requested !== state.projectId) return;
       byId("banner-error").hidden = true;
       setStatus("", "");
       applyData(data);
     } catch (_) {
+      if (requested !== state.projectId) return;
       byId("banner-error").hidden = false;
       byId("source").textContent = "";
     }
@@ -1871,7 +2015,7 @@
       setStatus(text.invalid, "error");
       return;
     }
-    write("/api/config/lanes", saveRequest(state.stamp, state.lanes), text.saved);
+    write("/api/config/lanes", saveRequest(state.stamp, state.lanes, state.projectId), text.saved);
   });
   byId("revert").addEventListener("click", () => {
     state.selectedCardIndex = null;
@@ -1896,9 +2040,31 @@
   byId("restore-yes").addEventListener("click", () => {
     if (locked()) return;
     byId("restore-confirm").hidden = true;
-    write("/api/config/restore-default", restoreRequest(state.stamp), text.restored);
+    write("/api/config/restore-default", restoreRequest(state.stamp, state.projectId), text.restored);
   });
   byId("reload").addEventListener("click", load);
+  byId("project-select").addEventListener("change", (event) => {
+    const next = event.target.value;
+    if (!next || next === state.projectId) return;
+    if (lanesChanged(state.original, state.lanes)) {
+      // Com alterações não salvas, a caixa volta ao projeto atual até o usuário confirmar a troca.
+      state.pendingProjectId = next;
+      renderProjects();
+      renderProjectSwitch();
+      return;
+    }
+    switchProject(next);
+  });
+  byId("project-switch-yes").addEventListener("click", () => {
+    const next = state.pendingProjectId;
+    state.pendingProjectId = null;
+    renderProjectSwitch();
+    if (next && !state.busy) switchProject(next);
+  });
+  byId("project-switch-no").addEventListener("click", () => {
+    state.pendingProjectId = null;
+    renderProjectSwitch();
+  });
   byId("sim-class").addEventListener("change", (event) => {
     state.sim.cls = event.target.value;
     renderPath();
@@ -2016,7 +2182,7 @@
 
   initClassesCheckboxes();
   render();
-  load();
+  loadProjects().then(load);
 })();
 </script>
 </body>
