@@ -121,3 +121,91 @@ def test_template_asks_before_switching_with_unsaved_changes() -> None:
 def test_template_disables_the_project_select_while_a_write_is_busy() -> None:
     html = CONFIG_TEMPLATE.read_text(encoding="utf-8")
     assert 'byId("project-select").disabled = state.busy;' in html
+
+
+def test_project_writes_locked_for_remote_access_and_busy_requests() -> None:
+    assert run_js("projectWritesLocked('remote', false)") is True
+    assert run_js("projectWritesLocked(null, true)") is True
+    assert run_js("projectWritesLocked(null, false)") is False
+    assert run_js("projectWritesLocked(null, undefined)") is False
+
+
+def test_project_writes_are_not_locked_by_an_active_run() -> None:
+    # O registro de projetos não grava dentro do projeto: run ativa não trava o painel.
+    assert run_js("projectWritesLocked('run_active', false)") is False
+
+
+def test_discover_request_trims_the_base_and_carries_write_headers() -> None:
+    request = run_js("discoverRequest('  /work/base  ')")
+    assert request["method"] == "POST"
+    assert request["headers"] == {"Content-Type": "application/json", "X-Meister-Config": "1"}
+    assert json.loads(request["body"]) == {"base": "/work/base"}
+
+
+def test_discover_request_without_base_sends_an_empty_string() -> None:
+    assert json.loads(run_js("discoverRequest(null)")["body"]) == {"base": ""}
+
+
+def test_add_project_request_sends_only_the_trimmed_path() -> None:
+    request = run_js("addProjectRequest(' /x/app ')")
+    assert request["method"] == "POST"
+    assert request["headers"] == {"Content-Type": "application/json", "X-Meister-Config": "1"}
+    assert json.loads(request["body"]) == {"path": "/x/app"}
+
+
+CANDIDATES = [
+    {"id": "aaa111222333", "name": "alpha", "path": "/w/alpha", "registered": True},
+    {"id": "bbb111222333", "name": "beta", "path": "/w/beta", "registered": False},
+    {"id": "ccc111222333", "name": "gamma", "path": "/w/gamma", "registered": False},
+]
+
+
+def test_selected_paths_keep_only_unregistered_candidates_in_scan_order() -> None:
+    selected = ["ccc111222333", "aaa111222333", "bbb111222333"]
+    assert run_js(f"selectedPaths({_js(CANDIDATES)}, {_js(selected)})") == ["/w/beta", "/w/gamma"]
+
+
+def test_selected_paths_ignore_ids_that_were_not_scanned() -> None:
+    assert run_js(f"selectedPaths({_js(CANDIDATES)}, ['zzz999'])") == []
+    assert run_js(f"selectedPaths({_js(CANDIDATES)}, null)") == []
+    assert run_js("selectedPaths(null, ['aaa111222333'])") == []
+
+
+def test_register_request_carries_the_paths_and_write_headers() -> None:
+    request = run_js(f"registerRequest({_js(['/w/beta', '/w/gamma'])})")
+    assert request["method"] == "POST"
+    assert request["headers"] == {"Content-Type": "application/json", "X-Meister-Config": "1"}
+    assert json.loads(request["body"]) == {"paths": ["/w/beta", "/w/gamma"]}
+
+
+def test_register_request_without_paths_sends_an_empty_list() -> None:
+    assert json.loads(run_js("registerRequest(null)")["body"]) == {"paths": []}
+
+
+def test_project_error_text_prefers_the_translated_server_message() -> None:
+    assert run_js("projectErrorText({ error: 'A pasta não existe.' }, 'reserva')") == "A pasta não existe."
+
+
+def test_project_error_text_falls_back_without_a_message() -> None:
+    assert run_js("projectErrorText(null, 'reserva')") == "reserva"
+    assert run_js("projectErrorText({ error: '' }, 'reserva')") == "reserva"
+    assert run_js("projectErrorText({ reason: 'not_a_project' }, 'reserva')") == "reserva"
+
+
+def test_template_posts_projects_through_the_panel_helper() -> None:
+    html = CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    assert 'postProject("/api/projects/discover", discoverRequest(' in html
+    assert 'postProject("/api/projects/register", registerRequest(paths))' in html
+    assert 'postProject("/api/projects", addProjectRequest(' in html
+
+
+def test_template_locks_project_panels_for_remote_and_busy() -> None:
+    html = CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    assert "projectWritesLocked(state.reason, state.projectBusy)" in html
+    assert 'byId("discover-open").disabled = locked;' in html
+    assert 'byId("discover-register").disabled = locked || picked.length === 0;' in html
+
+
+def test_template_reloads_the_project_list_after_a_register_or_add() -> None:
+    html = CONFIG_TEMPLATE.read_text(encoding="utf-8")
+    assert html.count("await loadProjects();") >= 2
