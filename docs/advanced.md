@@ -577,6 +577,17 @@ the dashboard.
 - **Path of a task:** a simulator at the top picks the task class and the starting lane (the one Jev would choose
   among the lanes that accept the class); tapping a lane simulates that it failed, and a sentence says where the task
   ends up running and whether it escalated. Nothing is executed.
+- **Which project:** configuration is per project, and the **Project** bar shows the project being edited (select box plus
+  full path). The select box lists the projects of the registry `~/.meister/projects.json` (id = first 12 hex digits of
+  the SHA-1 of the real path); a project is registered automatically by `meister config web`, by starting a dashboard
+  and by `meister orchestrate` run inside it. **Discover projects** scans a folder (up to 3 levels) for folders with
+  `.meister/` or `meister.config.yaml` and registers the ones you tick; **Add project** registers one absolute path
+  (needs `.meister/`, `meister.config.yaml` or `.git`; the personal folder and `/` are refused). The API accepts
+  `?project=<id>` on `GET /api/config` and `"project": "<id>"` in the body of `PUT /api/config/lanes` and
+  `POST /api/config/restore-default`; only registered ids are accepted (`404 unknown_project`; `409 project_missing`
+  when the folder is gone), so the page never writes to an arbitrary path. The active-run block is read from the log of
+  the chosen project. `GET /api/projects` lists the registry; `POST /api/projects`, `/api/projects/discover` and
+  `/api/projects/register` follow the same rules as the other writes (JSON, `X-Meister-Config: 1`, refused remotely).
 - **Swapping content:** drag a content card onto another slot (or tap one card and then the other, on a touch screen)
   to swap harness, model, effort, cost and credit between the two. The slot keeps its name and policy.
 - **What it edits:** **Edit** on a slot opens a drawer with every field of the lane: harness, effort (the list follows

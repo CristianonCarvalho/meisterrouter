@@ -117,6 +117,15 @@ The **model** is picked from the known models of the lane's harness, each with t
 - **+ lane in this level** adds an alternative; **+ new level** adds an escalation step at the end of the chain; **Remove lane** deletes one (confirm with a second tap).
 - The **Changes to save** panel lists exactly what will be written. **Save** applies it, **Revert** drops it and **Restore default** goes back to the packaged lanes.
 
+### Which project am I configuring?
+
+Configuration stays **per project**, and the page always says which one it is editing: the **Project** bar at the top shows a select box and the full path of the project (and the source file below it). Pick another project in the select box and the page loads that project's lanes; nothing is written in the project you left.
+
+- **Automatic list:** a project joins the list when you run `meister config web`, start a dashboard or run `meister orchestrate` inside it. The list is kept in `~/.meister/projects.json`.
+- **Discover projects:** type a folder (for example the one that holds all your repositories) and Meister scans it, up to 3 levels deep, for folders with `.meister/` or `meister.config.yaml`. You tick the ones you want and register them.
+- **Add project:** registers one folder by its absolute path. It must have `.meister/`, `meister.config.yaml` or `.git`; your personal folder and the filesystem root are refused.
+- Each project is checked on its own: a run active in one project blocks only that project, and a project with a run shows it in the select box.
+
 ### Good to know
 
 - Saving is blocked while a run is active (the run already loaded its lanes), and the page is read-only when opened remotely, for example over Tailscale: editing is local only.

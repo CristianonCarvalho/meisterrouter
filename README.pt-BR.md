@@ -117,6 +117,15 @@ O **modelo** é escolhido entre os modelos conhecidos do harness da via, cada um
 - **+ via neste nível** acrescenta uma alternativa; **+ novo nível** acrescenta uma etapa de escalonamento no fim da cadeia; **Remover via** apaga uma (confirme com um segundo toque).
 - O painel **Alterações a gravar** lista exatamente o que será escrito. **Salvar** aplica, **Reverter** descarta e **Restaurar padrão** volta às vias empacotadas.
 
+### Qual projeto estou configurando?
+
+A configuração continua **por projeto**, e a página sempre diz qual está editando: a barra **Projeto**, no topo, mostra uma caixa de seleção e o caminho completo do projeto (e o arquivo de origem logo abaixo). Escolha outro projeto na caixa e a página carrega as vias dele; nada é gravado no projeto que você deixou.
+
+- **Lista automática:** um projeto entra na lista quando você roda `meister config web`, sobe um dashboard ou roda `meister orchestrate` dentro dele. A lista fica em `~/.meister/projects.json`.
+- **Descobrir projetos:** digite uma pasta (por exemplo, a que guarda todos os seus repositórios) e o Meister procura nela, até 3 níveis, pastas com `.meister/` ou `meister.config.yaml`. Você marca as que quer e registra.
+- **Adicionar projeto:** registra uma pasta pelo caminho absoluto. Ela precisa ter `.meister/`, `meister.config.yaml` ou `.git`; a pasta pessoal e a raiz do sistema são recusadas.
+- Cada projeto é verificado por conta própria: uma run ativa em um projeto bloqueia só aquele projeto, e o projeto com run aparece assim na caixa de seleção.
+
 ### Bom saber
 
 - Salvar é bloqueado enquanto há uma run ativa (a run já carregou as vias), e a página fica só para leitura quando aberta remotamente, por exemplo pelo Tailscale: a edição é só local.
