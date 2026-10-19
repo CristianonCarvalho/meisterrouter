@@ -76,57 +76,63 @@ O único componente não determinístico é o **Jev** (via OpenRouter), um rotea
 
 ## 🎯 Escolha os modelos e a ordem deles
 
-Cada **via** é uma assinatura (CLI) com um modelo. A **ordem** é a cadeia de fallback, sempre para a frente: se a primeira via falha ou fica sem cota, o Meister passa para a seguinte. Veja o que está ativo:
-```bash
-meister models
-```
-```
-  #  NAME                     HARNESS          MODEL                        EFFORT        COST/1M  STATUS
-  1  tier_1                   copilot          claude-haiku-5.5             -          $0.200  enabled
-  2  tier_1b                  copilot          gpt-6-luna                   -          $0.200  enabled
-  3  tier_1c                  codex            gpt-6-luna                   -          $0.200  enabled
-  4  tier_2                   agy              gemini-3.8-flash-high        -          $1.500  enabled
-  5  tier_3                   claude           sonnet                       -          $4.000  enabled
-  6  tier_3b                  claude           opus                         -          $8.000  disabled
-```
-(O exemplo mostra os rótulos do `language: en` padrão: `COST/1M` = custo por 1M de tokens, `EFFORT` = esforço de raciocínio, `-` = padrão do harness. Com `language: pt-BR` os rótulos viram `NOME`, `MODELO`, `ESFORÇO`, `ligada`/`desligada`.) Para alterá-los, crie o arquivo do projeto com as vias padrão e edite-o:
-```bash
-meister config init        # grava o meister.config.yaml (vias, ordem e comentários)
-meister config init --kiro # o mesmo, mas só com vias do Kiro CLI
-```
-```yaml
-router:
-  mode: jev                # o jev escolhe a via inicial de cada tarefa; first = sempre a primeira (sem rede)
-workers:
-  tier_order:              # a ORDEM destas linhas é a cadeia de fallback
-    - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: tier_1c, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2}
-    - {name: tier_2, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
-    - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
-    - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}
-```
-(O `meister models` lista as vias desligadas por último; elas não fazem parte da cadeia.)
+Cada **via** é uma assinatura (um harness, como Copilot, Codex, Claude ou Gemini) rodando um modelo. A **ordem** das vias é a cadeia de fallback, sempre para frente: se uma via falha ou fica sem crédito, o Meister passa para a seguinte. Você define tudo numa página web, sem arquivo para editar:
 
-| Para... | Faça isto |
+```bash
+meister config web       # abre a página de configuração do projeto atual
+```
+
+(`--no-open` só imprime o endereço, para uma máquina sem tela. `meister models` lista as vias ativas no terminal.)
+
+![A página de configuração: o caminho de uma tarefa e as vias agrupadas em níveis, com o salto de custo entre os níveis](docs/img/config-chain-pt-BR.png)
+
+### Níveis, vias e escalonamento
+
+- As vias são agrupadas em **níveis** (o número no fim do nome: `tier_1`, `tier_1b` e `tier_1c` são o nível 1). Vias do mesmo nível são alternativas: o Meister as tenta da esquerda para a direita (⇄ fallback lateral).
+- Quando **todas as vias de um nível falham**, a tarefa **escala** para o nível seguinte (⤹). A faixa entre os níveis mostra quanto o preço por milhão de tokens sobe, então você vê o que um escalonamento custa (por exemplo, de US$ 0,20 para US$ 1,50).
+- Cada caixa é um **slot**: o nome, se está ativo, quantas tentativas tem e quais classes de tarefa aceita, com o conteúdo da via dentro (harness, modelo, esforço e custo).
+- O **caminho de uma tarefa**, no alto, responde "onde a minha tarefa rodaria?". Escolha a classe da tarefa e a via inicial e clique numa via para fingir que ela falhou (sem crédito, timeout...). Uma frase diz onde a tarefa acaba rodando e se houve escalonamento. Nada é executado; a imagem acima mostra o Copilot e o Codex falhando e a tarefa caindo no Gemini.
+
+![Editando uma via: harness, esforço, modelo escolhido da lista de modelos conhecidos, custo e política do slot](docs/img/config-edit-pt-BR.png)
+
+### Editando uma via
+
+Clique em **Editar** num slot. A gaveta tem dois grupos:
+
+- **Conteúdo** (viaja quando você arrasta o cartão): harness, esforço (a lista acompanha o harness), modelo, custo por milhão de tokens e crédito.
+- **Política do slot** (fica no lugar): nome, ligada ou desligada, tentativas, limite em paralelo, tempo ocioso e duração máxima, as classes de tarefa que o Jev pode enviar à via e para que ela é mais indicada.
+
+O **modelo** é escolhido entre os modelos conhecidos do harness da via, cada um com o nome exato que aquele harness espera (eles escrevem o mesmo modelo de jeitos diferentes: `claude-haiku-5.5` no Copilot, `haiku` no Claude) e o custo, quando conhecido. Você também pode digitar qualquer nome; se ele não estiver na lista, a página avisa sem impedir. De onde vêm as listas:
+
+| Harness | Lista de modelos |
 |---|---|
-| mudar a **ordem** | reordene as linhas de `tier_order` |
-| **ligar ou desligar** uma via | `enabled: true` ou `enabled: false` |
-| restringir uma via a certas **classes** de tarefa (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (o Jev só envia à via o que ela aceita) |
-| ignorar o Jev e usar sempre a primeira via | `router.mode: first` |
-| **ligar ou desligar** uma via pela linha de comando | `meister models --enable tier_1c` ou `meister models --disable tier_1b` |
-| definir o **esforço de raciocínio** de uma via | `effort: high` (os valores dependem do harness, abaixo) |
+| Gemini (`agy`) | lida ao vivo da própria ferramenta |
+| Codex | a lista que o próprio Codex guarda |
+| Claude | os aliases (`haiku`, `sonnet`, `opus`) e os nomes completos |
+| Copilot | lida uma vez do seletor `/model` dele com `meister config refresh-models copilot` (o Copilot não tem comando de listagem; o seletor é aberto num terminal simulado e **nenhum prompt é enviado**, então não gasta crédito) |
 
-Observação: a lista `tier_order` do projeto **substitui** a padrão por inteiro. Depois de editar, confira com `meister config validate` e `meister models`. Os campos e as demais configurações (timeouts, gate, escopo) estão na [configuração avançada](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
+### Reordenar, criar e remover
 
-Valores de esforço por harness:
+- **Trocar o conteúdo entre slots:** arraste um cartão sobre outro slot (no celular, toque num cartão e depois no outro). Os nomes e as políticas ficam onde estão, então a estrutura do fallback se mantém enquanto você muda quem roda onde.
+- **+ via neste nível** acrescenta uma alternativa; **+ novo nível** acrescenta uma etapa de escalonamento no fim da cadeia; **Remover via** apaga uma (confirme com um segundo toque).
+- O painel **Alterações a gravar** lista exatamente o que será escrito. **Salvar** aplica, **Reverter** descarta e **Restaurar padrão** volta às vias empacotadas.
 
-| Harness | Valores de `effort` (opcional; omita para manter o padrão do harness) |
+### Bom saber
+
+- Salvar é bloqueado enquanto há uma run ativa (a run já carregou as vias), e a página fica só para leitura quando aberta remotamente, por exemplo pelo Tailscale: a edição é só local.
+- Salvar guarda uma cópia da configuração anterior e nunca deixa um arquivo pela metade. Os nomes são conferidos antes de gravar (únicos, terminando no número do nível) e pelo menos uma via precisa ficar ligada.
+- Uma lista salva passa a ser do projeto e substitui a padrão, então deixa de acompanhar as mudanças futuras das vias empacotadas; **Restaurar padrão** desfaz isso.
+
+O esforço de raciocínio, na lista **Esforço** da gaveta, depende do harness:
+
+| Harness | Valores de esforço (opcional; deixe em "padrão" para manter o do harness) |
 |---|---|
 | `copilot` | none, minimal, low, medium, high, xhigh, max |
 | `claude`, `agy` | low, medium, high, xhigh, max |
 | `codex` | minimal, low, medium, high, xhigh |
 | `kiro-cli` | low, medium, high, xhigh, max (o modelo precisa suportar) |
+
+Mais sobre esta página e as demais configurações: [a tela /config](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#tela-config-vias) e [configuração avançada](docs/pt-BR/INSTALACAO_E_COMANDOS_AVANCADOS.md#configuração-avançada).
 
 ## 🔍 Por baixo dos panos
 

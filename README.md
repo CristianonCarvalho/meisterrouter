@@ -76,57 +76,63 @@ The only non-deterministic piece is **Jev** (through OpenRouter), an optional ro
 
 ## 🎯 Choose the models and their order
 
-Each **lane** is a subscription (CLI) with a model. The **order** is the fallback chain, always moving forward: if the first lane fails or runs out of quota, Meister moves to the next. See what is active:
-```bash
-meister models
-```
-```
-  #  NAME                     HARNESS          MODEL                        EFFORT        COST/1M  STATUS
-  1  tier_1                   copilot          claude-haiku-5.5             -          $0.200  enabled
-  2  tier_1b                  copilot          gpt-6-luna                   -          $0.200  enabled
-  3  tier_1c                  codex            gpt-6-luna                   -          $0.200  enabled
-  4  tier_2                   agy              gemini-3.8-flash-high        -          $1.500  enabled
-  5  tier_3                   claude           sonnet                       -          $4.000  enabled
-  6  tier_3b                  claude           opus                         -          $8.000  disabled
-```
-(The sample shows the default `language: en` labels: `COST/1M` = cost per 1M tokens, `EFFORT` = reasoning effort, `-` = harness default. With `language: pt-BR` the labels become `NOME`, `MODELO`, `ESFORÇO`, `ligada`/`desligada`.) To change them, create the project file with the default lanes and edit it:
-```bash
-meister config init        # writes meister.config.yaml (lanes, order and comments)
-meister config init --kiro # the same, but with Kiro CLI lanes only
-```
-```yaml
-router:
-  mode: jev                # jev picks the starting lane of each task; first = always the first lane (no network)
-workers:
-  tier_order:              # the ORDER of these lines is the fallback chain
-    - {name: tier_1, harness: copilot, model: claude-haiku-5.5, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: tier_1b, harness: copilot, model: gpt-6-luna, cost_per_m_tokens: 0.20, credit_usd: 0.01, max_retries: 2}
-    - {name: tier_1c, harness: codex, model: gpt-6-luna, cost_per_m_tokens: 0.20, max_retries: 2}
-    - {name: tier_2, harness: agy, model: gemini-3.8-flash-high, cost_per_m_tokens: 1.50, max_retries: 2}
-    - {name: tier_3, harness: claude, model: sonnet, effort: high, cost_per_m_tokens: 4.00, max_retries: 1, eligible_classes: [ESCALATE]}
-    - {name: tier_3b, harness: claude, model: opus, enabled: false, cost_per_m_tokens: 8.00, max_retries: 1, eligible_classes: [ESCALATE]}
-```
-(`meister models` lists disabled lanes last; they are not part of the chain.)
+Each **lane** is one subscription (a harness such as Copilot, Codex, Claude or Gemini) running one model. The **order** of the lanes is the fallback chain, always moving forward: if a lane fails or runs out of credit, Meister moves on to the next. You set all of it on a web page, with no file to edit:
 
-| To... | Do this |
+```bash
+meister config web       # opens the configuration page of the current project
+```
+
+(`--no-open` only prints the address, for a machine without a screen. `meister models` lists the active lanes in the terminal.)
+
+![The configuration page: the path of a task and the lanes grouped in levels, with the cost jump between levels](docs/img/config-chain.png)
+
+### Levels, lanes and escalation
+
+- Lanes are grouped in **levels** (the number at the end of the name: `tier_1`, `tier_1b` and `tier_1c` are level 1). Lanes of the same level are alternatives: Meister tries them from left to right (⇄ lateral fallback).
+- When **every lane of a level fails**, the task **escalates** to the next level (⤹). The band between levels shows how much the price per million tokens goes up, so you see what an escalation costs (for example, from US$ 0.20 to US$ 1.50).
+- Each box is a **slot**: its name, whether it is active, how many attempts it gets and which task classes it accepts, with the lane's content inside (harness, model, effort and cost).
+- **Path of a task**, at the top, answers "where would my task run?". Pick the task class and the starting lane, then click a lane to pretend it failed (no credit, timeout...). A sentence tells where the task ends up running and whether it escalated. Nothing is executed; the picture above shows Copilot and Codex failing and the task landing on Gemini.
+
+![Editing a lane: harness, effort, model chosen from the list of known models, cost and slot policy](docs/img/config-edit.png)
+
+### Editing a lane
+
+Click **Edit** on a slot. The drawer has two groups:
+
+- **Content** (it travels when you drag the card): harness, effort (the list follows the harness), model, cost per million tokens and credit.
+- **Slot policy** (it stays in place): name, on or off, attempts, parallel limit, idle and maximum time, the task classes Jev may send to the lane, and what it is best for.
+
+The **model** is picked from the known models of the lane's harness, each with the exact name that harness expects (they spell the same model differently: `claude-haiku-5.5` on Copilot, `haiku` on Claude) and its cost when known. You can also type any name; if it is not on the list, the page warns you without blocking you. Where the lists come from:
+
+| Harness | List of models |
 |---|---|
-| change the **order** | reorder the lines of `tier_order` |
-| **enable or disable** a lane | `enabled: true` or `enabled: false` |
-| restrict a lane to certain task **classes** (`SMALL`, `MEDIUM`, `HIGH`, `ESCALATE`) | `eligible_classes: [...]` (Jev only sends the lane what it accepts) |
-| ignore Jev and always use the first lane | `router.mode: first` |
-| turn a lane **on or off** from the command line | `meister models --enable tier_1c` or `meister models --disable tier_1b` |
-| set the **reasoning effort** of a lane | `effort: high` (values depend on the harness, below) |
+| Gemini (`agy`) | read live from the tool itself |
+| Codex | the list Codex keeps for itself |
+| Claude | its aliases (`haiku`, `sonnet`, `opus`) and full names |
+| Copilot | read once from its `/model` picker with `meister config refresh-models copilot` (Copilot has no list command; the picker is opened in a simulated terminal and **no prompt is sent**, so it spends no credit) |
 
-Note: the project's `tier_order` list **replaces** the default one entirely. After editing, check it with `meister config validate` and `meister models`. The fields and the remaining settings (timeouts, gate, scope) are in [advanced configuration](docs/advanced.md#advanced-configuration).
+### Reorder, create and remove
 
-Effort values per harness:
+- **Swap content between slots:** drag a card onto another slot (on a phone, tap one card and then the other). The names and policies stay where they are, so the fallback structure is kept while you change who runs where.
+- **+ lane in this level** adds an alternative; **+ new level** adds an escalation step at the end of the chain; **Remove lane** deletes one (confirm with a second tap).
+- The **Changes to save** panel lists exactly what will be written. **Save** applies it, **Revert** drops it and **Restore default** goes back to the packaged lanes.
 
-| Harness | `effort` values (optional; omit it to keep the harness default) |
+### Good to know
+
+- Saving is blocked while a run is active (the run already loaded its lanes), and the page is read-only when opened remotely, for example over Tailscale: editing is local only.
+- Saving keeps a backup of the previous configuration and never leaves a half-written file. Names are checked before saving (unique, ending in the level number) and at least one lane must stay on.
+- A saved list belongs to the project and replaces the default one, so it no longer follows future changes to the packaged lanes; **Restore default** undoes that.
+
+Reasoning effort, in the **Effort** list of the drawer, depends on the harness:
+
+| Harness | Effort values (optional; leave it on "default" to keep the harness setting) |
 |---|---|
 | `copilot` | none, minimal, low, medium, high, xhigh, max |
 | `claude`, `agy` | low, medium, high, xhigh, max |
 | `codex` | minimal, low, medium, high, xhigh |
 | `kiro-cli` | low, medium, high, xhigh, max (the model must support it) |
+
+More on this page and the other settings: [the /config screen](docs/advanced.md#the-config-screen-lanes) and [advanced configuration](docs/advanced.md#advanced-configuration).
 
 ## 🔍 Under the hood
 
