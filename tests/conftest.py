@@ -278,6 +278,20 @@ def isolate_test_environment(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolate_home_directory(monkeypatch):
+    """Redireciona a pasta pessoal para uma pasta temporária nova: nenhum teste lê o ~/.meister real.
+
+    Fica fora do tmp_path de propósito, para não aparecer nas listagens dos testes. Testes que definem
+    HOME ou USERPROFILE por conta própria continuam valendo (o monkeypatch deles prevalece dentro do
+    teste e é desfeito ao fim dele).
+    """
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as home:
+        monkeypatch.setenv("HOME", home)
+        monkeypatch.setenv("USERPROFILE", home)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def prevent_project_repo_leaks(request, tmp_path):
     """Fail if a test pollutes the real checkout's refs or worktrees; clean only what is provably the test's.
 
