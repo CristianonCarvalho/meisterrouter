@@ -311,6 +311,24 @@
   }
   .errors { color: var(--red); margin: 12px 0 0; padding-left: 18px; }
   .errors:empty { display: none; }
+  .candidate-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+    margin: 10px 0;
+  }
+  .candidate-list:empty { display: none; }
+  .candidate {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    font-size: 13px;
+  }
+  .candidate input { margin: 0; }
+  .candidate small { color: var(--muted); word-break: break-all; }
   .notice .inline { margin-left: 10px; }
   .confirm {
     display: flex;
@@ -518,6 +536,8 @@
 <div class="project-bar">
   <label for="project-select">{{ messages.project_label }}</label>
   <select id="project-select"></select>
+  <button type="button" id="discover-open">{{ messages.discover_projects }}</button>
+  <button type="button" id="add-open">{{ messages.add_project }}</button>
   <div id="project-strip" class="project-strip"></div>
 </div>
 <div id="project-confirm" class="confirm" hidden>
@@ -525,6 +545,39 @@
   <button type="button" id="project-switch-yes" class="danger">{{ messages.project_switch_yes }}</button>
   <button type="button" id="project-switch-no">{{ messages.confirm_no }}</button>
 </div>
+
+<section id="discover-panel" class="panel" hidden>
+  <h2>{{ messages.discover_title }}</h2>
+  <p class="hint">{{ messages.discover_help }}</p>
+  <div class="field-row">
+    <label for="discover-base">{{ messages.discover_base }}</label>
+    <input type="text" id="discover-base" class="mono">
+    <div id="err-discover-base" class="field-error"></div>
+  </div>
+  <div class="actions-bar">
+    <button type="button" id="discover-scan">{{ messages.discover_scan }}</button>
+    <span id="discover-status" class="status" role="status"></span>
+  </div>
+  <div id="discover-list" class="candidate-list"></div>
+  <div class="actions-bar">
+    <button type="button" id="discover-register" class="primary">{{ messages.discover_register }}</button>
+    <button type="button" id="discover-close">{{ messages.close }}</button>
+  </div>
+</section>
+
+<section id="add-panel" class="panel" hidden>
+  <h2>{{ messages.add_project_title }}</h2>
+  <div class="field-row">
+    <label for="add-path">{{ messages.add_project_path }}</label>
+    <input type="text" id="add-path" class="mono">
+    <div id="err-add-path" class="field-error"></div>
+  </div>
+  <div class="actions-bar">
+    <button type="button" id="add-submit" class="primary">{{ messages.add_project_submit }}</button>
+    <button type="button" id="add-close">{{ messages.close }}</button>
+    <span id="add-status" class="status" role="status"></span>
+  </div>
+</section>
 
 <div id="banner-server-older" class="notice error" hidden>
   <span>Restart the dashboard: the server is older than this page.</span> · <span>Reinicie o dashboard: o servidor é mais antigo que esta página.</span>
@@ -798,6 +851,37 @@
       }));
   }
 
+  // Painéis de projeto: travados no acesso remoto (só leitura) e enquanto um pedido de projeto está em curso.
+  function projectWritesLocked(reason, busy) {
+    return reason === "remote" || busy === true;
+  }
+
+  // Pedidos de projeto usam os mesmos cabeçalhos de proteção da escrita da configuração.
+  function discoverRequest(base) {
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify({ base: String(base || "").trim() }) };
+  }
+
+  function addProjectRequest(path) {
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify({ path: String(path || "").trim() }) };
+  }
+
+  // Caminhos marcados que ainda não estão no registro, na ordem da varredura (o servidor valida de novo).
+  function selectedPaths(candidates, selectedIds) {
+    const picked = new Set(Array.isArray(selectedIds) ? selectedIds : []);
+    return (Array.isArray(candidates) ? candidates : [])
+      .filter((item) => item && picked.has(item.id) && item.registered !== true)
+      .map((item) => item.path);
+  }
+
+  function registerRequest(paths) {
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify({ paths: Array.isArray(paths) ? paths.slice() : [] }) };
+  }
+
+  // Texto de erro da API (o servidor já o traduz); sem ele, o texto de reserva.
+  function projectErrorText(body, fallback) {
+    return body && typeof body.error === "string" && body.error ? body.error : fallback;
+  }
+
   function saveRequest(stamp, lanes, projectId) {
     const body = withProject(buildLanesBody(stamp, lanes), projectId);
     return { method: "PUT", headers: { ...WRITE_HEADERS }, body: JSON.stringify(body) };
@@ -1068,6 +1152,7 @@
 
   const requiredKeys = [
     "add_lane",
+    "add_project_done",
     "change_added",
     "change_fields",
     "change_removed",
@@ -1082,6 +1167,11 @@
     "chip_retries",
     "content_effort",
     "cost_value",
+    "discover_found",
+    "discover_none",
+    "discover_registered",
+    "discover_registered_count",
+    "discover_scanning",
     "edit",
     "effort",
     "effort_default",
@@ -1119,6 +1209,7 @@
     "path_failed",
     "path_runs_here",
     "project_missing",
+    "project_request_failed",
     "project_strip",
     "restored",
     "result_all_failed",
@@ -1183,6 +1274,10 @@
     projectName: "",
     projectPath: "",
     pendingProjectId: null,
+    // Pedido de projeto em curso (varredura, registro, adição); não trava a configuração.
+    projectBusy: false,
+    // Resultado da última varredura e os candidatos marcados (ids).
+    discover: { candidates: [], selected: new Set() },
   };
 
   let isDragging = false;
@@ -1818,6 +1913,133 @@
   function renderState() {
     byId("banner-run-active").hidden = state.reason !== "run_active";
     byId("banner-remote").hidden = state.reason !== "remote";
+    renderProjectPanels();
+  }
+
+  function setPanelStatus(id, message, kind) {
+    const node = byId(id);
+    node.textContent = message;
+    node.className = kind ? `status ${kind}` : "status";
+  }
+
+  function setPanelOpen(id, open) {
+    byId(id).hidden = !open;
+  }
+
+  // Botões e campos dos painéis de projeto; o registro segue o que está marcado e ainda não registrado.
+  function renderProjectPanels() {
+    const locked = projectWritesLocked(state.reason, state.projectBusy);
+    const picked = selectedPaths(state.discover.candidates, Array.from(state.discover.selected));
+    byId("discover-open").disabled = locked;
+    byId("add-open").disabled = locked;
+    byId("discover-base").disabled = locked;
+    byId("discover-scan").disabled = locked;
+    byId("discover-register").disabled = locked || picked.length === 0;
+    byId("add-path").disabled = locked;
+    byId("add-submit").disabled = locked;
+    renderCandidates();
+  }
+
+  function renderCandidates() {
+    const list = byId("discover-list");
+    const locked = projectWritesLocked(state.reason, state.projectBusy);
+    list.replaceChildren();
+    state.discover.candidates.forEach((item) => {
+      const registered = item.registered === true;
+      const label = el("label", "candidate");
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.checked = registered || state.discover.selected.has(item.id);
+      box.disabled = locked || registered;
+      box.addEventListener("change", () => {
+        if (box.checked) state.discover.selected.add(item.id);
+        else state.discover.selected.delete(item.id);
+        renderProjectPanels();
+      });
+      label.append(box, el("span", "mono", item.name || item.id), el("small", "", item.path || ""));
+      if (registered) label.appendChild(el("small", "", text.discover_registered));
+      list.appendChild(label);
+    });
+  }
+
+  // Pedido de projeto: devolve {status, body}; sem resposta, status 0. Um 403 vira acesso remoto (só leitura).
+  async function postProject(url, request) {
+    state.projectBusy = true;
+    renderProjectPanels();
+    let status = 0;
+    let body = null;
+    try {
+      const response = await fetch(url, request);
+      status = response.status;
+      try {
+        body = await response.json();
+      } catch (_) {
+        body = null;
+      }
+    } catch (_) {
+      body = null;
+    }
+    state.projectBusy = false;
+    if (status === 403) {
+      state.editable = false;
+      state.reason = "remote";
+      renderState();
+      render();
+    }
+    renderProjectPanels();
+    return { status, body };
+  }
+
+  async function scanProjects() {
+    if (projectWritesLocked(state.reason, state.projectBusy)) return;
+    byId("err-discover-base").textContent = "";
+    setPanelStatus("discover-status", text.discover_scanning, "");
+    const { status, body } = await postProject("/api/projects/discover", discoverRequest(byId("discover-base").value));
+    if (status !== 200) {
+      setPanelStatus("discover-status", "", "");
+      byId("err-discover-base").textContent = projectErrorText(body, text.project_request_failed);
+      return;
+    }
+    const candidates = Array.isArray(body.candidates) ? body.candidates : [];
+    state.discover = { candidates, selected: new Set() };
+    setPanelStatus("discover-status", candidates.length ? fmt(text.discover_found, { count: candidates.length }) : text.discover_none, "");
+    renderProjectPanels();
+  }
+
+  async function registerSelected() {
+    if (projectWritesLocked(state.reason, state.projectBusy)) return;
+    const paths = selectedPaths(state.discover.candidates, Array.from(state.discover.selected));
+    if (!paths.length) return;
+    setPanelStatus("discover-status", text.saving, "");
+    const { status, body } = await postProject("/api/projects/register", registerRequest(paths));
+    if (status !== 200) {
+      setPanelStatus("discover-status", projectErrorText(body, text.project_request_failed), "error");
+      return;
+    }
+    const registeredIds = new Set((Array.isArray(body.projects) ? body.projects : []).map((item) => item.id));
+    state.discover.candidates.forEach((item) => {
+      if (registeredIds.has(item.id)) item.registered = true;
+    });
+    state.discover.selected = new Set();
+    setPanelStatus("discover-status", fmt(text.discover_registered_count, { count: registeredIds.size }), "ok");
+    renderProjectPanels();
+    await loadProjects();
+  }
+
+  async function addProject() {
+    if (projectWritesLocked(state.reason, state.projectBusy)) return;
+    byId("err-add-path").textContent = "";
+    setPanelStatus("add-status", text.saving, "");
+    const { status, body } = await postProject("/api/projects", addProjectRequest(byId("add-path").value));
+    if (status !== 200) {
+      setPanelStatus("add-status", "", "");
+      byId("err-add-path").textContent = projectErrorText(body, text.project_request_failed);
+      return;
+    }
+    byId("add-path").value = "";
+    const name = body.project && body.project.name ? body.project.name : "";
+    setPanelStatus("add-status", fmt(text.add_project_done, { name }), "ok");
+    await loadProjects();
   }
 
   // Caixa de projetos: nome como texto, caminho como dica; projeto sumido do disco aparece desabilitado.
@@ -2065,6 +2287,13 @@
     state.pendingProjectId = null;
     renderProjectSwitch();
   });
+  byId("discover-open").addEventListener("click", () => setPanelOpen("discover-panel", byId("discover-panel").hidden));
+  byId("discover-close").addEventListener("click", () => setPanelOpen("discover-panel", false));
+  byId("discover-scan").addEventListener("click", scanProjects);
+  byId("discover-register").addEventListener("click", registerSelected);
+  byId("add-open").addEventListener("click", () => setPanelOpen("add-panel", byId("add-panel").hidden));
+  byId("add-close").addEventListener("click", () => setPanelOpen("add-panel", false));
+  byId("add-submit").addEventListener("click", addProject);
   byId("sim-class").addEventListener("change", (event) => {
     state.sim.cls = event.target.value;
     renderPath();
@@ -2182,6 +2411,7 @@
 
   initClassesCheckboxes();
   render();
+  renderProjectPanels();
   loadProjects().then(load);
 })();
 </script>

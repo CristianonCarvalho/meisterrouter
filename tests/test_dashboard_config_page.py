@@ -302,3 +302,79 @@ def test_config_page_serves_no_new_fixed_project_text_outside_the_text_block(pag
     assert 'id="project-confirm"' in outside
 
 
+PANEL_JS_KEYS = (
+    "discover_found",
+    "discover_none",
+    "discover_registered",
+    "discover_registered_count",
+    "discover_scanning",
+    "add_project_done",
+    "project_request_failed",
+)
+PANEL_RENDERED_KEYS = (
+    "discover_projects",
+    "add_project",
+    "discover_title",
+    "discover_help",
+    "discover_base",
+    "discover_scan",
+    "discover_register",
+    "add_project_title",
+    "add_project_path",
+    "add_project_submit",
+)
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_project_panel_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in PANEL_JS_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+    for key in PANEL_RENDERED_KEYS:
+        assert catalog[f"cli.config.web.{key}"] in html
+
+
+def test_config_messages_include_project_panel_keys():
+    messages = _config_messages()
+    for key in (*PANEL_JS_KEYS, *PANEL_RENDERED_KEYS):
+        assert key in messages
+
+
+def test_config_page_has_project_panel_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    bar = re.search(r'class="project-bar">(.*?)id="project-confirm"', html, re.S)
+    assert bar is not None
+    assert 'id="discover-open"' in bar.group(1)
+    assert 'id="add-open"' in bar.group(1)
+    for marker in (
+        'id="discover-panel"',
+        'id="discover-base"',
+        'id="discover-scan"',
+        'id="discover-list"',
+        'id="discover-register"',
+        'id="err-discover-base"',
+        'id="add-panel"',
+        'id="add-path"',
+        'id="add-submit"',
+        'id="err-add-path"',
+    ):
+        assert marker in html
+    for function in ("scanProjects(", "registerSelected(", "addProject(", "renderProjectPanels(", "selectedPaths("):
+        assert f"function {function}" in html
+
+
+def test_config_page_serves_no_new_fixed_panel_text_outside_the_text_block(page_client, monkeypatch):
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    outside = re.sub(r"const (?:rawText|text) = \{.*?\};\n", "", html, count=1)
+    catalog = CATALOGS["pt-BR"]
+    for key in PANEL_JS_KEYS:
+        assert catalog[f"cli.config.web.{key}"] not in outside
+
+

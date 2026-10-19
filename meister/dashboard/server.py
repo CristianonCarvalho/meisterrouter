@@ -346,6 +346,23 @@ def _config_messages() -> Dict[str, str]:
         "project_missing",
         "project_switch_confirm",
         "project_switch_yes",
+        "discover_projects",
+        "add_project",
+        "discover_title",
+        "discover_help",
+        "discover_base",
+        "discover_scan",
+        "discover_scanning",
+        "discover_found",
+        "discover_none",
+        "discover_registered",
+        "discover_register",
+        "discover_registered_count",
+        "add_project_title",
+        "add_project_path",
+        "add_project_submit",
+        "add_project_done",
+        "project_request_failed",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 
