@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 import meister.dashboard.server as dashboard_server
 from meister.dashboard.server import app
+from meister.projects import project_id, register_project
 
 PROJECT_CONFIG = """\
 # comentario do dono
@@ -628,5 +632,170 @@ def test_put_lanes_invalid_best_for_is_422(config_client):
     assert data["reason"] == "invalid"
     assert "lanes[0].best_for" in data["fields"]
     assert _snapshot(project) == before
+
+
+OTHER_CONFIG = """\
+workers:
+  tier_order:
+    - name: tier_b
+      harness: claude
+      model: sonnet
+      enabled: true
+"""
+
+
+@pytest.fixture
+def other_project(tmp_path: Path, config_client) -> Path:
+    other = tmp_path / "other"
+    (other / ".meister").mkdir(parents=True)
+    (other / "meister.config.yaml").write_text(OTHER_CONFIG, encoding="utf-8")
+    register_project(str(other))
+    return other
+
+
+def _other_id(other: Path) -> str:
+    return project_id(str(other))
+
+
+def _write_running_log(project: Path) -> None:
+    logs = project / ".meister" / "logs"
+    logs.mkdir(parents=True)
+    event = {
+        "event": "orchestration_start",
+        "run_id": "run-open",
+        "task": "plano",
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    (logs / "orchestration_log.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+
+def _other_lane_request() -> dict:
+    return {"name": "tier_b", "harness": "claude", "model": "opus", "enabled": True}
+
+
+def test_config_api_reads_registered_project_by_id(config_client, other_project):
+    client, _ = config_client
+    data = client.get(f"/api/config?project={_other_id(other_project)}").get_json()
+    assert [lane["name"] for lane in data["lanes"]] == ["tier_b"]
+    assert data["project"]["id"] == _other_id(other_project)
+    assert data["project"]["name"] == "other"
+    assert Path(data["project"]["path"]).resolve() == other_project.resolve()
+    assert Path(data["source"]).resolve() == (other_project / "meister.config.yaml").resolve()
+    assert data["editable"] is True
+
+
+def test_config_api_without_project_reports_current_project(config_client):
+    client, project = config_client
+    data = client.get("/api/config").get_json()
+    assert data["project"]["name"] == "project"
+    assert Path(data["project"]["path"]).resolve() == project.resolve()
+
+
+def test_put_lanes_writes_only_chosen_project(config_client, other_project):
+    client, project = config_client
+    other_id = _other_id(other_project)
+    current_before = _snapshot(project)
+    stamp = client.get(f"/api/config?project={other_id}").get_json()["stamp"]
+    resp = _put_lanes(client, {"project": other_id, "stamp": stamp, "lanes": [_other_lane_request()]})
+    assert resp.status_code == 200
+    assert resp.get_json()["lanes"][0]["model"] == "opus"
+    assert "opus" in (other_project / "meister.config.yaml").read_text(encoding="utf-8")
+    assert _snapshot(project) == current_before
+
+
+def test_restore_default_targets_chosen_project(config_client, other_project):
+    client, project = config_client
+    other_id = _other_id(other_project)
+    current_before = _snapshot(project)
+    stamp = client.get(f"/api/config?project={other_id}").get_json()["stamp"]
+    resp = client.post(
+        "/api/config/restore-default",
+        json={"project": other_id, "stamp": stamp},
+        headers=JSON_HEADERS,
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["has_tier_order"] is False
+    assert "tier_order" not in (other_project / "meister.config.yaml").read_text(encoding="utf-8")
+    assert _snapshot(project) == current_before
+
+
+def test_unknown_project_id_is_404(config_client):
+    client, project = config_client
+    before = _snapshot(project)
+    resp = client.get("/api/config?project=0123456789ab")
+    assert resp.status_code == 404
+    assert resp.get_json()["reason"] == "unknown_project"
+    resp = _put_lanes(client, {"project": "0123456789ab", "stamp": _stamp(client), "lanes": [_lane_request()]})
+    assert resp.status_code == 404
+    assert resp.get_json()["reason"] == "unknown_project"
+    assert _snapshot(project) == before
+
+
+def test_path_in_place_of_project_id_is_refused(config_client, other_project):
+    client, project = config_client
+    before = _snapshot(project)
+    other_before = (other_project / "meister.config.yaml").read_bytes()
+    resp = client.get(f"/api/config?project={other_project}")
+    assert resp.status_code == 404
+    assert resp.get_json()["reason"] == "unknown_project"
+    resp = _put_lanes(
+        client,
+        {"project": str(other_project), "stamp": _stamp(client), "lanes": [_lane_request()]},
+    )
+    assert resp.status_code == 404
+    assert resp.get_json()["reason"] == "unknown_project"
+    assert _snapshot(project) == before
+    assert (other_project / "meister.config.yaml").read_bytes() == other_before
+
+
+def test_project_missing_from_disk_is_409(config_client, other_project):
+    client, _ = config_client
+    other_id = _other_id(other_project)
+    shutil.rmtree(other_project)
+    resp = client.get(f"/api/config?project={other_id}")
+    assert resp.status_code == 409
+    assert resp.get_json()["reason"] == "project_missing"
+    resp = _put_lanes(client, {"project": other_id, "stamp": "0" * 64, "lanes": [_other_lane_request()]})
+    assert resp.status_code == 409
+    assert resp.get_json()["reason"] == "project_missing"
+    assert not other_project.exists()
+
+
+def test_active_run_in_chosen_project_blocks_write(config_client, other_project):
+    client, _ = config_client
+    other_id = _other_id(other_project)
+    _write_running_log(other_project)
+    before = (other_project / "meister.config.yaml").read_bytes()
+    data = client.get(f"/api/config?project={other_id}").get_json()
+    assert data["editable"] is False
+    assert data["reason"] == "run_active"
+    resp = _put_lanes(client, {"project": other_id, "stamp": data["stamp"], "lanes": [_other_lane_request()]})
+    assert resp.status_code == 409
+    assert resp.get_json()["reason"] == "run_active"
+    assert (other_project / "meister.config.yaml").read_bytes() == before
+
+
+def test_active_run_in_current_project_does_not_block_other_project(config_client, other_project, monkeypatch):
+    client, project = config_client
+    other_id = _other_id(other_project)
+    monkeypatch.setattr(dashboard_server, "_has_active_run", lambda: True)
+    stamp = client.get(f"/api/config?project={other_id}").get_json()["stamp"]
+    resp = _put_lanes(client, {"project": other_id, "stamp": stamp, "lanes": [_other_lane_request()]})
+    assert resp.status_code == 200
+    assert "opus" in (other_project / "meister.config.yaml").read_text(encoding="utf-8")
+    resp = _put_lanes(client, {"stamp": _stamp(client), "lanes": [_lane_request()]})
+    assert resp.status_code == 409
+    assert resp.get_json()["reason"] == "run_active"
+
+
+def test_active_run_in_other_project_does_not_block_current_project(config_client, other_project):
+    client, project = config_client
+    _write_running_log(other_project)
+    assert client.get(f"/api/config?project={_other_id(other_project)}").get_json()["reason"] == "run_active"
+    current = client.get("/api/config").get_json()
+    assert current["editable"] is True
+    resp = _put_lanes(client, {"stamp": current["stamp"], "lanes": [_lane_request(model="gpt-novo")]})
+    assert resp.status_code == 200
+    assert "gpt-novo" in (project / "meister.config.yaml").read_text(encoding="utf-8")
 
 

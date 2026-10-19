@@ -45,6 +45,7 @@ from meister.model_catalog import list_models
 from meister.projects import (
     ProjectError,
     discover_projects,
+    get_project,
     list_projects,
     project_id,
     register_project,
@@ -621,10 +622,14 @@ def api_timelines():
     return jsonify({"runs": timelines})
 
 
-def _project_config_path() -> str:
-    """Caminho do meister.config.yaml do projeto servido pelo dashboard."""
-    project_root = _current_project_root() or os.getcwd()
-    return os.path.join(project_root, "meister.config.yaml")
+def _current_project_path() -> str:
+    """Pasta do projeto servido pelo dashboard; e o projeto que a API usa sem identificador."""
+    return _current_project_root() or os.getcwd()
+
+
+def _project_config_path(project: Dict[str, Any]) -> str:
+    """Caminho do meister.config.yaml do projeto escolhido (sempre um do registro)."""
+    return os.path.join(project["path"], "meister.config.yaml")
 
 
 def _is_remote_request() -> bool:
@@ -648,6 +653,8 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
         "reports.dashboard.config_body_object": "The request body must be an object.",
         "reports.dashboard.config_stamp_required": "stamp must be the text returned by GET /api/config.",
         "reports.dashboard.models_missing_harness": "Pass the harness name in the harness query parameter.",
+        "reports.dashboard.config_unknown_project": "The project is not registered in the dashboard.",
+        "reports.dashboard.config_project_missing": "The project folder no longer exists.",
     },
     "pt-BR": {
         "reports.dashboard.config_csrf": (
@@ -661,6 +668,10 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
         "reports.dashboard.config_body_object": "O corpo do pedido deve ser um objeto.",
         "reports.dashboard.config_stamp_required": "stamp deve ser o texto devolvido por GET /api/config.",
         "reports.dashboard.models_missing_harness": "Informe o nome do harness no par\u00e2metro harness.",
+        "reports.dashboard.config_unknown_project": (
+            "O projeto n\u00e3o est\u00e1 registrado no dashboard."
+        ),
+        "reports.dashboard.config_project_missing": "A pasta do projeto n\u00e3o existe mais.",
     },
 }
 for _language, _messages in _CONFIG_API_MESSAGES.items():
@@ -668,13 +679,14 @@ for _language, _messages in _CONFIG_API_MESSAGES.items():
         CATALOGS[_language].setdefault(_key, _value)
 
 
-def _config_payload(document: LaneDocument) -> Dict[str, Any]:
+def _config_payload(document: LaneDocument, project: Dict[str, Any]) -> Dict[str, Any]:
     reason: Optional[str] = None
-    if _has_active_run():
+    if _project_has_active_run(project):
         reason = "run_active"
     elif _is_remote_request():
         reason = "remote"
     return {
+        "project": {"id": project["id"], "name": project["name"], "path": project["path"]},
         "lanes": document.lanes,
         "source": document.path,
         "has_tier_order": document.has_tier_order,
@@ -686,7 +698,10 @@ def _config_payload(document: LaneDocument) -> Dict[str, Any]:
 
 @app.route("/api/config")
 def api_config():
-    return jsonify(_config_payload(load_effective_lanes(_project_config_path())))
+    project, error = _resolve_config_project(request.args.get("project"))
+    if error is not None or project is None:
+        return error
+    return jsonify(_config_payload(load_effective_lanes(_project_config_path(project)), project))
 
 
 @app.route("/api/config/models")
@@ -711,34 +726,39 @@ def _config_error(status: int, reason: str, message: str, issues: Optional[List[
     return jsonify(body), status
 
 
-def _config_write_guard() -> Tuple[Optional[Any], Dict[str, Any], LaneDocument]:
-    """Checagens comuns da escrita, na ordem do spec: CSRF, remoto, run ativa, corpo, carimbo.
+def _config_write_guard() -> Tuple[Any, Dict[str, Any], LaneDocument, Optional[Dict[str, Any]]]:
+    """Checagens comuns da escrita, na ordem do spec: CSRF, remoto, projeto, run ativa, corpo, carimbo.
 
-    Devolve (resposta de erro ou None, corpo do pedido, documento atual).
+    Devolve (resposta de erro ou None, corpo do pedido, documento atual, projeto escolhido).
+    O projeto vem do campo `project` do corpo; sem ele, e o projeto atual.
     """
     document = LaneDocument()
     if request.mimetype != "application/json" or request.headers.get("X-Meister-Config") != "1":
-        return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}, document
+        return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}, document, None
     if _is_remote_request():
-        return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}, document
-    if _has_active_run():
-        return _config_error(409, "run_active", t("reports.dashboard.config_run_active")), {}, document
-    body = request.get_json(silent=True)
+        return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}, document, None
+    raw = request.get_json(silent=True)
+    project, error = _resolve_config_project(raw.get("project") if isinstance(raw, dict) else None)
+    if error is not None or project is None:
+        return error, {}, document, None
+    if _project_has_active_run(project):
+        return _config_error(409, "run_active", t("reports.dashboard.config_run_active")), {}, document, project
+    body = raw
     if body is None:
-        return _config_error(400, "invalid_json", t("reports.dashboard.config_invalid_json")), {}, document
+        return _config_error(400, "invalid_json", t("reports.dashboard.config_invalid_json")), {}, document, project
     if not isinstance(body, dict):
         message = t("reports.dashboard.config_body_object")
         issue = ConfigIssue("error", "body", message)
-        return _config_error(422, "invalid", message, [issue]), {}, document
+        return _config_error(422, "invalid", message, [issue]), {}, document, project
     stamp = body.get("stamp")
     if not isinstance(stamp, str) or not stamp:
         message = t("reports.dashboard.config_stamp_required")
         issue = ConfigIssue("error", "stamp", message)
-        return _config_error(422, "invalid", message, [issue]), body, document
-    document = load_effective_lanes(_project_config_path())
+        return _config_error(422, "invalid", message, [issue]), body, document, project
+    document = load_effective_lanes(_project_config_path(project))
     if document.stamp != stamp:
-        return _config_error(409, "stale", t("config_editor.stamp_mismatch")), body, document
-    return None, body, document
+        return _config_error(409, "stale", t("config_editor.stamp_mismatch")), body, document, project
+    return None, body, document, project
 
 
 def _config_write_failure(exc: ConfigEditorError):
@@ -751,8 +771,8 @@ def _config_write_failure(exc: ConfigEditorError):
 
 @app.route("/api/config/lanes", methods=["PUT"])
 def api_config_lanes():
-    error, body, document = _config_write_guard()
-    if error is not None:
+    error, body, document, project = _config_write_guard()
+    if error is not None or project is None:
         return error
     lanes = body.get("lanes")
     issues = [issue for issue in validate_lanes(document, lanes) if issue.level == "error"]
@@ -762,19 +782,19 @@ def api_config_lanes():
         updated = apply_lanes(document, lanes, body["stamp"])
     except ConfigEditorError as exc:
         return _config_write_failure(exc)
-    return jsonify(_config_payload(updated))
+    return jsonify(_config_payload(updated, project))
 
 
 @app.route("/api/config/restore-default", methods=["POST"])
 def api_config_restore_default():
-    error, body, document = _config_write_guard()
-    if error is not None:
+    error, body, document, project = _config_write_guard()
+    if error is not None or project is None:
         return error
     try:
         updated = restore_default_lanes(document, body["stamp"])
     except ConfigEditorError as exc:
         return _config_write_failure(exc)
-    return jsonify(_config_payload(updated))
+    return jsonify(_config_payload(updated, project))
 
 
 # Mensagens da API de projetos; registradas nos catalogos do i18n ao importar este modulo.
@@ -806,7 +826,7 @@ for _language, _messages in _PROJECT_API_MESSAGES.items():
 
 
 def _current_project_id() -> str:
-    return project_id(_current_project_root() or os.getcwd())
+    return project_id(_current_project_path())
 
 
 def _project_log_has_active_run(project_path: str) -> bool:
@@ -819,13 +839,33 @@ def _project_log_has_active_run(project_path: str) -> bool:
     return _events_have_active_run(events)
 
 
+def _project_has_active_run(project: Dict[str, Any]) -> bool:
+    """Run ativa do projeto escolhido; o projeto atual continua pelo log do dashboard."""
+    if project["id"] == _current_project_id():
+        return _has_active_run()
+    return _project_log_has_active_run(project["path"])
+
+
+def _resolve_config_project(identifier: Optional[str]) -> Tuple[Optional[Dict[str, Any]], Any]:
+    """Projeto do pedido: sem identificador e o atual; com ele, so um projeto do registro.
+
+    Devolve (projeto ou None, resposta de erro ou None).
+    """
+    if identifier is None:
+        root = _current_project_path()
+        return {"id": project_id(root), "name": os.path.basename(root.rstrip(os.sep)) or root, "path": root}, None
+    project = get_project(identifier)
+    if project is None:
+        return None, _config_error(404, "unknown_project", t("reports.dashboard.config_unknown_project"))
+    if not project["exists"]:
+        return None, _config_error(409, "project_missing", t("reports.dashboard.config_project_missing"))
+    return project, None
+
+
 def _project_payload(project: Dict[str, Any]) -> Dict[str, Any]:
     active = False
     if project["exists"]:
-        if project["id"] == _current_project_id():
-            active = _has_active_run()
-        else:
-            active = _project_log_has_active_run(project["path"])
+        active = _project_has_active_run(project)
     return {
         "id": project["id"],
         "name": project["name"],
