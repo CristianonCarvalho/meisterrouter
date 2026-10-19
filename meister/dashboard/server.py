@@ -42,7 +42,14 @@ from meister.config import ConfigIssue
 from meister.i18n import CATALOGS, get_language, t
 from meister.logger import find_project_root, get_log_file
 from meister.model_catalog import list_models
-from meister.projects import register_project
+from meister.projects import (
+    ProjectError,
+    discover_projects,
+    list_projects,
+    project_id,
+    register_project,
+    register_projects,
+)
 from meister.report import compute_run_report
 from meister.timeline import build_timeline
 from meister.timeline_cli import (
@@ -770,14 +777,140 @@ def api_config_restore_default():
     return jsonify(_config_payload(updated))
 
 
+# Mensagens da API de projetos; registradas nos catalogos do i18n ao importar este modulo.
+_PROJECT_API_MESSAGES: Dict[str, Dict[str, str]] = {
+    "en": {
+        "reports.dashboard.project_not_absolute": "The path must be an absolute path.",
+        "reports.dashboard.project_not_a_directory": "The path is not an existing folder.",
+        "reports.dashboard.project_not_a_project": "The folder has no .meister/, meister.config.yaml or .git.",
+        "reports.dashboard.project_forbidden": "Your personal folder and the filesystem root cannot be projects.",
+        "reports.dashboard.projects_body_paths": "paths must be a non-empty list of path strings.",
+    },
+    "pt-BR": {
+        "reports.dashboard.project_not_absolute": "O caminho deve ser absoluto.",
+        "reports.dashboard.project_not_a_directory": "O caminho n\u00e3o \u00e9 uma pasta existente.",
+        "reports.dashboard.project_not_a_project": (
+            "A pasta n\u00e3o tem .meister/, meister.config.yaml nem .git."
+        ),
+        "reports.dashboard.project_forbidden": (
+            "A pasta pessoal e a raiz do sistema n\u00e3o podem ser projetos."
+        ),
+        "reports.dashboard.projects_body_paths": (
+            "paths deve ser uma lista n\u00e3o vazia de caminhos."
+        ),
+    },
+}
+for _language, _messages in _PROJECT_API_MESSAGES.items():
+    for _key, _value in _messages.items():
+        CATALOGS[_language].setdefault(_key, _value)
+
+
+def _current_project_id() -> str:
+    return project_id(_current_project_root() or os.getcwd())
+
+
+def _project_log_has_active_run(project_path: str) -> bool:
+    """Run ativa lida do log do projeto; log ausente ou ilegível conta como sem run."""
+    log_file = os.path.join(project_path, ".meister", "logs", "orchestration_log.jsonl")
+    try:
+        events = list(iter_events(log_file))
+    except OSError:
+        return False
+    return _events_have_active_run(events)
+
+
+def _project_payload(project: Dict[str, Any]) -> Dict[str, Any]:
+    active = False
+    if project["exists"]:
+        if project["id"] == _current_project_id():
+            active = _has_active_run()
+        else:
+            active = _project_log_has_active_run(project["path"])
+    return {
+        "id": project["id"],
+        "name": project["name"],
+        "path": project["path"],
+        "exists": project["exists"],
+        "active_run": active,
+    }
+
+
+def _projects_write_guard() -> Tuple[Optional[Any], Dict[str, Any]]:
+    """Checagens da escrita de projetos: CSRF, remoto e corpo JSON.
+
+    Nao bloqueia por run ativa: o registro nao grava dentro do projeto.
+    Devolve (resposta de erro ou None, corpo do pedido).
+    """
+    if request.mimetype != "application/json" or request.headers.get("X-Meister-Config") != "1":
+        return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}
+    if _is_remote_request():
+        return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}
+    body = request.get_json(silent=True)
+    if body is None:
+        return _config_error(400, "invalid_json", t("reports.dashboard.config_invalid_json")), {}
+    if not isinstance(body, dict):
+        return _config_error(422, "invalid", t("reports.dashboard.config_body_object")), {}
+    return None, body
+
+
+def _project_error(exc: ProjectError):
+    return _config_error(422, exc.code, t(f"reports.dashboard.project_{exc.code}"))
+
+
+@app.route("/api/projects")
+def api_projects():
+    return jsonify({
+        "projects": [_project_payload(project) for project in list_projects()],
+        "current": _current_project_id(),
+    })
+
+
+@app.route("/api/projects", methods=["POST"])
+def api_projects_add():
+    error, body = _projects_write_guard()
+    if error is not None:
+        return error
+    try:
+        entry = register_project(body.get("path", ""))
+    except ProjectError as exc:
+        return _project_error(exc)
+    return jsonify({"project": _project_payload(entry)})
+
+
+@app.route("/api/projects/discover", methods=["POST"])
+def api_projects_discover():
+    error, body = _projects_write_guard()
+    if error is not None:
+        return error
+    try:
+        candidates = discover_projects(body.get("base", ""))
+    except ProjectError as exc:
+        return _project_error(exc)
+    return jsonify({"candidates": candidates})
+
+
+@app.route("/api/projects/register", methods=["POST"])
+def api_projects_register():
+    error, body = _projects_write_guard()
+    if error is not None:
+        return error
+    paths = body.get("paths")
+    if not isinstance(paths, list) or not paths or not all(isinstance(path, str) for path in paths):
+        return _config_error(422, "invalid", t("reports.dashboard.projects_body_paths"))
+    try:
+        entries = register_projects(paths)
+    except ProjectError as exc:
+        return _project_error(exc)
+    return jsonify({"projects": [_project_payload(entry) for entry in entries]})
+
+
 def _find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
 
 
-def _has_active_run() -> bool:
-    events = _read_events()
+def _events_have_active_run(events: List[Dict[str, Any]]) -> bool:
     if not events:
         return False
     runs = list_runs(
@@ -792,6 +925,10 @@ def _has_active_run() -> bool:
         if status in (None, "running"):
             return True
     return False
+
+
+def _has_active_run() -> bool:
+    return _events_have_active_run(_read_events())
 
 
 def _idle_watchdog(
