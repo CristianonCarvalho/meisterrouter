@@ -341,6 +341,11 @@ def _config_messages() -> Dict[str, str]:
         "tree_loading",
         "tree_unavailable",
         "tree_empty",
+        "project_label",
+        "project_strip",
+        "project_missing",
+        "project_switch_confirm",
+        "project_switch_yes",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 

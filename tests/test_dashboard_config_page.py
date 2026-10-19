@@ -258,3 +258,47 @@ def test_config_page_contains_older_server_warning_hidden_by_default(page_client
     assert "hidden" in match.group(0)
 
 
+PROJECT_JS_KEYS = ("project_strip", "project_missing")
+PROJECT_RENDERED_KEYS = ("project_label", "project_switch_confirm", "project_switch_yes")
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_project_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in PROJECT_JS_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+    for key in PROJECT_RENDERED_KEYS:
+        assert catalog[f"cli.config.web.{key}"] in html
+
+
+def test_config_messages_include_project_keys():
+    messages = _config_messages()
+    for key in (*PROJECT_JS_KEYS, *PROJECT_RENDERED_KEYS):
+        assert key in messages
+
+
+def test_config_page_has_project_bar_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    assert 'id="project-select"' in html
+    assert 'id="project-strip"' in html
+    assert "function renderProjects(" in html
+    assert "function switchProject(" in html
+    assert "/api/projects" in html
+
+
+def test_config_page_serves_no_new_fixed_project_text_outside_the_text_block(page_client, monkeypatch):
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    outside = re.sub(r"const (?:rawText|text) = \{.*?\};\n", "", html, count=1)
+    catalog = CATALOGS["pt-BR"]
+    for key in PROJECT_JS_KEYS:
+        assert catalog[f"cli.config.web.{key}"] not in outside
+    assert 'id="project-confirm"' in outside
+
+
