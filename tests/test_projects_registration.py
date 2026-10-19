@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -110,7 +111,10 @@ def test_start_server_registration_failure_still_writes_state(
     start_server(port=5050)
 
     write_state.assert_called_once()
-    assert write_state.call_args.args[0] == str(project.resolve())
+    written = write_state.call_args.args[0]
+    assert os.path.normcase(os.path.realpath(written)) == os.path.normcase(
+        os.path.realpath(project.resolve())
+    )
 
 
 def test_start_server_non_project_directory_is_not_registered(

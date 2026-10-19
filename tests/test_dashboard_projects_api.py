@@ -38,6 +38,7 @@ def projects_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
     monkeypatch.setenv("MEISTER_LOG_DIR", str(tmp_path / "logs"))
     current = _project(tmp_path, "current")
     monkeypatch.chdir(current)
