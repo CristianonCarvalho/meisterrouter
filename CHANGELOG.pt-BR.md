@@ -8,6 +8,10 @@ Este changelog segue o formato [Keep a Changelog](https://keepachangelog.com/pt-
 - **A gaveta de via da `/config` lista os modelos conhecidos do harness da via.** O campo de modelo ganha uma árvore com o id de cada modelo, o custo quando conhecido e a origem: `agy models` (lido ao vivo), o cache do Codex (`~/.codex/models_cache.json`), os aliases e ids do Claude e o cache do Copilot. O texto livre continua valendo, e um modelo fora das listas mostra o aviso "modelo desconhecido" sem impedir de salvar. Cada harness grafa o mesmo modelo de um jeito (`claude-haiku-5.5` no Copilot, `haiku` ou `claude-haiku-5-5` no Claude CLI), então o id vem da árvore. As listas saem só para leitura em `GET /api/config/models?harness=...`.
 - **`meister config refresh-models copilot` lê a lista de modelos do Copilot pelo próprio seletor `/model`.** O Copilot não tem comando de listagem, então o comando abre o seletor interativo uma vez num terminal simulado (nenhum prompt é enviado, então não gasta crédito), lê a tela real e atualiza `~/.meister/model_catalog/copilot.json`, guardando o arquivo anterior como `.bak` e deixando-o intacto se nenhum modelo for lido. É opt-in e nunca roda sozinho.
 
+### Corrigido
+- **O worker usa o mesmo `meister.config.yaml` que o orquestrador carregou, mesmo que o arquivo não esteja no git.** Os workers rodam num worktree (um checkout do último commit), então uma configuração não rastreada ou não commitada era invisível para eles, que caíam no catálogo padrão empacotado: uma via definida só no projeto (por exemplo `tier_2b`) falhava com "Unknown lane", e timeouts e `eligible_classes` das vias eram ignorados. A configuração carregada passa a registrar o caminho absoluto do arquivo e a tarefa do worker o leva.
+- **A falha de um harness mostra a causa quando a saída dele tem sinal de cota.** A exceção do worker dizia só "failed with exit code 3"; quando a saída do harness traz um sinal reconhecido pelo detector de cota, a mensagem passa a acrescentar esse trecho (até 200 caracteres).
+
 ## [0.12.0] - 2026-10-18
 
 ### Adicionado
