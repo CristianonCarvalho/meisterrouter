@@ -632,7 +632,7 @@
 </div>
 <div id="save-all-confirm" class="confirm" hidden>
   <span id="save-all-confirm-text"></span>
-  <button type="button" id="save-all-yes" class="danger">{{ messages.confirm_yes }}</button>
+  <button type="button" id="save-all-yes" class="danger">{{ messages.save_all_yes }}</button>
   <button type="button" id="save-all-no">{{ messages.confirm_no }}</button>
 </div>
 <section id="save-all-result" class="panel" hidden>
@@ -1812,6 +1812,7 @@
       delete state.errors.lanes[String(state.drawerIndex)][field];
     }
     renderLanes();
+    renderChanges();
     renderControls();
     renderDrawerErrors();
   }
