@@ -677,6 +677,8 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
         "reports.dashboard.models_missing_harness": "Pass the harness name in the harness query parameter.",
         "reports.dashboard.config_unknown_project": "The project is not registered in the dashboard.",
         "reports.dashboard.config_project_missing": "The project folder no longer exists.",
+        "reports.dashboard.replicate_skipped_run_active": "A run is in progress in this project; its lanes were not changed.",
+        "reports.dashboard.replicate_skipped_missing": "The project folder no longer exists; nothing was written.",
     },
     "pt-BR": {
         "reports.dashboard.config_csrf": (
@@ -694,6 +696,12 @@ _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
             "O projeto n\u00e3o est\u00e1 registrado no dashboard."
         ),
         "reports.dashboard.config_project_missing": "A pasta do projeto n\u00e3o existe mais.",
+        "reports.dashboard.replicate_skipped_run_active": (
+            "H\u00e1 uma run em andamento neste projeto; as vias n\u00e3o foram alteradas."
+        ),
+        "reports.dashboard.replicate_skipped_missing": (
+            "A pasta do projeto n\u00e3o existe mais; nada foi gravado."
+        ),
     },
 }
 for _language, _messages in _CONFIG_API_MESSAGES.items():
@@ -817,6 +825,47 @@ def api_config_restore_default():
     except ConfigEditorError as exc:
         return _config_write_failure(exc)
     return jsonify(_config_payload(updated, project))
+
+
+def _replicate_to(target: Dict[str, Any], lanes: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Grava a lista de vias num projeto do registro; falha de um destino nao levanta para o laco."""
+    result = {"id": target["id"], "name": target["name"], "path": target["path"], "status": "saved", "message": ""}
+    if not target["exists"]:
+        return {**result, "status": "skipped_missing", "message": t("reports.dashboard.replicate_skipped_missing")}
+    if _project_has_active_run(target):
+        return {**result, "status": "skipped_run_active", "message": t("reports.dashboard.replicate_skipped_run_active")}
+    try:
+        document = load_effective_lanes(_project_config_path(target))
+        issues = [issue for issue in validate_lanes(document, lanes) if issue.level == "error"]
+        if issues:
+            return {**result, "status": "failed", "message": issues[0].message}
+        apply_lanes(document, lanes, document.stamp)
+    except Exception as exc:  # ruamel.yaml levanta YAMLError fora de ConfigEditorError ao ler YAML invalido
+        return {**result, "status": "failed", "message": str(exc)}
+    return result
+
+
+@app.route("/api/config/replicate", methods=["POST"])
+def api_config_replicate():
+    error, body, document, project = _config_write_guard()
+    if error is not None or project is None:
+        return error
+    lanes = body.get("lanes")
+    issues = [issue for issue in validate_lanes(document, lanes) if issue.level == "error"]
+    if issues:
+        return _config_error(422, "invalid", ConfigValidationError(issues).args[0], issues)
+    try:
+        updated = apply_lanes(document, lanes, body["stamp"])
+    except ConfigEditorError as exc:
+        return _config_write_failure(exc)
+    # As vias casam pelo nome no destino; original_name so existe no pedido da origem.
+    copies = [{key: value for key, value in lane.items() if key != "original_name"} for lane in body["lanes"]]
+    results = [
+        _replicate_to(target, copies)
+        for target in list_projects()
+        if target["id"] != project["id"]
+    ]
+    return jsonify({"source": _config_payload(updated, project), "results": results})
 
 
 # Mensagens da API de projetos; registradas nos catalogos do i18n ao importar este modulo.
