@@ -363,6 +363,14 @@ def _config_messages() -> Dict[str, str]:
         "add_project_submit",
         "add_project_done",
         "project_request_failed",
+        "save_all",
+        "save_all_confirm",
+        "save_all_result_title",
+        "save_all_summary",
+        "save_all_state_saved",
+        "save_all_state_run_active",
+        "save_all_state_missing",
+        "save_all_state_failed",
     )
     return {key: t(f"cli.config.web.{key}") for key in keys}
 
