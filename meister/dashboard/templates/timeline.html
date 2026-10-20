@@ -660,6 +660,50 @@
     if (!row || typeof row !== "object") return null;
     return row.status === "reused" ? 36 : null;
   }
+  // Lê o parâmetro project de uma query string, texto vazio vira null.
+  function projectFromSearch(search) {
+    if (!search || typeof search !== "string") return null;
+    const query = search.startsWith("?") ? search.slice(1) : search;
+    const params = new URLSearchParams(query);
+    const value = params.get("project");
+    if (value === null || value === undefined) return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  // Acrescenta project=<id> com ? ou & conforme a URL, encodeURIComponent; null devolve a URL intacta.
+  function withProject(url, projectId) {
+    if (projectId === null || projectId === undefined || projectId === "") return url;
+    const base = String(url || "");
+    const sep = base.includes("?") ? (/[?&]$/.test(base) ? "" : "&") : "?";
+    return base + sep + "project=" + encodeURIComponent(projectId);
+  }
+  // Lista de {id, name, path, missing} a partir de /api/projects, com missing quando exists === false,
+  // ordenada como veio; o id atual que não está na lista entra como primeiro item.
+  function projectOptions(projects, currentId) {
+    const list = Array.isArray(projects) ? projects.slice() : [];
+    let current = null;
+    if (typeof currentId === "string" && currentId.trim()) {
+      current = { id: currentId.trim(), name: currentId.trim(), path: "", missing: false };
+    } else if (currentId && typeof currentId === "object" && typeof currentId.id === "string" && currentId.id.trim()) {
+      current = {
+        id: currentId.id.trim(),
+        name: currentId.name || currentId.path || currentId.id.trim(),
+        path: currentId.path || "",
+        missing: currentId.missing === true || currentId.exists === false,
+      };
+    }
+    if (current && !list.some((project) => project && project.id === current.id)) {
+      list.unshift(current);
+    }
+    return list
+      .filter((project) => project && typeof project.id === "string")
+      .map((project) => ({
+        id: project.id,
+        name: project.name || project.path || project.id,
+        path: project.path || "",
+        missing: project.missing === true || project.exists === false,
+      }));
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
   const initialHash = new URLSearchParams(window.location.hash.slice(1));

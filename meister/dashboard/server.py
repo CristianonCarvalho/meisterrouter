@@ -238,6 +238,8 @@ def _timeline_messages() -> Dict[str, str]:
         "sound_on",
         "sound_off",
         "sound_title",
+        "project_label",
+        "project_missing",
     )
     return {key: t(f"cli.timeline.web.{key}") for key in keys}
 
