@@ -625,10 +625,21 @@
 <p class="hint">{{ messages.project_list_notice }}</p>
 <div class="actions-bar">
   <button type="button" id="save" class="primary">{{ messages.save }}</button>
+  <button type="button" id="save-all">{{ messages.save_all }}</button>
   <button type="button" id="revert">{{ messages.revert }}</button>
   <button type="button" id="restore">{{ messages.restore_default }}</button>
   <span id="status" class="status" role="status"></span>
 </div>
+<div id="save-all-confirm" class="confirm" hidden>
+  <span id="save-all-confirm-text"></span>
+  <button type="button" id="save-all-yes" class="danger">{{ messages.confirm_yes }}</button>
+  <button type="button" id="save-all-no">{{ messages.confirm_no }}</button>
+</div>
+<section id="save-all-result" class="panel" hidden>
+  <h2>{{ messages.save_all_result_title }}</h2>
+  <ul id="save-all-list" class="changes-list"></ul>
+  <div id="save-all-summary" class="changes-summary"></div>
+</section>
 <div id="restore-confirm" class="confirm" hidden>
   <span>{{ messages.restore_confirm }}</span>
   <button type="button" id="restore-yes" class="danger">{{ messages.confirm_yes }}</button>
@@ -889,6 +900,21 @@
 
   function restoreRequest(stamp, projectId) {
     return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify(withProject({ stamp }, projectId)) };
+  }
+
+  // Mesmo corpo da gravação normal; a rota replica para os demais projetos e ignora original_name no destino.
+  function replicateRequest(stamp, lanes, projectId) {
+    const body = withProject(buildLanesBody(stamp, lanes), projectId);
+    return { method: "POST", headers: { ...WRITE_HEADERS }, body: JSON.stringify(body) };
+  }
+
+  // Contagem de destinos por estado (saved, skipped_run_active, skipped_missing, failed); estado desconhecido não conta.
+  function replicateSummary(results) {
+    const counts = { saved: 0, skipped_run_active: 0, skipped_missing: 0, failed: 0 };
+    for (const item of Array.isArray(results) ? results : []) {
+      if (item && Object.prototype.hasOwnProperty.call(counts, item.status)) counts[item.status] += 1;
+    }
+    return counts;
   }
 
   // {"lanes[0].model": [...], "lanes": [...]} -> {lanes: {"0": {model: [...]}}, general: [...]}
@@ -1217,6 +1243,12 @@
     "result_failed_before",
     "result_no_eligible",
     "result_ok",
+    "save_all_confirm",
+    "save_all_state_failed",
+    "save_all_state_missing",
+    "save_all_state_run_active",
+    "save_all_state_saved",
+    "save_all_summary",
     "save_failed",
     "saved",
     "saving",
@@ -1298,6 +1330,13 @@
     max_runtime_seconds: text.field_max_runtime,
     eligible_classes: text.field_eligible_classes,
     best_for: text.field_best_for,
+  };
+
+  const REPLICATE_STATE_TEXTS = {
+    saved: text.save_all_state_saved,
+    skipped_run_active: text.save_all_state_run_active,
+    skipped_missing: text.save_all_state_missing,
+    failed: text.save_all_state_failed,
   };
 
   const ISSUE_TEXTS = {
@@ -1885,6 +1924,8 @@
     byId("revert").disabled = locked() || !changed;
     byId("restore").disabled = locked() || !state.hasTierOrder;
     byId("restore-yes").disabled = locked();
+    byId("save-all-yes").disabled = locked();
+    renderSaveAll();
     byId("read-only").hidden = state.editable;
     byId("project-select").disabled = state.busy;
     const addLevelBtn = byId("add-level");
@@ -2057,6 +2098,18 @@
     });
     select.value = state.projectId || "";
     byId("project-strip").textContent = fmt(text.project_strip, { path: state.projectPath });
+    renderSaveAll();
+  }
+
+  // Destinos da replicação: registrados, existentes e diferentes do projeto atual.
+  function replicateTargets() {
+    return state.projects.filter((project) => project && project.exists !== false && project.id !== state.projectId);
+  }
+
+  // Replicar exige a gravação normal em dia (o save fica desabilitado) e pelo menos dois projetos existentes.
+  function renderSaveAll() {
+    const existing = state.projects.filter((project) => project && project.exists !== false);
+    byId("save-all").disabled = byId("save").disabled || existing.length < 2;
   }
 
   async function loadProjects() {
@@ -2095,6 +2148,8 @@
     state.modelCache = new Map();
     closeDrawer();
     byId("restore-confirm").hidden = true;
+    byId("save-all-confirm").hidden = true;
+    byId("save-all-result").hidden = true;
     byId("banner-stale").hidden = true;
     byId("source").textContent = text.loading;
     setStatus("", "");
@@ -2121,6 +2176,7 @@
     state.selectedCardIndex = null;
     byId("banner-stale").hidden = true;
     byId("restore-confirm").hidden = true;
+    byId("save-all-confirm").hidden = true;
     byId("source").textContent = state.hasTierOrder
       ? text.source.replace("{path}", data.source || "")
       : text.source_default;
@@ -2179,10 +2235,8 @@
     render();
   }
 
-  async function write(url, request, successText) {
-    state.busy = true;
-    setStatus(text.saving, "");
-    render();
+  // Uma chamada de escrita: devolve {status, body}; sem resposta, status 0.
+  async function send(url, request) {
     let status = 0;
     let body = null;
     try {
@@ -2196,8 +2250,53 @@
     } catch (err) {
       body = { error: String(err) };
     }
+    return { status, body };
+  }
+
+  async function write(url, request, successText) {
+    state.busy = true;
+    setStatus(text.saving, "");
+    render();
+    const { status, body } = await send(url, request);
     state.busy = false;
     handleWriteResponse(status, body, successText);
+  }
+
+  // Grava a origem e replica para os demais projetos; sem resultado por projeto quando a origem falha.
+  async function replicateAll() {
+    if (locked()) return;
+    byId("save-all-result").hidden = true;
+    state.busy = true;
+    setStatus(text.saving, "");
+    render();
+    const { status, body } = await send("/api/config/replicate", replicateRequest(state.stamp, state.lanes, state.projectId));
+    state.busy = false;
+    if (saveOutcome(status, body) !== "saved") {
+      handleWriteResponse(status, body, text.saved);
+      return;
+    }
+    applyData(body.source || {});
+    renderReplicateResult(body.results);
+    setStatus(text.saved, "ok");
+  }
+
+  function renderReplicateResult(results) {
+    const list = byId("save-all-list");
+    list.replaceChildren();
+    const items = Array.isArray(results) ? results : [];
+    items.forEach((item) => {
+      const label = REPLICATE_STATE_TEXTS[item.status] || item.status;
+      const kind = item.status === "saved" ? "change-item-added" : item.status === "failed" ? "change-item-removed" : "change-item-changed";
+      const line = item.message ? `${item.name}: ${label} (${item.message})` : `${item.name}: ${label}`;
+      list.appendChild(el("li", kind, line));
+    });
+    const counts = replicateSummary(items);
+    byId("save-all-summary").textContent = fmt(text.save_all_summary, {
+      saved: counts.saved,
+      skipped: counts.skipped_run_active + counts.skipped_missing,
+      failed: counts.failed,
+    });
+    byId("save-all-result").hidden = false;
   }
 
   byId("add-level").addEventListener("click", () => {
@@ -2252,6 +2351,23 @@
         closeDrawer();
       }
     }
+  });
+  byId("save-all").addEventListener("click", () => {
+    if (byId("save-all").disabled) return;
+    const targets = replicateTargets();
+    byId("save-all-confirm-text").textContent = fmt(text.save_all_confirm, {
+      count: targets.length,
+      names: targets.map((project) => project.name || project.id).join(", "),
+    });
+    byId("save-all-confirm").hidden = false;
+  });
+  byId("save-all-no").addEventListener("click", () => {
+    byId("save-all-confirm").hidden = true;
+  });
+  byId("save-all-yes").addEventListener("click", () => {
+    if (locked()) return;
+    byId("save-all-confirm").hidden = true;
+    replicateAll();
   });
   byId("restore").addEventListener("click", () => {
     byId("restore-confirm").hidden = false;

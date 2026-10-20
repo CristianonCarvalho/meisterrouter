@@ -378,3 +378,64 @@ def test_config_page_serves_no_new_fixed_panel_text_outside_the_text_block(page_
         assert catalog[f"cli.config.web.{key}"] not in outside
 
 
+REPLICATE_KEYS = (
+    "save_all",
+    "save_all_confirm",
+    "save_all_result_title",
+    "save_all_summary",
+    "save_all_state_saved",
+    "save_all_state_run_active",
+    "save_all_state_missing",
+    "save_all_state_failed",
+)
+
+
+def test_replicate_keys_exist_in_both_catalogs_with_the_same_keys():
+    en_keys = {key for key in CATALOGS["en"] if key.startswith("cli.config.web.save_all")}
+    pt_keys = {key for key in CATALOGS["pt-BR"] if key.startswith("cli.config.web.save_all")}
+    expected = {f"cli.config.web.{key}" for key in REPLICATE_KEYS}
+    assert en_keys == expected
+    assert pt_keys == expected
+
+
+def test_config_messages_include_replicate_keys():
+    messages = _config_messages()
+    for key in REPLICATE_KEYS:
+        assert key in messages
+
+
+@pytest.mark.parametrize("language", ["en", "pt-BR"])
+def test_config_page_embeds_replicate_texts(page_client, monkeypatch, language):
+    monkeypatch.setenv("MEISTER_LANG", language)
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    texts = _page_texts(html)
+    catalog = CATALOGS[language]
+    for key in REPLICATE_KEYS:
+        assert texts[key] == catalog[f"cli.config.web.{key}"]
+        assert texts[key]
+    assert catalog["cli.config.web.save_all"] in html
+    assert catalog["cli.config.web.save_all_result_title"] in html
+
+
+def test_config_page_has_save_all_markup(page_client):
+    html = page_client.get("/config").get_data(as_text=True)
+    for marker in ('id="save-all"', 'id="save-all-confirm"', 'id="save-all-result"', 'id="save-all-list"'):
+        assert marker in html
+    bar = re.search(r'<button type="button" id="save"[^>]*>.*?<button type="button" id="save-all"', html, re.S)
+    assert bar is not None
+    assert "function replicateAll(" in html
+    assert "function renderReplicateResult(" in html
+    assert "/api/config/replicate" in html
+
+
+def test_config_page_serves_no_new_replicate_text_outside_the_text_block(page_client, monkeypatch):
+    monkeypatch.setenv("MEISTER_LANG", "pt-BR")
+    reset_language_cache()
+    html = page_client.get("/config").get_data(as_text=True)
+    outside = re.sub(r"const (?:rawText|text) = \{.*?\};\n", "", html, count=1)
+    catalog = CATALOGS["pt-BR"]
+    for key in ("save_all_confirm", "save_all_summary", "save_all_state_run_active", "save_all_state_failed"):
+        assert catalog[f"cli.config.web.{key}"] not in outside
+
+
