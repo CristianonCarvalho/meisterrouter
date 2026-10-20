@@ -99,6 +99,9 @@ class DashboardConfig:
         default_factory=lambda: _default_section("dashboard")["idle_exit_minutes"]
     )
     window: DashboardWindowConfig = field(default_factory=DashboardWindowConfig)
+    remote_edit_logins: List[str] = field(
+        default_factory=lambda: list(_default_section("dashboard").get("remote_edit_logins", []))
+    )
 
 
 @dataclass
@@ -842,10 +845,26 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             dashboard_defaults["window"]["height"],
         ),
     )
+    dashboard_remote_edit_logins = dashboard_data.get(
+        "remote_edit_logins", dashboard_defaults["remote_edit_logins"]
+    )
+    if not isinstance(dashboard_remote_edit_logins, list) or any(
+        not isinstance(login, str) or not login.strip()
+        for login in dashboard_remote_edit_logins
+    ):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "dashboard.remote_edit_logins",
+                t("dashboard.remote_edit_logins_invalid", value=repr(dashboard_remote_edit_logins)),
+            )
+        )
+        dashboard_remote_edit_logins = dashboard_defaults["remote_edit_logins"]
     dashboard = DashboardConfig(
         open=dashboard_open,
         idle_exit_minutes=dashboard_idle_exit_minutes,
         window=dashboard_window,
+        remote_edit_logins=[login.strip() for login in dashboard_remote_edit_logins],
     )
 
     gate_data = data.get("gate", {})
