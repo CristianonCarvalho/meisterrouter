@@ -358,6 +358,8 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.outcome_timeout": "tempo esgotado",
     "cli.timeline.web.outcome_gate_rejected": "rejeitada no gate",
     "cli.timeline.web.outcome_scope": "fora do escopo",
+    "cli.timeline.web.project_label": "Projeto",
+    "cli.timeline.web.project_missing": "{name} (pasta ausente)",
     "cli.config.web.title": "Configuração das vias",
     "cli.config.web.subtitle": "Vias dos workers na ordem em que são tentadas",
     "cli.config.web.back_timeline": "Timeline",

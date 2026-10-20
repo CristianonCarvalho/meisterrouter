@@ -54,6 +54,8 @@
     border-bottom: 1px solid var(--border);
   }
   .header-left { display: flex; align-items: center; gap: 12px; }
+  .header-left label { color: var(--muted); font-size: 13px; font-weight: 600; }
+  #project-select { max-width: min(240px, 40vw); }
   h1 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; min-width: 0; }
   #run-name { max-width: min(480px, 50vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-weight: 600; }
   #run-name:empty { display: none; }
@@ -224,9 +226,13 @@
 </head>
 <body>
 <header class="header">
-  <div>
-    <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span><span id="run-name"></span></h1>
-    <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
+  <div class="header-left">
+    <div>
+      <h1><span class="logo">MEISTER</span> <span id="project-name">Meister</span><span id="run-name"></span></h1>
+      <div class="subtitle"><span id="run-header-title">{{ messages.waiting_first_run }}</span></div>
+    </div>
+    <label for="project-select">{{ messages.project_label }}</label>
+    <select id="project-select" aria-label="{{ messages.project_label }}"></select>
   </div>
   <div class="header-controls">
     <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="true" title="{{ messages.sound_title }}">{{ messages.sound_on }}</button>
@@ -660,11 +666,66 @@
     if (!row || typeof row !== "object") return null;
     return row.status === "reused" ? 36 : null;
   }
+  // Lê o parâmetro project de uma query string, texto vazio vira null.
+  function projectFromSearch(search) {
+    if (!search || typeof search !== "string") return null;
+    const query = search.startsWith("?") ? search.slice(1) : search;
+    const params = new URLSearchParams(query);
+    const value = params.get("project");
+    if (value === null || value === undefined) return null;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+  // Acrescenta project=<id> com ? ou & conforme a URL, encodeURIComponent; null devolve a URL intacta.
+  function withProject(url, projectId) {
+    if (projectId === null || projectId === undefined || projectId === "") return url;
+    const base = String(url || "");
+    const sep = base.includes("?") ? (/[?&]$/.test(base) ? "" : "&") : "?";
+    return base + sep + "project=" + encodeURIComponent(projectId);
+  }
+  // Lista de {id, name, path, missing} a partir de /api/projects, com missing quando exists === false,
+  // ordenada como veio; o id atual que não está na lista entra como primeiro item.
+  function projectOptions(projects, currentId) {
+    const list = Array.isArray(projects) ? projects.slice() : [];
+    let current = null;
+    if (typeof currentId === "string" && currentId.trim()) {
+      current = { id: currentId.trim(), name: currentId.trim(), path: "", missing: false };
+    } else if (currentId && typeof currentId === "object" && typeof currentId.id === "string" && currentId.id.trim()) {
+      current = {
+        id: currentId.id.trim(),
+        name: currentId.name || currentId.path || currentId.id.trim(),
+        path: currentId.path || "",
+        missing: currentId.missing === true || currentId.exists === false,
+      };
+    }
+    if (current && !list.some((project) => project && project.id === current.id)) {
+      list.unshift(current);
+    }
+    return list
+      .filter((project) => project && typeof project.id === "string")
+      .map((project) => ({
+        id: project.id,
+        name: project.name || project.path || project.id,
+        path: project.path || "",
+        missing: project.missing === true || project.exists === false,
+      }));
+  }
   // helpers:end
   const SVG_NS = "http://www.w3.org/2000/svg";
+  const initialProjectId = projectFromSearch(window.location.search);
   const initialHash = new URLSearchParams(window.location.hash.slice(1));
-  const requestedRunId = initialHash.get("run") || null;
-  let state = { mode: "live", runId: null, paused: false, zoom: 1, offset: 0 };
+  let pendingRequestedRunId = initialHash.get("run") || null;
+  let state = {
+    mode: "live",
+    runId: null,
+    paused: false,
+    zoom: 1,
+    offset: 0,
+    projectId: initialProjectId,
+    serverProjectId: null,
+    projects: [],
+  };
+  let projectEpoch = 0;
   let latestTimeline = null;
   let allTimelineData = [];
   let pollingTimer = null;
@@ -800,8 +861,20 @@
     const hash = new URLSearchParams();
     if (state.mode === "selected" && state.runId) hash.set("run", state.runId);
     const nextHash = hash.toString();
-    if (window.location.hash.slice(1) !== nextHash) {
-      window.history.replaceState({}, "", window.location.pathname + window.location.search + (nextHash ? "#" + nextHash : ""));
+
+    const search = new URLSearchParams(window.location.search);
+    if (state.projectId && state.projectId !== state.serverProjectId) {
+      search.set("project", state.projectId);
+    } else {
+      search.delete("project");
+    }
+    const nextSearch = search.toString();
+    const searchPart = nextSearch ? "?" + nextSearch : "";
+    const hashPart = nextHash ? "#" + nextHash : "";
+    const nextUrl = window.location.pathname + searchPart + hashPart;
+    const currentUrl = window.location.pathname + window.location.search + window.location.hash;
+    if (currentUrl !== nextUrl) {
+      window.history.replaceState({}, "", nextUrl);
     }
   }
 
@@ -1009,20 +1082,119 @@
     select.value = state.mode === "selected" ? state.runId || "" : "";
   }
 
-  async function loadRunCatalog() {
+  function renderProjects() {
+    const select = byId("project-select");
+    if (!select) return;
+    const currentId = state.projectId || state.serverProjectId;
+    const found = currentId && state.projects.find((p) => p && p.id === currentId);
+    const current = found || (currentId ? { id: currentId, name: currentId, path: "" } : null);
+    select.replaceChildren();
+    projectOptions(state.projects, current).forEach((option) => {
+      const item = document.createElement("option");
+      item.value = option.id;
+      item.textContent = option.missing
+        ? (text.project_missing || "{name}").replace("{name}", option.name)
+        : option.name;
+      item.title = option.path;
+      item.disabled = option.missing;
+      select.appendChild(item);
+    });
+    select.value = state.projectId || state.serverProjectId || "";
+  }
+
+  async function loadProjects() {
     try {
-      const res = await fetch("/api/runs");
+      const res = await fetch("/api/projects");
       if (!res.ok) return;
       const data = await res.json();
+      state.projects = Array.isArray(data.projects) ? data.projects : [];
+      if (typeof data.current === "string") {
+        state.serverProjectId = data.current;
+        if (state.projectId === data.current) {
+          state.projectId = null;
+          updateUrl();
+        }
+      }
+      renderProjects();
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  function handleProjectError(body) {
+    const message = (body && typeof body.error === "string" && body.error)
+      ? body.error
+      : text.project_missing;
+    showNotice(message);
+    if (state.projectId !== null && state.projectId !== state.serverProjectId) {
+      switchProject(null);
+    }
+  }
+
+  async function switchProject(nextProjectId) {
+    projectEpoch++;
+    const epoch = projectEpoch;
+    if (pollingTimer) clearTimeout(pollingTimer);
+    if (catalogTimer) clearTimeout(catalogTimer);
+
+    const target = (nextProjectId && nextProjectId !== state.serverProjectId) ? nextProjectId : null;
+    state.projectId = target;
+    state.runId = null;
+    state.mode = "live";
+    pendingRequestedRunId = null;
+    selectedRunCompleted = false;
+    catalogLoaded = false;
+    runsCatalog = [];
+    runCosts = new Map();
+    allTimelineData = [];
+    latestTimeline = null;
+    lastStatuses = null;
+    lastStatusRunId = null;
+
+    updateUrl();
+    syncControls();
+    refreshRunList();
+    renderEmpty();
+    renderProjects();
+
+    await loadRunCatalog();
+    if (epoch !== projectEpoch) return;
+    refreshRunList();
+    await loadTimelineCollection();
+    if (epoch !== projectEpoch) return;
+    await fetchCurrentTimeline();
+    if (epoch !== projectEpoch) return;
+    scheduleNextPoll();
+    catalogTimer = setTimeout(refreshCatalog, 5000);
+  }
+
+  async function loadRunCatalog() {
+    const epoch = projectEpoch;
+    try {
+      const res = await fetch(withProject("/api/runs", state.projectId));
+      if (epoch !== projectEpoch) return;
+      if (res.status === 404 || res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        if (epoch !== projectEpoch) return;
+        if (body && (body.reason === "unknown_project" || body.reason === "project_missing")) {
+          handleProjectError(body);
+          return;
+        }
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (epoch !== projectEpoch) return;
       if (Array.isArray(data.runs)) {
         runsCatalog = data.runs;
         const latestRunId = runsCatalog.length ? runsCatalog[0].run_id : null;
         if (!catalogLoaded) {
           catalogLoaded = true;
-          if (requestedRunId && runsCatalog.some((run) => run.run_id === requestedRunId)) {
-            state = reduce(state, { type: "SELECT_RUN", runId: requestedRunId });
-          } else if (requestedRunId) {
+          if (pendingRequestedRunId && runsCatalog.some((run) => run.run_id === pendingRequestedRunId)) {
+            state = reduce(state, { type: "SELECT_RUN", runId: pendingRequestedRunId });
+            pendingRequestedRunId = null;
+          } else if (pendingRequestedRunId) {
             showNotice(text.run_not_found);
+            pendingRequestedRunId = null;
             updateUrl();
           } else if (latestRunId) {
             state = reduce(state, { type: "NEWEST_RUN", runId: latestRunId });
@@ -1038,10 +1210,21 @@
   }
 
   async function loadTimelineCollection() {
+    const epoch = projectEpoch;
     try {
-      const response = await fetch("/api/timelines?limit=100");
+      const response = await fetch(withProject("/api/timelines?limit=100", state.projectId));
+      if (epoch !== projectEpoch) return;
+      if (response.status === 404 || response.status === 409) {
+        const body = await response.json().catch(() => ({}));
+        if (epoch !== projectEpoch) return;
+        if (body && (body.reason === "unknown_project" || body.reason === "project_missing")) {
+          handleProjectError(body);
+          return;
+        }
+      }
       if (!response.ok) return;
       const data = await response.json();
+      if (epoch !== projectEpoch) return;
       if (!Array.isArray(data.runs)) return;
       allTimelineData = data.runs;
       runCosts = new Map(data.runs.map((timeline) => [
@@ -2000,26 +2183,38 @@
       return;
     }
     if (state.mode === "selected" && selectedRunCompleted) return;
+    const epoch = projectEpoch;
     const requestMode = state.mode;
     const requestRunId = state.runId;
     const selectedId = requestMode === "selected" ? requestRunId : null;
     const url = selectedId
-      ? "/api/timeline?run_id=" + encodeURIComponent(selectedId)
-      : "/api/timeline";
+      ? withProject("/api/timeline?run_id=" + encodeURIComponent(selectedId), state.projectId)
+      : withProject("/api/timeline", state.projectId);
     try {
       const response = await fetch(url);
-      if (response.status === 404 && selectedId) {
-        showNotice(text.run_not_found);
-        selectedRunCompleted = false;
-        updateState({
-          type: "LIVE",
-          runId: runsCatalog.length ? runsCatalog[0].run_id : null,
-        });
-        await fetchCurrentTimeline();
+      if (epoch !== projectEpoch) return;
+      if (response.status === 404 || response.status === 409) {
+        const data = await response.json().catch(() => ({}));
+        if (epoch !== projectEpoch) return;
+        if (data && (data.reason === "unknown_project" || data.reason === "project_missing")) {
+          handleProjectError(data);
+          return;
+        }
+        if (response.status === 404 && selectedId) {
+          showNotice(text.run_not_found);
+          selectedRunCompleted = false;
+          updateState({
+            type: "LIVE",
+            runId: runsCatalog.length ? runsCatalog[0].run_id : null,
+          });
+          await fetchCurrentTimeline();
+          return;
+        }
         return;
       }
       if (!response.ok) return;
       const data = await response.json();
+      if (epoch !== projectEpoch) return;
       if (state.mode !== requestMode || (
         requestMode === "selected" && state.runId !== requestRunId
       )) return;
@@ -2055,16 +2250,20 @@
   }
 
   async function refreshCatalog() {
+    const epoch = projectEpoch;
     const previousRunId = state.runId;
     await loadRunCatalog();
+    if (epoch !== projectEpoch) return;
     if (state.mode === "live" && state.runId !== previousRunId) {
       await fetchCurrentTimeline();
+      if (epoch !== projectEpoch) return;
       scheduleNextPoll();
     } else if (state.mode === "selected" && !runsCatalog.some((run) => run.run_id === state.runId)) {
       showNotice(text.run_not_found);
       selectedRunCompleted = false;
       updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
       await fetchCurrentTimeline();
+      if (epoch !== projectEpoch) return;
       scheduleNextPoll();
     }
     catalogTimer = setTimeout(refreshCatalog, 5000);
@@ -2123,19 +2322,41 @@
   });
 
   window.addEventListener("hashchange", async () => {
+    const epoch = projectEpoch;
     await loadRunCatalog();
+    if (epoch !== projectEpoch) return;
     const requestedId = new URLSearchParams(window.location.hash.slice(1)).get("run");
     if (requestedId && runsCatalog.some((run) => run.run_id === requestedId)) {
       selectedRunCompleted = false;
       updateState({ type: "SELECT_RUN", runId: requestedId });
       await fetchCurrentTimeline();
+      if (epoch !== projectEpoch) return;
       scheduleNextPoll();
     } else if (requestedId) {
       showNotice(text.run_not_found);
       updateState({ type: "LIVE", runId: runsCatalog.length ? runsCatalog[0].run_id : null });
       selectedRunCompleted = false;
       await fetchCurrentTimeline();
+      if (epoch !== projectEpoch) return;
       scheduleNextPoll();
+    }
+  });
+
+  const projectSelect = byId("project-select");
+  if (projectSelect) {
+    projectSelect.addEventListener("change", (event) => {
+      const next = event.target.value.trim();
+      const current = state.projectId || state.serverProjectId;
+      if (!next || next === current) return;
+      switchProject(next);
+    });
+  }
+
+  window.addEventListener("popstate", async () => {
+    const nextProj = projectFromSearch(window.location.search);
+    const currentProj = state.projectId || state.serverProjectId;
+    if (nextProj !== currentProj && (nextProj !== null || state.projectId !== null)) {
+      await switchProject(nextProj);
     }
   });
 
@@ -2146,6 +2367,7 @@
   });
 
   async function start() {
+    await loadProjects();
     await loadRunCatalog();
     syncControls();
     refreshRunList();

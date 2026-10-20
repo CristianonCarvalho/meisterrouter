@@ -130,6 +130,15 @@ def _read_events() -> List[Dict[str, Any]]:
     return list(iter_events(get_log_file()))
 
 
+def _project_events(log_file: str) -> List[Dict[str, Any]]:
+    if not os.path.isfile(log_file):
+        return []
+    try:
+        return list(iter_events(log_file))
+    except OSError:
+        return []
+
+
 def _dashboard_messages() -> Dict[str, str]:
     keys = (
         "project", "telemetry", "select_run", "view_mode", "grouped", "analytical",
@@ -229,6 +238,8 @@ def _timeline_messages() -> Dict[str, str]:
         "sound_on",
         "sound_off",
         "sound_title",
+        "project_label",
+        "project_missing",
     )
     return {key: t(f"cli.timeline.web.{key}") for key in keys}
 
@@ -498,6 +509,22 @@ def api_meta():
 
 @app.route("/api/runs")
 def api_runs():
+    project, error = _resolve_config_project(request.args.get("project"))
+    if error is not None or project is None:
+        return error
+
+    if project["id"] != _current_project_id():
+        log_file = os.path.join(project["path"], ".meister", "logs", "orchestration_log.jsonl")
+        events = _project_events(log_file)
+        stale_after = stale_after_from_config(project["path"])
+        return jsonify({
+            "runs": list_runs(
+                events,
+                now=datetime.now(timezone.utc),
+                stale_after_s=stale_after.total_seconds(),
+            )
+        })
+
     return jsonify({
         "runs": list_runs(
             _read_events(),
@@ -566,10 +593,57 @@ def api_events():
 def api_timeline():
     now = datetime.now(timezone.utc)
     _touch_call_time()
-    _touch_project_state(now)
+
+    project, error = _resolve_config_project(request.args.get("project"))
+    if error is not None or project is None:
+        return error
 
     raw_run_id = request.args.get("run_id")
     run_id = raw_run_id.strip() if raw_run_id is not None and raw_run_id.strip() else None
+
+    if project["id"] != _current_project_id():
+        project_path = project["path"]
+        log_file = os.path.join(project_path, ".meister", "logs", "orchestration_log.jsonl")
+        if not os.path.isfile(log_file):
+            if run_id is not None:
+                return jsonify({
+                    "error": t(
+                        "commands.timeline.runs_available",
+                        status=t("commands.timeline.id_missing"),
+                        id=run_id,
+                        runs=t("commands.timeline.no_runs"),
+                    )
+                }), 404
+            return jsonify(empty_timeline_dict(project=project_path))
+
+        events = _project_events(log_file)
+        runs = list_runs(events)
+        if not runs:
+            if run_id is not None:
+                return jsonify({
+                    "error": t(
+                        "commands.timeline.runs_available",
+                        status=t("commands.timeline.id_missing"),
+                        id=run_id,
+                        runs=t("commands.timeline.no_runs"),
+                    )
+                }), 404
+            return jsonify(empty_timeline_dict(project=project_path))
+
+        try:
+            data = timeline_json_for_log(
+                log_file,
+                run_id=run_id,
+                now=now,
+                project_path=project_path,
+            )
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 404
+
+        data["project"] = _project_details(project_path)
+        return jsonify(data)
+
+    _touch_project_state(now)
     log_file = get_log_file()
     project_root = _current_project_root() or os.path.dirname(os.path.abspath(log_file))
 
@@ -614,7 +688,11 @@ def api_timeline():
 def api_timelines():
     now = datetime.now(timezone.utc)
     _touch_call_time()
-    _touch_project_state(now)
+
+    project, error = _resolve_config_project(request.args.get("project"))
+    if error is not None or project is None:
+        return error
+
     try:
         limit = min(_query_int("limit", 20), 100)
     except ValueError as exc:
@@ -622,6 +700,48 @@ def api_timelines():
     if limit < 0:
         return jsonify({"error": t("reports.events_integer", name="limit")}), 400
 
+    if project["id"] != _current_project_id():
+        project_path = project["path"]
+        log_file = os.path.join(project_path, ".meister", "logs", "orchestration_log.jsonl")
+        if not os.path.isfile(log_file) or limit == 0:
+            return jsonify({"runs": []})
+
+        events = _project_events(log_file)
+        stale_after = stale_after_from_config(project_path)
+        runs = list_runs(
+            events,
+            now=now,
+            stale_after_s=stale_after.total_seconds(),
+        )
+        if not runs:
+            return jsonify({"runs": []})
+
+        tier_prices, credit_prices = price_tables_from_config(project_path)
+        via_index = via_index_from_config(project_path)
+        timelines = []
+        for run in runs[:limit]:
+            timeline = build_timeline(
+                events,
+                str(run["run_id"]),
+                now,
+                tier_prices=tier_prices,
+                credit_prices=credit_prices,
+                stale_after=stale_after,
+            )
+            graph = build_graph(timeline, via_index, now, events=events)
+            timelines.append(
+                timeline_to_dict(
+                    timeline,
+                    graph,
+                    project=project_path,
+                    now=now,
+                    events=events,
+                    project_path=project_path,
+                )
+            )
+        return jsonify({"runs": timelines})
+
+    _touch_project_state(now)
     log_file = get_log_file()
     project_root = _current_project_root() or os.path.dirname(os.path.abspath(log_file))
     events = _read_events()
@@ -931,10 +1051,7 @@ def _current_project_id() -> str:
 def _project_log_has_active_run(project_path: str) -> bool:
     """Run ativa lida do log do projeto; log ausente ou ilegível conta como sem run."""
     log_file = os.path.join(project_path, ".meister", "logs", "orchestration_log.jsonl")
-    try:
-        events = list(iter_events(log_file))
-    except OSError:
-        return False
+    events = _project_events(log_file)
     return _events_have_active_run(events)
 
 

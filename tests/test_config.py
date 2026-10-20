@@ -161,7 +161,8 @@ def test_worker_credit_price_invalid_values_report_validation_error(tmp_path, va
     )
 
 
-def test_default_worker_credit_prices():
+def test_default_worker_credit_prices(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     config = load_config()
     tiers = {tier.name: tier for tier in [*config.workers.tier_order, *config.workers.disabled]}
 
