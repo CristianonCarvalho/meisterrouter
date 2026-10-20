@@ -38,7 +38,19 @@ def pytest_cmdline_main(config):
 # Estes módulos gravam e leem arquivos de tarefa em <diretório de trabalho>/.meister/runs. Com o diretório
 # compartilhado (a raiz do repositório), o `auto_write_result` de um teste respondia às tarefas dos outros
 # testes rodando ao mesmo tempo (pytest-xdist): resultado errado ou travado até o watchdog de 180 s.
-CWD_ISOLATED_MODULES = frozenset({"test_cli", "test_config_path_propagation", "test_herdr_bridge", "test_herdr_tabs", "test_task_runner", "test_orchestrate_interrupt", "test_resume_attempt_numbering"})
+CWD_ISOLATED_MODULES = frozenset({
+    "test_cli",
+    "test_config_path_propagation",
+    "test_herdr_bridge",
+    "test_herdr_tabs",
+    "test_task_runner",
+    "test_orchestrate_interrupt",
+    "test_resume_attempt_numbering",
+    "test_copilot_adapter",
+    "test_worker_execution",
+    "test_jev",
+    "test_timeline_lane_details",
+})
 
 
 @pytest.fixture(autouse=True)

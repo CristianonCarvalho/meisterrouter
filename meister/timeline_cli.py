@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from meister.config import MeisterConfig
 
 from meister.dashboard.metrics import iter_events, list_runs
 from meister.i18n import t
@@ -20,23 +23,40 @@ def project_name(log_file: str) -> str:
     return os.path.basename(folder)
 
 
-def _tiers() -> List[Any]:
-    from meister.config import load_config
+def _load_project_config(project_path: Optional[str] = None) -> MeisterConfig:
+    from meister.config import MeisterConfig, load_config
 
-    config = load_config()
+    if project_path is None:
+        return load_config()
+
+    base = os.fspath(project_path)
+    yaml_path = os.path.join(base, "meister.config.yaml")
+    yml_path = os.path.join(base, "meister.config.yml")
+    if os.path.isfile(yaml_path):
+        return load_config(config_path=yaml_path)
+    if os.path.isfile(yml_path):
+        return load_config(config_path=yml_path)
+    return MeisterConfig()
+
+
+def _tiers(project_path: Optional[str] = None) -> List[Any]:
+    config = _load_project_config(project_path)
     return [*config.workers.tier_order, *config.workers.disabled]
 
 
-def via_index_from_config() -> Dict[str, int]:
+def via_index_from_config(project_path: Optional[str] = None) -> Dict[str, int]:
     try:
-        return {tier.name: index for index, tier in enumerate(_tiers())}
+        tiers = _tiers() if project_path is None else _tiers(project_path)
+        return {tier.name: index for index, tier in enumerate(tiers)}
     except Exception:
         return {}
 
 
-def price_tables_from_config() -> Tuple[Dict[str, float], Dict[str, float]]:
+def price_tables_from_config(
+    project_path: Optional[str] = None,
+) -> Tuple[Dict[str, float], Dict[str, float]]:
     try:
-        tiers = _tiers()
+        tiers = _tiers() if project_path is None else _tiers(project_path)
     except Exception:
         return {}, {}
     return (
@@ -45,12 +65,13 @@ def price_tables_from_config() -> Tuple[Dict[str, float], Dict[str, float]]:
     )
 
 
-def stale_after_from_config() -> timedelta:
+def stale_after_from_config(project_path: Optional[str] = None) -> timedelta:
     """Silence threshold from the largest configured worker runtime, plus five minutes."""
     try:
+        tiers = _tiers() if project_path is None else _tiers(project_path)
         values = [
             float(tier.max_runtime_seconds)
-            for tier in _tiers()
+            for tier in tiers
             if tier.max_runtime_seconds is not None
         ]
     except Exception:

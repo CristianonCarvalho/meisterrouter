@@ -73,12 +73,12 @@ def lane_catalog_details(
     return details
 
 
-def _catalog_tiers() -> list[WorkerTier]:
+def _catalog_tiers(project_path: Optional[str] = None) -> list[WorkerTier]:
     """Return workers.tier_order from the project config; a broken config yields no tiers."""
-    from meister.config import load_config
+    from meister.timeline_cli import _load_project_config
 
     try:
-        return list(load_config().workers.tier_order)
+        return list(_load_project_config(project_path).workers.tier_order)
     except Exception:
         return []
 
@@ -152,9 +152,15 @@ def timeline_to_dict(
     now: datetime,
     tiers: Optional[Sequence[WorkerTier]] = None,
     events: Optional[Iterable[dict[str, Any]]] = None,
+    project_path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Convert a Timeline and its graph into the stable, JSON-compatible schema."""
-    catalog = _catalog_tiers() if tiers is None else tiers
+    if tiers is not None:
+        catalog = tiers
+    elif project_path is not None:
+        catalog = _catalog_tiers(project_path)
+    else:
+        catalog = _catalog_tiers()
     all_events = list(events or [])
     run_events = [e for e in all_events if str(e.get("run_id") or "") == timeline.run_id]
     details = lane_catalog_details((lane.via for lane in graph.lanes), catalog, run_events)
@@ -296,6 +302,7 @@ def timeline_json_for_log(
     *,
     run_id: Optional[str],
     now: datetime,
+    project_path: Optional[str] = None,
 ) -> dict[str, Any]:
     """Read a log and construct its JSON timeline without modifying the log."""
     from meister.dashboard.metrics import iter_events, list_runs
@@ -306,7 +313,7 @@ def timeline_json_for_log(
         via_index_from_config,
     )
 
-    project = _project_root_for_log(log_file)
+    project = project_path if project_path is not None else _project_root_for_log(log_file)
     if not os.path.isfile(log_file):
         return empty_timeline_dict(project=project)
 
@@ -316,19 +323,34 @@ def timeline_json_for_log(
         return empty_timeline_dict(project=project)
 
     selected_run = pick_run(runs, run_id)
-    tier_prices, credit_prices = price_tables_from_config()
+    if project_path is None:
+        tier_prices, credit_prices = price_tables_from_config()
+        stale_after = stale_after_from_config()
+        via_index = via_index_from_config()
+    else:
+        tier_prices, credit_prices = price_tables_from_config(project_path)
+        stale_after = stale_after_from_config(project_path)
+        via_index = via_index_from_config(project_path)
+
     timeline = build_timeline(
         events,
         selected_run,
         now,
         tier_prices=tier_prices,
         credit_prices=credit_prices,
-        stale_after=stale_after_from_config(),
+        stale_after=stale_after,
     )
     graph = build_graph(
         timeline,
-        via_index_from_config(),
+        via_index,
         now,
         events=events,
     )
-    return timeline_to_dict(timeline, graph, project=project, now=now, events=events)
+    return timeline_to_dict(
+        timeline,
+        graph,
+        project=project,
+        now=now,
+        events=events,
+        project_path=project_path,
+    )
