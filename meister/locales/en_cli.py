@@ -358,6 +358,8 @@ MESSAGES: dict[str, str] = {
     "cli.timeline.web.outcome_timeout": "timeout",
     "cli.timeline.web.outcome_gate_rejected": "rejected by the gate",
     "cli.timeline.web.outcome_scope": "outside scope",
+    "cli.timeline.web.project_label": "Project",
+    "cli.timeline.web.project_missing": "{name} (folder missing)",
     "cli.config.web.title": "Lane configuration",
     "cli.config.web.subtitle": "Worker lanes in the order they are tried",
     "cli.config.web.back_timeline": "Timeline",
