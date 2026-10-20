@@ -590,6 +590,12 @@ para a linha do tempo e para o dashboard.
   pasta sumiu), então a página nunca grava num caminho arbitrário. O bloqueio por run ativa é lido do log do projeto
   escolhido. `GET /api/projects` lista o registro; `POST /api/projects`, `/api/projects/discover` e
   `/api/projects/register` seguem as regras das outras escritas (JSON, `X-Meister-Config: 1`, recusadas à distância).
+- **Salvar em todos os projetos:** `POST /api/config/replicate` (mesmo corpo da gravação de vias: `stamp`, `lanes`,
+  `project`) grava a lista no projeto escolhido com todas as proteções de sempre (JSON, `X-Meister-Config: 1`, recusada
+  à distância, bloqueio por run ativa, carimbo, validação); se isso falhar, nada mais é gravado. Depois aplica a mesma
+  lista, sem `original_name`, a cada outro projeto registrado, lendo o arquivo dele de novo naquele momento. Cada
+  destino informa `saved`, `skipped_run_active`, `skipped_missing` ou `failed` (com a mensagem), e um destino que falha
+  não impede os outros. Um destino sem `meister.config.yaml` ganha um criado.
 - **Trocar o conteúdo:** arraste um cartão de conteúdo sobre outro slot (ou toque num cartão e depois no outro, em tela
   de toque) para trocar harness, modelo, esforço, custo e crédito entre os dois. O slot mantém o nome e a política.
 - **O que edita:** **Editar** num slot abre uma gaveta com todos os campos da via: harness, esforço (a lista acompanha
