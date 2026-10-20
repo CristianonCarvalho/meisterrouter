@@ -615,8 +615,9 @@ the dashboard.
   least one lane stays on, and an effort must be one the harness accepts. A "Changes to save" panel lists what will
   be written.
 - **When it is blocked:** writing is refused while a run is active (the run already loaded its configuration), when the
-  file changed on disk since the page loaded it, and for remote access (requests that arrive through Tailscale). In
-  those cases the page stays read-only and says why; reading is always allowed.
+  file changed on disk since the page loaded it, and for remote access (requests that arrive through Tailscale) unless the
+  `Tailscale-User-Login` header is in `dashboard.remote_edit_logins` (case-insensitive; default: empty list, so remote
+  access is read-only). In those cases the page stays read-only and says why; reading is always allowed.
 - **Where the backup goes:** saving writes the whole `workers.tier_order` list to `meister.config.yaml`, saves the
   previous file as `meister.config.yaml.bak` next to it, and replaces the file atomically (the original is restored
   if anything fails). The file permissions are kept.
