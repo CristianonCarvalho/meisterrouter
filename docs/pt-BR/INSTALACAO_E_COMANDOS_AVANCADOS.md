@@ -579,6 +579,17 @@ para a linha do tempo e para o dashboard.
 - **Caminho de uma tarefa:** um simulador no alto escolhe a classe da tarefa e a via inicial (a que o Jev escolheria
   entre as que aceitam a classe); tocar numa via simula que ela falhou, e uma frase diz onde a tarefa acaba
   executando e se houve escalonamento. Nada é executado.
+- **Qual projeto:** a configuração é por projeto, e a barra **Projeto** mostra o projeto em edição (caixa de seleção
+  mais o caminho completo). A caixa lista os projetos do registro `~/.meister/projects.json` (id = 12 primeiros dígitos
+  hexadecimais do SHA-1 do caminho real); um projeto é registrado sozinho por `meister config web`, ao subir um
+  dashboard e por `meister orchestrate` rodado dentro dele. **Descobrir projetos** varre uma pasta (até 3 níveis) atrás
+  de pastas com `.meister/` ou `meister.config.yaml` e registra as que você marcar; **Adicionar projeto** registra um
+  caminho absoluto (precisa de `.meister/`, `meister.config.yaml` ou `.git`; a pasta pessoal e `/` são recusadas). A API
+  aceita `?project=<id>` em `GET /api/config` e `"project": "<id>"` no corpo de `PUT /api/config/lanes` e de
+  `POST /api/config/restore-default`; só ids registrados valem (`404 unknown_project`; `409 project_missing` quando a
+  pasta sumiu), então a página nunca grava num caminho arbitrário. O bloqueio por run ativa é lido do log do projeto
+  escolhido. `GET /api/projects` lista o registro; `POST /api/projects`, `/api/projects/discover` e
+  `/api/projects/register` seguem as regras das outras escritas (JSON, `X-Meister-Config: 1`, recusadas à distância).
 - **Trocar o conteúdo:** arraste um cartão de conteúdo sobre outro slot (ou toque num cartão e depois no outro, em tela
   de toque) para trocar harness, modelo, esforço, custo e crédito entre os dois. O slot mantém o nome e a política.
 - **O que edita:** **Editar** num slot abre uma gaveta com todos os campos da via: harness, esforço (a lista acompanha
