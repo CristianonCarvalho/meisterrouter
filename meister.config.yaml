@@ -45,18 +45,8 @@ workers:
         - single_file
         - css_fixes
         - unit_test_additions
+      enabled: false
     - name: tier_1b
-      harness: copilot
-      model: gpt-6-luna
-      cost_per_m_tokens: 0.2
-      credit_usd: 0.01
-      max_retries: 2
-      best_for:
-        - small_edits
-        - single_file
-        - css_fixes
-        - unit_test_additions
-    - name: tier_1c
       harness: codex
       model: gpt-6-luna
       cost_per_m_tokens: 0.2
@@ -66,19 +56,31 @@ workers:
         - single_file
         - css_fixes
         - unit_test_additions
-    - name: tier_2b
-      idle_timeout_seconds: 1800
+      enabled: false
+    - name: tier_1c
+      harness: copilot
+      model: gpt-6-luna
+      cost_per_m_tokens: 0.2
+      max_retries: 2
+      best_for:
+        - small_edits
+        - single_file
+        - css_fixes
+        - unit_test_additions
+      credit_usd: 0.01
+      enabled: false
+    - name: tier_2
       harness: claude
       model: claude-haiku-5-5
       cost_per_m_tokens: 0.2
       max_retries: 2
-      eligible_classes:
-        - SMALL
       best_for:
         - deep_reasoning
         - complex_algorithms
         - hard_bugs
-    - name: tier_2
+      enabled: false
+    - name: tier_2b
+      idle_timeout_seconds: 1800
       harness: agy
       model: gemini-3.8-flash-high
       cost_per_m_tokens: 1.5
@@ -98,6 +100,7 @@ workers:
       best_for:
         - architectural_recovery
         - systemic_regressions
+      enabled: false
     - name: tier_3b
       harness: claude
       model: opus
