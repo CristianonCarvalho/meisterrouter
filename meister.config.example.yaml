@@ -72,6 +72,10 @@ scope:
 environment:
   install_dependencies: true
   install_timeout_seconds: 300
+dashboard:
+  # Logins Tailscale (cabeçalho Tailscale-User-Login) autorizados a gravar a configuração pelo acesso remoto.
+  # Comparação sem diferenciar maiúsculas de minúsculas. Lista vazia: o acesso remoto fica só leitura.
+  remote_edit_logins: []
 gate:
   install: null
   # Lista vazia mantém a detecção automática. Comandos são executados sem shell.
