@@ -496,6 +496,7 @@ MESSAGES: dict[str, str] = {
     "cli.config.web.save_all_state_run_active": "Skipped: run in progress",
     "cli.config.web.save_all_state_missing": "Skipped: folder missing",
     "cli.config.web.save_all_state_failed": "Failed",
+    "cli.config.web.save_all_yes": "Yes, write to all",
     "cli.config.refresh_models.help": "Read the model list of a harness from its own interface and update the local cache (opt-in, never automatic).",
     "cli.config.refresh_models.reading": "Reading the Copilot /model selector (no prompt is sent)...",
     "cli.config.refresh_models.done": "Copilot /model: {count} models read. Catalog: {path}",
