@@ -186,6 +186,8 @@ The worker's first attempt has a bug. The gate catches it before anything is int
 
 <sub>The dashboard image also uses a demo run (synthetic data).</sub>
 
+The timeline page (`/timeline`) has a **Project** box at the top: pick any project registered in the list (the same one `/config` uses) to see its runs and timeline, read-only. The choice stays in the URL, so you can bookmark it.
+
 ## 💻 Herdr (optional): watch the workers live
 
 [Herdr](https://herdr.dev) is a terminal workspace manager. MeisterRouter does not need it, but it can run as a Herdr plugin: each worker then opens in a **visible tab**, and shortcuts open the dashboard and the timeline as popups.

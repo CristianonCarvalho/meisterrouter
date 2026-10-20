@@ -186,6 +186,8 @@ O `meister dashboard` (em `http://localhost:5050`) acrescenta métricas por run,
 
 <sub>A imagem do dashboard também usa uma run de demonstração (dados sintéticos).</sub>
 
+A página da timeline (`/timeline`) tem uma caixa **Projeto** no topo: escolha qualquer projeto da lista registrada (a mesma da `/config`) para ver as runs e a timeline dele, só leitura. A escolha fica na URL, então dá para guardar o link.
+
 ## 💻 Herdr (opcional): acompanhe os workers ao vivo
 
 O [Herdr](https://herdr.dev) é um gerenciador de espaços de trabalho de terminal. O MeisterRouter não precisa dele, mas pode rodar como plugin do Herdr: cada worker abre então numa **aba visível**, e atalhos abrem o dashboard e a timeline como popups.
