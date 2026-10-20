@@ -588,6 +588,12 @@ the dashboard.
   when the folder is gone), so the page never writes to an arbitrary path. The active-run block is read from the log of
   the chosen project. `GET /api/projects` lists the registry; `POST /api/projects`, `/api/projects/discover` and
   `/api/projects/register` follow the same rules as the other writes (JSON, `X-Meister-Config: 1`, refused remotely).
+- **Save to all projects:** `POST /api/config/replicate` (same body as the lane save: `stamp`, `lanes`, `project`) writes
+  the list into the chosen project with every usual guard (JSON, `X-Meister-Config: 1`, refused remotely, run-active
+  block, stamp, validation); if that fails nothing else is written. Then it applies the same list, without
+  `original_name`, to each other registered project, reading its file again at that moment. Each destination reports
+  `saved`, `skipped_run_active`, `skipped_missing` or `failed` (with the message), and one destination failing does
+  not stop the others. A destination without `meister.config.yaml` gets one created.
 - **Swapping content:** drag a content card onto another slot (or tap one card and then the other, on a touch screen)
   to swap harness, model, effort, cost and credit between the two. The slot keeps its name and policy.
 - **What it edits:** **Edit** on a slot opens a drawer with every field of the lane: harness, effort (the list follows

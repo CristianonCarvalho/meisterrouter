@@ -126,6 +126,10 @@ A configuração continua **por projeto**, e a página sempre diz qual está edi
 - **Adicionar projeto:** registra uma pasta pelo caminho absoluto. Ela precisa ter `.meister/`, `meister.config.yaml` ou `.git`; a pasta pessoal e a raiz do sistema são recusadas.
 - Cada projeto é verificado por conta própria: uma run ativa em um projeto bloqueia só aquele projeto, e o projeto com run aparece assim na caixa de seleção.
 
+### Salvar em todos os projetos
+
+**Salvar em todos os projetos** (ao lado de **Salvar**) grava a lista de vias em edição no projeto atual e em todos os outros da lista. Uma confirmação mostra antes os nomes dos projetos. Os que têm run em andamento são pulados, o projeto cuja pasta sumiu também, e um que falhe (por exemplo, YAML inválido) não impede os outros. Em seguida, uma lista de resultado mostra o que aconteceu em cada projeto. Todo arquivo de configuração que já existia mantém uma cópia `.bak`, e o projeto sem `meister.config.yaml` ganha um com as vias. As vias casam pelo nome em cada destino, então os campos que a página não edita são mantidos.
+
 ### Bom saber
 
 - Salvar é bloqueado enquanto há uma run ativa (a run já carregou as vias), e a página fica só para leitura quando aberta remotamente, por exemplo pelo Tailscale: a edição é só local.

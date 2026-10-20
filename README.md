@@ -126,6 +126,10 @@ Configuration stays **per project**, and the page always says which one it is ed
 - **Add project:** registers one folder by its absolute path. It must have `.meister/`, `meister.config.yaml` or `.git`; your personal folder and the filesystem root are refused.
 - Each project is checked on its own: a run active in one project blocks only that project, and a project with a run shows it in the select box.
 
+### Save to all projects
+
+**Save to all projects** (next to **Save**) writes the lane list you are editing into the current project and into every other project in the list. A confirmation names the projects first. Projects with a run in progress are skipped, a project whose folder is gone is skipped, and one that fails (for example an invalid YAML) does not stop the others. A result list then shows what happened in each project. Every configuration file that already existed keeps a `.bak` copy, and a project without a `meister.config.yaml` gets one created with the lanes. The lanes are matched by name in each destination, so the fields the page does not edit are kept.
+
 ### Good to know
 
 - Saving is blocked while a run is active (the run already loaded its lanes), and the page is read-only when opened remotely, for example over Tailscale: editing is local only.
