@@ -130,9 +130,20 @@ A configuração continua **por projeto**, e a página sempre diz qual está edi
 
 **Salvar em todos os projetos** (ao lado de **Salvar**) grava a lista de vias em edição no projeto atual e em todos os outros da lista. Uma confirmação mostra antes os nomes dos projetos. Os que têm run em andamento são pulados, o projeto cuja pasta sumiu também, e um que falhe (por exemplo, YAML inválido) não impede os outros. Em seguida, uma lista de resultado mostra o que aconteceu em cada projeto. Todo arquivo de configuração que já existia mantém uma cópia `.bak`, e o projeto sem `meister.config.yaml` ganha um com as vias. As vias casam pelo nome em cada destino, então os campos que a página não edita são mantidos.
 
+### Editar pelo celular (Tailscale)
+
+Por padrão a página é **somente leitura** quando chega pelo Tailscale. Para permitir que o seu login grave pelo celular, liste-o no `meister.config.yaml` do projeto que o dashboard serve:
+
+```yaml
+dashboard:
+  remote_edit_logins: ["voce@exemplo.com"]
+```
+
+O Tailscale informa ao dashboard quem está chamando (a comparação ignora maiúsculas e minúsculas). Qualquer outra pessoa da sua tailnet, e qualquer pedido sem login, continua só lendo. As demais proteções valem: run em andamento, arquivo alterado, vias válidas.
+
 ### Bom saber
 
-- Salvar é bloqueado enquanto há uma run ativa (a run já carregou as vias), e a página fica só para leitura quando aberta remotamente, por exemplo pelo Tailscale: a edição é só local.
+- Salvar é bloqueado enquanto há uma run ativa (a run já carregou as vias), e a página fica só para leitura quando aberta remotamente, por exemplo pelo Tailscale, a menos que o seu login do Tailscale esteja em `dashboard.remote_edit_logins` no `meister.config.yaml` (aí você edita pelo celular; veja abaixo).
 - Salvar guarda uma cópia da configuração anterior e nunca deixa um arquivo pela metade. Os nomes são conferidos antes de gravar (únicos, terminando no número do nível) e pelo menos uma via precisa ficar ligada.
 - Uma lista salva passa a ser do projeto e substitui a padrão, então deixa de acompanhar as mudanças futuras das vias empacotadas; **Restaurar padrão** desfaz isso.
 

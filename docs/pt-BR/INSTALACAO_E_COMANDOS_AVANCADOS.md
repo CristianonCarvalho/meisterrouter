@@ -618,7 +618,9 @@ para a linha do tempo e para o dashboard.
   com outros nomes continuam gravando normalmente), pelo menos uma via fica ligada e o esforço é um que o harness
   aceita. Um painel "Alterações a gravar" lista o que será escrito.
 - **Quando fica bloqueada:** a escrita é recusada com uma run ativa (a run já carregou a configuração), quando o
-  arquivo mudou no disco desde que a página o leu e para acesso remoto (pedidos que chegam pelo Tailscale). Nesses
+  arquivo mudou no disco desde que a página o leu e para acesso remoto (pedidos que chegam pelo Tailscale), a menos que o cabeçalho
+  `Tailscale-User-Login` esteja em `dashboard.remote_edit_logins` (sem diferenciar maiúsculas; padrão: lista vazia, então
+  o acesso remoto é somente leitura). Nesses
   casos a página fica somente leitura e diz o motivo; a leitura é sempre liberada.
 - **Onde fica o `.bak`:** salvar grava a lista inteira de `workers.tier_order` no `meister.config.yaml`, guarda o
   arquivo anterior como `meister.config.yaml.bak` ao lado dele e troca o arquivo de forma atômica (o original volta

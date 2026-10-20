@@ -83,6 +83,9 @@ dashboard:
   window:
     width: 1280
     height: 800
+  # Logins Tailscale (cabeçalho Tailscale-User-Login) autorizados a gravar a configuração pelo acesso remoto.
+  # Comparação sem diferenciar maiúsculas de minúsculas. Lista vazia: o acesso remoto fica só leitura.
+  remote_edit_logins: []
 gate:
   install: null
   python: null

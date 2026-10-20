@@ -672,6 +672,25 @@ def _is_remote_request() -> bool:
     return bool(headers.get("X-Forwarded-For")) and has_tailscale
 
 
+def _remote_edit_allowed() -> bool:
+    """Pedido remoto com `Tailscale-User-Login` na lista `dashboard.remote_edit_logins` (sem diferenciar maiusculas)."""
+    if not _is_remote_request():
+        return False
+    login = (request.headers.get("Tailscale-User-Login") or "").strip().casefold()
+    if not login:
+        return False
+    try:
+        logins = load_config().dashboard.remote_edit_logins
+    except Exception:
+        return False
+    return any(entry.strip().casefold() == login for entry in logins)
+
+
+def _remote_refused() -> bool:
+    """Pedido remoto que nao esta autorizado a gravar: fica so leitura e a escrita e recusada."""
+    return _is_remote_request() and not _remote_edit_allowed()
+
+
 # Mensagens da escrita do /config; registradas nos catalogos do i18n ao importar este modulo.
 _CONFIG_API_MESSAGES: Dict[str, Dict[str, str]] = {
     "en": {
@@ -722,7 +741,7 @@ def _config_payload(document: LaneDocument, project: Dict[str, Any]) -> Dict[str
     reason: Optional[str] = None
     if _project_has_active_run(project):
         reason = "run_active"
-    elif _is_remote_request():
+    elif _remote_refused():
         reason = "remote"
     return {
         "project": {"id": project["id"], "name": project["name"], "path": project["path"]},
@@ -774,7 +793,7 @@ def _config_write_guard() -> Tuple[Any, Dict[str, Any], LaneDocument, Optional[D
     document = LaneDocument()
     if request.mimetype != "application/json" or request.headers.get("X-Meister-Config") != "1":
         return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}, document, None
-    if _is_remote_request():
+    if _remote_refused():
         return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}, document, None
     raw = request.get_json(silent=True)
     project, error = _resolve_config_project(raw.get("project") if isinstance(raw, dict) else None)
@@ -963,7 +982,7 @@ def _projects_write_guard() -> Tuple[Optional[Any], Dict[str, Any]]:
     """
     if request.mimetype != "application/json" or request.headers.get("X-Meister-Config") != "1":
         return _config_error(400, "csrf", t("reports.dashboard.config_csrf")), {}
-    if _is_remote_request():
+    if _remote_refused():
         return _config_error(403, "remote", t("reports.dashboard.config_remote")), {}
     body = request.get_json(silent=True)
     if body is None:

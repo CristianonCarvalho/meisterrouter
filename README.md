@@ -130,9 +130,20 @@ Configuration stays **per project**, and the page always says which one it is ed
 
 **Save to all projects** (next to **Save**) writes the lane list you are editing into the current project and into every other project in the list. A confirmation names the projects first. Projects with a run in progress are skipped, a project whose folder is gone is skipped, and one that fails (for example an invalid YAML) does not stop the others. A result list then shows what happened in each project. Every configuration file that already existed keeps a `.bak` copy, and a project without a `meister.config.yaml` gets one created with the lanes. The lanes are matched by name in each destination, so the fields the page does not edit are kept.
 
+### Editing from your phone (Tailscale)
+
+By default the page is **read-only** when it arrives through Tailscale. To allow your own login to save from your phone, list it in the `meister.config.yaml` of the project the dashboard serves:
+
+```yaml
+dashboard:
+  remote_edit_logins: ["you@example.com"]
+```
+
+Tailscale tells the dashboard who is calling (the comparison ignores upper and lower case). Anyone else on your tailnet, and any request without a login, stays read-only. The other protections still apply: run in progress, changed file, valid lanes.
+
 ### Good to know
 
-- Saving is blocked while a run is active (the run already loaded its lanes), and the page is read-only when opened remotely, for example over Tailscale: editing is local only.
+- Saving is blocked while a run is active (the run already loaded its lanes), and the page is read-only when opened remotely, for example over Tailscale, unless your Tailscale login is listed in `dashboard.remote_edit_logins` of the `meister.config.yaml` (then you can edit from your phone; see below).
 - Saving keeps a backup of the previous configuration and never leaves a half-written file. Names are checked before saving (unique, ending in the level number) and at least one lane must stay on.
 - A saved list belongs to the project and replaces the default one, so it no longer follows future changes to the packaged lanes; **Restore default** undoes that.
 
