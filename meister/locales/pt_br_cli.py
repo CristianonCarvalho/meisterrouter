@@ -508,4 +508,5 @@ MESSAGES: dict[str, str] = {
     "cli.config.refresh_models.timeout": "Erro: o seletor /model do Copilot não apareceu em {seconds} s. O catálogo não foi alterado.",
     "cli.config.refresh_models.exited": "Erro: o Copilot CLI fechou antes de o seletor /model aparecer. O catálogo não foi alterado.",
     "cli.config.refresh_models.no_models": "Erro: nenhum modelo foi lido do seletor /model. {path} não foi alterado.",
+    "reports.config.targeted_tests_boolean": "workers.targeted_tests deve ser booleano (true/false), recebido: {value}",
 }
