@@ -90,6 +90,70 @@ def _worker_has_salvageable_changes(path: str, base_commit: Optional[str]) -> bo
     return bool(status) or bool(base_commit and head != base_commit.strip())
 
 
+_DIRECT_CHECK_COMMANDS = frozenset({
+    "pytest",
+    "py.test",
+    "vitest",
+    "jest",
+    "ruff",
+    "mypy",
+    "tsc",
+    "eslint",
+})
+
+_PYTHON_CHECK_MODULES = frozenset({
+    "pytest",
+    "ruff",
+    "mypy",
+})
+
+_CHECK_PAIRS = frozenset({
+    ("cargo", "test"),
+    ("npm", "test"),
+    ("mvn", "test"),
+    ("go", "test"),
+})
+
+
+def _base_cmd(arg: Any) -> str:
+    name = str(arg).strip().replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    if name.lower().endswith(".exe"):
+        name = name[:-4]
+    return name.lower()
+
+
+def _is_check_command(argv: list[str]) -> bool:
+    """Reconhece se o comando argv é um executor de teste ou linter reconhecido."""
+    if not isinstance(argv, list) or not argv:
+        return False
+    if _base_cmd(argv[0]) in _DIRECT_CHECK_COMMANDS:
+        return True
+    for i in range(len(argv) - 1):
+        if argv[i] == "-m" and _base_cmd(argv[i + 1]) in _PYTHON_CHECK_MODULES:
+            return True
+        if (_base_cmd(argv[i]), _base_cmd(argv[i + 1])) in _CHECK_PAIRS:
+            return True
+    return False
+
+
+def _worker_is_running_checks(pid_file: str) -> bool:
+    """Verifica se algum processo descendente do worker é um executor de testes ou linter."""
+    if not isinstance(pid_file, str) or not pid_file:
+        return False
+    try:
+        data = read_atomic_json(pid_file)
+        if not isinstance(data, dict):
+            return False
+        pid = data.get("pid")
+        if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+            return False
+        commands = osops.descendant_commands(pid)
+    except (osops.ProcessInspectionError, Exception):
+        return False
+
+    return any(_is_check_command(cmd) for cmd in commands)
+
+
 def _read_worker_exit_code(exit_file: str) -> int:
     """Lê o código de saída gravado pelo shell do pane; -1 se ausente ou inválido."""
     try:
@@ -1494,6 +1558,7 @@ class HerdrEventBridge:
 
                         if liveness_interval > 0 and time.monotonic() - last_liveness_check >= liveness_interval:
                             last_liveness_check = time.monotonic()
+                            activity_at_cycle_start = last_activity
                             if spawn_cwd:
                                 try:
                                     current_worktree_fingerprint = await asyncio.to_thread(
@@ -1526,6 +1591,16 @@ class HerdrEventBridge:
                                     await self._on_quota_detected(pane_id, pane_content)
                             except Exception:
                                 pass
+                            if last_activity == activity_at_cycle_start:
+                                worker_task_file = task_dict.get("task_file")
+                                if isinstance(worker_task_file, str) and worker_task_file:
+                                    harness_pid_file = (
+                                        f"{os.path.splitext(worker_task_file)[0]}.harness.json"
+                                    )
+                                    if await asyncio.to_thread(
+                                        _worker_is_running_checks, harness_pid_file
+                                    ):
+                                        last_activity = time.monotonic()
                             if self.host is not None:
                                 try:
                                     exists = await self.host.alive(self._worker_handle(pane_id, tab_id))
