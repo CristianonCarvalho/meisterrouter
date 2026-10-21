@@ -36,6 +36,8 @@ workers:
   # Timeout por inatividade (0 desliga); teto total (0 sem teto).
   idle_timeout_seconds: 600
   max_runtime_seconds: 3600
+  # true manda o worker rodar só os testes dos arquivos que alterou e deixar a suíte inteira e as verificações do repositório para o gate.
+  targeted_tests: true
   tier_order:
     # effort is optional; when omitted, the harness uses its default.
     # Values by harness: copilot/github-copilot = none, minimal, low, medium, high, xhigh, max;

@@ -180,6 +180,9 @@ class WorkersConfig:
     max_runtime_seconds: float = field(
         default_factory=lambda: float(_default_section("workers")["max_runtime_seconds"])
     )
+    targeted_tests: bool = field(
+        default_factory=lambda: bool(_default_section("workers").get("targeted_tests", True))
+    )
 
 
 @dataclass
@@ -527,6 +530,18 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
         "workers.max_runtime_seconds",
         float(worker_defaults["max_runtime_seconds"]),
     )
+    targeted_tests = workers_data.get(
+        "targeted_tests", worker_defaults.get("targeted_tests", True)
+    )
+    if not isinstance(targeted_tests, bool):
+        parse_issues.append(
+            ConfigIssue(
+                "error",
+                "workers.targeted_tests",
+                t("reports.config.targeted_tests_boolean", value=repr(targeted_tests)),
+            )
+        )
+        targeted_tests = bool(worker_defaults.get("targeted_tests", True))
 
     if isinstance(workers_data, dict) and "tier_order" in workers_data:
         raw_tiers = workers_data["tier_order"] or []
@@ -698,11 +713,13 @@ def _parse_config_dict(data: dict) -> MeisterConfig:
             disabled=disabled_list,
             idle_timeout_seconds=worker_idle_timeout,
             max_runtime_seconds=worker_max_runtime,
+            targeted_tests=targeted_tests,
         )
     else:
         workers = WorkersConfig(
             idle_timeout_seconds=worker_idle_timeout,
             max_runtime_seconds=worker_max_runtime,
+            targeted_tests=targeted_tests,
         )
 
     # Runtime
@@ -1150,6 +1167,19 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
         issues.append(
             ConfigIssue("warning", "workers", t("reports.config.worker_timeouts_disabled"))
         )
+
+    if not isinstance(config.workers.targeted_tests, bool):
+        if not any(issue.path == "workers.targeted_tests" for issue in issues):
+            issues.append(
+                ConfigIssue(
+                    "error",
+                    "workers.targeted_tests",
+                    t(
+                        "reports.config.targeted_tests_boolean",
+                        value=repr(config.workers.targeted_tests),
+                    ),
+                )
+            )
 
     # Erros
     if isinstance(config.retry.pane_lost_attempts, bool) or not isinstance(
