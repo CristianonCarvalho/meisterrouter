@@ -33,6 +33,15 @@ logger = logging.getLogger(__name__)
 _UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
 _termination_handlers_depth = 0
 _previous_termination_handlers: Dict[int, Any] = {}
+_CONFIG_UNSET = object()
+
+TARGETED_TESTS_PROMPT_PHRASE = (
+    "Verification: run only the tests that cover the files you changed "
+    "(for example a single test file or a -k filter); do not run the whole "
+    "test suite or repository-wide linters and type checkers, even if the "
+    "task text asks for it. The evidence gate runs them in full after you "
+    "finish and will send failures back to you."
+)
 
 
 def _is_pane_gone(event: dict, pane_id: str) -> bool:
@@ -493,18 +502,28 @@ class HarnessWorker:
         model: Optional[str] = None,
         cwd: Optional[str] = None,
         config_path: Optional[str] = None,
-        config: Optional[Any] = None,
+        config: Any = _CONFIG_UNSET,
     ):
         self.model_tier = model
         self.cwd = os.path.abspath(cwd or os.getcwd())
         self.config_path = config_path or os.environ.get("MEISTER_CONFIG_PATH")
-        self.config = config
-        if self.config is None:
+        self.config: Optional[Any] = None
+        if config is _CONFIG_UNSET:
             try:
                 from meister.config import load_config
                 self.config = load_config(config_path=self.config_path, cwd=self.cwd)
             except Exception:
                 self.config = None
+        else:
+            self.config = config
+        targeted = False
+        if self.config is not None:
+            workers_cfg = getattr(self.config, "workers", None)
+            if isinstance(workers_cfg, dict):
+                targeted = bool(workers_cfg.get("targeted_tests", False))
+            elif workers_cfg is not None:
+                targeted = bool(getattr(workers_cfg, "targeted_tests", False))
+        self.targeted_tests = targeted
         self.harness, self.resolved_model = resolve_worker_harness_and_model(
             model, config=self.config, cwd=self.cwd, config_path=self.config_path
         )
@@ -579,6 +598,8 @@ class HarnessWorker:
             "Implement all necessary changes directly into the project files. "
             "Ensure the codebase remains valid, clean, and passing tests."
         )
+        if getattr(self, "targeted_tests", False):
+            prompt_parts.append(TARGETED_TESTS_PROMPT_PHRASE)
 
         full_prompt = "\n\n".join(prompt_parts)
 
