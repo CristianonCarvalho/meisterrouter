@@ -181,6 +181,59 @@ def list_processes() -> list[tuple[int, list[str]]]:
     return processes
 
 
+def descendant_commands(pid: int) -> list[list[str]]:
+    """Devolve a lista de argv de todos os descendentes de ``pid``, sem incluir o próprio ``pid``."""
+    if pid <= 0:
+        return []
+    try:
+        result = subprocess.run(
+            ["ps", "-axww", "-o", "pid=,ppid=,command="],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError as exc:
+        raise ProcessInspectionError(str(exc)) from exc
+    if result.returncode:
+        raise ProcessInspectionError(result.stderr.strip())
+
+    children_by_ppid: dict[int, list[int]] = {}
+    argv_by_pid: dict[int, list[str]] = {}
+    for line in result.stdout.splitlines():
+        fields = line.strip().split(None, 2)
+        if len(fields) != 3:
+            continue
+        try:
+            curr_pid = int(fields[0])
+            curr_ppid = int(fields[1])
+        except ValueError:
+            continue
+        children_by_ppid.setdefault(curr_ppid, []).append(curr_pid)
+        try:
+            argv = shlex.split(fields[2])
+        except ValueError:
+            continue
+        if argv:
+            argv_by_pid[curr_pid] = argv
+
+    commands: list[list[str]] = []
+    visited: set[int] = {pid}
+    queue: list[int] = list(children_by_ppid.get(pid, []))
+    while queue:
+        curr = queue.pop(0)
+        if curr in visited:
+            continue
+        visited.add(curr)
+        if curr in argv_by_pid:
+            commands.append(argv_by_pid[curr])
+        for child in children_by_ppid.get(curr, []):
+            if child not in visited:
+                queue.append(child)
+    return commands
+
+
 def kill_self() -> NoReturn:
     """Encerra o processo atual com SIGKILL (não pode ser capturado)."""
     os.kill(os.getpid(), signal.SIGKILL)
