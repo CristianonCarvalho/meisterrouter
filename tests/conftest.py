@@ -51,6 +51,7 @@ CWD_ISOLATED_MODULES = frozenset({
     "test_worker_execution",
     "test_jev",
     "test_timeline_lane_details",
+    "test_worker_targeted_tests",
 })
 
 
