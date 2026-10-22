@@ -26,10 +26,12 @@ kill_tree = _impl.kill_tree
 lock_file = _impl.lock_file
 unlock_file = _impl.unlock_file
 list_processes = _impl.list_processes
+descendant_commands = _impl.descendant_commands
 kill_self = _impl.kill_self
 
 __all__ = [
     "ProcessInspectionError",
+    "descendant_commands",
     "interrupt_group",
     "kill_self",
     "kill_tree",

@@ -159,6 +159,31 @@ def list_processes() -> list[tuple[int, list[str]]]:
     return processes
 
 
+def descendant_commands(pid: int) -> list[list[str]]:
+    """Devolve a lista de argv de todos os descendentes de ``pid``, sem incluir o próprio ``pid``."""
+    if pid <= 0:
+        return []
+    try:
+        root = psutil.Process(pid)
+        children = root.children(recursive=True)
+    except psutil.NoSuchProcess:
+        return []
+    except psutil.Error as exc:
+        raise ProcessInspectionError(str(exc)) from exc
+
+    commands: list[list[str]] = []
+    for child in children:
+        try:
+            cmdline = child.cmdline()
+        except psutil.NoSuchProcess:
+            continue
+        except psutil.Error as exc:
+            raise ProcessInspectionError(str(exc)) from exc
+        if cmdline:
+            commands.append([str(part) for part in cmdline])
+    return commands
+
+
 def kill_self() -> NoReturn:
     """Encerra o processo atual imediatamente, sem executar limpeza."""
     os._exit(137)
