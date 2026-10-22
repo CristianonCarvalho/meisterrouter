@@ -41,6 +41,7 @@ def pytest_cmdline_main(config):
 CWD_ISOLATED_MODULES = frozenset({
     "test_cli",
     "test_config_path_propagation",
+    "test_config_targeted_tests",
     "test_herdr_bridge",
     "test_herdr_tabs",
     "test_task_runner",
@@ -50,6 +51,7 @@ CWD_ISOLATED_MODULES = frozenset({
     "test_worker_execution",
     "test_jev",
     "test_timeline_lane_details",
+    "test_worker_targeted_tests",
 })
 
 

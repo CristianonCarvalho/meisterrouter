@@ -672,9 +672,9 @@ como `tier_order` **substituem** a lista inteira). Escolher e ordenar as vias es
   as próprias regras.
 - `workers.idle_timeout_seconds` (600) encerra workers sem sinais de atividade; `workers.max_runtime_seconds`
   (3600) é o teto total. Ambos aceitam `0` para desligar e podem ser sobrescritos por via em `tier_order`. A
-  atividade é detectada por mudanças no estado Git do worktree ou no conteúdo do pane; o teto não é estendido por
-  atividade. Em timeout, alterações e commits existentes seguem o fluxo normal de escopo, gate e integração; um
+  atividade é detectada por mudanças no estado Git do worktree ou no conteúdo do pane, ou por um executor de testes ou linter (`pytest`, `mypy`, `ruff`, `vitest`, `jest`, `tsc`, `eslint`, `cargo test`, `npm test`, `mvn test`, `go test`) rodando dentro do processo do worker, de modo que um worker esperando uma suíte longa não é cortado como inativo; a atividade não estende o teto total. Em timeout, alterações e commits existentes seguem o fluxo normal de escopo, gate e integração; um
   worker sem trabalho é retentado na mesma via e depois escala pela cadeia configurada.
+- `workers.targeted_tests` (`true`) acrescenta ao prompt de todo worker uma linha pedindo que rode só os testes que cobrem os arquivos que alterou e deixe a suíte inteira e os linters e verificadores de tipos do repositório para o gate de evidências, que os roda por completo depois que o worker termina e devolve as falhas. Antes disso, os workers seguiam o texto do plano ("`pytest tests/ -q` limpo ao fim") e rodavam a suíte inteira várias vezes: em 51% de 311 sessões de workers do Claude medidas, 479 execuções completas no total, cada uma levando minutos e com a saída relida a cada volta seguinte. Com `false` o prompt não muda. O efeito no custo ainda não foi medido; compare o número de reparos do gate e o custo por run antes e depois.
 
 **Gate e escopo**
 - `gate.commands`: verificações próprias (Go, Node/pnpm...); veja `meister.config.example.yaml`. Sem testes
