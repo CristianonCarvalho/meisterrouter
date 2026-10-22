@@ -667,8 +667,9 @@ such as `tier_order` **replace** the entire list). See the README for selecting 
   subtask, with no retry and no fallback. Quota errors, gate and scope rejections follow their own rules.
 - `workers.idle_timeout_seconds` (600) terminates workers with no activity signals; `workers.max_runtime_seconds`
   (3600) is the total limit. Both accept `0` to disable and can be overridden per lane in `tier_order`. Activity is
-  detected by changes in the worktree's Git state or pane content; activity does not extend the limit. On timeout,
+  detected by changes in the worktree's Git state or pane content, or by a test runner or linter (`pytest`, `mypy`, `ruff`, `vitest`, `jest`, `tsc`, `eslint`, `cargo test`, `npm test`, `mvn test`, `go test`) running inside the worker's process, so a worker waiting on a long test suite is not cut off as idle; activity does not extend the total limit. On timeout,
   existing changes and commits follow the normal scope, gate, and integration flow; a worker with no work is retried on the same lane and then escalates through the configured fallback chain.
+- `workers.targeted_tests` (`true`) adds a line to every worker prompt asking it to run only the tests that cover the files it changed, and to leave the whole test suite and the repository-wide linters and type checkers to the evidence gate, which runs them in full after the worker finishes and sends failures back. Before this, workers followed the plan text ("`pytest tests/ -q` clean at the end") and ran the whole suite several times: in 51% of 311 measured Claude worker sessions, 479 full runs in total, each taking minutes and with the output re-read on every later turn. With `false` the prompt is unchanged. The effect on cost is not measured yet; compare the number of gate repairs and the cost per run before and after.
 
 **Gate and scope**
 - `gate.commands`: custom checks (Go, Node/pnpm...); see `meister.config.example.yaml`. If no tests
