@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from click.testing import CliRunner
 
 from meister.cli import main
+from meister.i18n import t
 from meister.report import compute_run_report, render_report
 
 
@@ -225,6 +226,8 @@ def test_attempt_failures_reasons_escalation_and_unlinked_setup_note():
         "spawns": 2,
         "retries": 1,
         "escalations": 1,
+        "gate_repairs": 0,
+        "gate_repair_tasks": 0,
         "rejections_by_reason": {"gate": 1, "scope": 1},
         "timeouts": 1,
         "quota_errors": 1,
@@ -380,3 +383,67 @@ def test_cleanup_failures_are_counted_in_report():
 def test_run_without_cleanup_events_reports_zero():
     report = compute_run_report([event("orchestration_start", task="Sem limpeza")], "run-alpha-0001")
     assert report["attempts"]["cleanup_failures"] == 0
+
+
+def test_gate_repairs_count_and_comparison_formats():
+    run1_events = [
+        event("orchestration_start", run_id="run-1", task="Run com reparos"),
+        event("worker_spawn", run_id="run-1", task_id="task-a", tier="copilot"),
+        event("gate_repair", run_id="run-1", task_id="task-a", offset=1),
+        event("gate_repair", run_id="run-1", task_id="task-a", offset=2),
+        event("gate_repair", run_id="run-1", task_id="task-b", offset=3),
+        event("orchestration_end", run_id="run-1", status="completed", offset=4),
+    ]
+    run2_events = [
+        event("orchestration_start", run_id="run-2", task="Run sem reparos"),
+        event("worker_spawn", run_id="run-2", task_id="task-c", tier="copilot"),
+        event("orchestration_end", run_id="run-2", status="completed", offset=2),
+    ]
+
+    report1 = compute_run_report(run1_events, "run-1")
+    report2 = compute_run_report(run2_events, "run-2")
+
+    assert report1["attempts"]["gate_repairs"] == 3
+    assert report1["attempts"]["gate_repair_tasks"] == 2
+    assert report2["attempts"]["gate_repairs"] == 0
+    assert report2["attempts"]["gate_repair_tasks"] == 0
+
+    data = {"groups": [], "runs": [report1, report2]}
+
+    # JSON format includes new keys in both runs
+    parsed = json.loads(render_report(data, "json"))
+    assert parsed["runs"][0]["attempts"]["gate_repairs"] == 3
+    assert parsed["runs"][0]["attempts"]["gate_repair_tasks"] == 2
+    assert parsed["runs"][1]["attempts"]["gate_repairs"] == 0
+    assert parsed["runs"][1]["attempts"]["gate_repair_tasks"] == 0
+
+    # Table format includes new rows and compares both runs
+    repairs_label = t("reports.gate_repairs")
+    tasks_label = t("reports.gate_repair_tasks")
+    escalations_label = t("reports.escalations")
+
+    table = render_report(data, "table")
+    table_lines = table.splitlines()
+
+    repairs_line = next(line for line in table_lines if line.startswith(repairs_label))
+    tasks_line = next(line for line in table_lines if line.startswith(tasks_label))
+    escalations_line = next(line for line in table_lines if line.startswith(escalations_label))
+
+    assert repairs_line.split()[-2:] == ["3", "0"]
+    assert tasks_line.split()[-2:] == ["2", "0"]
+    assert table_lines.index(repairs_line) == table_lines.index(escalations_line) + 1
+    assert table_lines.index(tasks_line) == table_lines.index(repairs_line) + 1
+
+    # Markdown format includes new rows and compares both runs
+    markdown = render_report(data, "markdown")
+    md_lines = markdown.splitlines()
+
+    md_repairs = f"| {repairs_label} | 3 | 0 |"
+    md_tasks = f"| {tasks_label} | 2 | 0 |"
+    assert md_repairs in md_lines
+    assert md_tasks in md_lines
+
+    md_escalations = next(line for line in md_lines if line.startswith(f"| {escalations_label} |"))
+    assert md_lines.index(md_repairs) == md_lines.index(md_escalations) + 1
+    assert md_lines.index(md_tasks) == md_lines.index(md_repairs) + 1
+
