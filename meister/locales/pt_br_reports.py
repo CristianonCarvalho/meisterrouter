@@ -87,6 +87,8 @@ MESSAGES: dict[str, str] = {
     "reports.spawns": "Spawns",
     "reports.retries": "Retentativas",
     "reports.escalations": "Escaladas",
+    "reports.gate_repairs": "Reparos do gate",
+    "reports.gate_repair_tasks": "Tarefas com reparo do gate",
     "reports.timeouts": "Timeouts",
     "reports.quota_errors": "Erros de cota",
     "reports.worker_errors": "Erros worker",
