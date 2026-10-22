@@ -101,6 +101,17 @@ _DIRECT_CHECK_COMMANDS = frozenset({
     "eslint",
 })
 
+_INTERPRETERS = frozenset({
+    "python",
+    "python3",
+    "pythonw",
+    "node",
+    "nodejs",
+    "sh",
+    "bash",
+    "zsh",
+})
+
 _PYTHON_CHECK_MODULES = frozenset({
     "pytest",
     "ruff",
@@ -122,12 +133,26 @@ def _base_cmd(arg: Any) -> str:
     return name.lower()
 
 
+def _is_interpreter(arg: Any) -> bool:
+    name = _base_cmd(arg)
+    if name in _INTERPRETERS:
+        return True
+    if name.startswith("python"):
+        suffix = name[len("python"):]
+        if suffix and all(c.isdigit() or c == "." for c in suffix) and any(c.isdigit() for c in suffix):
+            return True
+    return False
+
+
 def _is_check_command(argv: list[str]) -> bool:
     """Reconhece se o comando argv é um executor de teste ou linter reconhecido."""
     if not isinstance(argv, list) or not argv:
         return False
     if _base_cmd(argv[0]) in _DIRECT_CHECK_COMMANDS:
         return True
+    if _is_interpreter(argv[0]) and len(argv) > 1 and not str(argv[1]).startswith("-"):
+        if _base_cmd(argv[1]) in _DIRECT_CHECK_COMMANDS:
+            return True
     for i in range(len(argv) - 1):
         if argv[i] == "-m" and _base_cmd(argv[i + 1]) in _PYTHON_CHECK_MODULES:
             return True

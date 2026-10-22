@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 import pathlib
+import shlex
+import subprocess
+import sys
 from unittest.mock import AsyncMock, patch
 import pytest
 
@@ -10,7 +13,9 @@ from meister import osops
 from meister.config import load_config
 from meister.engine.bridge import (
     HerdrEventBridge,
+    _INTERPRETERS,
     _is_check_command,
+    _is_interpreter,
     _worker_is_running_checks,
 )
 from meister.worker import write_atomic_json
@@ -206,3 +211,101 @@ async def test_bridge_idle_timeout_fires_without_running_checks(tmp_path: pathli
     events = [call.kwargs for call in log_event_mock.call_args_list]
     timeout_event = next(event for event in events if event.get("event_type") == "worker_timeout")
     assert timeout_event["kind"] == "idle"
+
+
+def test_is_interpreter() -> None:
+    # Base interpreters in _INTERPRETERS
+    for name in ["python", "python3", "pythonw", "node", "nodejs", "sh", "bash", "zsh"]:
+        assert name in _INTERPRETERS
+        assert _is_interpreter(name) is True
+        assert _is_interpreter(f"/usr/bin/{name}") is True
+        assert _is_interpreter(f"C:\\Tools\\{name}.exe") is True
+        assert _is_interpreter(name.upper()) is True
+
+    # python3.N and version variants
+    assert _is_interpreter("python3.13") is True
+    assert _is_interpreter("python3.11") is True
+    assert _is_interpreter("python3.8") is True
+    assert _is_interpreter("python3.12.1") is True
+    assert _is_interpreter("python2.7") is True
+    assert _is_interpreter("/usr/local/bin/python3.13") is True
+    assert _is_interpreter("C:\\Python313\\python3.13.exe") is True
+
+    # Negative cases
+    assert _is_interpreter("claude") is False
+    assert _is_interpreter("ruff") is False
+    assert _is_interpreter("java") is False
+    assert _is_interpreter("cargo") is False
+    assert _is_interpreter("npm") is False
+    assert _is_interpreter("git") is False
+    assert _is_interpreter("server.py") is False
+    assert _is_interpreter("python-foo") is False
+    assert _is_interpreter("pythona") is False
+    assert _is_interpreter("") is False
+
+
+def test_is_check_command_script_after_interpreter() -> None:
+    # Explicit acceptance cases from Global Constraints
+    assert _is_check_command(["python3", "/x/.venv/bin/pytest", "-q"]) is True
+    assert _is_check_command(["node", "/x/node_modules/.bin/vitest", "run"]) is True
+    assert _is_check_command(["/bin/sh", "/x/pytest", "-q"]) is True
+
+    # Additional interpreters and direct check scripts
+    assert _is_check_command(["python", "/x/.venv/bin/pytest"]) is True
+    assert _is_check_command(["pythonw", "C:\\venv\\Scripts\\pytest.exe"]) is True
+    assert _is_check_command(["nodejs", "/x/node_modules/.bin/jest", "--watch"]) is True
+    assert _is_check_command(["bash", "/usr/local/bin/ruff", "check", "."]) is True
+    assert _is_check_command(["zsh", "/usr/local/bin/mypy", "meister"]) is True
+    assert _is_check_command(["python3.13", "/x/bin/pytest", "-q"]) is True
+    assert _is_check_command(["node", "/x/node_modules/.bin/tsc", "--noEmit"]) is True
+    assert _is_check_command(["node", "/x/node_modules/.bin/eslint", "."]) is True
+    assert _is_check_command(["python", "/x/py.test"]) is True
+
+
+def test_is_check_command_script_after_interpreter_rejection() -> None:
+    # Explicit rejection cases from Global Constraints
+    assert _is_check_command(["claude", "-p", "rode o pytest"]) is False
+    assert _is_check_command(["python", "server.py"]) is False
+
+    # Item 0 is not an interpreter
+    assert _is_check_command(["claude", "/x/pytest"]) is False
+    assert _is_check_command(["java", "/x/pytest"]) is False
+    assert _is_check_command(["cargo", "/x/pytest"]) is False
+
+    # Options (starting with -) as argv[1] do not count as direct executor scripts
+    assert _is_check_command(["python", "-u", "/x/pytest"]) is False
+    assert _is_check_command(["python", "-c", "import pytest"]) is False
+    assert _is_check_command(["sh", "-c", "pytest"]) is False
+    assert _is_check_command(["bash", "-e", "/x/pytest"]) is False
+
+    # Arguments deeper than item 1 do not count when item 1 is not a check command
+    assert _is_check_command(["python", "server.py", "pytest"]) is False
+    assert _is_check_command(["node", "server.js", "vitest"]) is False
+
+    # Single argument without script
+    assert _is_check_command(["python"]) is False
+    assert _is_check_command(["node"]) is False
+    assert _is_check_command(["bash"]) is False
+
+
+@pytest.mark.skipif(os.name != "posix", reason="ps command requires POSIX")
+def test_is_check_command_real_process(tmp_path: pathlib.Path) -> None:
+    pytest_script = tmp_path / "pytest"
+    pytest_script.write_text("import time\ntime.sleep(5)\n", encoding="utf-8")
+
+    proc = subprocess.Popen([sys.executable, str(pytest_script)])
+    try:
+        out = subprocess.check_output(
+            ["ps", "-ww", "-o", "command=", "-p", str(proc.pid)],
+            text=True,
+        ).strip()
+        cmd_args = shlex.split(out)
+        assert _is_check_command(cmd_args) is True
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
