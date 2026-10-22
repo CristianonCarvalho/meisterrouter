@@ -170,6 +170,13 @@ def compute_run_report(
         for event in selected if event_type(event) == "subtask_rejected"
     )
     retries = sum(event_type(event) == "worker_retry" for event in selected)
+    gate_repair_events = [event for event in selected if event_type(event) == "gate_repair"]
+    gate_repairs = len(gate_repair_events)
+    gate_repair_tasks = len({
+        str(event["task_id"])
+        for event in gate_repair_events
+        if event.get("task_id") is not None and str(event.get("task_id")) != ""
+    })
     jev = summary["jev"]
     jev_costs = [
         _number(event.get("cost") if event.get("cost") is not None else event.get("cost_usd"))
@@ -284,6 +291,8 @@ def compute_run_report(
             "spawns": len(spawns),
             "retries": retries,
             "escalations": escalations,
+            "gate_repairs": gate_repairs,
+            "gate_repair_tasks": gate_repair_tasks,
             "rejections_by_reason": dict(sorted(rejections.items())),
             "timeouts": sum(event_type(event) == "worker_timeout" for event in selected),
             "quota_errors": sum(event_type(event) == "quota_error" for event in selected),
@@ -413,8 +422,14 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
     add(t("reports.overhead"), [_display_percent(report["overhead_ratio"]) for report in reports])
     add(t("reports.peak_workers"), [_display(report["peak_parallel_workers"]) for report in reports])
     for key, label in (
-        ("spawns", t("reports.spawns")), ("retries", t("reports.retries")), ("escalations", t("reports.escalations")),
-        ("timeouts", t("reports.timeouts")), ("quota_errors", t("reports.quota_errors")), ("worker_errors", t("reports.worker_errors")),
+        ("spawns", t("reports.spawns")),
+        ("retries", t("reports.retries")),
+        ("escalations", t("reports.escalations")),
+        ("gate_repairs", t("reports.gate_repairs")),
+        ("gate_repair_tasks", t("reports.gate_repair_tasks")),
+        ("timeouts", t("reports.timeouts")),
+        ("quota_errors", t("reports.quota_errors")),
+        ("worker_errors", t("reports.worker_errors")),
         ("cleanup_failures", t("reports.cleanup_failures")),
     ):
         add(label, [str(report["attempts"][key]) for report in reports])
