@@ -59,6 +59,7 @@ from meister.worker import (
     ensure_meister_dir,
 )
 from meister.jev import classify_task
+from meister.complexity import changed_function_report
 
 logger = logging.getLogger(__name__)
 _UNBOUNDED_WORKER_TIMEOUT = 1_000_000_000.0
@@ -2584,6 +2585,38 @@ class HerdrEventBridge:
                         for key in ("tokens_in", "tokens_out", "tokens_total", "credits", "approx")
                         if usage_data.get(key) is not None
                     }
+                    if integrated_sha_for_task:
+                        try:
+                            int_repo = None
+                            if self._integration_pipeline is not None:
+                                int_info = getattr(self._integration_pipeline, "integration_info", None)
+                                if int_info is not None:
+                                    int_repo = getattr(int_info, "worktree_path", None)
+                                if not int_repo and hasattr(self._integration_pipeline, "wt_mgr"):
+                                    int_repo = getattr(self._integration_pipeline.wt_mgr, "repo_root", None)
+                                if not int_repo:
+                                    int_repo = (
+                                        getattr(self._integration_pipeline, "repo_path", None)
+                                        or getattr(self._integration_pipeline, "repo_root", None)
+                                    )
+
+                            if int_repo:
+                                repo_arg = str(int_repo) if isinstance(int_repo, (str, os.PathLike)) else int_repo
+                                report = await asyncio.to_thread(
+                                    changed_function_report,
+                                    repo_arg,
+                                    f"{integrated_sha_for_task}^1",
+                                    integrated_sha_for_task,
+                                )
+                                if isinstance(report, dict):
+                                    log_event(
+                                        event_type="complexity_check",
+                                        run_id=active_run_id,
+                                        task_id=task_id,
+                                        **report,
+                                    )
+                        except Exception as e:
+                            logger.debug("Falha ao medir complexidade para subtarefa %s: %s", task_id, e)
                     log_event(
                         event_type="subtask_completed",
                         run_id=active_run_id,
