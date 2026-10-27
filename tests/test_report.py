@@ -447,3 +447,226 @@ def test_gate_repairs_count_and_comparison_formats():
     assert md_lines.index(md_repairs) == md_lines.index(md_escalations) + 1
     assert md_lines.index(md_tasks) == md_lines.index(md_repairs) + 1
 
+
+def test_complexity_metrics_count_and_comparison_formats():
+    run1_events = [
+        event("orchestration_start", run_id="run-1", task="Run com complexidade"),
+        event("worker_spawn", run_id="run-1", task_id="task-a", tier="copilot"),
+        event(
+            "complexity_check",
+            run_id="run-1",
+            task_id="task-a",
+            functions_changed=3,
+            over_threshold=1,
+            worsened=1,
+            max_complexity=12,
+            worst="app.py::foo",
+            offset=1,
+        ),
+        event(
+            "complexity_check",
+            run_id="run-1",
+            task_id="task-b",
+            functions_changed=2,
+            over_threshold=1,
+            worsened=0,
+            max_complexity=15,
+            worst="utils.py::bar",
+            offset=2,
+        ),
+        event("orchestration_end", run_id="run-1", status="completed", offset=3),
+    ]
+    run2_events = [
+        event("orchestration_start", run_id="run-2", task="Run sem complexidade"),
+        event("worker_spawn", run_id="run-2", task_id="task-c", tier="copilot"),
+        event("orchestration_end", run_id="run-2", status="completed", offset=2),
+    ]
+
+    report1 = compute_run_report(run1_events, "run-1")
+    report2 = compute_run_report(run2_events, "run-2")
+
+    # Somas e maximo corretos para run com 2 eventos
+    assert report1["complexity"] == {
+        "functions_changed": 5,
+        "over_threshold": 2,
+        "worsened": 1,
+        "max_complexity": 15,
+    }
+
+    # Run sem o evento tem valor None
+    assert report2["complexity"] is None
+
+    data = {"groups": [], "runs": [report1, report2]}
+
+    # JSON format includes complexity in both runs
+    parsed = json.loads(render_report(data, "json"))
+    assert parsed["runs"][0]["complexity"] == {
+        "functions_changed": 5,
+        "over_threshold": 2,
+        "worsened": 1,
+        "max_complexity": 15,
+    }
+    assert parsed["runs"][1]["complexity"] is None
+
+    # Labels and table format
+    func_label = t("reports.complexity_functions")
+    over_label = t("reports.complexity_over")
+    worsened_label = t("reports.complexity_worsened")
+    max_label = t("reports.complexity_max")
+    tasks_label = t("reports.gate_repair_tasks")
+    timeouts_label = t("reports.timeouts")
+    not_measured = t("reports.not_measured")
+
+    table = render_report(data, "table")
+    table_lines = table.splitlines()
+
+    func_line = next(line for line in table_lines if line.startswith(func_label))
+    over_line = next(line for line in table_lines if line.startswith(over_label))
+    worsened_line = next(line for line in table_lines if line.startswith(worsened_label))
+    max_line = next(line for line in table_lines if line.startswith(max_label))
+    tasks_line = next(line for line in table_lines if line.startswith(tasks_label))
+    timeouts_line = next(line for line in table_lines if line.startswith(timeouts_label))
+
+    # Four lines right after "Tasks with a gate repair"
+    assert table_lines.index(func_line) == table_lines.index(tasks_line) + 1
+    assert table_lines.index(over_line) == table_lines.index(func_line) + 1
+    assert table_lines.index(worsened_line) == table_lines.index(over_line) + 1
+    assert table_lines.index(max_line) == table_lines.index(worsened_line) + 1
+    assert table_lines.index(timeouts_line) == table_lines.index(max_line) + 1
+
+    assert "5" in func_line and not_measured in func_line
+    assert "2" in over_line and not_measured in over_line
+    assert "1" in worsened_line and not_measured in worsened_line
+    assert "15" in max_line and not_measured in max_line
+
+    # Markdown format includes new rows and compares both runs
+    markdown = render_report(data, "markdown")
+    md_lines = markdown.splitlines()
+
+    md_tasks = next(line for line in md_lines if line.startswith(f"| {tasks_label} |"))
+    md_func = f"| {func_label} | 5 | {not_measured} |"
+    md_over = f"| {over_label} | 2 | {not_measured} |"
+    md_worsened = f"| {worsened_label} | 1 | {not_measured} |"
+    md_max = f"| {max_label} | 15 | {not_measured} |"
+    md_timeouts = next(line for line in md_lines if line.startswith(f"| {timeouts_label} |"))
+
+    assert md_func in md_lines
+    assert md_over in md_lines
+    assert md_worsened in md_lines
+    assert md_max in md_lines
+
+    assert md_lines.index(md_func) == md_lines.index(md_tasks) + 1
+    assert md_lines.index(md_over) == md_lines.index(md_func) + 1
+    assert md_lines.index(md_worsened) == md_lines.index(md_over) + 1
+    assert md_lines.index(md_max) == md_lines.index(md_worsened) + 1
+    assert md_lines.index(md_timeouts) == md_lines.index(md_max) + 1
+
+
+def test_complexity_metrics_cli_report_json_table_markdown(tmp_path):
+    log_dir = tmp_path / "logs"
+    events = [
+        event("orchestration_start", run_id="run-alpha-0001", task="Run 1"),
+        event(
+            "complexity_check",
+            run_id="run-alpha-0001",
+            task_id="t1",
+            functions_changed=3,
+            over_threshold=1,
+            worsened=1,
+            max_complexity=12,
+            worst="a.py::f1",
+        ),
+        event(
+            "complexity_check",
+            run_id="run-alpha-0001",
+            task_id="t2",
+            functions_changed=2,
+            over_threshold=1,
+            worsened=0,
+            max_complexity=15,
+            worst="b.py::f2",
+        ),
+        event("orchestration_end", run_id="run-alpha-0001", status="completed", offset=1),
+        event("orchestration_start", run_id="run-beta-0001", task="Run 2"),
+        event("orchestration_end", run_id="run-beta-0001", status="completed", offset=1),
+    ]
+    write_log(log_dir, events)
+    runner = CliRunner()
+
+    res_json_1 = runner.invoke(main, ["report", "--run-id", "run-alpha-0001", "--log-dir", str(log_dir), "--format", "json"])
+    assert res_json_1.exit_code == 0, res_json_1.output
+    parsed_1 = json.loads(res_json_1.output)
+    assert parsed_1["runs"][0]["complexity"] == {
+        "functions_changed": 5,
+        "over_threshold": 2,
+        "worsened": 1,
+        "max_complexity": 15,
+    }
+
+    res_json_2 = runner.invoke(main, ["report", "--run-id", "run-beta-0001", "--log-dir", str(log_dir), "--format", "json"])
+    assert res_json_2.exit_code == 0, res_json_2.output
+    parsed_2 = json.loads(res_json_2.output)
+    assert parsed_2["runs"][0]["complexity"] is None
+
+    res_table_1 = runner.invoke(main, ["report", "--run-id", "run-alpha-0001", "--log-dir", str(log_dir), "--format", "table"])
+    assert res_table_1.exit_code == 0, res_table_1.output
+    assert t("reports.complexity_functions") in res_table_1.output
+    assert "5" in res_table_1.output
+    assert "15" in res_table_1.output
+
+    res_table_2 = runner.invoke(main, ["report", "--run-id", "run-beta-0001", "--log-dir", str(log_dir), "--format", "table"])
+    assert res_table_2.exit_code == 0, res_table_2.output
+    assert t("reports.complexity_functions") in res_table_2.output
+    assert t("reports.not_measured") in res_table_2.output
+
+    res_md_1 = runner.invoke(main, ["report", "--run-id", "run-alpha-0001", "--log-dir", str(log_dir), "--format", "markdown"])
+    assert res_md_1.exit_code == 0, res_md_1.output
+    assert f"| {t('reports.complexity_functions')} | 5 |" in res_md_1.output
+    assert f"| {t('reports.complexity_max')} | 15 |" in res_md_1.output
+
+    res_md_2 = runner.invoke(main, ["report", "--run-id", "run-beta-0001", "--log-dir", str(log_dir), "--format", "markdown"])
+    assert res_md_2.exit_code == 0, res_md_2.output
+    assert f"| {t('reports.complexity_functions')} | {t('reports.not_measured')} |" in res_md_2.output
+
+
+def test_complexity_metrics_in_english():
+    from meister.i18n import reset_language_cache, set_language
+
+    set_language("en")
+    try:
+        run1_events = [
+            event("orchestration_start", run_id="run-1"),
+            event(
+                "complexity_check",
+                run_id="run-1",
+                functions_changed=4,
+                over_threshold=2,
+                worsened=1,
+                max_complexity=18,
+            ),
+            event("orchestration_end", run_id="run-1", status="completed", offset=1),
+        ]
+        run2_events = [
+            event("orchestration_start", run_id="run-2"),
+            event("orchestration_end", run_id="run-2", status="completed", offset=1),
+        ]
+        report1 = compute_run_report(run1_events, "run-1")
+        report2 = compute_run_report(run2_events, "run-2")
+        data = {"groups": [], "runs": [report1, report2]}
+
+        table = render_report(data, "table")
+        assert "Functions changed (Python)" in table
+        assert "Functions above complexity 10" in table
+        assert "Functions with higher complexity" in table
+        assert "Highest complexity" in table
+        assert "not measured" in table
+
+        markdown = render_report(data, "markdown")
+        assert "| Functions changed (Python) | 4 | not measured |" in markdown
+        assert "| Functions above complexity 10 | 2 | not measured |" in markdown
+        assert "| Functions with higher complexity | 1 | not measured |" in markdown
+        assert "| Highest complexity | 18 | not measured |" in markdown
+    finally:
+        reset_language_cache()
+
+

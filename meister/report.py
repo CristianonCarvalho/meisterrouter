@@ -268,6 +268,27 @@ def compute_run_report(
             t("reports.note_credit_cost", tier=tier, price=f"{credits_prices[tier]:g}")
         )
 
+    complexity_events = [
+        event for event in selected if event_type(event) == "complexity_check"
+    ]
+    if complexity_events:
+        complexity: Optional[Dict[str, int]] = {
+            "functions_changed": sum(
+                int(event.get("functions_changed") or 0) for event in complexity_events
+            ),
+            "over_threshold": sum(
+                int(event.get("over_threshold") or 0) for event in complexity_events
+            ),
+            "worsened": sum(
+                int(event.get("worsened") or 0) for event in complexity_events
+            ),
+            "max_complexity": max(
+                int(event.get("max_complexity") or 0) for event in complexity_events
+            ),
+        }
+    else:
+        complexity = None
+
     return {
         "run_id": run_id,
         "title": clip_title(run.get("title")) or run.get("title") or "",
@@ -299,6 +320,7 @@ def compute_run_report(
             "worker_errors": sum(event_type(event) == "worker_error" for event in selected),
             "cleanup_failures": sum(event_type(event) == "cleanup_failure" for event in selected),
         },
+        "complexity": complexity,
         "jev": {
             "classify_calls": jev["classify_calls"],
             "control_calls": jev["control_calls"],
@@ -427,6 +449,26 @@ def _run_rows(reports: List[Dict[str, Any]]) -> List[Tuple[str, List[str]]]:
         ("escalations", t("reports.escalations")),
         ("gate_repairs", t("reports.gate_repairs")),
         ("gate_repair_tasks", t("reports.gate_repair_tasks")),
+    ):
+        add(label, [str(report["attempts"][key]) for report in reports])
+    for key, label_key in (
+        ("functions_changed", "reports.complexity_functions"),
+        ("over_threshold", "reports.complexity_over"),
+        ("worsened", "reports.complexity_worsened"),
+        ("max_complexity", "reports.complexity_max"),
+    ):
+        add(
+            t(label_key),
+            [
+                _display(
+                    report["complexity"][key]
+                    if report.get("complexity") is not None
+                    else None
+                )
+                for report in reports
+            ],
+        )
+    for key, label in (
         ("timeouts", t("reports.timeouts")),
         ("quota_errors", t("reports.quota_errors")),
         ("worker_errors", t("reports.worker_errors")),
