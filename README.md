@@ -1,5 +1,9 @@
 # 🔮 MeisterRouter
 
+[![MeisterRouter in 56 seconds: one orchestrator, many agents, tests decide what merges (click to play)](docs/img/overview-video.png)](docs/video/meister-overview.mp4)
+
+<sub>▶ Click to watch the 56-second overview (English, with captions). The agents in it are examples: you pick your own and their order.</sub>
+
 🌐 **English** · [Português (Brasil)](README.pt-BR.md)
 
 ### Hand your AI coding agents a plan. Come back to code that is already tested and merged.
