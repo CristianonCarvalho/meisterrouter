@@ -1,8 +1,8 @@
 # 🔮 MeisterRouter
 
-[![MeisterRouter em 56 segundos: um orquestrador, vários agentes, os testes decidem o que integra (clique para assistir)](docs/img/overview-video.png)](docs/video/meister-overview.mp4)
+https://github.com/user-attachments/assets/7235d3e3-3d0f-42ee-8756-28d46953a1d4
 
-<sub>▶ Clique para assistir à visão geral de 56 segundos (em inglês, com legendas). Os agentes do vídeo são exemplos: você escolhe os seus e a ordem deles.</sub>
+<sub>▶ Visão geral de 56 segundos (em inglês, com legendas). Os agentes do vídeo são exemplos: você escolhe os seus e a ordem deles.</sub>
 
 🌐 [English](README.md) · **Português (Brasil)**
 

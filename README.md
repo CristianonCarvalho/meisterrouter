@@ -1,8 +1,8 @@
 # 🔮 MeisterRouter
 
-[![MeisterRouter in 56 seconds: one orchestrator, many agents, tests decide what merges (click to play)](docs/img/overview-video.png)](docs/video/meister-overview.mp4)
+https://github.com/user-attachments/assets/7235d3e3-3d0f-42ee-8756-28d46953a1d4
 
-<sub>▶ Click to watch the 56-second overview (English, with captions). The agents in it are examples: you pick your own and their order.</sub>
+<sub>▶ The 56-second overview (English, with captions). The agents in it are examples: you pick your own and their order.</sub>
 
 🌐 **English** · [Português (Brasil)](README.pt-BR.md)
 
