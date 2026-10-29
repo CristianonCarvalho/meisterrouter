@@ -1,8 +1,8 @@
 # 🔮 MeisterRouter
 
-https://github.com/user-attachments/assets/7235d3e3-3d0f-42ee-8756-28d46953a1d4
+https://github.com/user-attachments/assets/fb9565a7-ad7b-499f-a982-8fc1a6e0eac4
 
-<sub>▶ Visão geral de 56 segundos (em inglês, com legendas). Os agentes do vídeo são exemplos: você escolhe os seus e a ordem deles.</sub>
+<sub>▶ Visão geral de 58 segundos, narrada em português. Os agentes do vídeo são exemplos: você escolhe os seus e a ordem deles.</sub>
 
 🌐 [English](README.md) · **Português (Brasil)**
 
