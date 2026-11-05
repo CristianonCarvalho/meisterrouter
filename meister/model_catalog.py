@@ -24,10 +24,14 @@ CACHE_TTL_SECONDS = 300.0
 AGY_EXECUTABLE = "agy"
 AGY_MODELS_TIMEOUT_SECONDS = 10.0
 
+OPENCODE_EXECUTABLE = "opencode"
+OPENCODE_MODELS_TIMEOUT_SECONDS = 10.0
+
 SOURCE_AGY_MODELS = "agy models"
 SOURCE_CODEX_CACHE = "codex cache"
 SOURCE_CLAUDE_ALIASES = "claude aliases"
 SOURCE_COPILOT_CACHE = "copilot cache"
+SOURCE_OPENCODE_MODELS = "opencode models"
 SOURCE_CONFIG = "config"
 
 # Mesmo agrupamento de meister/harness_effort.py: nomes alternativos do mesmo harness.
@@ -40,6 +44,7 @@ _HARNESS_GROUPS: Dict[str, str] = {
     "codex": "codex",
     "kiro-cli": "kiro-cli",
     "kiro": "kiro-cli",
+    "opencode": "opencode",
 }
 
 # Aliases aceitos pelo CLI claude (--help) e os ids completos dos modelos.
@@ -140,6 +145,8 @@ def _fixed_sources(group: str) -> List[Tuple[str, SourceReader]]:
         return [(SOURCE_CLAUDE_ALIASES, _claude_aliases)]
     if group == "copilot":
         return [(SOURCE_COPILOT_CACHE, _copilot_cache)]
+    if group == "opencode":
+        return [(SOURCE_OPENCODE_MODELS, _opencode_models)]
     return []
 
 
@@ -176,6 +183,43 @@ def _agy_models() -> Optional[List[ModelEntry]]:
         if not model_id or any(char.isspace() for char in model_id):
             continue
         models.append(_entry(model_id, name.strip() or None, SOURCE_AGY_MODELS))
+    return models
+
+
+def _opencode_models() -> Optional[List[ModelEntry]]:
+    # Sem shell e só se o executável existir: nunca roda um comando que não foi encontrado no PATH.
+    if shutil.which(OPENCODE_EXECUTABLE) is None:
+        return None
+    try:
+        result = subprocess.run(
+            [OPENCODE_EXECUTABLE, "models"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=OPENCODE_MODELS_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    if not result.stdout or not result.stdout.strip():
+        return None
+
+    models: List[ModelEntry] = []
+    seen: Set[str] = set()
+    for raw_line in result.stdout.splitlines():
+        line = raw_line.strip()
+        if not line or any(char.isspace() for char in line):
+            continue
+        parts = line.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            continue
+        if line in seen:
+            continue
+        seen.add(line)
+        models.append(_entry(line, None, SOURCE_OPENCODE_MODELS))
     return models
 
 
