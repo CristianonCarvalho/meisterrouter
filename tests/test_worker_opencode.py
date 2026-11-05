@@ -46,6 +46,8 @@ def test_opencode_command_with_model():
         "/cli",
         "run",
         "--auto",
+        "--dir",
+        "/work",
         "-m",
         "opencode/big-pickle",
         "prompt",
@@ -57,12 +59,16 @@ def test_opencode_command_without_model():
         "/cli",
         "run",
         "--auto",
+        "--dir",
+        "/work",
         "prompt",
     ]
     assert build_harness_command(HARNESS_OPENCODE, "/cli", "default", "prompt", "/work") == [
         "/cli",
         "run",
         "--auto",
+        "--dir",
+        "/work",
         "prompt",
     ]
 
@@ -75,11 +81,52 @@ def test_opencode_command_prompt_with_leading_dash():
         "/cli",
         "run",
         "--auto",
+        "--dir",
+        "/work",
         "-m",
         "opencode/big-pickle",
         "--flag and -opt prompt",
     ]
     assert cmd[-1] == "--flag and -opt prompt"
+
+
+@pytest.mark.parametrize("empty_cwd", ["", None])
+def test_opencode_command_without_cwd(empty_cwd):
+    cmd = build_harness_command(
+        HARNESS_OPENCODE, "/cli", "opencode/big-pickle", "prompt", empty_cwd
+    )
+    assert cmd == [
+        "/cli",
+        "run",
+        "--auto",
+        "-m",
+        "opencode/big-pickle",
+        "prompt",
+    ]
+    assert "--dir" not in cmd
+    assert cmd[-1] == "prompt"
+
+
+def test_opencode_command_dir_before_model_and_prompt_last():
+    cmd = build_harness_command(
+        HARNESS_OPENCODE, "/cli", "opencode/big-pickle", "final prompt", "/custom/workdir"
+    )
+    assert cmd == [
+        "/cli",
+        "run",
+        "--auto",
+        "--dir",
+        "/custom/workdir",
+        "-m",
+        "opencode/big-pickle",
+        "final prompt",
+    ]
+    dir_idx = cmd.index("--dir")
+    m_idx = cmd.index("-m")
+    assert dir_idx < m_idx
+    assert cmd[dir_idx + 1] == "/custom/workdir"
+    assert cmd[m_idx + 1] == "opencode/big-pickle"
+    assert cmd[-1] == "final prompt"
 
 
 def test_opencode_command_rejects_effort():
@@ -163,8 +210,8 @@ def test_worker_runs_fake_opencode(tmp_path, monkeypatch):
     ).run_task("test task")
 
     argv = json.loads(argv_file.read_text(encoding="utf-8"))
-    assert argv[:3] == ["run", "--auto", "-m"]
-    assert argv[3] == "opencode/big-pickle"
+    assert argv[:5] == ["run", "--auto", "--dir", str(work_dir), "-m"]
+    assert argv[5] == "opencode/big-pickle"
     assert argv[-1].startswith("Task: test task")
     assert (work_dir / "opencode_out.txt").read_text(encoding="utf-8") == "done"
     assert result["exit_code"] == 0
@@ -192,7 +239,7 @@ def test_worker_runs_fake_opencode_default_model(tmp_path, monkeypatch):
     ).run_task("-prompt-with-dash")
 
     argv = json.loads(argv_file.read_text(encoding="utf-8"))
-    assert argv[:2] == ["run", "--auto"]
+    assert argv[:4] == ["run", "--auto", "--dir", str(work_dir)]
     assert "-m" not in argv
     assert argv[-1].startswith("Task: -prompt-with-dash")
     assert result["exit_code"] == 0
