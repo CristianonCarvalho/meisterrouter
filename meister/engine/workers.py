@@ -7,10 +7,11 @@ quota / rate limit detection for rapid failover.
 
 from __future__ import annotations
 
+import inspect
+import json
 import logging
 import re
-import json
-from typing import Optional, Tuple, Union, Any, List
+from typing import Any, List, Optional, Tuple, Union
 from meister.config import MeisterConfig, WorkerTier, load_config
 from meister.herdr.client import HerdrSocketClient
 from meister.hosts import HerdrHost, WorkerCommand, WorkerHost
@@ -245,6 +246,7 @@ class WorkerSpawner:
         self,
         tier: Union[WorkerTier, str],
         task_context: Optional[dict] = None,
+        cwd: Optional[str] = None,
     ) -> List[str]:
         """Resolve command arguments to spawn a worker pane for a given tier.
 
@@ -321,6 +323,8 @@ class WorkerSpawner:
             model = tier_obj.model if tier_obj.model and tier_obj.model != "default" else None
             if task_context and "description" in task_context and task_context["description"]:
                 cmd.extend(["run", "--auto"])
+                if cwd:
+                    cmd.extend(["--dir", cwd])
                 if model:
                     cmd.extend(["-m", model])
                 cmd.append(str(task_context["description"]))
@@ -336,6 +340,27 @@ class WorkerSpawner:
             cmd.extend(task_context["args"])
 
         return cmd
+
+    def _resolve_command_compat(
+        self,
+        tier: Union[WorkerTier, str],
+        task_context: Optional[dict] = None,
+        cwd: Optional[str] = None,
+    ) -> List[str]:
+        """Resolve command, gracefully falling back if resolve_command was overridden without cwd."""
+        try:
+            sig = inspect.signature(self.resolve_command)
+            accepts_cwd = "cwd" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            )
+            if accepts_cwd:
+                return self.resolve_command(tier, task_context, cwd=cwd)
+            return self.resolve_command(tier, task_context)
+        except (ValueError, TypeError):
+            try:
+                return self.resolve_command(tier, task_context, cwd=cwd)
+            except TypeError:
+                return self.resolve_command(tier, task_context)
 
     async def spawn_worker_pane(
         self,
@@ -354,7 +379,7 @@ class WorkerSpawner:
         if tier is None:
             raise ValueError(f"Worker tier '{tier_name}' not found in configuration")
 
-        cmd = self.resolve_command(tier, task_context)
+        cmd = self._resolve_command_compat(tier, task_context, cwd=cwd)
         if self._explicit_host is not None:
             handle = await self._explicit_host.spawn(
                 self._worker_command(cmd, tier_name, cwd, " ".join(cmd), task_context),
@@ -392,7 +417,7 @@ class WorkerSpawner:
         if tier is None:
             raise ValueError(f"Worker tier '{tier_name}' not found in configuration")
 
-        cmd = self.resolve_command(tier, task_context)
+        cmd = self._resolve_command_compat(tier, task_context, cwd=cwd)
         tab_label = label or (f"worker:{task_context.get('id')}" if task_context else f"worker:{tier_name}")
         cmd_str = (
             task_context.get("command_str")
