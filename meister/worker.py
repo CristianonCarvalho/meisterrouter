@@ -69,6 +69,7 @@ HARNESS_ANTIGRAVITY = "antigravity"
 HARNESS_CLAUDE = "claude"
 HARNESS_COPILOT = "copilot"
 HARNESS_KIRO = "kiro-cli"
+HARNESS_OPENCODE = "opencode"
 
 # Nomes alternativos aceitos para cada harness (chaves em casefold, sem espaços).
 _HARNESS_ALIASES = {
@@ -80,6 +81,7 @@ _HARNESS_ALIASES = {
     "github-copilot": HARNESS_COPILOT,
     "kiro": HARNESS_KIRO,
     "kiro-cli": HARNESS_KIRO,
+    "opencode": HARNESS_OPENCODE,
 }
 
 # Variáveis seguras permitidas para workers locais (Achados #29, E2E-7)
@@ -361,6 +363,8 @@ def find_cli_binary(harness: str) -> Optional[str]:
         names = ["copilot", "github-copilot-cli"]
     elif harness == HARNESS_KIRO:
         names = ["kiro-cli", "kiro"]
+    elif harness == HARNESS_OPENCODE:
+        names = ["opencode"]
     else:
         names = [harness]
 
@@ -432,6 +436,12 @@ def build_harness_command(
             cmd.extend(["--model", model])
         if effort:
             cmd.extend(["--effort", effort])
+        cmd.append(prompt)
+        return cmd
+    elif harness == HARNESS_OPENCODE:
+        cmd = [cli_bin, "run", "--auto"]
+        if model and model != "default":
+            cmd.extend(["-m", model])
         cmd.append(prompt)
         return cmd
     else:
