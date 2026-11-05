@@ -390,7 +390,7 @@ def build_harness_command(
     cli_bin: str,
     model: Optional[str],
     prompt: str,
-    cwd: str,
+    cwd: Optional[str] = None,
     effort: Optional[str] = None,
 ) -> List[str]:
     """Construct the command line invocation for the specified harness."""
@@ -401,7 +401,7 @@ def build_harness_command(
             cmd.extend(["-m", model])
         if effort:
             cmd.extend(["-c", f'model_reasoning_effort="{effort}"'])
-        cmd.extend(["-C", cwd, prompt])
+        cmd.extend(["-C", cwd or "", prompt])
         return cmd
     elif harness == HARNESS_ANTIGRAVITY:
         cmd = [cli_bin, "--dangerously-skip-permissions"]
@@ -440,6 +440,8 @@ def build_harness_command(
         return cmd
     elif harness == HARNESS_OPENCODE:
         cmd = [cli_bin, "run", "--auto"]
+        if cwd:
+            cmd.extend(["--dir", cwd])
         if model and model != "default":
             cmd.extend(["-m", model])
         cmd.append(prompt)
