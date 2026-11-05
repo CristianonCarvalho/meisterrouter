@@ -316,6 +316,17 @@ class WorkerSpawner:
                 cmd.append("chat")
                 if model:
                     cmd.extend(["--model", model])
+        elif harness == "opencode":
+            cmd = ["opencode"]
+            model = tier_obj.model if tier_obj.model and tier_obj.model != "default" else None
+            if task_context and "description" in task_context and task_context["description"]:
+                cmd.extend(["run", "--auto"])
+                if model:
+                    cmd.extend(["-m", model])
+                cmd.append(str(task_context["description"]))
+            else:
+                if model:
+                    cmd.extend(["-m", model])
         else:
             cmd = [harness]
             if tier_obj.model:
