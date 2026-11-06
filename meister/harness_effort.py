@@ -14,4 +14,6 @@ HARNESS_EFFORT_VALUES: Dict[str, Tuple[str, ...]] = {
     "codex": ("minimal", "low", "medium", "high", "xhigh"),
     "kiro-cli": ("low", "medium", "high", "xhigh", "max"),
     "kiro": ("low", "medium", "high", "xhigh", "max"),
+    # Tupla vazia: harness sem esforço configurável.
+    "opencode": (),
 }
