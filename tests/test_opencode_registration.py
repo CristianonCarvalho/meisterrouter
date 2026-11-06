@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import pytest
+
 from meister import config as config_module
 from meister.config import KNOWN_HARNESSES, _parse_config_dict, validate_config
 from meister.harness_effort import HARNESS_EFFORT_VALUES
 from meister.i18n import t
+from meister.worker import _validate_harness_effort
 
 OPENCODE_HARNESS = "opencode"
 
@@ -67,8 +70,14 @@ def test_opencode_executable_in_path_does_not_warn(monkeypatch):
     assert not _harness_warnings(validate_config(_config(OPENCODE_HARNESS)))
 
 
+def test_opencode_effort_values_is_empty_tuple():
+    assert OPENCODE_HARNESS in HARNESS_EFFORT_VALUES
+    assert HARNESS_EFFORT_VALUES[OPENCODE_HARNESS] == ()
+
+
 def test_opencode_rejects_effort():
-    assert OPENCODE_HARNESS not in HARNESS_EFFORT_VALUES
+    assert OPENCODE_HARNESS in HARNESS_EFFORT_VALUES
+    assert HARNESS_EFFORT_VALUES[OPENCODE_HARNESS] == ()
 
     config = _config(OPENCODE_HARNESS, effort="high")
     issues = _effort_errors(config)
@@ -80,6 +89,38 @@ def test_opencode_rejects_effort():
         lane="lane-opencode",
         harness=OPENCODE_HARNESS,
     )
+
+    with pytest.raises(ValueError) as exc_info:
+        _validate_harness_effort(OPENCODE_HARNESS, "high", "lane-opencode")
+    assert str(exc_info.value) == t(
+        "tiers.unsupported_effort",
+        lane="lane-opencode",
+        harness=OPENCODE_HARNESS,
+    )
+
+
+def test_opencode_without_effort_is_valid():
+    config_absent = _config(OPENCODE_HARNESS)
+    assert not _effort_errors(config_absent)
+
+    config_explicit_none = _parse_config_dict(
+        {
+            "router": {"mode": "first"},
+            "workers": {
+                "tier_order": [
+                    {
+                        "name": "lane-opencode",
+                        "harness": OPENCODE_HARNESS,
+                        "model": "default",
+                        "effort": None,
+                    }
+                ]
+            },
+        }
+    )
+    assert not _effort_errors(config_explicit_none)
+
+    _validate_harness_effort(OPENCODE_HARNESS, None, "lane-opencode")
 
 
 def test_unknown_harness_is_rejected(monkeypatch):
