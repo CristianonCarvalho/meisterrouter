@@ -923,6 +923,14 @@ class DeterministicGate:
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         local_bin = os.path.join(path, "node_modules", ".bin")
+
+        if self.config.environment.install_dependencies:
+            installed, install_output = prepare_environment(path, self.config)
+            if not installed:
+                return VerificationResult(False, f"[INSTALL] {install_output}", infrastructure_error=True)
+            if install_output:
+                outputs.append(f"[INSTALL]\n{install_output}")
+
         try:
             python, python_warning = self._resolve_python(path)
         except OSError as exc:
@@ -933,13 +941,6 @@ class DeterministicGate:
                 skipped=skipped,
             )
         python_bin = self._project_python_bin(python, path)
-
-        if self.config.environment.install_dependencies:
-            installed, install_output = prepare_environment(path, self.config)
-            if not installed:
-                return VerificationResult(False, f"[INSTALL] {install_output}", infrastructure_error=True)
-            if install_output:
-                outputs.append(f"[INSTALL]\n{install_output}")
         path_entries = []
         if python_bin:
             path_entries.append(python_bin)

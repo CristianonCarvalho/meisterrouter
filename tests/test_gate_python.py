@@ -36,12 +36,20 @@ def _fake_python(path: Path, exit_code: int = 0) -> Path:
     )
 
 
-def _configured_gate(root: Path, commands: list[dict], python: Optional[str] = None):
+def _configured_gate(
+    root: Path,
+    commands: list[dict],
+    python: Optional[str] = None,
+    install: Optional[str] = None,
+    install_dependencies: bool = False,
+):
     config_path = root / "meister.config.yaml"
+    install_deps_str = "true" if install_dependencies else "false"
     config_path.write_text(
-        "environment:\n  install_dependencies: false\n"
+        f"environment:\n  install_dependencies: {install_deps_str}\n"
         "gate:\n"
         + (f"  python: {json.dumps(python)}\n" if python is not None else "")
+        + (f"  install: {json.dumps(install)}\n" if install is not None else "")
         + "  commands:\n"
         + "".join(
             f"    - name: {command['name']}\n"
@@ -433,3 +441,101 @@ def test_config_show_exposes_python_and_ok_exit_codes(tmp_path):
     gate = json.loads(json_result.output)["gate"]
     assert gate["python"] == ".venv/bin/python"
     assert gate["commands"][0]["ok_exit_codes"] == [0, 5]
+
+
+@needs_unix_shell
+def test_configured_commands_install_venv_used_by_python_in_worktree(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    worktree.mkdir(parents=True, exist_ok=True)
+    log = tmp_path / "argv.log"
+    _fake_python(root / ".venv/bin/python", exit_code=1)
+    monkeypatch.setenv("CALL_LOG", str(log))
+
+    install_script = _executable(
+        tmp_path / "install.sh",
+        "#!/bin/sh\n"
+        "mkdir -p .venv/bin\n"
+        "cat << 'EOF' > .venv/bin/python\n"
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$@" >> "$CALL_LOG"\n'
+        "exit 0\n"
+        "EOF\n"
+        "chmod 0755 .venv/bin/python\n",
+    )
+
+    gate = _configured_gate(
+        root,
+        [{"name": "pytest", "run": "{python} -m pytest"}],
+        install=str(install_script),
+        install_dependencies=True,
+    )
+
+    result = gate.run_verification_ex(str(worktree))
+
+    assert result.passed
+    assert log.read_text().splitlines() == ["-m", "pytest"]
+    assert (worktree / ".venv/bin/python").exists()
+
+
+@needs_unix_shell
+def test_configured_commands_install_venv_bin_first_in_path(tmp_path, monkeypatch):
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    worktree.mkdir(parents=True, exist_ok=True)
+    _fake_python(root / ".venv/bin/python")
+
+    path_log = tmp_path / "path.log"
+    install_script = _executable(
+        tmp_path / "install.sh",
+        "#!/bin/sh\n"
+        "mkdir -p .venv/bin\n"
+        "cat << 'EOF' > .venv/bin/python\n"
+        "#!/bin/sh\n"
+        "exit 0\n"
+        "EOF\n"
+        "chmod 0755 .venv/bin/python\n"
+        "cat << 'EOF' > .venv/bin/my-tool\n"
+        "#!/bin/sh\n"
+        'printf "%s" "$PATH" > "$PATH_LOG"\n'
+        "exit 0\n"
+        "EOF\n"
+        "chmod 0755 .venv/bin/my-tool\n",
+    )
+    monkeypatch.setenv("PATH_LOG", str(path_log))
+    original_path = os.environ.get("PATH", "")
+    monkeypatch.setenv("PATH", f"/original/path{os.pathsep}{original_path}")
+
+    gate = _configured_gate(
+        root,
+        [{"name": "tool", "run": "my-tool"}],
+        install=str(install_script),
+        install_dependencies=True,
+    )
+
+    result = gate.run_verification_ex(str(worktree))
+
+    assert result.passed
+    path_entries = path_log.read_text().split(os.pathsep)
+    assert path_entries[0] == str(worktree / ".venv/bin")
+
+
+@needs_unix_shell
+def test_configured_commands_failed_install_does_not_resolve_python(tmp_path):
+    fail_script = _executable(tmp_path / "fail_install.sh", "#!/bin/sh\nexit 1\n")
+    gate = _configured_gate(
+        tmp_path,
+        [{"name": "test", "run": "echo ok"}],
+        python="missing/nonexistent/python",
+        install=str(fail_script),
+        install_dependencies=True,
+    )
+
+    result = gate.run_verification_ex()
+
+    assert not result.passed
+    assert result.infrastructure_error
+    assert "[INSTALL]" in result.output
+    assert "[PYTHON]" not in result.output
+    assert "gate.python" not in result.output
+
