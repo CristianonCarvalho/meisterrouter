@@ -285,39 +285,70 @@ class DeterministicGate:
         self._pass_cache: Dict[Tuple[str, str], Tuple[VerificationResult, float]] = {}
         self._pass_cache_lock = threading.Lock()
 
-    def _resolve_python(self) -> tuple[str, Optional[str]]:
+    def _resolve_python(self, path: Optional[str] = None) -> tuple[str, Optional[str]]:
         """Resolve o interpretador Python configurado ou pertencente ao projeto."""
         configured = self.config.gate.python
         if configured is not None:
-            python = configured if os.path.isabs(configured) else os.path.join(self.repo_path, configured)
-            python = os.path.abspath(python)
-            if not os.path.isfile(python) or not os.access(python, os.X_OK):
-                raise FileNotFoundError(t("engine.gate.python_missing", path=python))
-            return python, None
+            if os.path.isabs(configured):
+                python = os.path.abspath(configured)
+                if not os.path.isfile(python) or not os.access(python, os.X_OK):
+                    raise FileNotFoundError(t("engine.gate.python_missing", path=python))
+                return python, None
+
+            candidate_roots = []
+            if path is not None:
+                abs_path = os.path.abspath(path)
+                if abs_path != self.repo_path:
+                    candidate_roots.append(abs_path)
+            candidate_roots.append(self.repo_path)
+
+            for root in candidate_roots:
+                candidate = os.path.abspath(os.path.join(root, configured))
+                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+                    return candidate, None
+
+            missing_path = os.path.abspath(os.path.join(self.repo_path, configured))
+            raise FileNotFoundError(t("engine.gate.python_missing", path=missing_path))
 
         bin_dir = "Scripts" if os.name == "nt" else "bin"
         executable = "python.exe" if os.name == "nt" else "python"
-        for environment in (".venv", "venv"):
-            python = os.path.join(self.repo_path, environment, bin_dir, executable)
-            if os.path.isfile(python) and os.access(python, os.X_OK):
-                return python, None
+        candidate_roots = []
+        if path is not None:
+            abs_path = os.path.abspath(path)
+            if abs_path != self.repo_path:
+                candidate_roots.append(abs_path)
+        candidate_roots.append(self.repo_path)
+
+        for root in candidate_roots:
+            for environment in (".venv", "venv"):
+                python = os.path.join(root, environment, bin_dir, executable)
+                if os.path.isfile(python) and os.access(python, os.X_OK):
+                    return python, None
 
         python = sys.executable
         warning = t("engine.gate.worker_python_fallback", path=python)
         return python, warning
 
-    def _project_python_bin(self, python: str) -> Optional[str]:
+    def _project_python_bin(self, python: str, path: Optional[str] = None) -> Optional[str]:
         """Retorna o diretório de binários somente para Python configurado/do projeto."""
         if self.config.gate.python is not None:
             return os.path.dirname(python)
         bin_dir = "Scripts" if os.name == "nt" else "bin"
         executable = "python.exe" if os.name == "nt" else "python"
-        for environment in (".venv", "venv"):
-            candidate = os.path.abspath(
-                os.path.join(self.repo_path, environment, bin_dir, executable)
-            )
-            if candidate == python:
-                return os.path.dirname(candidate)
+        candidate_roots = []
+        if path is not None:
+            abs_path = os.path.abspath(path)
+            if abs_path != self.repo_path:
+                candidate_roots.append(abs_path)
+        candidate_roots.append(self.repo_path)
+
+        for root in candidate_roots:
+            for environment in (".venv", "venv"):
+                candidate = os.path.abspath(
+                    os.path.join(root, environment, bin_dir, executable)
+                )
+                if candidate == python or candidate == os.path.abspath(python):
+                    return os.path.dirname(candidate)
         return None
 
     @staticmethod
@@ -560,7 +591,7 @@ class DeterministicGate:
         if summary["failed_tests"]:
             ids = list(summary["failed_tests"])
             try:
-                python, _ = self._resolve_python()
+                python, _ = self._resolve_python(path)
             except OSError:
                 return result
 
@@ -592,7 +623,7 @@ class DeterministicGate:
         env["PYTHONDONTWRITEBYTECODE"] = "1"
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         path_entries = []
-        python_bin = self._project_python_bin(python) if python else None
+        python_bin = self._project_python_bin(python, path) if python else None
         if python_bin:
             path_entries.append(python_bin)
         local_bin = os.path.join(path, "node_modules", ".bin")
@@ -608,7 +639,7 @@ class DeterministicGate:
         if binary is None:
             return False
         try:
-            python, _ = self._resolve_python()
+            python, _ = self._resolve_python(path)
         except OSError:
             python = None
         env = self._rerun_env(path, python)
@@ -749,7 +780,7 @@ class DeterministicGate:
         python_warning: Optional[str] = None
         if runner == "pytest" or "ruff" in linters:
             try:
-                python, python_warning = self._resolve_python()
+                python, python_warning = self._resolve_python(path)
             except OSError as exc:
                 return VerificationResult(
                     False, t("engine.gate.python_unavailable", error=exc), infrastructure_error=True
@@ -893,7 +924,7 @@ class DeterministicGate:
         env["PYTHONPATH"] = path + (os.pathsep + env["PYTHONPATH"] if "PYTHONPATH" in env else "")
         local_bin = os.path.join(path, "node_modules", ".bin")
         try:
-            python, python_warning = self._resolve_python()
+            python, python_warning = self._resolve_python(path)
         except OSError as exc:
             return VerificationResult(
                 False,
@@ -901,7 +932,7 @@ class DeterministicGate:
                 infrastructure_error=True,
                 skipped=skipped,
             )
-        python_bin = self._project_python_bin(python)
+        python_bin = self._project_python_bin(python, path)
 
         if self.config.environment.install_dependencies:
             installed, install_output = prepare_environment(path, self.config)

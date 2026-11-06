@@ -122,13 +122,33 @@ def test_auto_mode_uses_project_python_for_pytest_and_ruff(tmp_path, monkeypatch
 
 
 @needs_unix_shell
-def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypatch):
+def test_auto_mode_worktree_venv_wins_over_project_root(tmp_path, monkeypatch):
+    """(a) worktree com .venv próprio vence o .venv do repo principal."""
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "project"
     worktree = tmp_path / "worktree"
     log = tmp_path / "argv.log"
+    _fake_python(root / ".venv/bin/python", exit_code=1)
+    worktree_python = _fake_python(worktree / ".venv/bin/python", exit_code=0)
+    monkeypatch.setenv("CALL_LOG", str(log))
+    (worktree / "pytest.ini").write_text("[pytest]\n")
+
+    result = DeterministicGate(str(root)).run_verification_ex(str(worktree))
+
+    assert result.passed
+    assert log.read_text().splitlines() == ["-m", "pytest"]
+    assert worktree_python.exists()
+
+
+@needs_unix_shell
+def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypatch):
+    """(b) worktree sem .venv cai no .venv do repo principal."""
+    monkeypatch.chdir(tmp_path)
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    worktree.mkdir(parents=True, exist_ok=True)
+    log = tmp_path / "argv.log"
     root_python = _fake_python(root / ".venv/bin/python")
-    _fake_python(worktree / ".venv/bin/python", exit_code=1)
     monkeypatch.setenv("CALL_LOG", str(log))
     (worktree / "pytest.ini").write_text("[pytest]\n")
 
@@ -137,6 +157,73 @@ def test_auto_mode_uses_python_from_project_root_not_worktree(tmp_path, monkeypa
     assert result.passed
     assert log.read_text().splitlines() == ["-m", "pytest"]
     assert root_python.exists()
+
+
+def test_resolve_python_worktree_venv_precedence(tmp_path):
+    """(a) e (b) no nível de _resolve_python."""
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    root_python = _executable(root / ".venv" / _VENV_BIN / _PYTHON_NAME)
+    worktree_python = _executable(worktree / ".venv" / _VENV_BIN / _PYTHON_NAME)
+    gate = DeterministicGate(str(root))
+
+    # (a) worktree com .venv vence o do repo principal
+    resolved, warning = gate._resolve_python(path=str(worktree))
+    assert resolved == str(worktree_python)
+    assert warning is None
+
+    # (b) worktree sem .venv cai no do repo principal
+    worktree_no_venv = tmp_path / "worktree_no_venv"
+    worktree_no_venv.mkdir()
+    resolved_fallback, warning_fallback = gate._resolve_python(path=str(worktree_no_venv))
+    assert resolved_fallback == str(root_python)
+    assert warning_fallback is None
+
+
+def test_project_python_bin_recognizes_worktree_venv(tmp_path):
+    """(c) _project_python_bin reconhece o bin do .venv do worktree."""
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    worktree_python = _executable(worktree / ".venv" / _VENV_BIN / _PYTHON_NAME)
+    gate = DeterministicGate(str(root))
+
+    assert gate._project_python_bin(str(worktree_python)) is None
+    expected_bin = str(worktree / ".venv" / _VENV_BIN)
+    assert gate._project_python_bin(str(worktree_python), path=str(worktree)) == expected_bin
+
+    # Também reconhece venv (sem ponto)
+    worktree_venv_python = _executable(worktree / "venv" / _VENV_BIN / _PYTHON_NAME)
+    expected_venv_bin = str(worktree / "venv" / _VENV_BIN)
+    assert gate._project_python_bin(str(worktree_venv_python), path=str(worktree)) == expected_venv_bin
+
+
+def test_resolve_python_prefers_relative_configured_python_in_worktree(tmp_path):
+    """(d) gate.python relativo existente no worktree é preferido."""
+    root = tmp_path / "project"
+    worktree = tmp_path / "worktree"
+    root_python = _fake_python(root / "custom/bin/python")
+    worktree_python = _fake_python(worktree / "custom/bin/python")
+
+    config = load_config()
+    config.gate.python = "custom/bin/python"
+    gate = DeterministicGate(str(root), config)
+
+    # Worktree com custom/bin/python existente é preferido
+    python, warning = gate._resolve_python(path=str(worktree))
+    assert python == str(worktree_python)
+    assert warning is None
+
+    # Worktree sem custom/bin/python cai no repo principal
+    worktree_no_custom = tmp_path / "worktree_no_custom"
+    worktree_no_custom.mkdir(parents=True, exist_ok=True)
+    python_fallback, warning_fallback = gate._resolve_python(path=str(worktree_no_custom))
+    assert python_fallback == str(root_python)
+    assert warning_fallback is None
+
+    # Sem path cai no repo principal
+    python_no_path, warning_no_path = gate._resolve_python()
+    assert python_no_path == str(root_python)
+    assert warning_no_path is None
 
 
 @needs_unix_shell
