@@ -229,9 +229,32 @@ def test_invalid_harness_is_error(tmp_path):
     lanes = _valid_request()
     lanes[0]["harness"] = "bogus"
 
-    paths = [issue.path for issue in _errors(validate_lanes(document, lanes))]
+    issues = _errors(validate_lanes(document, lanes))
 
-    assert paths == ["lanes[0].harness"]
+    assert [issue.path for issue in issues] == ["lanes[0].harness"]
+    assert "opencode" in issues[0].message
+
+
+def test_opencode_without_effort_is_valid(tmp_path):
+    document = _project_document(tmp_path)
+    lanes = _valid_request()
+    lanes[0]["harness"] = "opencode"
+    lanes[0]["model"] = "google/antigravity-gemini-3.8-flash-high"
+    del lanes[0]["effort"]
+
+    assert _errors(validate_lanes(document, lanes)) == []
+
+
+def test_opencode_with_effort_is_error(tmp_path):
+    document = _project_document(tmp_path)
+    lanes = _valid_request()
+    lanes[0]["harness"] = "opencode"
+    lanes[0]["model"] = "google/antigravity-gemini-3.8-flash-high"
+    lanes[0]["effort"] = "high"
+
+    issues = _errors(validate_lanes(document, lanes))
+
+    assert [issue.path for issue in issues] == ["lanes[0].effort"]
 
 
 def test_invalid_effort_for_harness_is_error(tmp_path):
