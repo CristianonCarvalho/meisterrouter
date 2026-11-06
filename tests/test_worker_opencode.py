@@ -130,7 +130,8 @@ def test_opencode_command_dir_before_model_and_prompt_last():
 
 
 def test_opencode_command_rejects_effort():
-    assert HARNESS_OPENCODE not in HARNESS_EFFORT_VALUES
+    assert HARNESS_OPENCODE in HARNESS_EFFORT_VALUES
+    assert HARNESS_EFFORT_VALUES[HARNESS_OPENCODE] == ()
     with pytest.raises(
         ValueError,
         match=re.escape(

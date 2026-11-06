@@ -93,7 +93,8 @@ def test_opencode_extra_args_appended() -> None:
 
 
 def test_opencode_rejects_effort() -> None:
-    assert "opencode" not in HARNESS_EFFORT_VALUES
+    assert "opencode" in HARNESS_EFFORT_VALUES
+    assert HARNESS_EFFORT_VALUES["opencode"] == ()
     tier = WorkerTier(name="lane-opencode", harness="opencode", model="default", effort="high")
     config = MeisterConfig(workers=WorkersConfig(tier_order=[tier]))
     issues = [

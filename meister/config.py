@@ -1503,7 +1503,7 @@ def validate_config(config: MeisterConfig) -> List[ConfigIssue]:
             path = f"{group_name}[{i}].effort"
             harness = (tier.harness or "").strip().lower()
             valid_efforts = HARNESS_EFFORT_VALUES.get(harness)
-            if valid_efforts is None:
+            if not valid_efforts:
                 issues.append(
                     ConfigIssue(
                         "error",

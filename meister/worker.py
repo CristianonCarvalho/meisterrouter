@@ -456,7 +456,7 @@ def _validate_harness_effort(harness: str, effort: Optional[str], lane: str) -> 
         return
 
     valid_efforts = HARNESS_EFFORT_VALUES.get(harness.casefold())
-    if valid_efforts is None:
+    if not valid_efforts:
         raise ValueError(
             t("tiers.unsupported_effort", lane=lane, harness=harness)
         )
